@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fantabot"
+version = "0.1.0"
+description = "100% autonomous fantacalcio manager for leghe.fantacalcio.it"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "playwright>=1.45",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+fantabot = "fantabot.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fantabot"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501", "B008", "RUF003"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+exclude = ["tests"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
