@@ -136,3 +136,47 @@ def news_fetch(
             f"[dim]{len(result.rows)} rows discarded (--write not given), "
             f"{len(result.failures)} failures.[/dim]"
         )
+
+
+@app.command()
+def mantra_grid(
+    write: bool = typer.Option(False, "--write", help="Write the JSON files if every gate passes."),
+    model: str = typer.Option("claude-sonnet-5", help="Model id."),
+) -> None:
+    """Collect the 11 Mantra schemas and the out-of-position matrix. One-off, not cron."""
+    from fantabot.agentkit.env import strip_dangerous_env
+    from fantabot.config import settings
+    from fantabot.mantra_grid.collect import CollectError, collect
+    from fantabot.mantra_grid.writer import COMPAT_FILENAME, SCHEMI_FILENAME, write_json
+
+    strip_dangerous_env()
+    console.print("Collecting the 11 Mantra schemas and the compatibility matrix...")
+    try:
+        result = asyncio.run(collect(model))
+    except CollectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if not result.ok:
+        # Nothing is written. Re-run the collector, or fix the gate if the gate is
+        # what is wrong — never hand-patch the output to satisfy the check.
+        console.print(f"[red]{len(result.problems)} gate failures — writing nothing:[/red]")
+        for problem in result.problems:
+            console.print(f"  - {problem}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]All gates passed: {len(result.grid.schemi)} schemas.[/green]")
+    if not write:
+        console.print(result.grid.model_dump())
+        console.print(result.matrix.model_dump())
+        console.print("[dim]--write not given, nothing saved.[/dim]")
+        return
+
+    data_dir: Path = settings.fantabot_data_dir
+    write_json(data_dir / SCHEMI_FILENAME, result.grid)
+    write_json(data_dir / COMPAT_FILENAME, result.matrix)
+    console.print(f"[green]-> {data_dir / SCHEMI_FILENAME}[/green]")
+    console.print(f"[green]-> {data_dir / COMPAT_FILENAME}[/green]")
+    console.print(
+        "[yellow]Verify both by hand against rules/sistema-mantra.md before committing.[/yellow]"
+    )

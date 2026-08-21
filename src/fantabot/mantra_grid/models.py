@@ -47,3 +47,10 @@ class CompatMatrix(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     formazioni: list[FormationCompat] = Field(description="Una voce per ciascuno degli 11 schemi.")
+    # The compatibility table is published as a separate download this repo has no
+    # local copy of. Recording what was actually read is the only way to tell a real
+    # collection from the prompt's own worked example handed straight back.
+    fonti: list[str] = Field(
+        default_factory=list,
+        description="Gli URL che hai letto davvero per compilare la tabella.",
+    )

@@ -19,6 +19,13 @@ from pydantic import BaseModel
 #     doing it.
 #   - Bash/Write/Edit/NotebookEdit: a query that reads football news has no reason
 #     to touch this machine. Granting nothing is cheaper than auditing later.
+# The SDK defaults to a 1 MiB message buffer. A WebFetch of a large page overflows
+# it and the query dies with CLIJSONDecodeError, killing the whole run — observed
+# live, mid-collection, on a rules page. Both commands exist to fetch web pages, so
+# the default is not survivable. 16 MiB is comfortably above any single article or
+# rules table and still bounded.
+MAX_BUFFER_BYTES = 16 * 1024 * 1024
+
 BLOCKED_TOOLS: tuple[str, ...] = (
     "Task",
     "Agent",
@@ -59,6 +66,7 @@ def build_options(request: AgentRequest, schema: type[BaseModel]) -> ClaudeAgent
         # A backstop, not a target: roughly six searches plus fetches. Without it one
         # pathological player can spend the whole run's budget.
         max_turns=request.max_turns,
+        max_buffer_size=MAX_BUFFER_BYTES,
         # Unattended cron, and every granted tool is read-only.
         # cast: the SDK types this as a Literal union; the value is a constant here.
         permission_mode=cast("Any", "bypassPermissions"),

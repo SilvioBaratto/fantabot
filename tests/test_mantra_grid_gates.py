@@ -58,7 +58,8 @@ def _matrix(names: list[str] | None = None, exception: bool = True) -> CompatMat
                 vietati=[["W", "T"], ["T", "W"]] if (n == "4-1-4-1" and exception) else [],
             )
             for n in (names or ELEVEN)
-        ]
+        ],
+        fonti=["https://www.fantacalcio.it/regolamenti/sistema-mantra"],
     )
 
 
@@ -133,6 +134,43 @@ def test_a_slot_that_can_go_either_way_still_satisfies_the_split() -> None:
     grid.schemi[0] = _schema("3-4-3", flexible)
 
     assert check_schemi(grid) == []
+
+
+def test_a_slot_with_three_roles_is_rejected() -> None:
+    # rules/sistema-mantra.md: "Where a schema slot lists two roles, they're
+    # interchangeable alternatives." Two, not three. The first live collection
+    # returned T/A/Pc for 4-3-1-2, which is the collector exceeding its own brief —
+    # and it slipped through because nothing constrained slot arity.
+    grid = _grid()
+    grid.schemi[0] = _schema(
+        "3-4-3",
+        [
+            ["DC"],
+            ["DC"],
+            ["DC"],
+            ["DD", "E"],
+            ["DS", "E"],
+            ["C"],
+            ["C"],
+            ["T"],
+            ["W"],
+            ["T", "A", "PC"],
+        ],
+    )
+
+    problems = check_schemi(grid)
+
+    assert any("3-4-3" in p and "2" in p for p in problems)
+
+
+def test_the_matrix_must_say_where_it_came_from() -> None:
+    # The compatibility table is a separate download this repo cannot diff against.
+    # Recording the URLs actually read is the only way to tell a real collection
+    # from the prompt's own example handed back.
+    matrix = _matrix()
+    matrix.fonti = []
+
+    assert any("fonti" in p or "source" in p.lower() for p in check_compat(matrix, _grid()))
 
 
 def test_an_unknown_role_code_is_rejected() -> None:

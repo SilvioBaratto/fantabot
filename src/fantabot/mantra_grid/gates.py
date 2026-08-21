@@ -18,6 +18,10 @@ from .models import CompatMatrix, MantraSchema, SchemaGrid
 
 EXPECTED_SCHEMI = 11
 OUTFIELD_SLOTS = 10
+# rules/sistema-mantra.md: "Where a schema slot lists two roles, they're
+# interchangeable alternatives." Two is the ceiling; a third is the collector
+# going beyond its source.
+MAX_ROLES_PER_SLOT = 2
 
 # rules/sistema-mantra.md: every schema fields exactly five of each profile.
 DEFENSIVE_PROFILE: frozenset[str] = frozenset({"DD", "DS", "DC", "B", "E", "M"})
@@ -75,6 +79,13 @@ def check_compat(matrix: CompatMatrix, grid: SchemaGrid) -> list[str]:
                 if code.upper() not in MANTRA_CODES:
                     problems.append(f"{entry.schema_nome}: {code!r} is not a Mantra role code")
 
+    if not matrix.fonti:
+        problems.append(
+            "compatibility matrix carries no `fonti`: without the URLs actually "
+            "read there is no way to tell a real collection from the prompt's own "
+            "worked example handed back"
+        )
+
     problems.extend(_check_named_exception(matrix))
     return problems
 
@@ -91,6 +102,11 @@ def _check_one(schema: MantraSchema) -> list[str]:
         if not slot:
             problems.append(f"{schema.nome}: empty slot")
             continue
+        if len(slot) > MAX_ROLES_PER_SLOT:
+            problems.append(
+                f"{schema.nome}: slot {'/'.join(slot)} lists {len(slot)} roles; "
+                f"the rules allow at most {MAX_ROLES_PER_SLOT} interchangeable alternatives"
+            )
         for code in slot:
             upper = code.upper()
             if upper not in MANTRA_CODES:

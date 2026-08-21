@@ -1,0 +1,61 @@
+{
+  "formazioni": [
+    {
+      "schema_nome": "3-4-3",
+      "vietati": []
+    },
+    {
+      "schema_nome": "3-4-1-2",
+      "vietati": []
+    },
+    {
+      "schema_nome": "3-4-2-1",
+      "vietati": []
+    },
+    {
+      "schema_nome": "3-5-2",
+      "vietati": []
+    },
+    {
+      "schema_nome": "3-5-1-1",
+      "vietati": []
+    },
+    {
+      "schema_nome": "4-3-3",
+      "vietati": []
+    },
+    {
+      "schema_nome": "4-3-1-2",
+      "vietati": []
+    },
+    {
+      "schema_nome": "4-4-2",
+      "vietati": []
+    },
+    {
+      "schema_nome": "4-1-4-1",
+      "vietati": [
+        [
+          "W",
+          "T"
+        ],
+        [
+          "T",
+          "W"
+        ]
+      ]
+    },
+    {
+      "schema_nome": "4-4-1-1",
+      "vietati": []
+    },
+    {
+      "schema_nome": "4-2-3-1",
+      "vietati": []
+    }
+  ],
+  "fonti": [
+    "https://www.fantacalcio.it/regolamenti/sistema-mantra",
+    "https://content.fantacalcio.it/web/risorse/Tabella-sostituzioni-per-schema-2024-2025.pdf"
+  ]
+}

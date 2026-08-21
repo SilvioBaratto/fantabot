@@ -117,6 +117,15 @@ def test_build_options_requests_the_schema_as_structured_output() -> None:
     assert output_format["schema"] == Sample.model_json_schema()
 
 
+def test_build_options_raises_the_buffer_above_the_sdk_default() -> None:
+    # The SDK defaults to a 1 MiB message buffer. A WebFetch of a large page
+    # overflows it and the whole query dies with CLIJSONDecodeError — observed
+    # live on the first mantra-grid --write run. WebFetch is the entire point of
+    # both commands, so the default is not survivable.
+    assert build_options(_request(), Sample).max_buffer_size is not None
+    assert build_options(_request(), Sample).max_buffer_size > 1024 * 1024
+
+
 def test_build_options_bypasses_permission_prompts() -> None:
     # Unattended cron; every granted tool is read-only.
     assert build_options(_request(), Sample).permission_mode == "bypassPermissions"
