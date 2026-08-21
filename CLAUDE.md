@@ -84,6 +84,15 @@ mypy
   selectors once mapped. Don't guess selectors from memory of "a typical
   fantacalcio site" — leghe.fantacalcio.it is a private-league product, not
   the public fantacalcio.it site, and its markup hasn't been inspected.
+  **Before mapping more selectors, read `docs/leghe-api.md`** — the site
+  actually runs on a separate JSON API (`apileague.fantacalcio.it`) with
+  auth reverse-engineered and several read endpoints (league status, teams,
+  roster settings) confirmed working. The bearer token it needs is already
+  saved by `auth.py`'s `storage_state()` call, so read-side DOM scraping in
+  `lineup.py` may be unnecessary — go straight to `httpx` calls for those.
+  Lineup submission and auction bidding are still undocumented POST
+  endpoints (see "Gaps" in that doc) — those two still need either a live
+  Network capture during a real submit/bid, or the DOM path.
 - **Asta mechanics**: whether leghe.fantacalcio.it's asta iniziale/riparazione
   is a live simultaneous-bidding room (needs the polling loop as built), a
   turn-based queue, or something else — confirm by watching one before

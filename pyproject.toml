@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "rich>=13.7",
+    "claude-agent-sdk>=0.2.143",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +40,7 @@ ignore = ["E501", "B008", "RUF003"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-exclude = ["tests"]
+files = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
