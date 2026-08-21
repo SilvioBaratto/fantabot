@@ -7,6 +7,8 @@ __pycache__/
 # contents instead is what makes the negations below actually work.
 data/*
 !data/.gitkeep
+# Documentation, not data.
+!data/README.md
 # The news pipeline's output is the historical record: a past Wednesday cannot be
 # regenerated, so it is tracked despite living under data/. The two Mantra files
 # are collected once from fixed rules and verified by hand.
