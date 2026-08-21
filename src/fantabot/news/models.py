@@ -62,8 +62,12 @@ class PlayerSentiment(BaseModel):
             "nessuna notizia rilevante: e la risposta corretta, non un ripiego."
         ),
     )
+    # 600, not 400. At 400 a live sample of 9 players came back at 336-399 chars
+    # with four at 380+ — nothing truncated, but the model was visibly compressing
+    # to fit, and detail is what these summaries are for. The cap is a backstop
+    # against a runaway cell, not a style guide.
     riassunto: str = Field(
-        max_length=400,
+        max_length=600,
         description=(
             "Un paragrafo in italiano, solo fatti con le date. Niente ipotesi, "
             "niente frasi di circostanza."

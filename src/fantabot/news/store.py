@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
-from .mantra import drift
+from .mantra import drift, parse_codes
 from .models import PlayerSentiment
 from .pool import PoolPlayer
 
@@ -81,7 +81,11 @@ def build_row(
         "squadra": player.squadra,
         "ruolo": player.ruolo,
         "ruoli_mantra": player.ruoli_mantra,
-        "ruolo_campo": ";".join(sentiment.ruolo_campo),
+        # Normalized and sorted: live runs return the rules-doc casing the prompt's
+        # legend uses ("B;Ds;E"), while ruoli_mantra beside it is uppercase. Drift was
+        # already computed on parsed sets, but the stored cell has to be comparable
+        # to its neighbour and greppable across the file.
+        "ruolo_campo": ";".join(sorted(parse_codes(";".join(sentiment.ruolo_campo)))),
         "deriva_ruolo": _score(
             drift(sentiment.ruolo_campo, player.ruoli_mantra, sentiment.confidenza)
         ),

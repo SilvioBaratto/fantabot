@@ -23,8 +23,7 @@ class Settings(BaseSettings):
     def require_credentials(self) -> None:
         if not (self.lega_email and self.lega_password and self.lega_url):
             raise RuntimeError(
-                "LEGA_EMAIL, LEGA_PASSWORD, LEGA_URL must be set in .env "
-                "(copy .env.example first)"
+                "LEGA_EMAIL, LEGA_PASSWORD, LEGA_URL must be set in .env (copy .env.example first)"
             )
 
 

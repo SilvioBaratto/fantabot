@@ -63,7 +63,18 @@ def test_an_unknown_field_is_rejected() -> None:
 
 def test_riassunto_over_the_cap_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        PlayerSentiment.model_validate(_valid(riassunto="x" * 401))
+        PlayerSentiment.model_validate(_valid(riassunto="x" * 601))
+
+
+def test_the_cap_leaves_headroom_over_what_the_model_actually_writes() -> None:
+    # Checkpoint C, 9 live players: summaries came back at 336-399 chars against a
+    # 400 cap, four of nine at 380+. None truncated mid-sentence — the model was
+    # compressing to fit, which costs detail. The cap must not be the binding
+    # constraint on a good summary.
+    field = PlayerSentiment.model_fields["riassunto"]
+    cap = next(m.max_length for m in field.metadata if hasattr(m, "max_length"))
+
+    assert cap >= 600
 
 
 def test_a_silent_player_is_representable() -> None:

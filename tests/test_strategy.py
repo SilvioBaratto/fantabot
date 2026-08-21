@@ -4,9 +4,13 @@ from fantabot.models import AuctionListing, Player, Role, RosterSlot, ScoredPlay
 from fantabot.strategy import allocate_auction_budget, decide_bid, pick_starting_lineup
 
 
-def _slot(id_: str, role: Role, score: float, available: bool = True, fieldable: bool = True) -> RosterSlot:
+def _slot(
+    id_: str, role: Role, score: float, available: bool = True, fieldable: bool = True
+) -> RosterSlot:
     player = Player(id=id_, name=id_, role=role, team="X")
-    scored = ScoredPlayer(player=player, projected_score=score, is_available=available, is_in_lineup_slot=fieldable)
+    scored = ScoredPlayer(
+        player=player, projected_score=score, is_available=available, is_in_lineup_slot=fieldable
+    )
     return RosterSlot(player=player, scored=scored)
 
 
@@ -22,7 +26,15 @@ def test_pick_starting_lineup_valid_formation() -> None:
     lineup = pick_starting_lineup(_full_roster())
     d, c, a = lineup.formation
     assert d + c + a == 10
-    assert (d, c, a) in {(3, 4, 3), (3, 5, 2), (4, 3, 3), (4, 4, 2), (4, 5, 1), (5, 3, 2), (5, 4, 1)}
+    assert (d, c, a) in {
+        (3, 4, 3),
+        (3, 5, 2),
+        (4, 3, 3),
+        (4, 4, 2),
+        (4, 5, 1),
+        (5, 3, 2),
+        (5, 4, 1),
+    }
     assert len(lineup.starters) == 10
     assert lineup.goalkeeper.id == "gk1"  # higher score
 
@@ -60,7 +72,9 @@ def test_allocate_auction_budget_rejects_bad_shares() -> None:
 
 def test_decide_bid_within_budget() -> None:
     player = Player(id="a1", name="Striker", role=Role.ATTACKER, team="X")
-    listing = AuctionListing(player=player, base_price=10, current_bid=50, current_bidder="rival", closes_utc=None)
+    listing = AuctionListing(
+        player=player, base_price=10, current_bid=50, current_bidder="rival", closes_utc=None
+    )
     decision = decide_bid(listing, target_price=80, remaining_role_budget=100)
     assert decision is not None
     assert decision.amount == 51
@@ -68,6 +82,8 @@ def test_decide_bid_within_budget() -> None:
 
 def test_decide_bid_passes_when_over_ceiling() -> None:
     player = Player(id="a1", name="Striker", role=Role.ATTACKER, team="X")
-    listing = AuctionListing(player=player, base_price=10, current_bid=80, current_bidder="rival", closes_utc=None)
+    listing = AuctionListing(
+        player=player, base_price=10, current_bid=80, current_bidder="rival", closes_utc=None
+    )
     assert decide_bid(listing, target_price=80, remaining_role_budget=100) is None
     assert decide_bid(listing, target_price=100, remaining_role_budget=5) is None

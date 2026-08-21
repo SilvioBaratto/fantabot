@@ -21,7 +21,9 @@ def _best_formation_for(available_by_role: dict[Role, int]) -> tuple[int, int, i
     c_avail = available_by_role.get(Role.MIDFIELDER, 0)
     a_avail = available_by_role.get(Role.ATTACKER, 0)
 
-    feasible = [f for f in VALID_FORMATIONS if f[0] <= d_avail and f[1] <= c_avail and f[2] <= a_avail]
+    feasible = [
+        f for f in VALID_FORMATIONS if f[0] <= d_avail and f[1] <= c_avail and f[2] <= a_avail
+    ]
     if not feasible:
         raise ValueError(
             f"No valid formation fits available roster (D={d_avail}, C={c_avail}, A={a_avail})"
@@ -41,7 +43,11 @@ def pick_starting_lineup(roster: list[RosterSlot]) -> Lineup:
         raise ValueError("No available goalkeeper to start")
     goalkeeper = goalkeepers[0].player
 
-    by_role: dict[Role, list[RosterSlot]] = {Role.DEFENDER: [], Role.MIDFIELDER: [], Role.ATTACKER: []}
+    by_role: dict[Role, list[RosterSlot]] = {
+        Role.DEFENDER: [],
+        Role.MIDFIELDER: [],
+        Role.ATTACKER: [],
+    }
     for r in fieldable:
         if r.player.role in by_role:
             by_role[r.player.role].append(r)
@@ -51,7 +57,9 @@ def pick_starting_lineup(roster: list[RosterSlot]) -> Lineup:
     formation = _best_formation_for({role: len(lst) for role, lst in by_role.items()})
     d_n, c_n, a_n = formation
 
-    starters_slots = by_role[Role.DEFENDER][:d_n] + by_role[Role.MIDFIELDER][:c_n] + by_role[Role.ATTACKER][:a_n]
+    starters_slots = (
+        by_role[Role.DEFENDER][:d_n] + by_role[Role.MIDFIELDER][:c_n] + by_role[Role.ATTACKER][:a_n]
+    )
     starters = tuple(r.player for r in starters_slots)
 
     started_ids = {p.id for p in starters} | {goalkeeper.id}

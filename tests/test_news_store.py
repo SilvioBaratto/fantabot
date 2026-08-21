@@ -101,6 +101,30 @@ def test_drift_is_recorded_when_the_frozen_tag_is_stale() -> None:
     assert row["deriva_ruolo"] == "0.80"
 
 
+def test_the_observed_role_is_stored_normalized() -> None:
+    # Live runs return the rules-doc casing the prompt's legend uses ("B;Ds;E",
+    # "Por"), while ruoli_mantra is uppercase. Drift is computed on parsed sets so
+    # it was already right, but the stored cell has to be comparable to the tag
+    # beside it and greppable across the file.
+    row = _row(player=AHANOR, ruolo_campo=["B", "Ds", "E"])
+
+    assert row["ruolo_campo"] == "B;DS;E"
+
+
+def test_the_observed_role_is_stored_in_a_canonical_order() -> None:
+    # "E;Dd" and "Dd;E" are the same observation; the file should spell it one way.
+    assert _row(ruolo_campo=["E", "DS"])["ruolo_campo"] == "DS;E"
+
+
+def test_an_unrecognised_observed_role_is_not_written_as_if_it_were_fine() -> None:
+    import pytest as _pytest
+
+    from fantabot.news.mantra import UnknownRoleCode
+
+    with _pytest.raises(UnknownRoleCode):
+        _row(ruolo_campo=["ZZ"])
+
+
 def test_an_unobserved_role_is_not_recorded_as_agreement() -> None:
     row = _row(player=ZACCAGNI, ruolo_campo=[], confidenza=0.8)
 

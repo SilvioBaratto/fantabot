@@ -77,11 +77,15 @@ def watch_and_bid(
                 remaining = role_budget.get(listing.player.role, 0)
                 decision = strategy.decide_bid(listing, target_price, remaining)
                 if decision is not None:
-                    console.print(f"{decision.player.name}: bid {decision.amount} — {decision.reasoning}")
+                    console.print(
+                        f"{decision.player.name}: bid {decision.amount} — {decision.reasoning}"
+                    )
                     if settings.fantabot_auto_act:
                         place_bid(page, decision.amount)
                         role_budget[listing.player.role] -= decision.amount
                     else:
-                        console.print("[yellow]FANTABOT_AUTO_ACT=false — dry run, not bidding.[/yellow]")
+                        console.print(
+                            "[yellow]FANTABOT_AUTO_ACT=false — dry run, not bidding.[/yellow]"
+                        )
 
             time.sleep(POLL_INTERVAL_SECONDS)
