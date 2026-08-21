@@ -5,6 +5,47 @@ submission, asta iniziale (initial auction), asta di riparazione (repair
 auction) — all handled without a human clicking anything, once the site's DOM
 is mapped and a stats source is wired in.
 
+## News sentiment (`fantabot news-fetch`)
+
+One Claude Agent SDK query per player over `WebSearch` + `WebFetch`, validated
+against a pydantic schema, appended weekly to `data/player_sentiment_2026-27.csv`
+as a per-player time-series. Runs on the Claude Code OAuth subscription — no
+`ANTHROPIC_API_KEY` anywhere.
+
+```bash
+fantabot news-fetch --limit 5      # smoke test: queries, writes nothing
+fantabot news-fetch --write        # the weekly run, all 523 quotati
+fantabot news-fetch --write --force --lookback-days 21
+```
+
+Each row carries an overall `sentiment` plus `disponibilita`, `titolarita`,
+`mercato`, `forma`, `rigorista`, `piazzati` and a `confidenza`, with an Italian
+`riassunto` and the URLs actually read. `confidenza = 0` means *no coverage was
+found* — not a neutral player — and readers must exclude those rows from averages.
+
+It also collects the one Mantra statistic no file in `data/` can hold. fantacalcio.it
+assigns Mantra roles in late July and never revisits them, so `quotazioni_mantra.csv`
+drifts from reality by design; `ruolo_campo` records what a player is *actually*
+being played as, and `deriva_ruolo` flags when the frozen tag has gone stale.
+
+Suggested cron (Wednesday mornings, in-season):
+
+```cron
+0 9 * * 3 cd /path/to/fantabot && .venv/bin/fantabot news-fetch --write >> data/news_cron.log 2>&1
+```
+
+## Mantra tactical grid (`fantabot mantra-grid`)
+
+One-off, **not** on cron. Collects the 11 Mantra schemas and the per-formation
+out-of-position matrix into `data/mantra_schemi.json` and `data/mantra_compat.json`,
+behind six fail-closed gates. These are the input to a Mantra lineup engine, which
+does not exist yet — `models.Role` and `VALID_FORMATIONS` are Classic-only.
+
+```bash
+fantabot mantra-grid          # collect and gate, write nothing
+fantabot mantra-grid --write  # write only if every gate passes
+```
+
 ## Status
 
 Scaffold + decision engine done and tested. **Not yet live-capable** — see

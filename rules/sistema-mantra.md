@@ -2,7 +2,7 @@
 
 Source: https://www.fantacalcio.it/regolamenti/sistema-mantra
 
-## Roles (11 codes)
+## Roles (12 codes)
 
 Every player has a specific role and can only be fielded in a formation
 slot matching it; "polivalente" (multi-role) players hold more than one.

@@ -22,6 +22,11 @@ playwright install chromium
 fantabot auth                # one-time interactive login → data/storage_state.json
 fantabot config-check
 fantabot lineup-submit
+
+fantabot news-fetch --limit 5           # smoke test, queries but writes nothing
+fantabot news-fetch --write             # the weekly run: all 523, both leagues
+fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
+
 pytest
 ruff check src tests
 mypy
@@ -58,11 +63,32 @@ mypy
    classic-mode heuristic, not derived from real market data yet).
    `decide_bid` bids current+1, capped at `min(target_price, role_budget_left)`,
    returns `None` (pass) once at the cap.
-7. **`data_sources/__init__.py`** — `StatsSource` `Protocol`
-   (`projected_scores`, `player_pool`, `target_price`). No implementation
-   exists yet — user is still picking a stats/injuries/probable-lineup
-   source. Implement one class per source under `data_sources/`, wire it into
-   `lineup.run_once` / `auction.watch_and_bid`. Nothing else changes.
+7. **`data_sources/`** — `StatsSource` `Protocol` (`projected_scores`,
+   `player_pool`, `target_price`), still unimplemented. Alongside it,
+   `news_sentiment.py` reads the sentiment time-series produced by
+   `fantabot news-fetch`: `latest`, `trailing` (silent rows excluded), and
+   `drifted()` for players whose frozen Mantra tag no longer describes them.
+   Not wired into `strategy.py` yet — that is a later phase.
+10. **`agentkit/`** — the Claude Agent SDK plumbing, shared by every command
+   that queries. `env.py` closes both credential leak vectors (`os.environ`
+   *and* `ClaudeAgentOptions.env`, since `session_resume.py:356` reads either),
+   `options.py` builds the options, `runner.py` holds **the one message loop**.
+   Agent-level failures are returned, never raised. Two tests enforce the
+   boundary: exactly one `async for message` in the repo, and no
+   `claude_agent_sdk` import outside `agentkit/`.
+11. **`news/`** — `fantabot news-fetch`. One query per player over
+   WebSearch/WebFetch, validated against `PlayerSentiment`, appended to
+   `data/player_sentiment_2026-27.csv` (tracked by git — a past Wednesday
+   cannot be regenerated). `models`/`mantra`/`prompt`/`pool` are pure; only
+   `store`/`pipeline` do I/O. `mantra.drift()` is the reason the whole thing
+   exists for Mantra: the platform freezes role tags in late July and never
+   revisits them, so `quotazioni_mantra.csv` drifts by design and this is the
+   only column that can say so.
+12. **`mantra_grid/`** — `fantabot mantra-grid`, one-off, **not on cron**.
+   Collects the 11 schemas and the out-of-position matrix into
+   `data/mantra_schemi.json` / `mantra_compat.json`. Six fail-closed gates in
+   `gates.py`; a failed gate writes nothing and the output is never
+   hand-patched to satisfy a check.
 8. **`lineup.py`** — orchestrates one matchday: scrape deadline/roster →
    score via `StatsSource` → `strategy.pick_starting_lineup` → submit (or dry
    run). `scrape_matchday_info` / `scrape_roster` / `submit_lineup` are
@@ -97,9 +123,17 @@ mypy
   is a live simultaneous-bidding room (needs the polling loop as built), a
   turn-based queue, or something else — confirm by watching one before
   trusting `auction.py`'s polling assumption.
-- **Stats source**: user is choosing (mentioned wanting to search and report
-  back). Once chosen, implement `StatsSource` under `data_sources/` — don't
-  build a second one speculatively.
+- **Stats source**: still unchosen for `StatsSource` proper. News sentiment is
+  now covered by `fantabot news-fetch` (see `SPEC.md`), which is a different
+  thing: it is opinion and availability, not per-matchday projected scores.
+- **Mantra vs Classic**: the user plays **both**, one league each. `models.Role`
+  (P/D/C/A) and `VALID_FORMATIONS` (7 Classic tuples) are Classic-only, so
+  `strategy.pick_starting_lineup` cannot field a Mantra XI at all — Mantra has 12
+  role codes across 11 schemas on four lines. `data/mantra_schemi.json` is now on
+  disk as that engine's input; the engine itself is a separate spec.
+- **`mantra_compat.json` is thin**: it lists blocked pairs only for 4-1-4-1, from
+  a 2024-25 season PDF. Plausible — "illegal even with the malus" is rare — but
+  unverified in detail. Confirm before a Mantra lineup depends on it.
 
 ## Working rules
 
@@ -109,9 +143,14 @@ mypy
 - `auth.py`'s login stays manual/headed — don't script credential entry
   without first confirming the login form has no captcha/2FA and getting
   explicit sign-off, since a scripted login is what gets accounts flagged.
-- `strategy.py` must stay pure (no Playwright, no network) — it's the only
-  module with a real test suite (`tests/test_strategy.py`) and that only
-  works because it has no I/O.
+- `strategy.py` must stay pure (no Playwright, no network). It is no longer the
+  only tested module — `agentkit/`, `news/`, `mantra_grid/` and
+  `data_sources/news_sentiment.py` all have suites, 146 tests in total — but the
+  reason it was testable is the reason they are: the decision logic has no I/O.
+  Keep new logic in a pure module and the I/O in a thin shell around it.
+- **The test suite makes zero agent calls and opens zero sockets.** Runners and
+  sleepers are injected so the fan-out is testable with fakes. Keep it that way;
+  a suite that queries is a suite nobody runs.
 - Ruff: line length 100, target py311, same `select`/`ignore` as mailwise.
   `mypy --strict` on `src/fantabot` (tests excluded).
 
