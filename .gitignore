@@ -2,8 +2,23 @@ __pycache__/
 *.pyc
 .venv/
 .env
-data/
+# data/* and not data/ — git will not descend into an excluded directory, so a
+# `!data/keep-me.csv` under a plain `data/` rule is silently inert. Excluding the
+# contents instead is what makes the negations below actually work.
+data/*
 !data/.gitkeep
+# The news pipeline's output is the historical record: a past Wednesday cannot be
+# regenerated, so it is tracked despite living under data/. The two Mantra files
+# are collected once from fixed rules and verified by hand.
+!data/player_sentiment_*.csv
+!data/mantra_schemi.json
+!data/mantra_compat.json
+# The news pipeline's output is the historical record: a past Wednesday cannot be
+# regenerated, so it is tracked despite living under data/. The two Mantra files
+# are collected once from fixed rules and verified by hand.
+!data/player_sentiment_*.csv
+!data/mantra_schemi.json
+!data/mantra_compat.json
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
