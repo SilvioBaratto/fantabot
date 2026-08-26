@@ -50,8 +50,23 @@ class Importer:
         return [name for name in self.sources if not (data_dir / name).exists()]
 
 
+def _registry() -> tuple[Importer, ...]:
+    """Built lazily so importing this package does not pull in every model."""
+    from fantabot.db.importers import players
+
+    return (
+        Importer(
+            name="players",
+            sources=players.SOURCE_FILES,
+            load=players.load,
+            description="Union of every id source — 1474, not quotazioni's 1414.",
+            expected_rows=1474,
+        ),
+    )
+
+
 # Load order is dependency order. Do not sort this.
-REGISTRY: tuple[Importer, ...] = ()
+REGISTRY: tuple[Importer, ...] = _registry()
 
 
 def names() -> list[str]:

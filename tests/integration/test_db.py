@@ -50,3 +50,30 @@ def test_the_previous_test_left_nothing_behind(db_session: Session) -> None:
         text(f'SELECT count(*) FROM "{PROBE}" WHERE nome = :n'), {"n": "Fixture Canary"}
     ).scalar()
     assert count == 0
+
+
+class TestPlayersSeed:
+    """The referential root. Eight later tables carry a foreign key to it."""
+
+    def test_the_union_seed_is_1474_not_quotazioni_s_1414(self, db_session: Session) -> None:
+        count = db_session.execute(text("SELECT count(*) FROM players")).scalar()
+        assert count == 1474
+
+    def test_every_name_is_present(self, db_session: Session) -> None:
+        blank = db_session.execute(
+            text("SELECT count(*) FROM players WHERE nome IS NULL OR nome = ''")
+        ).scalar()
+        assert blank == 0
+
+    def test_the_sixty_ids_that_exist_only_in_the_match_files_are_seeded(
+        self, db_session: Session
+    ) -> None:
+        """88 voti rows per file reference these. Seeding from quotazioni alone
+        gives 1414 and violates the foreign key when voti loads."""
+        missing = db_session.execute(
+            text(
+                "SELECT count(*) FROM (VALUES (650),(4995),(5780)) AS v(id) "
+                "WHERE NOT EXISTS (SELECT 1 FROM players p WHERE p.id = v.id)"
+            )
+        ).scalar()
+        assert missing == 0

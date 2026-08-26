@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from fantabot.db.importers._csv import italian_decimal, plain_decimal, split_codes
+from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
 
 
 class TestItalianDecimal:
@@ -117,3 +118,60 @@ def test_the_parsers_do_not_reach_for_a_database() -> None:
     text = Path(module.__file__).read_text()
     assert "sqlalchemy" not in text
     assert "fantabot.db.engine" not in text
+
+
+class TestPlayerNameResolution:
+    """94 of the 1474 ids spell their name more than one way across seasons, so
+    the seed needs a rule that does not depend on which file was read first."""
+
+    @staticmethod
+    def _ref(player_id: int, nome: str, stagione: str, rank: int) -> PlayerRef:
+        return PlayerRef(player_id=player_id, nome=nome, stagione=stagione, source_rank=rank)
+
+    def test_the_most_recent_season_wins(self) -> None:
+        refs = [
+            self._ref(1, "SORIANO", "2022/23", 0),
+            self._ref(1, "Soriano", "2026/27", 0),
+        ]
+        assert resolve_names(refs) == {1: "Soriano"}
+
+    def test_the_result_does_not_depend_on_input_order(self) -> None:
+        """A seed that varied with file order would be unreproducible."""
+        refs = [
+            self._ref(1, "Soriano", "2026/27", 0),
+            self._ref(1, "SORIANO", "2022/23", 0),
+        ]
+        assert resolve_names(refs) == {1: "Soriano"}
+        assert resolve_names(list(reversed(refs))) == {1: "Soriano"}
+
+    def test_within_one_season_the_more_canonical_source_wins(self) -> None:
+        """quotazioni (rank 0) over voti (rank 2) for the same season."""
+        refs = [
+            self._ref(1, "From voti", "2026/27", 2),
+            self._ref(1, "From quotazioni", "2026/27", 0),
+        ]
+        assert resolve_names(refs) == {1: "From quotazioni"}
+
+    def test_every_distinct_id_survives(self) -> None:
+        refs = [self._ref(i, f"P{i}", "2026/27", 0) for i in range(5)]
+        assert len(resolve_names(refs)) == 5
+
+    def test_no_refs_is_an_empty_mapping_not_an_error(self) -> None:
+        assert resolve_names([]) == {}
+
+
+class TestPlayerRefReading:
+    def test_rows_without_an_id_are_skipped(self, tmp_path: Path) -> None:
+        """3039 coach rows per match-grain file carry an empty id."""
+        csv_path = tmp_path / "voti.csv"
+        csv_path.write_text(
+            "stagione,id,nome\n2026/27,7,Real Player\n2026/27,,Allenatore\n",
+            encoding="utf-8",
+        )
+
+        refs = list(read_refs(tmp_path))
+
+        assert [ref.player_id for ref in refs] == [7]
+
+    def test_a_missing_source_file_is_not_an_error(self, tmp_path: Path) -> None:
+        assert list(read_refs(tmp_path)) == []
