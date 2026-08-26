@@ -43,7 +43,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _db  # noqa: E402
-from fantabot.db.importers._csv import italian_decimal  # noqa: E402
+from fantabot.parsing import italian_decimal  # noqa: E402
 
 BASE_URL = "https://www.fantacalcio.it/statistiche-serie-a"
 USER_AGENT = (

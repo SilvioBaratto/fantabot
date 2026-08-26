@@ -32,6 +32,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from fantabot.db import database_manager
+from fantabot.parsing import split_codes, split_flags
 
 
 @contextmanager
@@ -221,11 +222,7 @@ def upsert_qi_bias(handle: Session, listone: str, rows: list[dict[str, object]])
         {
             **row,
             "listone": listone,
-            "ruoli_codice": [
-                code.strip().upper()
-                for code in str(row.pop("role")).split(";")
-                if code.strip()
-            ],
+            "ruoli_codice": split_codes(str(row.pop("role"))),
         }
         for row in rows
     ]
@@ -262,16 +259,12 @@ def upsert_target_price(
             **row,
             "listone": listone,
             "stagione": stagione,
-            "ruoli_codice": [
-                code.strip().upper()
-                for code in str(row.pop("role")).split(";")
-                if code.strip()
-            ],
-            "flags": [
-                flag.strip()
-                for flag in str(row.pop("flags")).split(";")
-                if flag.strip()
-            ],
+            "ruoli_codice": split_codes(str(row.pop("role"))),
+            # split_flags, not split_codes: these are opaque strings from
+            # target_price.py and upper-casing them would turn
+            # team_discount(MIL) into something that no longer matches the
+            # script that emits it. 122 live rows depend on that casing.
+            "flags": split_flags(str(row.pop("flags"))),
         }
         for row in rows
     ]
@@ -396,7 +389,7 @@ def upsert_match_grain(handle: Session, voti: list[dict], bonus: list[dict]) -> 
     and coach rows, which are disjoint. Repeating each index's predicate is what
     makes the statement legal, not an optimisation.
     """
-    from fantabot.db.importers.matches import upsert_two_passes
+    from fantabot.db.upserts import upsert_two_passes
     from fantabot.db.models.matches import BonusMalus, Voto
 
     if voti:
