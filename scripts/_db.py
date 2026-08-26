@@ -243,3 +243,55 @@ def upsert_qi_bias(handle: Session, listone: str, rows: list[dict[str, object]])
         payload,
     )
     return len(payload)
+
+
+def upsert_target_price(
+    handle: Session, listone: str, stagione: str, rows: list[dict[str, object]]
+) -> int:
+    """Write computed auction prices back. Idempotent.
+
+    ``stagione`` is passed in because the source CSV never carried one — it
+    lived in the filename — and the table makes it a real NOT NULL column so a
+    second season can coexist with this one.
+    """
+    if not rows:
+        return 0
+
+    payload = [
+        {
+            **row,
+            "listone": listone,
+            "stagione": stagione,
+            "ruoli_codice": [
+                code.strip().upper()
+                for code in str(row.pop("role")).split(";")
+                if code.strip()
+            ],
+            "flags": [
+                flag.strip()
+                for flag in str(row.pop("flags")).split(";")
+                if flag.strip()
+            ],
+        }
+        for row in rows
+    ]
+
+    handle.execute(
+        text(
+            "INSERT INTO target_price (stagione, player_id, listone, squadra, "
+            "ruoli_codice, macro_role, qi, prior_media_fantavoto, "
+            "predicted_pct_delta, team_factor, target_price, flags) VALUES ("
+            ":stagione, :player_id, :listone, :squadra, :ruoli_codice, :macro_role, "
+            ":qi, :prior_media_fantavoto, :predicted_pct_delta, :team_factor, "
+            ":target_price, :flags) "
+            "ON CONFLICT (stagione, player_id, listone) DO UPDATE SET "
+            "squadra = EXCLUDED.squadra, ruoli_codice = EXCLUDED.ruoli_codice, "
+            "macro_role = EXCLUDED.macro_role, qi = EXCLUDED.qi, "
+            "prior_media_fantavoto = EXCLUDED.prior_media_fantavoto, "
+            "predicted_pct_delta = EXCLUDED.predicted_pct_delta, "
+            "team_factor = EXCLUDED.team_factor, "
+            "target_price = EXCLUDED.target_price, flags = EXCLUDED.flags"
+        ),
+        payload,
+    )
+    return len(payload)

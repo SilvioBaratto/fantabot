@@ -385,7 +385,33 @@ def main() -> None:
                     f"{r.team_factor:.3f}", r.target_price, r.flags,
                 ]
             )
-    console.print(f"wrote {out_path} ({len(rows)} rows)\n")
+    console.print(f"wrote {out_path} ({len(rows)} rows)")
+
+    # The database is the source of truth; the CSV above is kept until its
+    # removal is confirmed, so the output stays diffable against the pre-port
+    # capture. Both are written from the same rows, so they cannot disagree.
+    with _db.session() as handle:
+        stored = _db.upsert_target_price(
+            handle,
+            args.system,
+            TARGET_SEASON,
+            [
+                {
+                    "player_id": int(r.id),
+                    "squadra": r.squadra,
+                    "role": r.role,
+                    "macro_role": r.macro_role,
+                    "qi": r.qi,
+                    "prior_media_fantavoto": r.prior_media_fantavoto,
+                    "predicted_pct_delta": r.predicted_pct_delta,
+                    "team_factor": r.team_factor,
+                    "target_price": r.target_price,
+                    "flags": r.flags,
+                }
+                for r in rows
+            ],
+        )
+    console.print(f"wrote {stored} target_price rows for {args.system}\n")
 
     biggest_bumps = sorted(rows, key=lambda r: -(r.target_price - r.qi))[: args.top_n]
     biggest_cuts = sorted(rows, key=lambda r: (r.target_price - r.qi))[: args.top_n]
