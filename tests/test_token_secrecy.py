@@ -246,3 +246,73 @@ def test_config_check_excludes_the_encryption_key() -> None:
         "key in it, `model_dump` prints the key into every cron log. "
         "`Field(repr=False)` does not suppress `model_dump`."
     )
+
+
+def test_the_league_token_repr_leaks_neither_plaintext_nor_ciphertext() -> None:
+    """A repr reaches tracebacks, pytest output and cron logs."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "tests"))
+    import _tokens
+    from cryptography.fernet import Fernet
+
+    from fantabot.db.models.tokens import LeagueToken
+    from fantabot.tokens.crypto import TokenCipher
+
+    plaintext = _tokens.make_token(l_id=_tokens.LEGA_MANTRA)
+    cipher = TokenCipher(Fernet.generate_key().decode())
+    ciphertext = cipher.encrypt(plaintext)
+
+    from datetime import UTC, datetime
+
+    rendered = repr(
+        LeagueToken(
+            league_id=_tokens.LEGA_MANTRA,
+            ciphertext=ciphertext,
+            key_fingerprint=cipher.fingerprint,
+            issued_at=datetime.fromtimestamp(_tokens.IAT, tz=UTC),
+            expires_at=datetime.fromtimestamp(_tokens.EXP, tz=UTC),
+        )
+    )
+
+    leaked = [
+        plaintext[i : i + 8]
+        for i in range(len(plaintext) - 7)
+        if plaintext[i : i + 8] in rendered
+    ]
+    assert leaked == [], f"LeagueToken.__repr__ exposes the plaintext: {leaked}"
+    assert ciphertext.decode() not in rendered
+    assert str(_tokens.LEGA_MANTRA) in rendered
+
+
+def test_league_tokens_has_no_text_column_that_could_hold_a_jwt() -> None:
+    """SPEC's bullet, in the only form that is enforceable.
+
+    **Scoped to this one table, never metadata-wide.** Across `Base.metadata`
+    the assertion is simply false — `players.nome`, `bot_state.
+    last_auction_session_id` and eight columns on `player_sentiment` are all
+    `Text`, legitimately. SPEC's bullet is table-scoped and this follows it.
+
+    A real league JWT is ~800 characters, so a bounded `String` cannot hold one
+    and the only unbounded column is the display name.
+    """
+    import fantabot.db.models  # noqa: F401  -- registers every table
+    from fantabot.db.base import Base
+
+    table = Base.metadata.tables["league_tokens"]
+    text_columns = {
+        c.name for c in table.columns if c.type.__class__.__name__ in {"Text", "TEXT"}
+    }
+
+    assert text_columns == {"league_name"}, (
+        f"league_tokens has unbounded text columns {sorted(text_columns)}; only "
+        "the display name may be unbounded"
+    )
+
+    for column in table.columns:
+        if column.type.__class__.__name__ in {"String", "VARCHAR"}:
+            length = getattr(column.type, "length", None)
+            assert length is not None and length <= 16, (
+                f"league_tokens.{column.name} is String({length}) — long enough "
+                "to hold something it should not"
+            )

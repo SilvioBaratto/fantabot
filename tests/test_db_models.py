@@ -192,6 +192,7 @@ SCHEMA_TABLES = frozenset(
         "league_snapshot",
         "league_team_snapshot",
         "league_player_pool",
+        "league_tokens",
     }
 )
 
