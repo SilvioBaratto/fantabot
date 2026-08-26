@@ -20,9 +20,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import cast, desc, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.types import Text
 
+from fantabot.data_sources.news_sentiment import RoleDrift, SentimentRow, TrailingSentiment
 from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
 from fantabot.db.repositories._base import RepositoryBase
 
@@ -112,3 +114,134 @@ class SentimentRepository(RepositoryBase):
 
         self.session.execute(statement)
         return len(records)
+
+
+def _to_row(record: PlayerSentiment) -> SentimentRow:
+    """One stored reading as the value type callers already expect.
+
+    Scores come back as ``float``, not ``Decimal``. ``SentimentRow`` is annotated
+    ``float`` and ``trailing`` averages them; a ``Decimal`` would type-check
+    against ``Any`` and then raise the moment it met a float in arithmetic.
+    """
+    return SentimentRow(
+        player_id=str(record.player_id),
+        nome=record.nome,
+        data_run=record.data_run.isoformat(),
+        ruolo_campo=record.ruolo_campo,
+        ruoli_mantra=record.ruoli_mantra,
+        deriva_ruolo=float(record.deriva_ruolo),
+        **{name: float(getattr(record, name)) for name in SCORE_COLUMNS},
+    )
+
+
+class SentimentReadRepository(RepositoryBase):
+    """The queries ``NewsSentimentSource`` serves, as SQL.
+
+    Four behaviours here that the natural translation quietly breaks, all of
+    them observable:
+
+    * **Explicit ordering.** The CSV version sorts by ISO date string on load,
+      and ``latest`` is the last element. Postgres has no inherent row order, so
+      every query orders by ``data_run`` explicitly. Omit it and ``latest``
+      returns an arbitrary row — and passes on a small fixture.
+    * **Slice, then filter.** ``trailing`` takes the last ``weeks`` rows and
+      *then* drops the silent ones, so a window of four runs where two were
+      silent reports ``rows_used == 2``. Filtering first would reach further
+      back and silently widen the window.
+    * **All-silent is ``None``.** ``confidenza == 0`` means no coverage was
+      found, not that the player is neutral. A player whose whole window is
+      silent has no average, rather than an average of zero.
+    * **String tie-break.** ``drifted`` breaks ties on ``player_id`` compared as
+      text, because the CSV version held it as ``str``. Arbitrary, but it is the
+      existing order and changing it silently would reshuffle the list.
+    """
+
+    def latest(self, player_id: str) -> SentimentRow | None:
+        record = self.session.execute(
+            select(PlayerSentiment)
+            .where(PlayerSentiment.player_id == int(player_id))
+            .order_by(desc(PlayerSentiment.data_run))
+            .limit(1)
+        ).scalar_one_or_none()
+        return None if record is None else _to_row(record)
+
+    def trailing(self, player_id: str, weeks: int = 4) -> TrailingSentiment | None:
+        """Mean of each score over the last ``weeks`` runs, silent rows excluded."""
+        records = self.session.execute(
+            select(PlayerSentiment)
+            .where(PlayerSentiment.player_id == int(player_id))
+            .order_by(desc(PlayerSentiment.data_run))
+            .limit(weeks)
+        ).scalars().all()
+
+        window = [_to_row(record) for record in records if record.confidenza > 0]
+        if not window:
+            return None
+
+        def mean(name: str) -> float:
+            return sum(float(getattr(row, name)) for row in window) / len(window)
+
+        return TrailingSentiment(
+            player_id=player_id,
+            rows_used=len(window),
+            sentiment=mean("sentiment"),
+            disponibilita=mean("disponibilita"),
+            titolarita=mean("titolarita"),
+            mercato=mean("mercato"),
+            forma=mean("forma"),
+            rigorista=mean("rigorista"),
+            piazzati=mean("piazzati"),
+        )
+
+    def drift(self, player_id: str) -> RoleDrift | None:
+        """The latest role drift for one player, or ``None`` if the tag holds."""
+        row = self.latest(player_id)
+        if row is None or row.deriva_ruolo <= 0:
+            return None
+        return RoleDrift(
+            player_id=row.player_id,
+            nome=row.nome,
+            ruoli_mantra=row.ruoli_mantra,
+            ruolo_campo=row.ruolo_campo,
+            deriva_ruolo=row.deriva_ruolo,
+        )
+
+    def drifted(self) -> list[RoleDrift]:
+        """Every player whose frozen Mantra tag no longer describes them.
+
+        One statement, not one per player. ``DISTINCT ON`` takes each player's
+        most recent reading; the outer query keeps the ones that drifted and
+        orders them worst first.
+        """
+        latest_per_player = (
+            select(
+                PlayerSentiment.player_id,
+                PlayerSentiment.nome,
+                PlayerSentiment.ruoli_mantra,
+                PlayerSentiment.ruolo_campo,
+                PlayerSentiment.deriva_ruolo,
+            )
+            .distinct(PlayerSentiment.player_id)
+            .order_by(PlayerSentiment.player_id, desc(PlayerSentiment.data_run))
+            .subquery()
+        )
+
+        rows = self.session.execute(
+            select(latest_per_player)
+            .where(latest_per_player.c.deriva_ruolo > 0)
+            .order_by(
+                desc(latest_per_player.c.deriva_ruolo),
+                cast(latest_per_player.c.player_id, Text),
+            )
+        ).all()
+
+        return [
+            RoleDrift(
+                player_id=str(row.player_id),
+                nome=row.nome,
+                ruoli_mantra=row.ruoli_mantra,
+                ruolo_campo=row.ruolo_campo,
+                deriva_ruolo=float(row.deriva_ruolo),
+            )
+            for row in rows
+        ]

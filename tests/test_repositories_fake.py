@@ -15,11 +15,16 @@ from typing import Any
 
 import pytest
 from sqlalchemy import BigInteger, Column, MetaData, Table
+from sqlalchemy.dialects import postgresql
 
 import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.db.base import Base
 from fantabot.db.repositories.admin import AdminRepository, UnknownTableError
-from fantabot.db.repositories.sentiment import SentimentRepository, to_record
+from fantabot.db.repositories.sentiment import (
+    SentimentReadRepository,
+    SentimentRepository,
+    to_record,
+)
 
 
 def _sentiment_row(**overrides: str) -> dict[str, str]:
@@ -62,6 +67,15 @@ class _FakeResult:
     def fetchone(self) -> Any:
         return (self._value,)
 
+    def all(self) -> Any:
+        return self._value if isinstance(self._value, list) else []
+
+    def scalars(self) -> Any:
+        return self
+
+    def scalar_one_or_none(self) -> Any:
+        return None
+
 
 class _FakeSession:
     """Records every statement, and answers with a queue of canned values."""
@@ -71,7 +85,14 @@ class _FakeSession:
         self._answers = list(answers or [])
 
     def execute(self, statement: Any, params: dict[str, Any] | None = None) -> _FakeResult:
-        self.statements.append(str(statement))
+        # Compiled against the Postgres dialect, not str(): DISTINCT ON and
+        # ON CONFLICT are dialect-specific and render as nothing generically,
+        # so a generic string would make every SQL assertion here vacuous.
+        try:
+            rendered = str(statement.compile(dialect=postgresql.dialect()))
+        except Exception:  # pragma: no cover - defensive
+            rendered = str(statement)
+        self.statements.append(rendered)
         return _FakeResult(self._answers.pop(0) if self._answers else 1)
 
 
@@ -221,3 +242,25 @@ class TestSentimentRecordConversion:
         record = to_record(_sentiment_row(fonti="", n_fonti="0"))
 
         assert record["fonti"] == []
+
+
+class TestDriftedIsOneStatement:
+    """Not one query per player. With 523 players the difference is 523
+    round-trips against 1, and the CSV version's whole-file slurp is what this
+    replaces."""
+
+    def test_it_issues_exactly_one_statement(self) -> None:
+        session = _session([])
+
+        SentimentReadRepository(session).drifted()
+
+        assert len(session.statements) == 1
+
+    def test_the_statement_takes_the_latest_row_per_player(self) -> None:
+        session = _session([])
+
+        SentimentReadRepository(session).drifted()
+
+        sql = session.statements[0].upper()
+        assert "DISTINCT ON" in sql
+        assert "ORDER BY" in sql

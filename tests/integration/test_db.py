@@ -407,3 +407,146 @@ class TestSentimentWriteAgainstALiveTable:
         for stored_date, stored_id in keys:
             assert isinstance(stored_date, str)
             assert isinstance(stored_id, str)
+
+
+class TestSentimentReadPath:
+    """The four behaviours the natural SQL translation quietly breaks."""
+
+    @staticmethod
+    def _write(db_session: Session, player_id: int, runs: list[tuple[str, str, str]]) -> None:
+        """runs: (data_run, confidenza, deriva_ruolo)."""
+        from fantabot.db.repositories.sentiment import SentimentRepository
+
+        repo = SentimentRepository(db_session)
+        for data_run, confidenza, deriva in runs:
+            repo.upsert_rows(
+                [
+                    {
+                        "data_run": data_run,
+                        "giorni_lookback": "14",
+                        "stagione": "2026/27",
+                        "id": str(player_id),
+                        "nome": f"P{player_id}",
+                        "squadra": "ATA",
+                        "ruolo": "Difensore",
+                        "ruoli_mantra": "B;DS",
+                        "ruolo_campo": "W",
+                        "deriva_ruolo": deriva,
+                        "sentiment": "0.50",
+                        "disponibilita": "1.00",
+                        "titolarita": "0.80",
+                        "mercato": "0.00",
+                        "forma": "0.20",
+                        "rigorista": "0.00",
+                        "piazzati": "0.00",
+                        "confidenza": confidenza,
+                        "riassunto": data_run,
+                        "n_fonti": "1",
+                        "fonti": "https://a",
+                        "modello": "test",
+                    }
+                ],
+                force=True,
+            )
+
+    @staticmethod
+    def _players(db_session: Session, n: int) -> list[int]:
+        return [
+            int(v)
+            for v in db_session.execute(
+                text("SELECT id FROM players ORDER BY id LIMIT :n"), {"n": n}
+            ).scalars()
+        ]
+
+    def test_latest_is_the_most_recent_run_not_an_arbitrary_row(
+        self, db_session: Session
+    ) -> None:
+        from fantabot.db.repositories.sentiment import SentimentReadRepository
+
+        (player_id,) = self._players(db_session, 1)
+        self._write(
+            db_session,
+            player_id,
+            [("2026-09-02", "0.5", "0.0"), ("2026-10-07", "0.5", "0.0"), ("2026-09-16", "0.5", "0.0")],
+        )
+
+        row = SentimentReadRepository(db_session).latest(str(player_id))
+
+        assert row is not None
+        assert row.data_run == "2026-10-07"
+
+    def test_trailing_slices_then_filters(self, db_session: Session) -> None:
+        """Five runs, the last four of which include two silent ones. Filtering
+        before slicing would reach back to the fifth and widen the window."""
+        from fantabot.db.repositories.sentiment import SentimentReadRepository
+
+        (player_id,) = self._players(db_session, 1)
+        self._write(
+            db_session,
+            player_id,
+            [
+                ("2026-09-02", "0.9", "0.0"),
+                ("2026-09-09", "0.0", "0.0"),
+                ("2026-09-16", "0.8", "0.0"),
+                ("2026-09-23", "0.0", "0.0"),
+                ("2026-09-30", "0.7", "0.0"),
+            ],
+        )
+
+        trailing = SentimentReadRepository(db_session).trailing(str(player_id), weeks=4)
+
+        assert trailing is not None
+        assert trailing.rows_used == 2
+
+    def test_an_all_silent_window_has_no_average_at_all(self, db_session: Session) -> None:
+        """confidenza 0 means no coverage was found, not that he is neutral."""
+        from fantabot.db.repositories.sentiment import SentimentReadRepository
+
+        (player_id,) = self._players(db_session, 1)
+        self._write(db_session, player_id, [("2026-09-30", "0.0", "0.0")])
+
+        assert SentimentReadRepository(db_session).trailing(str(player_id)) is None
+
+    def test_scores_come_back_as_floats_not_decimals(self, db_session: Session) -> None:
+        from fantabot.db.repositories.sentiment import SentimentReadRepository
+
+        (player_id,) = self._players(db_session, 1)
+        self._write(db_session, player_id, [("2026-09-30", "0.7", "0.5")])
+
+        row = SentimentReadRepository(db_session).latest(str(player_id))
+
+        assert row is not None
+        assert isinstance(row.confidenza, float)
+        assert isinstance(row.deriva_ruolo, float)
+
+    def test_drifted_ranks_worst_first_in_one_statement(self, db_session: Session) -> None:
+        from fantabot.db.repositories.sentiment import SentimentReadRepository
+
+        low, high, none_at_all = self._players(db_session, 3)
+        self._write(db_session, low, [("2026-09-30", "0.3", "0.30")])
+        self._write(db_session, high, [("2026-09-30", "0.9", "0.90")])
+        self._write(db_session, none_at_all, [("2026-09-30", "0.9", "0.00")])
+
+        drifted = SentimentReadRepository(db_session).drifted()
+        ids = [d.player_id for d in drifted]
+
+        assert ids.index(str(high)) < ids.index(str(low))
+        assert str(none_at_all) not in ids
+
+    def test_drifted_uses_only_each_player_s_latest_reading(
+        self, db_session: Session
+    ) -> None:
+        """A tag that drifted in September and was confirmed in October is not
+        drifted. DISTINCT ON takes the newest row, not any row."""
+        from fantabot.db.repositories.sentiment import SentimentReadRepository
+
+        (player_id,) = self._players(db_session, 1)
+        self._write(
+            db_session,
+            player_id,
+            [("2026-09-02", "0.9", "0.90"), ("2026-10-07", "0.9", "0.00")],
+        )
+
+        ids = [d.player_id for d in SentimentReadRepository(db_session).drifted()]
+
+        assert str(player_id) not in ids
