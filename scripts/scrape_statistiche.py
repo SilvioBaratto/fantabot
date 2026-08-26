@@ -40,6 +40,11 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
+from fantabot.db.importers._csv import italian_decimal  # noqa: E402
+
 BASE_URL = "https://www.fantacalcio.it/statistiche-serie-a"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -310,9 +315,6 @@ def write_mantra_csv(rows: list[PlayerStatsRow], path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("data"), help="Directory to write CSVs into"
-    )
-    parser.add_argument(
         "--seasons",
         nargs="+",
         default=DEFAULT_SEASONS,
@@ -345,16 +347,54 @@ def main() -> None:
         print("No player rows found for any season/provider — page structure may have changed.", file=sys.stderr)
         raise SystemExit(1)
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    classic_path = args.out_dir / "statistiche_classic.csv"
-    mantra_path = args.out_dir / "statistiche_mantra.csv"
+    def counter(raw: str) -> int:
+        return int(raw) if raw.strip() else 0
 
-    write_classic_csv(all_rows, classic_path)
-    write_mantra_csv(all_rows, mantra_path)
+    payload: list[dict[str, object]] = []
+    for r in all_rows:
+        if not r.player_id:
+            continue
+        base = {
+            "stagione": r.season,
+            "fonte": r.provider,
+            "player_id": int(r.player_id),
+            "nome": r.name,
+            "squadra": r.team.upper(),
+            "partite_giocate": counter(r.stats.get("pg", "")),
+            "media_voto": italian_decimal(r.stats.get("mv", "")),
+            "media_fantavoto": italian_decimal(r.stats.get("mfv", "")),
+            "gol": counter(r.stats.get("gol", "")),
+            "gol_subiti": counter(r.stats.get("gs", "")),
+            "rigori_segnati": counter(r.rigori_segnati),
+            "rigori_tirati": counter(r.rigori_tirati),
+            "rigori_parati": counter(r.stats.get("rp", "")),
+            "assist": counter(r.stats.get("ass", "")),
+            "ammonizioni": counter(r.stats.get("amm", "")),
+            "espulsioni": counter(r.stats.get("esp", "")),
+        }
+        payload.append(
+            {
+                **base,
+                "listone": "classic",
+                "ruoli_codice": [r.role_classic_code.upper()],
+                "ruoli": [r.role_classic_label],
+            }
+        )
+        payload.append(
+            {
+                **base,
+                "listone": "mantra",
+                "ruoli_codice": [c.upper() for c in r.role_mantra_codes],
+                "ruoli": r.role_mantra_labels,
+            }
+        )
+
+    with _db.session() as handle:
+        stored = _db.upsert_statistiche(handle, payload)
 
     print(
-        f"{len(all_rows)} total rows across {len(args.seasons)} seasons x "
-        f"{len(args.providers)} providers -> {classic_path}, {mantra_path}"
+        f"{len(all_rows)} scraped rows across {len(args.seasons)} seasons x "
+        f"{len(args.providers)} providers -> {stored} statistiche rows"
     )
 
 

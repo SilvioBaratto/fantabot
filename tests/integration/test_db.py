@@ -634,11 +634,23 @@ class TestPoolFromPostgres:
         ]
 
         # A subset check, not equality: a scrape adds players the CSV never had.
-        # Every player the CSV knew must still be there, unchanged and in the
-        # same relative order.
-        by_id = {row[0]: row for row in from_db}
+        # Every player the CSV knew must still be there, in the same relative
+        # order, with the same club and both role systems intact.
+        #
+        # `nome` is deliberately excluded. scrape_quotazioni refreshes it from
+        # the live site while the CSV import picks the most-recent-season
+        # spelling, and 94 ids are spelled more than one way — so whichever ran
+        # last wins, and comparing it here would make this test depend on that
+        # order rather than on anything contractual.
+        def without_name(row: tuple[str, str, str, str, str]) -> tuple[str, ...]:
+            player_id, _nome, squadra, ruolo, ruoli_mantra = row
+            return (player_id, squadra, ruolo, ruoli_mantra)
+
+        by_id = {row[0]: without_name(row) for row in from_db}
         assert all(pid in by_id for pid, *_ in from_csv)
-        assert [by_id[pid] for pid, *_ in from_csv] == from_csv
+        assert [by_id[pid] for pid, *_ in from_csv] == [
+            without_name(row) for row in from_csv
+        ]
 
 
 class TestBotState:

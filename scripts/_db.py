@@ -336,3 +336,53 @@ def upsert_quotazioni(handle: Session, rows: list[dict[str, object]]) -> int:
         rows,
     )
     return len(rows)
+
+
+def upsert_statistiche(handle: Session, rows: list[dict[str, object]]) -> int:
+    """Write scraped season totals. Idempotent on (stagione, fonte, player_id, listone).
+
+    ``media_voto``/``media_fantavoto`` arrive already parsed, so the ``"0,0"``
+    no-data marker has been collapsed to ``None`` before it reaches here — the
+    distinction SPEC criterion 9 is about.
+    """
+    if not rows:
+        return 0
+
+    handle.execute(
+        text(
+            "INSERT INTO players (id, nome) VALUES (:player_id, :nome) "
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        [{"player_id": r["player_id"], "nome": r["nome"]} for r in rows],
+    )
+    handle.execute(
+        text(
+            "INSERT INTO teams (stagione, codice, nome_completo) "
+            "VALUES (:stagione, :squadra, :squadra) "
+            "ON CONFLICT (stagione, codice) DO NOTHING"
+        ),
+        [{"stagione": r["stagione"], "squadra": r["squadra"]} for r in rows],
+    )
+    handle.execute(
+        text(
+            "INSERT INTO statistiche (stagione, fonte, player_id, listone, squadra, "
+            "ruoli_codice, ruoli, partite_giocate, media_voto, media_fantavoto, gol, "
+            "gol_subiti, rigori_segnati, rigori_tirati, rigori_parati, assist, "
+            "ammonizioni, espulsioni) VALUES (:stagione, :fonte, :player_id, :listone, "
+            ":squadra, :ruoli_codice, :ruoli, :partite_giocate, :media_voto, "
+            ":media_fantavoto, :gol, :gol_subiti, :rigori_segnati, :rigori_tirati, "
+            ":rigori_parati, :assist, :ammonizioni, :espulsioni) "
+            "ON CONFLICT (stagione, fonte, player_id, listone) DO UPDATE SET "
+            "squadra = EXCLUDED.squadra, ruoli_codice = EXCLUDED.ruoli_codice, "
+            "ruoli = EXCLUDED.ruoli, partite_giocate = EXCLUDED.partite_giocate, "
+            "media_voto = EXCLUDED.media_voto, "
+            "media_fantavoto = EXCLUDED.media_fantavoto, gol = EXCLUDED.gol, "
+            "gol_subiti = EXCLUDED.gol_subiti, "
+            "rigori_segnati = EXCLUDED.rigori_segnati, "
+            "rigori_tirati = EXCLUDED.rigori_tirati, "
+            "rigori_parati = EXCLUDED.rigori_parati, assist = EXCLUDED.assist, "
+            "ammonizioni = EXCLUDED.ammonizioni, espulsioni = EXCLUDED.espulsioni"
+        ),
+        rows,
+    )
+    return len(rows)
