@@ -77,3 +77,30 @@ class TestPlayersSeed:
             )
         ).scalar()
         assert missing == 0
+
+
+class TestTeamsSeed:
+    """The only bridge between the two team vocabularies in the source data."""
+
+    def test_twenty_clubs_in_every_one_of_the_five_seasons(self, db_session: Session) -> None:
+        rows = db_session.execute(
+            text("SELECT stagione, count(*) FROM teams GROUP BY 1 ORDER BY 1")
+        ).all()
+        assert [count for _, count in rows] == [20, 20, 20, 20, 20]
+        assert len(rows) == 5
+
+    def test_no_club_is_missing_its_full_name(self, db_session: Session) -> None:
+        blank = db_session.execute(
+            text("SELECT count(*) FROM teams WHERE nome_completo IS NULL OR nome_completo = ''")
+        ).scalar()
+        assert blank == 0
+
+    def test_the_current_season_resolves_though_voti_has_no_rows_for_it(
+        self, db_session: Session
+    ) -> None:
+        """voti.csv stops at 2025/26, so 2026/27's names come from the mapping
+        being global across seasons rather than derived per season."""
+        count = db_session.execute(
+            text("SELECT count(*) FROM teams WHERE stagione = '2026/27' AND nome_completo <> ''")
+        ).scalar()
+        assert count == 20

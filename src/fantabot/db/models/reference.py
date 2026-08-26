@@ -6,7 +6,7 @@ match-grain tables, points at it.
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Text
+from sqlalchemy import BigInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from fantabot.db.base import Base, TimestampMixin
@@ -32,3 +32,26 @@ class Player(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Player id={self.id} nome={self.nome!r}>"
+
+
+class Team(Base, TimestampMixin):
+    """One Serie A club in one season.
+
+    Season-scoped, not global: 27 distinct clubs appear across the five seasons
+    on disk but only 20 in any one of them, because of promotion and relegation.
+
+    This table exists because the source files use two incompatible vocabularies
+    for the same thing. ``quotazioni``, ``statistiche``, ``qi_bias`` and
+    ``target_price`` write a three-letter code (``ATA``, ``MIL``); ``voti`` and
+    ``bonus_malus`` write the full name (``Fiorentina``). Without the bridge, a
+    join between them returns zero rows and no error.
+    """
+
+    __tablename__ = "teams"
+
+    stagione: Mapped[str] = mapped_column(String(7), primary_key=True)
+    codice: Mapped[str] = mapped_column(String(3), primary_key=True)
+    nome_completo: Mapped[str] = mapped_column(Text, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Team {self.stagione} {self.codice} {self.nome_completo!r}>"

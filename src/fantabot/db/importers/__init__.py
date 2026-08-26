@@ -52,7 +52,7 @@ class Importer:
 
 def _registry() -> tuple[Importer, ...]:
     """Built lazily so importing this package does not pull in every model."""
-    from fantabot.db.importers import players
+    from fantabot.db.importers import players, teams
 
     return (
         Importer(
@@ -61,6 +61,14 @@ def _registry() -> tuple[Importer, ...]:
             load=players.load,
             description="Union of every id source — 1474, not quotazioni's 1414.",
             expected_rows=1474,
+        ),
+        Importer(
+            name="teams",
+            sources=teams.SOURCE_FILES,
+            load=teams.load,
+            description="Bridges the 3-letter-code and full-name vocabularies.",
+            expected_rows=100,
+            depends_on=("players",),
         ),
     )
 
