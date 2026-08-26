@@ -23,6 +23,7 @@ import pytest
 
 from fantabot.db.importers._csv import italian_decimal, plain_decimal, split_codes
 from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
+from fantabot.db.importers.qi_bias import read_rows as qi_bias_rows
 from fantabot.db.importers.quotazioni import read_rows as quotazioni_rows
 from fantabot.db.importers.statistiche import read_rows as statistiche_rows
 from fantabot.db.importers.teams import TeamMappingError, build_mapping, code_for
@@ -317,3 +318,40 @@ class TestStatisticheRows:
         self._write(tmp_path, "6,25")
 
         assert statistiche_rows(tmp_path)[0]["fonte"] == "fantacalcio"
+
+
+class TestQiBiasRows:
+    """Dot-decimal territory: the file that would be silently multiplied by a
+    hundred if it went through the Italian parser."""
+
+    @staticmethod
+    def _write(tmp_path: Path) -> None:
+        (tmp_path / "qi_bias_classic.csv").write_text(
+            "stagione,id,nome,squadra,role,qi,qa,fvm,delta,pct_delta\n"
+            "2022/23,2832,Boga,ATA,a,13,18,13,5,38.46\n",
+            encoding="utf-8",
+        )
+
+    def test_the_dot_decimal_keeps_its_magnitude(self, tmp_path: Path) -> None:
+        """38.46, not 3846 — the error a single shared parser would make."""
+        self._write(tmp_path)
+
+        assert qi_bias_rows(tmp_path)[0]["pct_delta"] == Decimal("38.46")
+
+    def test_the_italian_parser_would_have_rejected_this_file(self, tmp_path: Path) -> None:
+        """States the reason the two parsers exist, against a real row."""
+        with pytest.raises(ValueError, match="dot"):
+            italian_decimal("38.46")
+
+    def test_the_lower_cased_classic_role_is_normalised(self, tmp_path: Path) -> None:
+        """qi_bias_classic writes 'a' where quotazioni_classic writes 'A'."""
+        self._write(tmp_path)
+
+        assert qi_bias_rows(tmp_path)[0]["ruoli_codice"] == ["A"]
+
+    def test_delta_is_carried_through_as_an_integer(self, tmp_path: Path) -> None:
+        self._write(tmp_path)
+        row = qi_bias_rows(tmp_path)[0]
+
+        assert row["delta"] == 5
+        assert row["delta"] == row["qa"] - row["qi"]

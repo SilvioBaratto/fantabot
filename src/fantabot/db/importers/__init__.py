@@ -52,7 +52,13 @@ class Importer:
 
 def _registry() -> tuple[Importer, ...]:
     """Built lazily so importing this package does not pull in every model."""
-    from fantabot.db.importers import players, quotazioni, statistiche, teams
+    from fantabot.db.importers import (
+        players,
+        qi_bias,
+        quotazioni,
+        statistiche,
+        teams,
+    )
 
     return (
         Importer(
@@ -84,6 +90,14 @@ def _registry() -> tuple[Importer, ...]:
             load=statistiche.load,
             description="Season totals per listone per fonte; \"0,0\" arrives as NULL.",
             expected_rows=16068,
+            depends_on=("players", "teams"),
+        ),
+        Importer(
+            name="qi_bias",
+            sources=qi_bias.SOURCE_FILES,
+            load=qi_bias.load,
+            description="Quote-to-price drift. Dot-decimal, unlike statistiche.",
+            expected_rows=5356,
             depends_on=("players", "teams"),
         ),
     )

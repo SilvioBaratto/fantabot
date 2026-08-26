@@ -169,3 +169,25 @@ class TestStatisticheSeed:
             )
         ).scalar()
         assert nulls == 0
+
+
+class TestQiBiasSeed:
+    def test_both_listoni_hold_2678_rows(self, db_session: Session) -> None:
+        rows = db_session.execute(
+            text("SELECT listone, count(*) FROM qi_bias GROUP BY 1 ORDER BY 1")
+        ).all()
+        assert rows == [("classic", 2678), ("mantra", 2678)]
+
+    def test_delta_agrees_with_its_own_definition(self, db_session: Session) -> None:
+        """Enforced by a CHECK too, so this proves the constraint is real
+        rather than merely declared."""
+        wrong = db_session.execute(
+            text("SELECT count(*) FROM qi_bias WHERE delta <> qa - qi")
+        ).scalar()
+        assert wrong == 0
+
+    def test_no_derived_value_is_missing(self, db_session: Session) -> None:
+        nulls = db_session.execute(
+            text("SELECT count(*) FROM qi_bias WHERE delta IS NULL OR pct_delta IS NULL")
+        ).scalar()
+        assert nulls == 0

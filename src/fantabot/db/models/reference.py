@@ -172,3 +172,42 @@ class Statistica(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Statistica {self.stagione} {self.fonte} player={self.player_id}>"
+
+
+class QiBias(Base, TimestampMixin):
+    """How far a player's actual auction price drifted from the initial quote.
+
+    ``delta`` is ``qa - qi`` and ``pct_delta`` is that as a percentage — both
+    derived, both stored, because three analysis scripts read them and
+    recomputing in every query is worse than one denormalised column.
+
+    The source files are **dot**-decimal, unlike ``statistiche`` and ``voti``.
+    The importer uses ``plain_decimal`` for exactly that reason.
+    """
+
+    __tablename__ = "qi_bias"
+
+    stagione: Mapped[str] = mapped_column(String(7), primary_key=True)
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id"), primary_key=True
+    )
+    listone: Mapped[str] = mapped_column(String(7), primary_key=True)
+
+    squadra: Mapped[str] = mapped_column(String(3), nullable=False)
+    ruoli_codice: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    qi: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    qa: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    fvm: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    delta: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    pct_delta: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["stagione", "squadra"], ["teams.stagione", "teams.codice"]
+        ),
+        CheckConstraint(_LISTONE_CHECK, name="listone"),
+        CheckConstraint("delta = qa - qi", name="delta_is_derived"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<QiBias {self.stagione} {self.listone} player={self.player_id}>"
