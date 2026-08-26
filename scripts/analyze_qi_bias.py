@@ -7,28 +7,26 @@ settles on after a full season of real results feeding the weekly update
 rules. So QA at season-end is the closest proxy we have for "what this
 player was actually worth, in hindsight" — comparing it to the season's
 opening QI is a first-pass, low-effort measure of editorial mispricing,
-using only the quotazioni CSVs (no voti/statistiche join yet).
+using only the quotazioni table (no voti/statistiche join yet).
 
 Confirmed 2026-08-19: for the 2026/27 season qi == qa on every row (season
 hasn't started, no updates have run yet) — so 2026/27 is excluded by
 default, there is nothing to compare it against.
 
 Usage:
-    python scripts/analyze_qi_bias.py [--data-dir data] [--out-dir data]
-        [--seasons 2022/23 2023/24 2024/25 2025/26] [--top-n 15]
+    python scripts/analyze_qi_bias.py [--seasons 2022/23 2023/24 2024/25 2025/26]
+        [--top-n 15]
 
-Writes, per system:
-    <out-dir>/qi_bias_classic.csv
-    <out-dir>/qi_bias_mantra.csv
-each with one row per (season, player): qi, qa, delta, pct_delta — the raw
-material for the next step (joining against actual output to see whether
-the mispricing was *justified* by performance or not).
+Reads quotazioni and upserts qi_bias, one row per (stagione, player_id,
+listone): qi, qa, fvm, delta, pct_delta. That table is the raw material for
+the next step — joining against actual output to see whether the mispricing
+was *justified* by performance — and three other scripts read it:
+join_qi_bias_performance, analyze_qi_bias_by_team and target_price.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import statistics
 import sys
 from collections import defaultdict
@@ -46,13 +44,11 @@ console = Console()
 
 DEFAULT_SEASONS = ["2022/23", "2023/24", "2024/25", "2025/26"]
 
-# (filename, role column name) — classic has one role letter per player,
-# mantra has a ";"-separated compound code (e.g. "B;DD;E"); both are used
-# as-is, no attempt to collapse mantra's compound roles to a primary one.
-SYSTEMS = {
-    "classic": ("quotazioni_classic.csv", "ruolo_codice"),
-    "mantra": ("quotazioni_mantra.csv", "ruoli_codice"),
-}
+# Classic stores one role letter per player, Mantra a ";"-separated compound
+# code (e.g. "B;DD;E"). Both are used as-is — no attempt to collapse Mantra's
+# compound roles to a primary one. `_db._role_string` is where that spelling
+# difference is actually handled.
+LISTONI: tuple[str, ...] = ("classic", "mantra")
 
 
 @dataclass(frozen=True)
@@ -174,24 +170,6 @@ def write_rows(listone: str, quotes: list[PlayerQuote]) -> int:
         )
 
 
-def write_csv(path: Path, quotes: list[PlayerQuote]) -> None:
-    """Kept, and called from nowhere.
-
-    qi_bias is a pure derivation of qi and qa, so this table could equally be a
-    VIEW — SPEC leaves that open. Deleting the writer now would make going back
-    a rewrite rather than a one-line change, so it stays until that is decided.
-    """
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["stagione", "id", "nome", "squadra", "role", "qi", "qa", "fvm", "delta", "pct_delta"]
-        )
-        for q in quotes:
-            writer.writerow(
-                [q.stagione, q.id, q.nome, q.squadra, q.role, q.qi, q.qa, q.fvm, q.delta, f"{q.pct_delta:.2f}"]
-            )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seasons", nargs="+", default=DEFAULT_SEASONS)
@@ -200,7 +178,7 @@ def main() -> None:
 
     seasons = set(args.seasons)
 
-    for system in SYSTEMS:
+    for system in LISTONI:
         quotes = load_quotes(system, seasons)
         if not quotes:
             console.print(f"[yellow]{system}: no rows for seasons {sorted(seasons)}, skipping[/yellow]")
