@@ -56,9 +56,9 @@ def test_importing_the_cli_opens_no_connection() -> None:
         # Checked here, BEFORE fantabot.db is imported below — otherwise this
         # test would be asserting against its own import.
         #
-        # Newly true, and newly worth pinning: until `auth.py` was deleted,
-        # cli.py -> auth.py -> browser.py -> playwright.sync_api ran at module
-        # scope, so importing the CLI loaded Playwright unconditionally.
+        # Newly true, and newly worth pinning: until the old auth module was
+        # deleted, cli.py -> that module -> browser.py -> playwright.sync_api
+        # ran at module scope, so importing the CLI loaded Playwright always.
         assert "playwright" not in sys.modules, "importing the CLI loaded Playwright"
         assert "sqlalchemy" not in sys.modules, "importing the CLI loaded SQLAlchemy"
 

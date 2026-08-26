@@ -25,7 +25,10 @@ alembic upgrade head
 fantabot db-import --all     # one-time seed from the CSVs in data/
 fantabot db-check            # health, per-table row counts and sizes
 
-fantabot auth                # one-time interactive login → data/storage_state.json
+fantabot login               # interactive login → encrypted tokens in league_tokens
+fantabot login --force       # re-auth even when every stored token is valid
+fantabot token-status        # stored / expires / state per lega; works with no key
+fantabot token-forget --league 4103937
 fantabot config-check
 fantabot lineup-submit
 
@@ -50,19 +53,21 @@ alembic check                # models and migrations agree?
    `AUTO_SEND`: every write action (submit lineup, place bid) is gated behind
    it and logs a dry-run message instead when it's off.
 2. **`browser.py`** — two Playwright context managers. `context()` reuses
-   `data/storage_state.json` (headless, for cron); `interactive_login_context()`
-   is headed and only used by `auth.py`.
-3. **`auth.py`** — opens a real headed Chrome window and waits for the human
-   to log in manually (including any captcha/2FA), then persists
-   cookies/localStorage. Deliberately not scripted — matches mailwise's rule
-   that the interactive OAuth-equivalent flow never runs inside the
-   unattended loop. If leghe.fantacalcio.it's login form turns out to be
-   simple (no captcha), this can be scripted later; don't do it speculatively.
+   `data/storage_state.json` if one was kept; `interactive_login_context()` is
+   headed, used only by `login.py`, and **writes nothing** — the caller reads
+   `storage_state()` inside the body and decides whether to persist it.
+3. **`login.py`** — `fantabot login`. Opens a real headed Chrome window, waits
+   for the human to log in (captcha/2FA included), then reads each lega's token
+   out of `localStorage`, encrypts it and writes it to `league_tokens`. **The
+   sign-in is never scripted, and no page is ever clicked** — every entry in
+   `leagues[]` carries its own working token, measured 2026-08-26, so there is
+   nothing to navigate. Everything checkable is checked *before* the browser
+   opens: key present, key valid, database reachable.
 4. **`state.py`** — one function: `storage_state_path()`. Runtime state moved
    to Postgres (`bot_state`, `auction_bids`), keyed by lega because the account
    is in two and one flat file could not tell them apart. This module imports
-   nothing from `db/` on purpose — `auth.py` and `browser.py` sit on its import
-   chain, and `fantabot auth` has to work before a database exists.
+   nothing from `db/` on purpose — `browser.py` sits on its import chain, and
+   `fantabot --help` has to work before a database exists.
 5. **`models.py`** — frozen dataclasses (`Player`, `RosterSlot`, `Lineup`,
    `AuctionListing`, `BidDecision`, ...) plus `VALID_FORMATIONS`, the 7 legal
    classic-mode (D, C, A) splits summing to 10 outfield players.
@@ -125,7 +130,7 @@ alembic check                # models and migrations agree?
 ## Known unknowns — resolve before flipping `FANTABOT_AUTO_ACT=true`
 
 - **Site DOM**: login form, roster/formazione page, asta iniziale room, asta
-  di riparazione room. Map these by running `fantabot auth`, then inspecting
+  di riparazione room. Map these by running `fantabot login`, then inspecting
   the live pages (Chrome DevTools MCP or manual devtools) — fill in the
   `NotImplementedError` bodies in `lineup.py` and `auction.py` with real
   selectors once mapped. Don't guess selectors from memory of "a typical
@@ -134,8 +139,9 @@ alembic check                # models and migrations agree?
   **Before mapping more selectors, read `docs/leghe-api.md`** — the site
   actually runs on a separate JSON API (`apileague.fantacalcio.it`) with
   auth reverse-engineered and several read endpoints (league status, teams,
-  roster settings) confirmed working. The bearer token it needs is already
-  saved by `auth.py`'s `storage_state()` call, so read-side DOM scraping in
+  roster settings) confirmed working. The bearer token it needs is now an
+  encrypted row in `league_tokens`, reachable through
+  `apileague.auth_headers(league_id, store=...)`, so read-side DOM scraping in
   `lineup.py` may be unnecessary — go straight to `httpx` calls for those.
   Lineup submission and auction bidding are still undocumented POST
   endpoints (see "Gaps" in that doc) — those two still need either a live
@@ -168,12 +174,22 @@ alembic check                # models and migrations agree?
 - `FANTABOT_AUTO_ACT` defaults to `false` — deliberate, matches mailwise's
   `AUTO_SEND` convention. Don't flip the default; the user opts in via `.env`
   after selectors are verified.
-- `auth.py`'s login stays manual/headed — don't script credential entry
+- `login.py`'s sign-in stays manual/headed — don't script credential entry
   without first confirming the login form has no captcha/2FA and getting
-  explicit sign-off, since a scripted login is what gets accounts flagged.
+  explicit sign-off, since a scripted login is what gets accounts flagged. The
+  same rule now covers **any** page interaction after sign-in: `login.py`
+  navigates once and clicks nothing, and a test asserts the page's recorded
+  call list is exactly `["goto"]`.
+- **A bearer token is never printed, logged, `repr`'d or committed** — in any
+  form, truncated or whole. `tests/test_token_secrecy.py` enforces it: no JWT
+  literal in any tracked file, an AST walk over every print/log/raise argument
+  under `tokens/`, and `decrypt(` confined to `tokens/crypto.py` and
+  `tokens/store.py`. Never pass the encryption key on argv — `ps` shows it and
+  the shell keeps it in history.
 - `strategy.py` must stay pure (no Playwright, no network). It is no longer the
   only tested module — `agentkit/`, `news/`, `mantra_grid/` and
-  `data_sources/news_sentiment.py` all have suites, 146 tests in total — but the
+  `data_sources/news_sentiment.py`, `tokens/` and `apileague.py` all have suites,
+  483 tests in total — but the
   reason it was testable is the reason they are: the decision logic has no I/O.
   Keep new logic in a pure module and the I/O in a thin shell around it.
 - **The test suite makes zero agent calls and opens zero sockets.** Runners and

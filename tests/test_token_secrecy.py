@@ -317,3 +317,56 @@ def test_league_tokens_has_no_text_column_that_could_hold_a_jwt() -> None:
                 "to hold something it should not"
             )
 
+
+
+# The instruction surface: files that tell a human what to run. `tasks/` and
+# `docs/spec-*.md` are excluded deliberately — planning artefacts and archived
+# specs are *records*, and amending one to remove a command that existed when it
+# was written falsifies it. A repo-wide form is also unsatisfiable: `tasks/plan.md`
+# is tracked and names the command dozens of times, so the guard would fail on
+# the commit that introduced it. This file excludes itself for the same reason.
+INSTRUCTION_SURFACE = (
+    "src",
+    "tests",
+    "README.md",
+    "CLAUDE.md",
+    "data/README.md",
+    "docs/lega-legamiallerotaie2.md",
+    "docs/leghe-api.md",
+    ":!tests/test_token_secrecy.py",
+)
+
+
+def _grep(pattern: str) -> list[str]:
+    out = subprocess.run(
+        ["git", "grep", "-In", pattern, "--", *INSTRUCTION_SURFACE],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+    )
+    # git grep exits 1 when it finds nothing. That is the success case.
+    return [line for line in out.stdout.splitlines() if line]
+
+
+def test_nothing_tells_anyone_to_run_the_deleted_auth_command() -> None:
+    """SC 21. The command is gone; no file may still instruct someone to run it."""
+    hits = _grep("fantabot auth")
+
+    assert hits == [], (
+        "these still name the deleted command:\n  " + "\n  ".join(hits)
+    )
+
+
+def test_nothing_still_points_at_the_deleted_auth_module() -> None:
+    """The other half, and the one a command-name grep cannot see.
+
+    `CLAUDE.md` carried two references to `auth.py` that never contained the
+    string `fantabot auth`: a behavioural claim that it saves the bearer token,
+    and a working rule pointing at the module by name. Both survived the
+    command-name guard entirely.
+    """
+    hits = _grep(r"auth\.py")
+
+    assert hits == [], (
+        "these still point at the deleted module:\n  " + "\n  ".join(hits)
+    )

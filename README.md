@@ -69,18 +69,38 @@ pip install -e ".[dev]"
 playwright install chromium
 cp .env.example .env   # fill in LEGA_EMAIL / LEGA_PASSWORD / LEGA_URL / FANTABOT_LEAGUE_ID
 
+# generate an encryption key and paste it into .env as FANTABOT_ENCRYPTION_KEY.
+# It encrypts the bearer token at rest; without it `fantabot login` refuses to
+# open a browser. Never commit it, and never pass it on the command line.
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
 docker compose up -d    # Postgres on 54321, Adminer on http://localhost:18082
 alembic upgrade head
 fantabot db-import --all  # one-time seed from the CSVs in data/
 fantabot db-check         # health, per-table row counts and sizes
 
-fantabot auth           # interactive, opens a real browser — log in once
+fantabot login          # interactive, opens a real browser — log in once
+fantabot token-status   # what is stored, when it expires, whether it still works
 fantabot config-check   # sanity check env is loaded (secrets masked)
 pytest                  # decision logic; opens zero sockets
 pytest -m db            # integration tier, needs the stack above
 ```
 
 ## Storage
+
+**The `apileague` bearer token lives in Postgres, encrypted.** `fantabot login`
+opens a real browser, you sign in yourself, and it reads each lega's token out
+of `localStorage`, encrypts it with `FANTABOT_ENCRYPTION_KEY` and writes it to
+`league_tokens` keyed by lega. Nothing reads a token from disk.
+
+`data/storage_state.json` is **opt-in** now (`fantabot login --save-session`).
+It holds Playwright's cookies, and as of 2026-08-26 no working code path reads
+them — so the default run does not create it.
+
+What the key protects: a database dump, a shared Postgres, Adminer's web UI. It
+sits in `.env` beside the database password, so it does not protect against
+someone who can read `.env`. That is the honest boundary, and it is still
+strictly better than a plaintext token in a file that gets rsynced and backed up.
 
 Postgres is the source of truth. The CSVs in `data/` are the one-time seed it
 was built from and nothing reads them any more — the scrapers, the analysis
@@ -100,7 +120,9 @@ fantabot db-import --table voti --dry-run
 ## Commands
 
 ```bash
-fantabot auth            # one-time interactive login, saves data/storage_state.json
+fantabot login           # interactive login; stores each lega's token encrypted
+fantabot token-status    # stored / expires / state, per lega — works with no key
+fantabot token-forget    # remove one lega's row; --league required, no --all
 fantabot config-check    # print resolved settings, secrets masked
 fantabot db-check        # database health + per-table row counts and sizes
 fantabot db-import       # seed Postgres from data/ — needs --all or --table

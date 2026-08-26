@@ -115,14 +115,39 @@ with commas swapped for dots is still `38.46`, and `"38,46"` read as a plain
 decimal is `3846`. So there are two — `italian_decimal` and `plain_decimal` —
 and each refuses the other's format.
 
+### `league_tokens`
+
+One row per lega: the `apileague.fantacalcio.it` bearer token, encrypted with
+`FANTABOT_ENCRYPTION_KEY` (Fernet), keyed by `l_id`.
+
+| Column | Type | Note |
+|---|---|---|
+| `league_id` | `bigint` PK | The `l_id` claim. Same key as `bot_state`. |
+| `ciphertext` | `bytea` | The Fernet token. The only place the JWT exists. |
+| `key_fingerprint` | `varchar(16)` | `sha256(key)[:8]`, of the *key*. Turns a wrong-key failure into a sentence naming both keys. |
+| `issued_at` / `expires_at` | `timestamptz` | The `iat` / `exp` claims. **Plaintext by design** — `token-status` must answer "is it expired" when the key is missing, and `auth_headers` must refuse before opening a socket. |
+| `user_id` / `team_id` | `bigint` | The `user_id` / `t_id` claims. |
+| `league_name` | `text` | Display only. Never keyed or joined on. |
+| `captured_at` | `timestamptz` | When `login` wrote it. |
+| `last_seen_at` | `timestamptz` | Last login at which this lega appeared in `leagues[]`. A row behind the newest stamp is `ORPHANED`. |
+| `last_verified_at` | `timestamptz` NULL | Last `200` from the API. NULL = never confirmed. |
+
+Written by `fantabot login`, read through `TokenStore`, inspected with
+`fantabot token-status`, removed with `fantabot token-forget --league <id>`.
+Replaced rather than versioned: a superseded token is a live credential until
+its `exp`.
+
 ## Still read from disk
 
 - `mantra_schemi.json`, `mantra_compat.json` — the 11 Mantra schemas and the
   out-of-position matrix, collected once by `fantabot mantra-grid` and verified
   by hand. Tracked in git.
-- `storage_state.json` — Playwright's session snapshot, holding cookies and the
-  league-scoped bearer token. Git-ignored, and staying on disk only until the
-  encrypted-token work in SPEC open question 1.
+- `storage_state.json` — Playwright's cookies. **Opt-in and usually absent**:
+  `fantabot login` writes it only under `--save-session`, because as of
+  2026-08-26 no working code path reads it. Git-ignored either way.
+
+  It no longer holds the bearer token. That moved to `league_tokens`, encrypted
+  — see below.
 
 ## What the migration found
 
