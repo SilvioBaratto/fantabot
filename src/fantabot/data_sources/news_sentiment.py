@@ -9,116 +9,57 @@ rows are silent has no trailing average at all, and says so by returning ``None`
 This is the read side of ``fantabot news-fetch``. ``strategy.py`` does not consume
 it yet; wiring ``disponibilita``/``rigorista`` into ``decide_bid`` and
 ``titolarita`` into ``pick_starting_lineup`` is a later phase.
+
+**No longer a snapshot.** The CSV version slurped the whole file at construction
+and answered from that dict forever. ``auction.py``'s ``watch_and_bid`` polls for
+hours, so it would have held a frozen reading for the whole duration of an asta.
+Every call is a query now, and a row written after construction is visible to the
+next one.
+
+A missing file used to read as empty; an **unreachable database does not**. Those
+are different facts: an empty table means nobody has been queried yet, while a
+database that is down means the answer is unknown, and returning ``None`` for it
+would let a lineup be picked on silence that was never measured.
 """
 
 from __future__ import annotations
 
-import csv
-from collections import defaultdict
-from dataclasses import dataclass
-from pathlib import Path
+from sqlalchemy.orm import Session
 
-SCORES: tuple[str, ...] = (
-    "sentiment",
-    "disponibilita",
-    "titolarita",
-    "mercato",
-    "forma",
-    "rigorista",
-    "piazzati",
-    "confidenza",
+from fantabot.data_sources.models import (
+    SCORES,
+    RoleDrift,
+    SentimentRow,
+    TrailingSentiment,
 )
+from fantabot.db.repositories.sentiment import SentimentReadRepository
 
-
-@dataclass(frozen=True)
-class SentimentRow:
-    player_id: str
-    nome: str
-    data_run: str
-    sentiment: float
-    disponibilita: float
-    titolarita: float
-    mercato: float
-    forma: float
-    rigorista: float
-    piazzati: float
-    confidenza: float
-    ruolo_campo: str
-    ruoli_mantra: str
-    deriva_ruolo: float
-
-
-@dataclass(frozen=True)
-class TrailingSentiment:
-    player_id: str
-    rows_used: int
-    sentiment: float
-    disponibilita: float
-    titolarita: float
-    mercato: float
-    forma: float
-    rigorista: float
-    piazzati: float
-
-
-@dataclass(frozen=True)
-class RoleDrift:
-    player_id: str
-    nome: str
-    ruoli_mantra: str
-    """The frozen late-July tag."""
-    ruolo_campo: str
-    """What recent coverage says he is actually being played as."""
-    deriva_ruolo: float
+__all__ = [
+    "SCORES",
+    "NewsSentimentSource",
+    "RoleDrift",
+    "SentimentRow",
+    "TrailingSentiment",
+]
 
 
 class NewsSentimentSource:
-    """Query the appended CSV. A missing file reads as empty, not as an error."""
+    """Query the stored sentiment series. Holds a session, never a cached table."""
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
-        self._by_player: dict[str, list[SentimentRow]] = defaultdict(list)
-        self._load()
+    def __init__(self, session: Session) -> None:
+        self._repo = SentimentReadRepository(session)
 
     def latest(self, player_id: str) -> SentimentRow | None:
-        rows = self._by_player.get(player_id)
-        return rows[-1] if rows else None
+        """His most recent reading, or ``None`` if he has never been queried."""
+        return self._repo.latest(player_id)
 
     def trailing(self, player_id: str, weeks: int = 4) -> TrailingSentiment | None:
         """Mean of each score over the last ``weeks`` runs, silent rows excluded."""
-        window = [row for row in self._by_player.get(player_id, [])[-weeks:] if row.confidenza > 0]
-        if not window:
-            return None
-
-        def mean(name: str) -> float:
-            # float() around getattr: the attribute is typed float on SentimentRow,
-            # but getattr erases that to Any and mypy --strict rejects returning it.
-            return sum(float(getattr(row, name)) for row in window) / len(window)
-
-        return TrailingSentiment(
-            player_id=player_id,
-            rows_used=len(window),
-            sentiment=mean("sentiment"),
-            disponibilita=mean("disponibilita"),
-            titolarita=mean("titolarita"),
-            mercato=mean("mercato"),
-            forma=mean("forma"),
-            rigorista=mean("rigorista"),
-            piazzati=mean("piazzati"),
-        )
+        return self._repo.trailing(player_id, weeks)
 
     def drift(self, player_id: str) -> RoleDrift | None:
         """The latest role drift for one player, or ``None`` if the tag still holds."""
-        row = self.latest(player_id)
-        if row is None or row.deriva_ruolo <= 0:
-            return None
-        return RoleDrift(
-            player_id=row.player_id,
-            nome=row.nome,
-            ruoli_mantra=row.ruoli_mantra,
-            ruolo_campo=row.ruolo_campo,
-            deriva_ruolo=row.deriva_ruolo,
-        )
+        return self._repo.drift(player_id)
 
     def drifted(self) -> list[RoleDrift]:
         """Every player whose frozen Mantra tag no longer describes them, worst first.
@@ -127,25 +68,4 @@ class NewsSentimentSource:
         correct these tags, so this list is the only warning that a schema slot is
         being filled by someone who no longer plays there.
         """
-        found = [d for pid in self._by_player if (d := self.drift(pid)) is not None]
-        return sorted(found, key=lambda d: (-d.deriva_ruolo, d.player_id))
-
-    def _load(self) -> None:
-        if not self._path.exists():
-            return
-        with self._path.open(newline="", encoding="utf-8") as handle:
-            for raw in csv.DictReader(handle):
-                row = SentimentRow(
-                    player_id=raw["id"],
-                    nome=raw["nome"],
-                    data_run=raw["data_run"],
-                    ruolo_campo=raw["ruolo_campo"],
-                    ruoli_mantra=raw["ruoli_mantra"],
-                    deriva_ruolo=float(raw["deriva_ruolo"]),
-                    **{name: float(raw[name]) for name in SCORES},
-                )
-                self._by_player[row.player_id].append(row)
-        # Sorted by run date, so `latest` and the trailing window do not depend on
-        # the order rows happen to sit in the file.
-        for rows in self._by_player.values():
-            rows.sort(key=lambda r: r.data_run)
+        return self._repo.drifted()

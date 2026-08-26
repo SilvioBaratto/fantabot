@@ -17,6 +17,8 @@ from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
+from fantabot.data_sources.models import SCORES
+
 from .mantra import drift, parse_codes
 from .models import PlayerSentiment
 from .pool import PoolPlayer
@@ -46,16 +48,7 @@ COLUMNS: tuple[str, ...] = (
     "modello",
 )
 
-_SCORES: tuple[str, ...] = (
-    "sentiment",
-    "disponibilita",
-    "titolarita",
-    "mercato",
-    "forma",
-    "rigorista",
-    "piazzati",
-    "confidenza",
-)
+_SCORES: tuple[str, ...] = SCORES
 
 
 def build_row(
