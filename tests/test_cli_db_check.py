@@ -123,7 +123,7 @@ def test_the_dsn_password_is_not_printed_when_the_database_is_down(monkeypatch: 
 
 
 def test_it_does_not_need_league_credentials(monkeypatch: Any) -> None:
-    """db-check must work before `fantabot auth` has ever been run."""
+    """db-check must work before `fantabot login` has ever been run."""
     from fantabot import config
 
     _use_fake_session(monkeypatch)

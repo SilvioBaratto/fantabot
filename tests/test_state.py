@@ -64,7 +64,7 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
 def test_the_browser_chain_can_be_imported_with_no_database() -> None:
     """The guarantee moved, and this is where it moved to.
 
-    It used to be about `fantabot auth` — a command that no longer exists. What
+    It used to be about the `auth` command, which no longer exists. What
     survives it is the *import chain*: `state.py` and `browser.py` must load
     without a database, so `fantabot --help` never becomes a connection attempt
     (SPEC assumption 6).

@@ -316,3 +316,4 @@ def test_league_tokens_has_no_text_column_that_could_hold_a_jwt() -> None:
                 f"league_tokens.{column.name} is String({length}) — long enough "
                 "to hold something it should not"
             )
+

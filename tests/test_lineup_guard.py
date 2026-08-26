@@ -37,7 +37,7 @@ def test_lineup_no_longer_goes_through_the_flat_state_file() -> None:
 
 
 def test_importing_lineup_opens_no_connection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """It sits on the browser import chain, and `fantabot auth` has to keep
+    """It sits on the browser import chain, and `fantabot --help` has to keep
     working with the compose stack down."""
 
     def boom(*args: object, **kwargs: object) -> None:
