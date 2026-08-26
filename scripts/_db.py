@@ -5,15 +5,17 @@ Replaces three divergent copies of the same loaders. Before this module,
 ``analyze_low_minutes_bias.py:53`` and ``join_qi_bias_performance.py:48``, and
 ``load_prior_stats`` in the same three files — same intent, drifting details.
 
-**Every query has an explicit ORDER BY.** The CSV versions read a file, so row
-order was whatever the file held and was stable by accident. Postgres has no
+**Every query has an explicit ORDER BY.** These scripts used to read files, so
+row order was whatever the file held and was stable by accident. Postgres has no
 inherent order, and these scripts fit regressions over the rows they return: an
 unordered scan makes a model's coefficients wobble between runs for no reason
 anyone could see.
 
 The no-data handling that used to be ``if raw not in ("", "0,0")`` is now
-``media_fantavoto IS NOT NULL`` — the importers already collapsed both markers
-to NULL, which is the distinction those string comparisons were protecting.
+``media_fantavoto IS NOT NULL``. Both of the site's no-data spellings — an
+empty cell and the literal ``"0,0"`` — are collapsed to NULL on the way in by
+``fantabot.parsing.italian_decimal``, which is the distinction those string
+comparisons were protecting.
 
 Prerequisites this module adds to every script that imports it:
 ``pip install -e .`` and a running database (``docker compose up -d``).
@@ -161,13 +163,13 @@ def load_bias_rows(
 
 
 def _role_string(codes: list[str], listone: str) -> str:
-    """Reproduce the source files' role spelling from the normalised codes.
+    """Reproduce the historical role spelling from the normalised codes.
 
-    The two files never agreed: ``qi_bias_classic.csv`` writes a single
-    lower-case letter, ``qi_bias_mantra.csv`` a ``;``-joined upper-case set. The
-    importer normalised both to an upper-case array, so the spelling is
-    reconstructed here rather than in the table — the scripts group and print by
-    this string, and changing it would change their output for no reason.
+    The two listoni never agreed: Classic was written as a single lower-case
+    letter, Mantra as a ``;``-joined upper-case set. Both are stored as an
+    upper-case array, so the spelling is reconstructed here rather than in the
+    table — the scripts group and print by this string, and changing it would
+    change their output for no reason.
     """
     joined = ";".join(codes)
     return joined.lower() if listone == "classic" else joined
@@ -247,9 +249,9 @@ def upsert_target_price(
 ) -> int:
     """Write computed auction prices back. Idempotent.
 
-    ``stagione`` is passed in because the source CSV never carried one — it
-    lived in the filename — and the table makes it a real NOT NULL column so a
-    second season can coexist with this one.
+    ``stagione`` is passed in because the derivation itself never carried one
+    — historically it lived in a filename — and the table makes it a real
+    NOT NULL column so a second season can coexist with this one.
     """
     if not rows:
         return 0

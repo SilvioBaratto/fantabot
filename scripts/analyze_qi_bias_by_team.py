@@ -1,14 +1,14 @@
 """Roll up scripts/analyze_qi_bias.py's per-player QI-vs-QA bias by team.
 
-Reads data/qi_bias_{classic,mantra}.csv (produced by analyze_qi_bias.py) and
+Reads the qi_bias table (both listoni, produced by analyze_qi_bias.py) and
 groups by squadra to see whether some teams' whole rosters were
 systematically mispriced at QI time, and whether that bias repeats across
 seasons for the same team (persistent signal) or is a one-off (noise).
 
-squadra here comes straight from quotazioni_classic.csv / quotazioni_mantra.csv
-via the qi_bias CSVs — that field is scraped per-player, season-aggregate,
-and confirmed clean (unlike voti.csv/bonus_malus.csv, which mislabel squadra
-as the fixture's home team for every row in the match block — see the
+squadra here comes straight from quotazioni.squadra via qi_bias.squadra —
+that field is scraped per-player, season-aggregate, and confirmed clean
+(unlike voti.squadra_raw / bonus_malus.squadra_raw, which mislabel it as the
+fixture's home team for every row in the match block — see the
 GiornataParser docstring in scrape_voti.py; that bug is orthogonal to this
 script and doesn't affect it).
 
@@ -23,7 +23,11 @@ large but the median is near zero (or opposite sign) means the "team-wide"
 bias is really 1-2 outlier players dragging the average, not a genuine
 squad-wide mispricing pattern — flagged as "outlier-driven" in the table.
 
-Reads from Postgres: `docker compose up -d && fantabot db-import --all` first.
+Reads from Postgres. On a fresh database, populate it first:
+
+    docker compose up -d && alembic upgrade head
+    python scripts/scrape_quotazioni.py     # players, teams, quotazioni
+    python scripts/analyze_qi_bias.py       # qi_bias
 
 Usage:
     python scripts/analyze_qi_bias_by_team.py [--min-qi 3] [--top-n 15]

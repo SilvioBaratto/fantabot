@@ -17,7 +17,7 @@ season-long consistency.
 - **Fantamedia** — average fantavoto across the player's appearances this season.
 
 This maps to the `qi`/`qa`/`fvm` columns already in our scraped
-`quotazioni_classic.csv` / `quotazioni_mantra.csv`.
+the `quotazioni` table, one row per player per listone.
 
 ## Update Algorithm
 

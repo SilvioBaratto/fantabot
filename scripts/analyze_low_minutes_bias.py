@@ -19,7 +19,12 @@ get a stable "above/below role median rate" threshold. Excludes qi<=2 rows
 join_qi_bias_performance.py, only uses 2023/24-2025/26 (each has a real
 prior season inside our data window).
 
-Reads from Postgres: `docker compose up -d && fantabot db-import --all` first.
+Reads from Postgres. On a fresh database, populate it first:
+
+    docker compose up -d && alembic upgrade head
+    python scripts/scrape_quotazioni.py     # players, teams, quotazioni
+    python scripts/analyze_qi_bias.py       # qi_bias
+    python scripts/scrape_statistiche.py    # statistiche
 
 Usage:
     python scripts/analyze_low_minutes_bias.py [--min-qi 2]

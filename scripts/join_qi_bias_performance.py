@@ -1,8 +1,8 @@
 """Test whether QI misses were foreseeable from data editors already had, or genuine surprises.
 
-For every qi_bias_{classic,mantra}.csv row (season N, how wrong QI(N) turned
-out to be vs QA(N)), look up that same player's PRIOR season (N-1) output
-from statistiche_{classic,mantra}.csv — media_fantavoto and partite_giocate,
+For every qi_bias row (season N, how wrong QI(N) turned out to be vs QA(N)),
+look up that same player's PRIOR season (N-1) output from the statistiche
+table — media_fantavoto and partite_giocate,
 both public knowledge before QI(N) was ever set. Two buckets:
 
   - no_prior_data: player has no row in our data for season N-1 (new to
@@ -21,7 +21,12 @@ our data window); 2022/23 is dropped from this join entirely since we can't
 tell "no prior data because dataset starts here" apart from "no prior data
 because genuinely new" — would bias the no_prior_data bucket.
 
-Reads from Postgres: `docker compose up -d && fantabot db-import --all` first.
+Reads from Postgres. On a fresh database, populate it first:
+
+    docker compose up -d && alembic upgrade head
+    python scripts/scrape_quotazioni.py     # players, teams, quotazioni
+    python scripts/analyze_qi_bias.py       # qi_bias
+    python scripts/scrape_statistiche.py    # statistiche
 
 Usage:
     python scripts/join_qi_bias_performance.py [--min-appearances 10] [--top-n 15]
@@ -87,7 +92,8 @@ def main() -> None:
 
         if not bias_rows:
             console.print(
-                f"[yellow]{system}: no qi_bias rows — run `fantabot db-import --all`[/yellow]"
+                f"[yellow]{system}: no qi_bias rows — "
+                f"run `python scripts/analyze_qi_bias.py` first[/yellow]"
             )
             continue
 

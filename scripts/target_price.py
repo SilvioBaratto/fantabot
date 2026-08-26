@@ -35,7 +35,7 @@ and scripts/analyze_qi_bias_by_team.py's output on 2022/23-2025/26:
    other team's signal either collapsed to median~0% (outlier-driven, see
    that script's output) or came from a 1-2 season sample too thin to trust
    — deliberately NOT generalized into a per-team table. Recomputed here
-   from qi_bias_classic.csv rather than hardcoded, so it stays in sync if
+   from the qi_bias table rather than hardcoded, so it stays in sync if
    the underlying data changes.
 
 Explicitly NOT applied — the low-minutes-good-rate idea was tested in
@@ -63,8 +63,8 @@ median — the fade line, fit by OLS on means, runs a bit optimistic
 relative to median outcomes generally; a minor calibration gap, not
 specific to these two teams, not chased further here.)
 
-Mantra role bucketing: Mantra's ~30 role codes in quotazioni_mantra.csv are
-mostly compound (e.g. "B;DD;DS", "W;T;A") and mostly tiny — the exact-code
+Mantra role bucketing: Mantra's ~30 role codes in quotazioni (listone
+'mantra') are mostly compound (e.g. "B;DD;DS", "W;T;A") and mostly tiny — the exact-code
 per-role breakdown in join_qi_bias_performance.py's mantra output has n<20
 for most codes, far below what an OLS fit can trust. Fitting the fade per
 exact code the way classic's 4 clean roles allow isn't viable. Instead each
@@ -81,7 +81,7 @@ control for:
 M (mediano) was first tried folded into DEF on the reasoning that a
 destroyer-type mid's scoring baseline is closer to a defender's — wrong in
 practice: checked every compound code M actually appears in
-(quotazioni_mantra.csv 2026/27) and it's only ever "M", "M;C", or "E;M",
+(quotazioni, listone 'mantra', 2026/27) and it's only ever "M", "M;C", or "E;M",
 never paired with a defensive code. "M;C" alone is 66/259 compound-role
 players (Lobotka, Locatelli, Modric, Calhanoglu, Rovella...) — a real mix
 of destroyers and advanced playmakers, but never defenders. M now folds
@@ -380,9 +380,9 @@ def main() -> None:
     rows = compute_target_prices(args.system)
 
 
-    # Database only. The CSV writer was removed on 2026-08-26, once the port had
-    # been verified row-for-row against the pre-port capture;
-    # data/target_price_2026_27_*.csv are historical from here on.
+    # Database only. The CSV writer was removed on 2026-08-26, once the port
+    # had been verified row-for-row against the pre-port capture. The
+    # target_price table is the record from here on.
     with _db.session() as handle:
         stored = _db.upsert_target_price(
             handle,
