@@ -386,3 +386,52 @@ def upsert_statistiche(handle: Session, rows: list[dict[str, object]]) -> int:
         rows,
     )
     return len(rows)
+
+
+def upsert_match_grain(handle: Session, voti: list[dict], bonus: list[dict]) -> tuple[int, int]:
+    """Write one matchday's rows to both match-grain tables.
+
+    Two passes per table, one per partial unique index: a single INSERT names
+    exactly one conflict target, and these tables have two — rows with a player
+    and coach rows, which are disjoint. Repeating each index's predicate is what
+    makes the statement legal, not an optimisation.
+    """
+    from fantabot.db.importers.matches import upsert_two_passes
+    from fantabot.db.models.matches import BonusMalus, Voto
+
+    if voti:
+        handle.execute(
+            text(
+                "INSERT INTO players (id, nome) VALUES (:player_id, :nome) "
+                "ON CONFLICT (id) DO NOTHING"
+            ),
+            [
+                {"player_id": r["player_id"], "nome": r["nome"]}
+                for r in voti
+                if r["player_id"] is not None
+            ],
+        )
+        upsert_two_passes(
+            handle,
+            Voto,
+            voti,
+            updatable=(
+                "data", "ora", "squadra_raw", "avversario_raw", "gol_squadra",
+                "gol_avversario", "nome", "ruolo_codice", "ruolo", "voto_fc",
+                "fantavoto_fc", "voto_stat", "fantavoto_stat", "voto_italia",
+                "fantavoto_italia",
+            ),
+        )
+    if bonus:
+        upsert_two_passes(
+            handle,
+            BonusMalus,
+            bonus,
+            updatable=(
+                "data", "squadra_raw", "avversario_raw", "nome", "ruolo_codice",
+                "ruolo", "ammonizione", "espulsione", "gol_segnati", "gol_subiti",
+                "autoreti", "rigori_segnati", "rigori_sbagliati", "rigori_parati",
+                "assist", "mvp",
+            ),
+        )
+    return len(voti), len(bonus)

@@ -43,6 +43,12 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
+from fantabot.db.importers._csv import italian_decimal  # noqa: E402
+from fantabot.db.importers.matches import parse_date, parse_time  # noqa: E402
+
 BASE_URL = "https://www.fantacalcio.it/voti-fantacalcio-serie-a"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -318,18 +324,76 @@ def fetch_giornata(season: str, giornata: int, html: str | None = None) -> list[
     return parser.rows
 
 
-def fetch_season(season: str) -> list[PlayerMatchRow]:
+def store_giornata(rows: list[PlayerMatchRow]) -> int:
+    """Commit one matchday. Per-giornata rather than one batch at the end, so a
+    run killed at giornata 30 keeps the first 29 and restarting is cheap — the
+    upsert makes re-fetching a stored matchday a no-op."""
+    if not rows:
+        return 0
+    voti, bonus = to_payloads(rows)
+    with _db.session() as handle:
+        _db.upsert_match_grain(handle, voti, bonus)
+    return len(rows)
+
+
+def fetch_season(season: str) -> int:
     first_html = fetch_html(giornata_url(season, 1))
     last_giornata = max_giornata(first_html)
     print(f"  {season}: {last_giornata} giornate")
 
-    rows: list[PlayerMatchRow] = fetch_giornata(season, 1, html=first_html)
+    stored = store_giornata(fetch_giornata(season, 1, html=first_html))
     for g in range(2, last_giornata + 1):
         time.sleep(REQUEST_DELAY_SECONDS)
         g_rows = fetch_giornata(season, g)
-        rows.extend(g_rows)
+        stored += store_giornata(g_rows)
         print(f"    giornata {g}/{last_giornata}: {len(g_rows)} player-rows")
-    return rows
+    return stored
+
+
+def to_payloads(rows: list[PlayerMatchRow]) -> tuple[list[dict], list[dict]]:
+    """One scraped row becomes one voti row and one bonus_malus row."""
+
+    def counter(raw: str) -> int:
+        return int(raw) if str(raw).strip() else 0
+
+    voti: list[dict] = []
+    bonus: list[dict] = []
+    for r in rows:
+        player_id = int(r.player_id) if r.player_id else None
+        shared = {
+            "stagione": r.season,
+            "giornata": r.giornata,
+            "data": parse_date(r.date),
+            "squadra_raw": r.team,
+            "avversario_raw": r.opponent,
+            "player_id": player_id,
+            "nome": r.name,
+            "ruolo_codice": r.role_code.upper(),
+            "ruolo": r.role_label,
+        }
+        voti.append(
+            {
+                **shared,
+                "ora": parse_time(r.time),
+                "gol_squadra": counter(r.goals_for),
+                "gol_avversario": counter(r.goals_against),
+                "voto_fc": italian_decimal(r.voto_fc),
+                "fantavoto_fc": italian_decimal(r.fantavoto_fc),
+                "voto_stat": italian_decimal(r.voto_stat),
+                "fantavoto_stat": italian_decimal(r.fantavoto_stat),
+                "voto_italia": italian_decimal(r.voto_italia),
+                "fantavoto_italia": italian_decimal(r.fantavoto_italia),
+            }
+        )
+        bonus.append(
+            {
+                **shared,
+                "ammonizione": int(r.ammonizione),
+                "espulsione": int(r.espulsione),
+                **{k: counter(r.bonus.get(k, "")) for k in BONUS_KEYS},
+            }
+        )
+    return voti, bonus
 
 
 def write_voti_csv(rows: list[PlayerMatchRow], path: Path) -> None:
@@ -423,9 +487,6 @@ def write_bonus_malus_csv(rows: list[PlayerMatchRow], path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("data"), help="Directory to write CSVs into"
-    )
-    parser.add_argument(
         "--seasons",
         nargs="+",
         default=DEFAULT_SEASONS,
@@ -433,24 +494,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    all_rows: list[PlayerMatchRow] = []
+    total = 0
     for i, season in enumerate(args.seasons):
         if i > 0:
             time.sleep(REQUEST_DELAY_SECONDS)
-        all_rows.extend(fetch_season(season))
+        total += fetch_season(season)
 
-    if not all_rows:
+    if not total:
         print("No player rows found for any season — page structure may have changed.", file=sys.stderr)
         raise SystemExit(1)
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    voti_path = args.out_dir / "voti.csv"
-    bonus_path = args.out_dir / "bonus_malus.csv"
-
-    write_voti_csv(all_rows, voti_path)
-    write_bonus_malus_csv(all_rows, bonus_path)
-
-    print(f"{len(all_rows)} total player-match rows across {len(args.seasons)} seasons -> {voti_path}, {bonus_path}")
+    print(f"{total} player-match rows across {len(args.seasons)} seasons -> voti + bonus_malus")
 
 
 if __name__ == "__main__":
