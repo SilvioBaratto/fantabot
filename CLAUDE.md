@@ -149,8 +149,12 @@ alembic check                # models and migrations agree?
   thing: it is opinion and availability, not per-matchday projected scores.
 - **Bearer token**: still a git-ignored file. The decision is made — encrypted
   in Postgres, written by a CLI login flow that re-authenticates on expiry —
-  but it is the next phase. See `SPEC.md` open question 1.
-- **Mantra vs Classic**: the user plays **both**, one league each. `models.Role`
+  but it is the next phase, and `SPEC.md` is now that spec in full.
+- **Mantra vs Classic**: the user plays **both**, one league each — and as of
+  2026-08-26 we know which is which: **`3584692` (Legamiallerotaie) is Classic**
+  (`sroles=1`, `minrl=[3,8,8,6]`, 25-man) and **`4103937` (Legamiallerotaie2) is
+  Mantra** (`sroles=2`, `minrl=[2,28]`, 30-man). By elimination from the roster
+  settings endpoint, not from field names — see `docs/leghe-api.md`. `models.Role`
   (P/D/C/A) and `VALID_FORMATIONS` (7 Classic tuples) are Classic-only, so
   `strategy.pick_starting_lineup` cannot field a Mantra XI at all — Mantra has 12
   role codes across 11 schemas on four lines. `data/mantra_schemi.json` is now on
