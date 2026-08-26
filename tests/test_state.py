@@ -39,18 +39,26 @@ def test_state_no_longer_carries_runtime_state() -> None:
     assert not hasattr(state, "_DEFAULT_STATE")
 
 
-def test_state_does_not_import_the_database() -> None:
-    """auth.py and browser.py sit on this import chain, and `fantabot auth` has
-    to work before a database exists."""
-    # Import statements, not prose: the module docstring names fantabot.db to
-    # explain why it must not import it.
+@pytest.mark.parametrize("module", ["state.py", "browser.py"])
+def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
+    """SPEC's Never list names **both** files, and only one was ever checked.
+
+    `browser.py` was covered by nothing: this test read `state.py` alone, and
+    after `fantabot login` replaces `auth`, `fantabot.cli` no longer pulls in
+    `browser` at all — so no other test catches it incidentally either, while
+    `login.py` legitimately imports both `browser` and `fantabot.db`.
+
+    Import statements, not prose: both module docstrings name `fantabot.db` in
+    order to explain why they must not import it.
+    """
     imports = [
         line
-        for line in Path("src/fantabot/state.py").read_text().splitlines()
+        for line in Path(f"src/fantabot/{module}").read_text().splitlines()
         if line.startswith(("import ", "from "))
     ]
+    offenders = [line for line in imports if "fantabot.db" in line or "sqlalchemy" in line]
 
-    assert not [line for line in imports if "fantabot.db" in line or "sqlalchemy" in line]
+    assert offenders == [], f"src/fantabot/{module} reaches the database: {offenders}"
 
 
 def test_the_auth_path_can_be_imported_with_no_database() -> None:

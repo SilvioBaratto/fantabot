@@ -1,6 +1,6 @@
 from rich.console import Console
 
-from fantabot import browser
+from fantabot import browser, state
 from fantabot.config import settings
 
 console = Console()
@@ -22,4 +22,9 @@ def run() -> None:
         page = ctx.new_page()
         page.goto(url)
         input("Press Enter once you're logged in and see your league home page... ")
+        # The write moved here from browser.py's `finally` so the caller can opt
+        # out. This command keeps doing it unconditionally, so its behaviour is
+        # byte-identical until `fantabot login` replaces it.
+        settings.fantabot_data_dir.mkdir(parents=True, exist_ok=True)
+        ctx.storage_state(path=str(state.storage_state_path()))
     console.print(f"[green]Session saved to {settings.fantabot_storage_state}[/green]")
