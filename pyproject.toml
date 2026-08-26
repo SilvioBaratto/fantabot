@@ -17,6 +17,9 @@ dependencies = [
     "sqlalchemy>=2.0.50",
     "alembic>=1.18.4",
     "psycopg2-binary>=2.9.12",
+    "cryptography>=45",
+    "pyjwt>=2.9",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
