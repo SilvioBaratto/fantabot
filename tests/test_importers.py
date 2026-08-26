@@ -265,7 +265,8 @@ class TestQuotazioniRows:
         mantra = next(r for r in quotazioni_rows(tmp_path) if r["listone"] == "mantra")
 
         assert mantra["ruoli_codice"] == ["B", "DS", "E"]
-        assert mantra["ruoli"] == ["BRACCETTO", "DIF.", "ESTERNO"]
+        # Codes normalised, labels left as written — see the casing test below.
+        assert mantra["ruoli"] == ["Braccetto", "Dif.", "Esterno"]
 
     def test_the_club_code_is_upper_cased_to_match_teams(self, tmp_path: Path) -> None:
         """quotazioni_classic writes 'ata' in this fixture; the composite
@@ -505,3 +506,21 @@ class TestVotiRows:
         self._write(tmp_path, "7", "c")
 
         assert voti_rows(tmp_path)[0]["voto_fc"] == Decimal("6.25")
+
+
+def test_role_labels_keep_their_casing_but_codes_do_not(tmp_path: Path) -> None:
+    """The CSV writes "Attaccante" and "a" on the same row. The code is
+    normalised because three files spell it three ways; the label is prompt
+    text and must survive as written — news/prompt.py puts it in front of the
+    model, and "ATTACCANTE" is not what a human wrote.
+    """
+    (tmp_path / "quotazioni_classic.csv").write_text(
+        "stagione,id,nome,squadra,ruolo_codice,ruolo,qi,qa,fvm\n"
+        "2026/27,5995,De Ketelaere,ATA,a,Attaccante,17,17,106\n",
+        encoding="utf-8",
+    )
+
+    row = quotazioni_rows(tmp_path)[0]
+
+    assert row["ruoli_codice"] == ["A"]
+    assert row["ruoli"] == ["Attaccante"]

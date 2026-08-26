@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from fantabot.db.importers import ImportResult
-from fantabot.db.importers._csv import split_codes
+from fantabot.db.importers._csv import split_codes, split_flags
 from fantabot.db.models.reference import Quotazione
 
 # filename, listone, code column, label column
@@ -51,7 +51,8 @@ def read_rows(data_dir: Path) -> list[dict[str, Any]]:
                         "listone": listone,
                         "squadra": row["squadra"].strip().upper(),
                         "ruoli_codice": split_codes(row[code_column]),
-                        "ruoli": split_codes(row[label_column]),
+                        # Labels, not codes: "Attaccante" must not become "ATTACCANTE".
+                        "ruoli": split_flags(row[label_column]),
                         "qi": int(row["qi"]),
                         "qa": int(row["qa"]),
                         "fvm": int(row["fvm"]),

@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from fantabot.db.importers import ImportResult
-from fantabot.db.importers._csv import italian_decimal, split_codes
+from fantabot.db.importers._csv import italian_decimal, split_codes, split_flags
 from fantabot.db.models.reference import Statistica
 
 _FILES: tuple[tuple[str, str, str, str], ...] = (
@@ -71,7 +71,8 @@ def read_rows(data_dir: Path) -> list[dict[str, Any]]:
                     "listone": listone,
                     "squadra": row["squadra"].strip().upper(),
                     "ruoli_codice": split_codes(row[code_column]),
-                    "ruoli": split_codes(row[label_column]),
+                    # Labels, not codes: "Attaccante" must not become "ATTACCANTE".
+                    "ruoli": split_flags(row[label_column]),
                     "media_voto": italian_decimal(row["media_voto"]),
                     "media_fantavoto": italian_decimal(row["media_fantavoto"]),
                 }
