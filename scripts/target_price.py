@@ -327,11 +327,8 @@ def compute_target_prices(system: str) -> list[TargetPriceRow]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--system", choices=["classic", "mantra"], default="classic")
-    parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--top-n", type=int, default=15)
     args = parser.parse_args()
-    out_path = args.out or Path("data") / f"target_price_2026_27_{args.system}.csv"
-
     fades = fit_role_fades(args.system)
     console.print(f"[bold]{args.system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
     fade_table = Table()
@@ -370,26 +367,10 @@ def main() -> None:
 
     rows = compute_target_prices(args.system)
 
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["id", "nome", "squadra", "role", "macro_role", "qi", "prior_media_fantavoto", "predicted_pct_delta",
-             "team_factor", "target_price", "flags"]
-        )
-        for r in rows:
-            writer.writerow(
-                [
-                    r.id, r.nome, r.squadra, r.role, r.macro_role, r.qi,
-                    f"{r.prior_media_fantavoto:.2f}" if r.prior_media_fantavoto is not None else "",
-                    f"{r.predicted_pct_delta:+.1f}" if r.predicted_pct_delta is not None else "",
-                    f"{r.team_factor:.3f}", r.target_price, r.flags,
-                ]
-            )
-    console.print(f"wrote {out_path} ({len(rows)} rows)")
 
-    # The database is the source of truth; the CSV above is kept until its
-    # removal is confirmed, so the output stays diffable against the pre-port
-    # capture. Both are written from the same rows, so they cannot disagree.
+    # Database only. The CSV writer was removed on 2026-08-26, once the port had
+    # been verified row-for-row against the pre-port capture;
+    # data/target_price_2026_27_*.csv are historical from here on.
     with _db.session() as handle:
         stored = _db.upsert_target_price(
             handle,

@@ -30,7 +30,7 @@ column tells them apart.
 | `quotazioni` | player × season × listone | 6,402 | `scripts/scrape_quotazioni.py` |
 | `statistiche` | player × season × listone × fonte | 16,068 | `scripts/scrape_statistiche.py` |
 | `qi_bias` | player × season × listone | 5,356 | `scripts/analyze_qi_bias.py` |
-| `target_price` | player × season × listone | 1,046 | `scripts/target_price.py` |
+| `target_price` | player × season × listone | 1,046 → 1,088 | `scripts/target_price.py` |
 | `voti` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
 | `bonus_malus` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
 | `player_sentiment` | player × run day | 0 | `fantabot news-fetch --write` |
@@ -131,8 +131,8 @@ Two things that were invisible while the data lived in files:
 - **The 2026/27 listone grew from 523 players to 544** on 2026-08-26, when the
   first database-backed scrape picked up 21 signings added since the CSVs were
   captured on 2026-08-19 — Elmas to Atalanta, Badiashile to Napoli, Grabara to
-  Juventus among them. Nothing was dropped. `target_price` has priced 523 of
-  them, so the 21 newcomers currently have no target price.
+  Juventus among them. Nothing was dropped, and re-running `target_price.py`
+  priced all 544 — the 21 newcomers included.
 - **`voti.csv` has no blank cells at all**, in any of its six grade columns
   across 50,634 rows. The blanks are in `target_price`. Earlier notes described
   the opposite.

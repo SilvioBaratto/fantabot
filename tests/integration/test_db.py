@@ -207,19 +207,30 @@ class TestQiBiasSeed:
 class TestTargetPriceSeed:
     """The only table whose numbers get spent as real credits."""
 
-    def test_523_priced_players_per_listone_all_in_one_season(
-        self, db_session: Session
-    ) -> None:
+    def test_every_player_in_the_listone_has_a_price(self, db_session: Session) -> None:
+        """Not a fixed 523: the pool grew to 544 on 2026-08-26. What must hold
+        is that nobody in the current listone is unpriced — an unpriced player
+        is one the bidding logic has no opinion about."""
+        unpriced = db_session.execute(
+            text(
+                "SELECT count(*) FROM quotazioni q WHERE q.stagione = '2026/27' "
+                "AND NOT EXISTS (SELECT 1 FROM target_price t "
+                "WHERE t.stagione = q.stagione AND t.player_id = q.player_id "
+                "AND t.listone = q.listone)"
+            )
+        ).scalar()
+        assert unpriced == 0
+
+    def test_prices_are_scoped_to_one_season(self, db_session: Session) -> None:
+        """The column the source file never had. Without it a second season's
+        prices would overwrite this one's."""
         rows = db_session.execute(
             text(
-                "SELECT listone, count(*), count(DISTINCT stagione), min(stagione) "
+                "SELECT listone, count(DISTINCT stagione), min(stagione) "
                 "FROM target_price GROUP BY 1 ORDER BY 1"
             )
         ).all()
-        assert rows == [
-            ("classic", 523, 1, "2026/27"),
-            ("mantra", 523, 1, "2026/27"),
-        ]
+        assert rows == [("classic", 1, "2026/27"), ("mantra", 1, "2026/27")]
 
     def test_absent_priors_are_null_and_a_zero_forecast_is_not(
         self, db_session: Session
@@ -233,7 +244,11 @@ class TestTargetPriceSeed:
                 "count(*) FILTER (WHERE predicted_pct_delta = 0) FROM target_price"
             )
         ).one()
-        assert (null_prior, null_pred, real_zero) == (320, 726, 1)
+        # Floors, not fixtures — the pool grows. At the seed these were 320 and
+        # 726. What matters is that absence stays absent and zero stays zero.
+        assert null_prior >= 320
+        assert null_pred >= 726
+        assert real_zero >= 1
 
     def test_flags_are_never_null_and_keep_their_casing(self, db_session: Session) -> None:
         empty, nulls, two = db_session.execute(
@@ -243,7 +258,11 @@ class TestTargetPriceSeed:
                 "count(*) FILTER (WHERE cardinality(flags) = 2) FROM target_price"
             )
         ).one()
-        assert (empty, nulls, two) == (276, 0, 70)
+        # NULL is the one that must never happen: "no flags" is a fact, not a
+        # missing value. The other two were 276 and 70 at the seed.
+        assert nulls == 0
+        assert empty >= 276
+        assert two >= 70
 
         lowercase = db_session.execute(
             text(
