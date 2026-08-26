@@ -5,10 +5,13 @@ from fantabot.db.repositories.admin import AdminRepository, UnknownTableError
 from fantabot.db.repositories.reference import QuotazioneRow, ReferenceRepository
 from fantabot.db.repositories.runtime import AuctionRepository, RuntimeRepository
 from fantabot.db.repositories.sentiment import SentimentReadRepository, SentimentRepository
+from fantabot.db.repositories.tokens import UPSERT_COLUMNS, LeagueTokenRepository
 
 __all__ = [
+    "UPSERT_COLUMNS",
     "AdminRepository",
     "AuctionRepository",
+    "LeagueTokenRepository",
     "QuotazioneRow",
     "ReferenceRepository",
     "RepositoryBase",

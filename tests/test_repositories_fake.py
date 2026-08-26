@@ -264,3 +264,136 @@ class TestDriftedIsOneStatement:
         sql = session.statements[0].upper()
         assert "DISTINCT ON" in sql
         assert "ORDER BY" in sql
+
+
+class TestLeagueTokenRepository:
+    """The token store's SQL, verified without a database.
+
+    The upsert is the dangerous one. Its `SET` clause has to name every mutable
+    column, and the failure mode of missing one is silent and inverted: a row
+    carrying a new ciphertext beside an old fingerprint makes `decrypt` tell the
+    operator to restore a key that is not the problem.
+    """
+
+    @staticmethod
+    def _row() -> Any:
+        from datetime import UTC, datetime
+
+        from fantabot.db.models.tokens import LeagueToken
+
+        now = datetime(2026, 8, 26, tzinfo=UTC)
+        return LeagueToken(
+            league_id=4103937,
+            ciphertext=b"gAAAAA-not-a-real-fernet-token",
+            key_fingerprint="4f2a1c8e",
+            issued_at=now,
+            expires_at=datetime(2027, 8, 19, tzinfo=UTC),
+            user_id=20000003,
+            team_id=10000003,
+            league_name="Legamiallerotaie2",
+            captured_at=now,
+            last_seen_at=now,
+            last_verified_at=None,
+        )
+
+    def test_upsert_issues_exactly_one_statement(self) -> None:
+        session = _session()
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        LeagueTokenRepository(session).upsert(self._row())
+
+        assert len(session.statements) == 1
+        assert "ON CONFLICT (league_id) DO UPDATE" in session.statements[0]
+
+    def test_the_set_clause_names_every_mutable_column(self) -> None:
+        """Derived from the model, so a column added later fails here.
+
+        A hand-written list is exactly how `key_fingerprint` gets dropped.
+        """
+        from fantabot.db.models.tokens import LeagueToken
+        from fantabot.db.repositories.tokens import UPSERT_COLUMNS, LeagueTokenRepository
+
+        expected = {
+            c.name for c in LeagueToken.__table__.columns
+        } - {"league_id", "created_at"}
+        assert set(UPSERT_COLUMNS) == expected
+
+        session = _session()
+        LeagueTokenRepository(session).upsert(self._row())
+        set_clause = session.statements[0].split("DO UPDATE SET", 1)[1]
+
+        for column in expected:
+            assert f"{column} =" in set_clause, f"{column} is not overwritten by the upsert"
+
+    def test_the_fingerprint_is_overwritten_alongside_the_ciphertext(self) -> None:
+        """Named explicitly because this is the trap the derived list prevents."""
+        session = _session()
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        LeagueTokenRepository(session).upsert(self._row())
+        set_clause = session.statements[0].split("DO UPDATE SET", 1)[1]
+
+        assert "ciphertext =" in set_clause
+        assert "key_fingerprint =" in set_clause
+
+    def test_last_verified_at_is_reset_by_an_upsert(self) -> None:
+        """A new credential is not verified because its predecessor was."""
+        session = _session()
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        row = self._row()
+        from datetime import UTC, datetime
+
+        row.last_verified_at = datetime(2026, 8, 26, tzinfo=UTC)
+        LeagueTokenRepository(session).upsert(row)
+
+        assert "last_verified_at =" in session.statements[0].split("DO UPDATE SET", 1)[1]
+
+    def test_touch_last_seen_with_an_empty_list_issues_no_statement(self) -> None:
+        session = _session()
+        from datetime import UTC, datetime
+
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        LeagueTokenRepository(session).touch_last_seen([], datetime.now(UTC))
+
+        assert session.statements == []
+
+    def test_touch_last_seen_batches_into_one_statement(self) -> None:
+        """`login --league X` stamps every lega it saw while rewriting only X."""
+        session = _session()
+        from datetime import UTC, datetime
+
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        LeagueTokenRepository(session).touch_last_seen([3584692, 4103937], datetime.now(UTC))
+
+        assert len(session.statements) == 1
+        assert "UPDATE league_tokens" in session.statements[0]
+
+    def test_all_rows_orders_explicitly(self) -> None:
+        """Postgres has no inherent row order; unordered output would shuffle."""
+        session = _session([])
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        LeagueTokenRepository(session).all_rows()
+
+        assert "ORDER BY league_tokens.league_id" in session.statements[0]
+
+    def test_all_rows_selects_no_ciphertext(self) -> None:
+        """Nothing that renders a status needs one, so nothing gets one."""
+        session = _session([])
+        from fantabot.db.repositories.tokens import LeagueTokenRepository
+
+        LeagueTokenRepository(session).all_rows()
+
+        assert "ciphertext" not in session.statements[0]
+
+    def test_the_repository_never_imports_the_cipher(self) -> None:
+        """Decryption is the store's job, and the store is the only site."""
+        from pathlib import Path
+
+        source = Path("src/fantabot/db/repositories/tokens.py").read_text()
+
+        assert "tokens.crypto" not in source
+        assert "decrypt(" not in source
