@@ -17,6 +17,17 @@ class Settings(BaseSettings):
 
     fantabot_auto_act: bool = False
 
+    # The driver must stay +psycopg2. SPEC assumption 3: fantabot is a batch
+    # process, and `postgresql+asyncpg://` breaks `alembic upgrade head`.
+    fantabot_database_url: str = Field(
+        default="postgresql+psycopg2://postgres:postgres@localhost:54321/fantabot",
+        repr=False,
+    )
+    # Host-side ports only; the containers always listen on 5432 and 8080.
+    # 54320/18081 belong to optimizer and 5433/8090 to clipcraft.
+    fantabot_db_host_port: int = 54321
+    fantabot_adminer_host_port: int = 18082
+
     stats_source_base_url: str = ""
     stats_source_api_key: str = Field(default="", repr=False)
 

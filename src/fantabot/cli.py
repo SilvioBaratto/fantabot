@@ -19,11 +19,23 @@ def auth() -> None:
 
 @app.command()
 def config_check() -> None:
-    """Print resolved settings (with the API key masked) — sanity check before running anything."""
+    """Print resolved settings (secrets masked) — sanity check before running anything."""
+    from sqlalchemy.engine import make_url
+
     from fantabot.config import settings
 
-    console.print(settings.model_dump(exclude={"stats_source_api_key"}))
+    # Cron captures stdout, so anything printed here outlives the run in a log
+    # file. `lega_password` was being dumped verbatim before the DSN existed —
+    # `repr=False` does not suppress `model_dump`, which is why the exclude set
+    # is the only thing standing between a secret and the log.
+    secrets = {"stats_source_api_key", "lega_password", "fantabot_database_url"}
+    console.print(settings.model_dump(exclude=secrets))
     console.print(f"stats_source_api_key set: {bool(settings.stats_source_api_key)}")
+    console.print(f"lega_password set: {bool(settings.lega_password)}")
+
+    # An invalid DSN should fail loudly here rather than at the first connect.
+    dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
+    console.print(f"fantabot_database_url: {dsn}")
 
 
 @app.command()
