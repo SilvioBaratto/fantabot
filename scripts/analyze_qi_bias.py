@@ -28,6 +28,7 @@ the mispricing was *justified* by performance or not).
 from __future__ import annotations
 
 import argparse
+import sys
 import csv
 import statistics
 from collections import defaultdict
@@ -36,6 +37,10 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
 
 console = Console()
 
@@ -70,22 +75,23 @@ class PlayerQuote:
         return (self.delta / self.qi) * 100 if self.qi else 0.0
 
 
-def load_quotes(path: Path, role_col: str, seasons: set[str]) -> list[PlayerQuote]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return [
-            PlayerQuote(
-                stagione=row["stagione"],
-                id=row["id"],
-                nome=row["nome"],
-                squadra=row["squadra"],
-                role=row[role_col],
-                qi=int(row["qi"]),
-                qa=int(row["qa"]),
-                fvm=int(row["fvm"]),
-            )
-            for row in csv.DictReader(f)
-            if row["stagione"] in seasons
-        ]
+def load_quotes(listone: str, seasons: set[str]) -> list[PlayerQuote]:
+    """Valuations from the quotazioni table, for one listone."""
+    with _db.session() as handle:
+        rows = _db.load_quotes(handle, listone, seasons=seasons)
+    return [
+        PlayerQuote(
+            stagione=row.stagione,
+            id=row.id,
+            nome=row.nome,
+            squadra=row.squadra,
+            role=row.role,
+            qi=row.qi,
+            qa=row.qa,
+            fvm=row.fvm,
+        )
+        for row in rows
+    ]
 
 
 def summarize(quotes: list[PlayerQuote]) -> dict[str, float]:
@@ -144,7 +150,37 @@ def print_extremes(quotes: list[PlayerQuote], top_n: int) -> None:
         )
 
 
+def write_rows(listone: str, quotes: list[PlayerQuote]) -> int:
+    """Upsert the derived bias rows. Idempotent — the values are a pure
+    function of qi and qa, so a re-run changes nothing."""
+    with _db.session() as handle:
+        return _db.upsert_qi_bias(
+            handle,
+            listone,
+            [
+                {
+                    "stagione": q.stagione,
+                    "player_id": int(q.id),
+                    "squadra": q.squadra,
+                    "role": q.role,
+                    "qi": q.qi,
+                    "qa": q.qa,
+                    "fvm": q.fvm,
+                    "delta": q.delta,
+                    "pct_delta": q.pct_delta,
+                }
+                for q in quotes
+            ],
+        )
+
+
 def write_csv(path: Path, quotes: list[PlayerQuote]) -> None:
+    """Kept, and called from nowhere.
+
+    qi_bias is a pure derivation of qi and qa, so this table could equally be a
+    VIEW — SPEC leaves that open. Deleting the writer now would make going back
+    a rewrite rather than a one-line change, so it stays until that is decided.
+    """
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(
@@ -158,22 +194,19 @@ def write_csv(path: Path, quotes: list[PlayerQuote]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
-    parser.add_argument("--out-dir", type=Path, default=Path("data"))
     parser.add_argument("--seasons", nargs="+", default=DEFAULT_SEASONS)
     parser.add_argument("--top-n", type=int, default=15)
     args = parser.parse_args()
 
     seasons = set(args.seasons)
 
-    for system, (filename, role_col) in SYSTEMS.items():
-        path = args.data_dir / filename
-        quotes = load_quotes(path, role_col, seasons)
+    for system in SYSTEMS:
+        quotes = load_quotes(system, seasons)
         if not quotes:
             console.print(f"[yellow]{system}: no rows for seasons {sorted(seasons)}, skipping[/yellow]")
             continue
 
-        console.rule(f"[bold]{system.upper()}[/bold]  ({path}, {len(quotes)} rows)")
+        console.rule(f"[bold]{system.upper()}[/bold]  ({len(quotes)} rows)")
 
         overall = summarize(quotes)
         console.print(
@@ -192,9 +225,8 @@ def main() -> None:
         print_group_table(f"{system} — QI vs QA by role (pooled)", by_role, "role")
         print_extremes(quotes, args.top_n)
 
-        out_path = args.out_dir / f"qi_bias_{system}.csv"
-        write_csv(out_path, quotes)
-        console.print(f"\n  wrote {out_path} ({len(quotes)} rows)\n")
+        written = write_rows(system, quotes)
+        console.print(f"\n  wrote {written} qi_bias rows for {system}\n")
 
 
 if __name__ == "__main__":

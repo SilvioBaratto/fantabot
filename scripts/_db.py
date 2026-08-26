@@ -197,3 +197,41 @@ def load_quotes(
         )
         for stagione, player_id, nome, squadra, codes, qi, qa, fvm in rows
     ]
+
+
+def upsert_qi_bias(handle: Session, listone: str, rows: list[dict[str, object]]) -> int:
+    """Write derived bias rows back. Idempotent.
+
+    ``role`` arrives in the source files' spelling; it is normalised back to the
+    upper-case array the table holds, so this round-trips through
+    ``_role_string`` without changing what is stored.
+    """
+    if not rows:
+        return 0
+
+    payload = [
+        {
+            **row,
+            "listone": listone,
+            "ruoli_codice": [
+                code.strip().upper()
+                for code in str(row.pop("role")).split(";")
+                if code.strip()
+            ],
+        }
+        for row in rows
+    ]
+
+    handle.execute(
+        text(
+            "INSERT INTO qi_bias (stagione, player_id, listone, squadra, ruoli_codice, "
+            "qi, qa, fvm, delta, pct_delta) VALUES (:stagione, :player_id, :listone, "
+            ":squadra, :ruoli_codice, :qi, :qa, :fvm, :delta, :pct_delta) "
+            "ON CONFLICT (stagione, player_id, listone) DO UPDATE SET "
+            "squadra = EXCLUDED.squadra, ruoli_codice = EXCLUDED.ruoli_codice, "
+            "qi = EXCLUDED.qi, qa = EXCLUDED.qa, fvm = EXCLUDED.fvm, "
+            "delta = EXCLUDED.delta, pct_delta = EXCLUDED.pct_delta"
+        ),
+        payload,
+    )
+    return len(payload)
