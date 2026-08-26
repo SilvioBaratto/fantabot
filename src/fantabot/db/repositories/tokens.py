@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.db.models.tokens import LeagueToken
 from fantabot.db.repositories._base import RepositoryBase
-from fantabot.tokens.status import TokenRow
+from fantabot.tokens.status import TokenStatus
 
 if TYPE_CHECKING:
     from sqlalchemy import CursorResult
@@ -66,7 +66,7 @@ class LeagueTokenRepository(RepositoryBase):
             select(LeagueToken).where(LeagueToken.league_id == league_id)
         ).scalar_one_or_none()
 
-    def all_rows(self) -> list[TokenRow]:
+    def all_rows(self) -> list[TokenStatus]:
         """Every stored lega, ordered.
 
         The `ORDER BY` is explicit because Postgres has no inherent row order,
@@ -87,7 +87,7 @@ class LeagueTokenRepository(RepositoryBase):
                 LeagueToken.team_id,
             ).order_by(LeagueToken.league_id)
         ).all()
-        return [TokenRow(*row) for row in rows]
+        return [TokenStatus(*row) for row in rows]
 
     def delete(self, league_id: int) -> bool:
         """Remove one lega's row. ``True`` if there was one.
