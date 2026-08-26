@@ -18,15 +18,18 @@ from fantabot.db.models.reference import (
     TargetPrice,
     Team,
 )
+from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
 
 __all__ = [
     "COACH_ROLE",
     "FONTI",
     "LISTONI",
     "MACRO_ROLES",
+    "SCORE_COLUMNS",
     "Base",
     "BonusMalus",
     "Player",
+    "PlayerSentiment",
     "QiBias",
     "Quotazione",
     "Statistica",

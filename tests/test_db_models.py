@@ -119,3 +119,58 @@ def test_quotazioni_still_carries_the_array_column() -> None:
     """The construct the probe was proving. It now lives on a real table."""
     column = Base.metadata.tables["quotazioni"].c.ruoli_codice
     assert column.type.__class__.__name__ == "ARRAY"
+
+
+def test_player_sentiment_column_set_matches_the_csv_columns() -> None:
+    """SPEC: "columns exactly news/store.py:COLUMNS". One rename — ``id``
+    becomes ``player_id`` so it can carry the foreign key — and nothing is
+    dropped as derivable: n_fonti stays even though it is cardinality(fonti),
+    because dropping it is a deviation to ask about rather than a free win."""
+    from fantabot.news.store import COLUMNS
+
+    table = Base.metadata.tables["player_sentiment"]
+    declared = {column.name for column in table.c} - {"created_at", "updated_at"}
+    expected = {("player_id" if name == "id" else name) for name in COLUMNS}
+
+    assert declared == expected
+
+
+def test_player_sentiment_is_keyed_on_the_resume_index() -> None:
+    """(data_run, player_id) is exactly what store.existing_keys returns, so
+    resume becomes an upsert with the same observable behaviour."""
+    table = Base.metadata.tables["player_sentiment"]
+
+    assert [column.name for column in table.primary_key.columns] == [
+        "data_run",
+        "player_id",
+    ]
+
+
+def test_every_score_column_keeps_two_decimal_places() -> None:
+    """build_row writes "%.2f". numeric(3,2) preserves it; a float would not."""
+    from fantabot.db.models.sentiment import SCORE_COLUMNS
+
+    table = Base.metadata.tables["player_sentiment"]
+    for name in (*SCORE_COLUMNS, "deriva_ruolo"):
+        column = table.c[name]
+        assert column.type.__class__.__name__ == "Numeric"
+        assert (column.type.precision, column.type.scale) == (3, 2)
+        assert column.nullable is False
+
+
+def test_deriva_ruolo_is_numeric_and_not_boolean() -> None:
+    """The ruling of 2026-08-26: a flag collapses drifted()'s ranking."""
+    column = Base.metadata.tables["player_sentiment"].c.deriva_ruolo
+
+    assert column.type.__class__.__name__ != "Boolean"
+
+
+def test_only_fonti_became_an_array() -> None:
+    """ruolo_campo and ruoli_mantra stay ";"-joined text: SPEC's departures
+    table lists only ruoli_codice, fonti and flags as text[], and build_row
+    sorts these two so the cell is comparable to its neighbour."""
+    table = Base.metadata.tables["player_sentiment"]
+
+    assert table.c.fonti.type.__class__.__name__ == "ARRAY"
+    assert table.c.ruolo_campo.type.__class__.__name__ == "Text"
+    assert table.c.ruoli_mantra.type.__class__.__name__ == "Text"
