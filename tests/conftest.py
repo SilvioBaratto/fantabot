@@ -14,12 +14,48 @@ things it has to get right:
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Generator
+from typing import Any, NoReturn
 
 import pytest
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
+
+
+@pytest.fixture(autouse=True)
+def _no_sockets(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The zero-sockets rule, enforced instead of asserted.
+
+    CLAUDE.md calls it load-bearing and SPEC says it is "enforced by a test that
+    fails if a socket is opened" — but until now only three *subprocess* checks
+    covered it, one module's import each. Nothing watched the rest of the suite.
+    This lands before any ``httpx`` code exists, so the first HTTP-client test is
+    born measured rather than trusted.
+
+    ``db``-marked nodes are exempt: reaching Postgres is their entire job.
+
+    A subprocess spawns a fresh interpreter and this guard does not reach inside
+    it — which is exactly why ``test_db_boundary``, ``test_state`` and
+    ``test_lineup_guard`` each install their own in-process guard before
+    importing. Those are not redundant with this one.
+
+    ``monkeypatch`` rather than manual save/restore, so a test that raises cannot
+    leave the guard installed for whatever runs next.
+    """
+    if request.node.get_closest_marker("db") is not None:
+        return
+
+    def blocked(*args: Any, **kwargs: Any) -> NoReturn:
+        raise AssertionError(
+            f"{request.node.nodeid} opened a socket. The default test tier must "
+            "not touch the network — inject a fake, or mark the test `db`."
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket.socket, "connect_ex", blocked)
+    monkeypatch.setattr(socket, "create_connection", blocked)
 
 
 @pytest.fixture(scope="session")
