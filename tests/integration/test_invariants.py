@@ -60,6 +60,13 @@ from sqlalchemy import Engine, create_engine, text
 
 pytestmark = pytest.mark.db
 
+_NO_FADE_FLAGS = (
+    "ARRAY['floor_qi','goalkeeper_no_fade','no_prior_data',"
+    "'thin_prior_sample_no_fade','no_role_fade_model']"
+)
+"""The five reasons target_price.py declines to fade a price. Each is appended
+by the branch that also leaves ``predicted_pct_delta`` as None."""
+
 # Measured from the ten CSVs before they were retired. Floors: at least this
 # many rows must be present, forever.
 MINIMUM_ROWS: dict[str, int] = {
@@ -184,18 +191,31 @@ def test_role_labels_keep_their_casing_while_codes_normalise(engine: Engine) -> 
     assert lower_codes == 0
 
 
-def test_a_zero_forecast_is_kept_apart_from_an_absent_one(engine: Engine) -> None:
-    """Blank means no forecast was made; 0.0 means one was made and came out
-    flat. Collapsing them loses the distinction the flags depend on."""
+def test_a_missing_forecast_is_null_and_always_says_why(engine: Engine) -> None:
+    """NULL means no fade model was applied; 0.0 would mean one was applied and
+    came out flat. Only one branch of ``scripts/target_price.py`` sets a value;
+    every other leaves it None and appends a flag with the reason. Computing the
+    percentage unconditionally would turn every no-fade row into a real-looking
+    0.0, and no row count would move.
+
+    Asserting instead that some row forecasts exactly 0.0 is a property of one
+    fit, not of the data: re-deriving against a refreshed listone left nothing
+    within 0.005 of zero.
+    """
     with engine.connect() as connection:
-        zeros, nulls = connection.execute(
+        nulls, forecast_despite_no_fade, silent_gap = connection.execute(
             text(
-                "SELECT count(*) FILTER (WHERE predicted_pct_delta = 0), "
-                "count(*) FILTER (WHERE predicted_pct_delta IS NULL) FROM target_price"
+                "SELECT count(*) FILTER (WHERE predicted_pct_delta IS NULL), "
+                "count(*) FILTER (WHERE predicted_pct_delta IS NOT NULL "
+                f"                 AND flags && {_NO_FADE_FLAGS}), "
+                "count(*) FILTER (WHERE predicted_pct_delta IS NULL "
+                f"                 AND NOT (flags && {_NO_FADE_FLAGS})) "
+                "FROM target_price"
             )
         ).one()
-    assert zeros >= 1
-    assert nulls > 0
+    assert nulls > 0, "no absent forecasts at all; the check would pass vacuously"
+    assert forecast_despite_no_fade == 0
+    assert silent_gap == 0
 
 
 # --- facts that lived only in the deleted docstrings ----------------------

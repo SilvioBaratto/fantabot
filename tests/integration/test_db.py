@@ -53,6 +53,14 @@ def test_the_previous_test_left_nothing_behind(db_session: Session) -> None:
     assert count == 0
 
 
+_NO_FADE_FLAGS = (
+    "ARRAY['floor_qi','goalkeeper_no_fade','no_prior_data',"
+    "'thin_prior_sample_no_fade','no_role_fade_model']"
+)
+"""The five reasons target_price.py declines to fade a price. Each is appended
+by the branch that also leaves ``predicted_pct_delta`` as None."""
+
+
 class TestPlayersSeed:
     """The referential root. Eight later tables carry a foreign key to it."""
 
@@ -114,9 +122,7 @@ class TestTeamsSeed:
         ).scalar()
         assert wrong == 0
 
-    def test_the_backfill_is_a_no_op_once_names_are_resolved(
-        self, db_session: Session
-    ) -> None:
+    def test_the_backfill_is_a_no_op_once_names_are_resolved(self, db_session: Session) -> None:
         """Idempotent, and asserted on the digest rather than on the count.
 
         `count(*) WHERE nome_completo = codice` is 0 whether or not a name was
@@ -132,9 +138,7 @@ class TestTeamsSeed:
         assert changed == 0
         assert db_session.execute(text(digest)).scalar() == before
 
-    def test_with_no_fixtures_the_backfill_writes_nothing(
-        self, db_session: Session
-    ) -> None:
+    def test_with_no_fixtures_the_backfill_writes_nothing(self, db_session: Session) -> None:
         """A July `scrape_quotazioni` against a fresh database must not die.
 
         The listone lands before any fixture exists, so there are no full names
@@ -148,9 +152,7 @@ class TestTeamsSeed:
 
         assert ReferenceRepository(db_session).backfill_team_names() == 0
 
-    def test_a_prefix_collision_refuses_and_writes_nothing(
-        self, db_session: Session
-    ) -> None:
+    def test_a_prefix_collision_refuses_and_writes_nothing(self, db_session: Session) -> None:
         """Fail closed. A partial mapping leaves NULLs that later joins drop."""
         from fantabot.club_names import TeamMappingError
         from fantabot.db.repositories.reference import ReferenceRepository
@@ -221,17 +223,13 @@ class TestQuotazioniSeed:
 
 
 class TestStatisticheSeed:
-    def test_both_listoni_hold_8034_rows_across_three_sources(
-        self, db_session: Session
-    ) -> None:
+    def test_both_listoni_hold_8034_rows_across_three_sources(self, db_session: Session) -> None:
         rows = db_session.execute(
             text("SELECT listone, count(*) FROM statistiche GROUP BY 1 ORDER BY 1")
         ).all()
         assert rows == [("classic", 8034), ("mantra", 8034)]
 
-        fonti = db_session.execute(
-            text("SELECT count(DISTINCT fonte) FROM statistiche")
-        ).scalar()
+        fonti = db_session.execute(text("SELECT count(DISTINCT fonte) FROM statistiche")).scalar()
         assert fonti == 3
 
     def test_the_no_data_marker_is_null_and_never_zero(self, db_session: Session) -> None:
@@ -304,23 +302,42 @@ class TestTargetPriceSeed:
         ).all()
         assert rows == [("classic", 1, "2026/27"), ("mantra", 1, "2026/27")]
 
-    def test_absent_priors_are_null_and_a_zero_forecast_is_not(
-        self, db_session: Session
-    ) -> None:
-        """160 rows per listone have no prior and 363 no prediction — but one
-        row genuinely forecasts +0.0, and that is a number, not a gap."""
-        null_prior, null_pred, real_zero = db_session.execute(
+    def test_a_missing_forecast_is_null_and_always_says_why(self, db_session: Session) -> None:
+        """NULL means no fade model was applied; 0.0 would mean one was applied
+        and predicted no change. Only the `role_bucket in fades` branch of
+        target_price.py sets a value — every other branch leaves it None and
+        appends a flag giving the reason. Compute
+        `(adjustment_factor - 1.0) * 100.0` unconditionally and all 771 no-fade
+        rows silently become a real-looking 0.0.
+
+        This used to assert that at least one row forecast exactly +0.0. That
+        held for the seeded data and stopped holding the moment the derivation
+        was re-run against a refreshed listone: nothing now lands within 0.005
+        of zero, and the smallest absolute forecast is 0.04. It was a property
+        of one fit, not of the schema. The pairing below is what it was
+        reaching for, and it does not move when the coefficients do.
+        """
+        null_prior, null_pred = db_session.execute(
             text(
                 "SELECT count(*) FILTER (WHERE prior_media_fantavoto IS NULL), "
-                "count(*) FILTER (WHERE predicted_pct_delta IS NULL), "
-                "count(*) FILTER (WHERE predicted_pct_delta = 0) FROM target_price"
+                "count(*) FILTER (WHERE predicted_pct_delta IS NULL) FROM target_price"
             )
         ).one()
-        # Floors, not fixtures — the pool grows. At the seed these were 320 and
-        # 726. What matters is that absence stays absent and zero stays zero.
+        # Floors, not fixtures — the pool grows. At the seed these were 320 and 726.
         assert null_prior >= 320
         assert null_pred >= 726
-        assert real_zero >= 1
+
+        forecast_despite_no_fade, silent_gap = db_session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE predicted_pct_delta IS NOT NULL "
+                f"                        AND flags && {_NO_FADE_FLAGS}), "
+                "count(*) FILTER (WHERE predicted_pct_delta IS NULL "
+                f"                 AND NOT (flags && {_NO_FADE_FLAGS})) "
+                "FROM target_price"
+            )
+        ).one()
+        assert forecast_despite_no_fade == 0
+        assert silent_gap == 0
 
     def test_flags_are_never_null_and_keep_their_casing(self, db_session: Session) -> None:
         empty, nulls, two = db_session.execute(
@@ -337,10 +354,7 @@ class TestTargetPriceSeed:
         assert two >= 70
 
         lowercase = db_session.execute(
-            text(
-                "SELECT count(*) FROM target_price "
-                "WHERE 'team_discount(MIL)' = ANY(flags)"
-            )
+            text("SELECT count(*) FROM target_price WHERE 'team_discount(MIL)' = ANY(flags)")
         ).scalar()
         assert lowercase > 0
 
@@ -379,8 +393,7 @@ class TestVotiSeed:
     def test_no_grade_exceeds_the_scale(self, db_session: Session) -> None:
         impossible = db_session.execute(
             text(
-                "SELECT count(*) FROM voti "
-                "WHERE voto_fc > 10 OR voto_stat > 10 OR voto_italia > 10"
+                "SELECT count(*) FROM voti WHERE voto_fc > 10 OR voto_stat > 10 OR voto_italia > 10"
             )
         ).scalar()
         assert impossible == 0
@@ -391,10 +404,7 @@ class TestBonusMalusSeed:
         """Same grain, same coach rows, same count — which is why they share
         the two-conflict-target upsert instead of each restating it."""
         total, coaches = db_session.execute(
-            text(
-                "SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) "
-                "FROM bonus_malus"
-            )
+            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM bonus_malus")
         ).one()
         assert (total, coaches) == (50634, 3039)
 
@@ -453,9 +463,7 @@ class TestSentimentWriteAgainstALiveTable:
 
     @staticmethod
     def _a_real_player(db_session: Session) -> int:
-        return int(
-            db_session.execute(text("SELECT id FROM players ORDER BY id LIMIT 1")).scalar()
-        )
+        return int(db_session.execute(text("SELECT id FROM players ORDER BY id LIMIT 1")).scalar())
 
     def test_the_same_key_twice_inserts_once(self, db_session: Session) -> None:
         from fantabot.db.repositories.sentiment import SentimentRepository
@@ -466,15 +474,17 @@ class TestSentimentWriteAgainstALiveTable:
         repo.upsert_rows([self._row(player_id)])
         repo.upsert_rows([self._row(player_id, riassunto="seconda lettura")])
 
-        rows = db_session.execute(
-            text("SELECT riassunto FROM player_sentiment WHERE player_id = :p"),
-            {"p": player_id},
-        ).scalars().all()
+        rows = (
+            db_session.execute(
+                text("SELECT riassunto FROM player_sentiment WHERE player_id = :p"),
+                {"p": player_id},
+            )
+            .scalars()
+            .all()
+        )
         assert rows == ["prima lettura"], "the second write should have been ignored"
 
-    def test_force_overwrites_in_place_and_never_adds_a_row(
-        self, db_session: Session
-    ) -> None:
+    def test_force_overwrites_in_place_and_never_adds_a_row(self, db_session: Session) -> None:
         """Today --force merely skips the resume filter and append_rows has no
         dedup, so it writes a duplicate that _load keeps. This is the fix."""
         from fantabot.db.repositories.sentiment import SentimentRepository
@@ -485,10 +495,14 @@ class TestSentimentWriteAgainstALiveTable:
         repo.upsert_rows([self._row(player_id)])
         repo.upsert_rows([self._row(player_id, riassunto="corretta")], force=True)
 
-        rows = db_session.execute(
-            text("SELECT riassunto FROM player_sentiment WHERE player_id = :p"),
-            {"p": player_id},
-        ).scalars().all()
+        rows = (
+            db_session.execute(
+                text("SELECT riassunto FROM player_sentiment WHERE player_id = :p"),
+                {"p": player_id},
+            )
+            .scalars()
+            .all()
+        )
         assert rows == ["corretta"]
 
     def test_existing_keys_comes_back_as_the_strings_the_cli_compares(
@@ -561,16 +575,18 @@ class TestSentimentReadPath:
             ).scalars()
         ]
 
-    def test_latest_is_the_most_recent_run_not_an_arbitrary_row(
-        self, db_session: Session
-    ) -> None:
+    def test_latest_is_the_most_recent_run_not_an_arbitrary_row(self, db_session: Session) -> None:
         from fantabot.db.repositories.sentiment import SentimentReadRepository
 
         (player_id,) = self._players(db_session, 1)
         self._write(
             db_session,
             player_id,
-            [("2026-09-02", "0.5", "0.0"), ("2026-10-07", "0.5", "0.0"), ("2026-09-16", "0.5", "0.0")],
+            [
+                ("2026-09-02", "0.5", "0.0"),
+                ("2026-10-07", "0.5", "0.0"),
+                ("2026-09-16", "0.5", "0.0"),
+            ],
         )
 
         row = SentimentReadRepository(db_session).latest(str(player_id))
@@ -636,9 +652,7 @@ class TestSentimentReadPath:
         assert ids.index(str(high)) < ids.index(str(low))
         assert str(none_at_all) not in ids
 
-    def test_drifted_uses_only_each_player_s_latest_reading(
-        self, db_session: Session
-    ) -> None:
+    def test_drifted_uses_only_each_player_s_latest_reading(self, db_session: Session) -> None:
         """A tag that drifted in September and was confirmed in October is not
         drifted. DISTINCT ON takes the newest row, not any row."""
         from fantabot.db.repositories.sentiment import SentimentReadRepository
@@ -658,17 +672,14 @@ class TestSentimentReadPath:
 class TestPoolFromPostgres:
     """The pool the Wednesday run queries, now built from quotazioni."""
 
-    def test_the_season_produces_the_whole_current_listone(
-        self, db_session: Session
-    ) -> None:
+    def test_the_season_produces_the_whole_current_listone(self, db_session: Session) -> None:
         """Not a fixed 523. The listone grew to 544 on 2026-08-26 when a scrape
         picked up 21 signings, and the pool has to follow the table."""
         from fantabot.news.pool import load_pool
 
         expected = db_session.execute(
             text(
-                "SELECT count(*) FROM quotazioni "
-                "WHERE stagione = '2026/27' AND listone = 'classic'"
+                "SELECT count(*) FROM quotazioni WHERE stagione = '2026/27' AND listone = 'classic'"
             )
         ).scalar()
 
@@ -709,9 +720,7 @@ class TestBotState:
         assert repo.last_lineup_matchday(3_584_692) == 5
         assert repo.last_lineup_matchday(4_103_937) == 12
 
-    def test_recording_twice_updates_rather_than_duplicating(
-        self, db_session: Session
-    ) -> None:
+    def test_recording_twice_updates_rather_than_duplicating(self, db_session: Session) -> None:
         from fantabot.db.repositories.runtime import RuntimeRepository
 
         repo = RuntimeRepository(db_session)
@@ -844,9 +853,7 @@ class TestAuctionBudget:
         assert self._remaining(db_session)["C"] == 175 - 50
         assert self._remaining(db_session)["C"] == 175 - 50
 
-    def test_a_session_with_no_bids_has_the_full_allocation(
-        self, db_session: Session
-    ) -> None:
+    def test_a_session_with_no_bids_has_the_full_allocation(self, db_session: Session) -> None:
         from fantabot.db.repositories.runtime import AuctionRepository
 
         remaining = AuctionRepository(db_session).remaining_budget(
