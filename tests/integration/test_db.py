@@ -191,3 +191,53 @@ class TestQiBiasSeed:
             text("SELECT count(*) FROM qi_bias WHERE delta IS NULL OR pct_delta IS NULL")
         ).scalar()
         assert nulls == 0
+
+
+class TestTargetPriceSeed:
+    """The only table whose numbers get spent as real credits."""
+
+    def test_523_priced_players_per_listone_all_in_one_season(
+        self, db_session: Session
+    ) -> None:
+        rows = db_session.execute(
+            text(
+                "SELECT listone, count(*), count(DISTINCT stagione), min(stagione) "
+                "FROM target_price GROUP BY 1 ORDER BY 1"
+            )
+        ).all()
+        assert rows == [
+            ("classic", 523, 1, "2026/27"),
+            ("mantra", 523, 1, "2026/27"),
+        ]
+
+    def test_absent_priors_are_null_and_a_zero_forecast_is_not(
+        self, db_session: Session
+    ) -> None:
+        """160 rows per listone have no prior and 363 no prediction — but one
+        row genuinely forecasts +0.0, and that is a number, not a gap."""
+        null_prior, null_pred, real_zero = db_session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE prior_media_fantavoto IS NULL), "
+                "count(*) FILTER (WHERE predicted_pct_delta IS NULL), "
+                "count(*) FILTER (WHERE predicted_pct_delta = 0) FROM target_price"
+            )
+        ).one()
+        assert (null_prior, null_pred, real_zero) == (320, 726, 1)
+
+    def test_flags_are_never_null_and_keep_their_casing(self, db_session: Session) -> None:
+        empty, nulls, two = db_session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE flags = '{}'), "
+                "count(*) FILTER (WHERE flags IS NULL), "
+                "count(*) FILTER (WHERE cardinality(flags) = 2) FROM target_price"
+            )
+        ).one()
+        assert (empty, nulls, two) == (276, 0, 70)
+
+        lowercase = db_session.execute(
+            text(
+                "SELECT count(*) FROM target_price "
+                "WHERE 'team_discount(MIL)' = ANY(flags)"
+            )
+        ).scalar()
+        assert lowercase > 0

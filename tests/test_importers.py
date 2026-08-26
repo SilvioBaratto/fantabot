@@ -21,11 +21,18 @@ from pathlib import Path
 
 import pytest
 
-from fantabot.db.importers._csv import italian_decimal, plain_decimal, split_codes
+from fantabot.db.importers._csv import (
+    italian_decimal,
+    plain_decimal,
+    split_codes,
+    split_flags,
+)
 from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
 from fantabot.db.importers.qi_bias import read_rows as qi_bias_rows
 from fantabot.db.importers.quotazioni import read_rows as quotazioni_rows
 from fantabot.db.importers.statistiche import read_rows as statistiche_rows
+from fantabot.db.importers.target_price import SeasonNotInFilenameError, season_from_filename
+from fantabot.db.importers.target_price import read_rows as target_price_rows
 from fantabot.db.importers.teams import TeamMappingError, build_mapping, code_for
 
 
@@ -355,3 +362,69 @@ class TestQiBiasRows:
 
         assert row["delta"] == 5
         assert row["delta"] == row["qa"] - row["qi"]
+
+
+class TestTargetPriceRows:
+    """The season is not in this file, and blank is not the same as zero."""
+
+    @staticmethod
+    def _write(tmp_path: Path, prior: str, predicted: str, flags: str) -> None:
+        (tmp_path / "target_price_2026_27_classic.csv").write_text(
+            "id,nome,squadra,role,macro_role,qi,prior_media_fantavoto,"
+            "predicted_pct_delta,team_factor,target_price,flags\n"
+            f"5995,De Ketelaere,ATA,a,ATT,17,{prior},{predicted},1.000,16,{flags}\n",
+            encoding="utf-8",
+        )
+
+    def test_the_season_comes_from_the_filename(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "6.53", "-8.6", "")
+
+        assert target_price_rows(tmp_path)[0]["stagione"] == "2026/27"
+
+    def test_an_unreadable_filename_raises_rather_than_guessing(self) -> None:
+        """Rows written under the wrong season stay invisible until a second
+        season lands on top of the first."""
+        with pytest.raises(SeasonNotInFilenameError):
+            season_from_filename("target_price_classic.csv")
+
+    def test_a_blank_prediction_is_null(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "", "", "")
+        row = target_price_rows(tmp_path)[0]
+
+        assert row["prior_media_fantavoto"] is None
+        assert row["predicted_pct_delta"] is None
+
+    def test_a_prediction_of_zero_survives_as_zero(self, tmp_path: Path) -> None:
+        """One real row reads "+0.0" — a prediction of no change, not a missing
+        value. Collapsing it to NULL, as the Italian parser does with "0,0",
+        would lose a genuine forecast."""
+        self._write(tmp_path, "6.16", "+0.0", "")
+
+        assert target_price_rows(tmp_path)[0]["predicted_pct_delta"] == Decimal("0.0")
+
+    def test_no_flags_is_an_empty_array_never_null(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "6.53", "-8.6", "")
+
+        assert target_price_rows(tmp_path)[0]["flags"] == []
+
+    def test_flag_casing_is_preserved(self, tmp_path: Path) -> None:
+        """Unlike role codes. team_discount(MIL) upper-cased no longer matches
+        what scripts/target_price.py emits."""
+        self._write(tmp_path, "6.53", "-8.6", "thin_prior_sample_no_fade;team_discount(MIL)")
+
+        assert target_price_rows(tmp_path)[0]["flags"] == [
+            "thin_prior_sample_no_fade",
+            "team_discount(MIL)",
+        ]
+
+
+class TestSplitFlags:
+    def test_case_is_preserved_unlike_role_codes(self) -> None:
+        assert split_flags("floor_qi;team_discount(MIL)") == [
+            "floor_qi",
+            "team_discount(MIL)",
+        ]
+        assert split_codes("floor_qi") == ["FLOOR_QI"]
+
+    def test_empty_is_an_empty_list(self) -> None:
+        assert split_flags("") == []

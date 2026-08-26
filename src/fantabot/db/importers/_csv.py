@@ -83,3 +83,15 @@ def split_codes(raw: str) -> list[str]:
     this column and stores a single element.
     """
     return [part.strip().upper() for part in raw.split(";") if part.strip()]
+
+
+def split_flags(raw: str) -> list[str]:
+    """``"floor_qi;team_discount(MIL)"`` -> both, **case preserved**.
+
+    Separate from ``split_codes`` on purpose. Role codes are normalised to
+    upper case because three files write them three ways; flags are opaque
+    strings produced by ``scripts/target_price.py`` and upper-casing them would
+    change ``team_discount(MIL)`` into something that no longer matches the
+    script that emits it.
+    """
+    return [part.strip() for part in raw.split(";") if part.strip()]

@@ -10,22 +10,26 @@ from fantabot.db.models.matches import ProbeMatchGrain
 from fantabot.db.models.reference import (
     FONTI,
     LISTONI,
+    MACRO_ROLES,
     Player,
     QiBias,
     Quotazione,
     Statistica,
+    TargetPrice,
     Team,
 )
 
 __all__ = [
     "FONTI",
     "LISTONI",
+    "MACRO_ROLES",
     "Base",
     "Player",
     "ProbeMatchGrain",
     "QiBias",
     "Quotazione",
     "Statistica",
+    "TargetPrice",
     "Team",
     "TimestampMixin",
 ]

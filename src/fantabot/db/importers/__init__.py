@@ -57,6 +57,7 @@ def _registry() -> tuple[Importer, ...]:
         qi_bias,
         quotazioni,
         statistiche,
+        target_price,
         teams,
     )
 
@@ -98,6 +99,14 @@ def _registry() -> tuple[Importer, ...]:
             load=qi_bias.load,
             description="Quote-to-price drift. Dot-decimal, unlike statistiche.",
             expected_rows=5356,
+            depends_on=("players", "teams"),
+        ),
+        Importer(
+            name="target_price",
+            sources=target_price.SOURCE_FILES,
+            load=target_price.load,
+            description="Auction prices. Season comes from the filename.",
+            expected_rows=1046,
             depends_on=("players", "teams"),
         ),
     )

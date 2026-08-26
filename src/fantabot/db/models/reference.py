@@ -211,3 +211,59 @@ class QiBias(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<QiBias {self.stagione} {self.listone} player={self.player_id}>"
+
+
+# Coarse role buckets used by the pricing model. Mantra adds MID_ATT.
+MACRO_ROLES: tuple[str, ...] = ("GK", "DEF", "MID", "MID_ATT", "ATT")
+
+
+class TargetPrice(Base, TimestampMixin):
+    """What ``scripts/target_price.py`` thinks a player is worth this season.
+
+    The only table in the schema whose numbers get spent as real credits.
+
+    ``stagione`` **does not exist in the source file** — it lives in the
+    filename, ``target_price_2026_27_classic.csv``. Every other CSV carries it,
+    so making it a real NOT NULL column here is a fix rather than a mapping, and
+    it is what lets a second season's prices coexist with this one.
+
+    ``prior_media_fantavoto`` and ``predicted_pct_delta`` are nullable: 160 and
+    363 rows per listone respectively have no prior to reason from. Unlike
+    ``statistiche``, this file marks that with a blank rather than ``"0,0"``,
+    so zero here is a real prediction.
+    """
+
+    __tablename__ = "target_price"
+
+    stagione: Mapped[str] = mapped_column(String(7), primary_key=True)
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id"), primary_key=True
+    )
+    listone: Mapped[str] = mapped_column(String(7), primary_key=True)
+
+    squadra: Mapped[str] = mapped_column(String(3), nullable=False)
+    ruoli_codice: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    macro_role: Mapped[str] = mapped_column(String(8), nullable=False)
+    qi: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    prior_media_fantavoto: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    predicted_pct_delta: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True
+    )
+    team_factor: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    target_price: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # Empty is '{}' and never NULL: "no flags" is a fact, not a missing value.
+    flags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["stagione", "squadra"], ["teams.stagione", "teams.codice"]
+        ),
+        CheckConstraint(_LISTONE_CHECK, name="listone"),
+        CheckConstraint("flags IS NOT NULL", name="flags_not_null"),
+        Index("ix_target_price_stagione_macro", "stagione", "macro_role"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TargetPrice {self.stagione} {self.listone} player={self.player_id}>"
