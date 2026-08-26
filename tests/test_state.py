@@ -120,14 +120,16 @@ class TestKnownQuirks:
         finally:
             state._DEFAULT_STATE["processed_bids"] = []
 
-    def test_processed_bids_is_declared_and_never_appended_to(self) -> None:
-        """auction.py resets it and nothing anywhere adds to it. The state that
-        actually needs persisting — role_budget — is only in memory."""
+    def test_processed_bids_survives_only_here_now(self) -> None:
+        """It was declared in state.py, reset by auction.py and appended to by
+        nothing — persisted state that was never read. auction.py has dropped it
+        and auction_bids replaces it; this default is the last trace, and it
+        goes when state.py is stripped.
+        """
         source = Path("src/fantabot/auction.py").read_text()
 
-        assert "processed_bids" in source
-        assert "processed_bids'].append" not in source
-        assert 'processed_bids"].append' not in source
+        assert "processed_bids" in state._DEFAULT_STATE
+        assert "processed_bids" not in source
 
 
 def test_storage_state_path_comes_from_settings(
