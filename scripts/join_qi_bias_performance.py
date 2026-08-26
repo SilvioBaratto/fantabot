@@ -30,8 +30,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 import statistics
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,7 +41,7 @@ from rich.table import Table
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import _db  # noqa: E402
+import _db
 
 console = Console()
 

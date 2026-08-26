@@ -45,8 +45,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import _db  # noqa: E402
-from fantabot.parsing import italian_decimal, parse_date, parse_time  # noqa: E402
+import _db
+
+from fantabot.parsing import italian_decimal, parse_date, parse_time
 
 BASE_URL = "https://www.fantacalcio.it/voti-fantacalcio-serie-a"
 USER_AGENT = (

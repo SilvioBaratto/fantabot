@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import _db  # noqa: E402
+import _db
 
 BASE_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
 USER_AGENT = (

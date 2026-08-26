@@ -389,8 +389,8 @@ def upsert_match_grain(handle: Session, voti: list[dict], bonus: list[dict]) -> 
     and coach rows, which are disjoint. Repeating each index's predicate is what
     makes the statement legal, not an optimisation.
     """
-    from fantabot.db.upserts import upsert_two_passes
     from fantabot.db.models.matches import BonusMalus, Voto
+    from fantabot.db.upserts import upsert_two_passes
 
     if voti:
         handle.execute(
