@@ -14,6 +14,9 @@ dependencies = [
     "pydantic-settings>=2.3",
     "rich>=13.7",
     "claude-agent-sdk>=0.2.143",
+    "sqlalchemy>=2.0.50",
+    "alembic>=1.18.4",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [project.optional-dependencies]
@@ -44,3 +47,7 @@ files = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+# The default run must open zero sockets, so the integration tier is opt-in.
+# A command-line -m overrides this value, because the last -m wins.
+addopts = "-m 'not db'"
+markers = ["db: requires a live Postgres (docker compose up -d)"]
