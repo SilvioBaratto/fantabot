@@ -111,6 +111,14 @@ class TokenStore:
         """Delete one lega's row. `True` if there was one to delete."""
         return self._repo.delete(league_id)
 
+    def touch_seen(self, league_ids: list[int], at: datetime) -> None:
+        """Stamp every lega this login found, rewritten or not.
+
+        `login --league X` sees the whole `leagues[]` array while replacing only
+        X's ciphertext; without this the others drift into looking ORPHANED.
+        """
+        self._repo.touch_last_seen(league_ids, at)
+
     def mark_verified(self, league_id: int, at: datetime) -> None:
         self._repo.mark_verified(league_id, at)
 

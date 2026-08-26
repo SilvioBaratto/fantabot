@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import _tokens
 import pytest
 
 from fantabot import login
@@ -56,6 +57,7 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
     """A reachable database whose stored rows the test controls."""
     rows: list[TokenStatus] = []
     writes: list[Any] = []
+    stamped: list[int] = []
 
     monkeypatch.setattr(login, "_preflight_database", lambda: None)
 
@@ -69,6 +71,9 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
         def save(self, captured: Any, *, now: Any) -> int:
             writes.append(captured)
             return len(captured)
+
+        def touch_seen(self, league_ids: Any, at: Any) -> None:
+            stamped.extend(league_ids)
 
     import fantabot.tokens.store as store_module
 
@@ -85,7 +90,7 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
 
     monkeypatch.setattr(database_manager, "get_session", lambda: _Session())
 
-    return {"rows": rows, "writes": writes}
+    return {"rows": rows, "writes": writes, "stamped": stamped}
 
 
 @pytest.fixture
@@ -198,10 +203,12 @@ def test_all_tokens_valid_opens_no_browser(
 def test_an_expired_token_opens_the_browser(stub_db: Any, with_key: None) -> None:
     """SC 8."""
     stub_db["rows"].append(a_status(expires_at=NOW - timedelta(days=1)))
-    browser = _FakeBrowser()
+    ctx = _FakeContext()
 
-    with pytest.raises(NotImplementedError):
-        login.run(browser_factory=browser, now=NOW)
+    result = login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert ctx.entered is True
+    assert result.browser_opened is True
 
 
 def test_force_opens_the_browser_even_when_everything_is_valid(
@@ -209,14 +216,19 @@ def test_force_opens_the_browser_even_when_everything_is_valid(
 ) -> None:
     """SC 9."""
     stub_db["rows"].append(a_status())
+    ctx = _FakeContext()
 
-    with pytest.raises(NotImplementedError):
-        login.run(browser_factory=_FakeBrowser(), force=True, now=NOW)
+    login.run(browser_factory=ctx, force=True, verify=False, prompt=_answers(""), now=NOW)
+
+    assert ctx.entered is True
 
 
 def test_an_empty_table_opens_the_browser(stub_db: Any, with_key: None) -> None:
-    with pytest.raises(NotImplementedError):
-        login.run(browser_factory=_FakeBrowser(), now=NOW)
+    ctx = _FakeContext()
+
+    login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert ctx.entered is True
 
 
 def test_league_restricts_which_leghe_must_be_valid(stub_db: Any, with_key: None) -> None:
@@ -244,9 +256,13 @@ def test_league_naming_an_expired_lega_opens_the_browser(
             a_status(league_id=4103937),
         ]
     )
+    ctx = _FakeContext()
 
-    with pytest.raises(NotImplementedError):
-        login.run(browser_factory=_FakeBrowser(), league=3584692, now=NOW)
+    login.run(
+        browser_factory=ctx, league=3584692, verify=False, prompt=_answers(""), now=NOW
+    )
+
+    assert ctx.entered is True
 
 
 def test_no_preflight_output_contains_the_key(
@@ -257,3 +273,245 @@ def test_no_preflight_output_contains_the_key(
     login.run(browser_factory=_FakeBrowser(), now=NOW)
 
     assert GOOD_KEY[:8] not in capsys.readouterr().out
+
+
+# --- T18: the browser step ------------------------------------------------
+
+
+class _FakePage:
+    """Records every method called on it. The recording *is* the assertion."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def goto(self, url: str) -> None:
+        self.calls.append("goto")
+
+    def __getattr__(self, name: str) -> Any:
+        def recorder(*args: Any, **kwargs: Any) -> None:
+            self.calls.append(name)
+
+        return recorder
+
+
+class _FakeContext:
+    """A browser context that knows whether it has closed."""
+
+    def __init__(self, blob: dict[str, Any] | None = None, fail_first: bool = False) -> None:
+        self.blob = blob if blob is not None else _tokens.storage_state()
+        self.closed = False
+        self.entered = False
+        self.page = _FakePage()
+        self.reads = 0
+        self._fail_first = fail_first
+
+    def __call__(self) -> _FakeContext:
+        return self
+
+    def __enter__(self) -> _FakeContext:
+        self.entered = True
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.closed = True
+
+    def new_page(self) -> _FakePage:
+        return self.page
+
+    def storage_state(self) -> dict[str, Any]:
+        if self.closed:
+            raise AssertionError(
+                "storage_state() was called after the context closed — it must be "
+                "read inside the `with` body"
+            )
+        self.reads += 1
+        if self._fail_first and self.reads == 1:
+            return {"cookies": [], "origins": []}
+        return self.blob
+
+
+def _answers(*replies: str) -> Any:
+    queue = list(replies)
+
+    def prompt(message: str) -> str:
+        return queue.pop(0) if queue else ""
+
+    return prompt
+
+
+def test_storage_state_is_read_before_the_context_closes(
+    stub_db: Any, with_key: None
+) -> None:
+    """The single easiest way to break this task, invisible until a real login."""
+    ctx = _FakeContext()
+
+    login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert ctx.reads >= 1
+    assert ctx.closed is True
+
+
+def test_the_page_is_navigated_and_nothing_else(stub_db: Any, with_key: None) -> None:
+    """SC 3's "no page interaction", as a tripwire rather than a promise.
+
+    The surface most likely to accrete a `wait_for_selector` later is the one
+    with no guard, so this asserts the recorded call list exactly.
+    """
+    ctx = _FakeContext()
+
+    login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert ctx.page.calls == ["goto"], f"the page was interacted with: {ctx.page.calls}"
+
+
+def test_both_leghe_are_stored(stub_db: Any, with_key: None) -> None:
+    ctx = _FakeContext()
+
+    result = login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert sorted(result.stored) == sorted([_tokens.LEGA_CLASSIC, _tokens.LEGA_MANTRA])
+
+
+def test_a_crossed_l_id_stores_nothing(stub_db: Any, with_key: None) -> None:
+    """SC 10, end to end: the gate refuses the whole capture."""
+    from fantabot.tokens.errors import LeagueMismatch
+
+    crossed = _tokens.storage_state(
+        leagues=[
+            {
+                "id": _tokens.LEGA_CLASSIC,
+                "name": "x",
+                "token": _tokens.make_token(l_id=_tokens.LEGA_MANTRA),
+            }
+        ]
+    )
+    ctx = _FakeContext(blob=crossed)
+
+    with pytest.raises(LeagueMismatch):
+        login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert stub_db["writes"] == []
+
+
+def test_league_restricts_the_ciphertext_but_not_the_stamp(
+    stub_db: Any, with_key: None
+) -> None:
+    """Without this split, `login --league X` falsely reports the other ORPHANED."""
+    ctx = _FakeContext()
+
+    result = login.run(
+        browser_factory=ctx,
+        league=_tokens.LEGA_MANTRA,
+        verify=False,
+        prompt=_answers(""),
+        now=NOW,
+    )
+
+    assert result.stored == [_tokens.LEGA_MANTRA]
+    assert sorted(stub_db["stamped"]) == sorted([_tokens.LEGA_CLASSIC, _tokens.LEGA_MANTRA])
+
+
+def test_league_naming_an_absent_lega_exits_nonzero_and_stores_nothing(
+    stub_db: Any, with_key: None
+) -> None:
+    ctx = _FakeContext()
+
+    with pytest.raises(LoginAborted) as caught:
+        login.run(browser_factory=ctx, league=9911111, verify=False, prompt=_answers(""), now=NOW)
+
+    assert caught.value.code == 1
+    assert "9911111" in str(caught.value)
+    assert stub_db["writes"] == []
+
+
+def test_an_unparseable_blob_prompts_for_one_explicit_reread(
+    stub_db: Any, with_key: None
+) -> None:
+    """The likeliest real failure: Enter pressed before the SPA finished writing."""
+    ctx = _FakeContext(fail_first=True)
+
+    result = login.run(
+        browser_factory=ctx, verify=False, prompt=_answers("", ""), now=NOW
+    )
+
+    assert ctx.reads == 2
+    assert len(result.stored) == 2
+
+
+# --- SC 6: the session file is opt-in -------------------------------------
+
+
+def test_the_default_run_writes_no_session_file(
+    stub_db: Any, with_key: None, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fantabot import config
+
+    target = tmp_path / "storage_state.json"
+    monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
+    monkeypatch.setattr(config.settings, "fantabot_data_dir", tmp_path)
+
+    result = login.run(browser_factory=_FakeContext(), verify=False, prompt=_answers(""), now=NOW)
+
+    assert target.exists() is False
+    assert result.session_saved is False
+
+
+def test_save_session_writes_it(
+    stub_db: Any, with_key: None, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fantabot import config
+
+    target = tmp_path / "storage_state.json"
+    monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
+    monkeypatch.setattr(config.settings, "fantabot_data_dir", tmp_path)
+
+    result = login.run(
+        browser_factory=_FakeContext(),
+        verify=False,
+        save_session=True,
+        prompt=_answers(""),
+        now=NOW,
+    )
+
+    assert target.exists() is True
+    assert result.session_saved is True
+
+
+def test_a_stale_session_file_is_warned_about_and_left_alone(
+    stub_db: Any,
+    with_key: None,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Deleting user data is on SPEC's Ask-first list."""
+    from fantabot import config
+
+    target = tmp_path / "storage_state.json"
+    target.write_text("{}")
+    before = target.stat().st_mtime_ns
+    monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
+    monkeypatch.setattr(config.settings, "fantabot_data_dir", tmp_path)
+
+    login.run(browser_factory=_FakeContext(), verify=False, prompt=_answers(""), now=NOW)
+
+    assert target.stat().st_mtime_ns == before
+    assert "left untouched" in capsys.readouterr().out
+
+
+def test_no_printed_line_contains_a_token(
+    stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ctx = _FakeContext()
+
+    login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    output = capsys.readouterr().out
+    for one in _tokens.storage_state()["origins"][0]["localStorage"]:
+        if one["name"] != "LEAGUES2024_LOCAL":
+            continue
+        import json
+
+        blob = json.loads(one["value"])
+        for entry in blob[f"current-user-{_tokens.USER_ID}"]["leagues"]:
+            assert entry["token"][:16] not in output
