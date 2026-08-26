@@ -20,13 +20,13 @@ still complete and correct, which is all this importer reads from it.
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterable
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from fantabot.club_names import build_mapping
 from fantabot.db.importers import ImportResult
 from fantabot.db.models.reference import Team
 
@@ -35,43 +35,9 @@ _NAME_SOURCES: tuple[str, ...] = ("voti.csv", "bonus_malus.csv")
 
 SOURCE_FILES: tuple[str, ...] = _CODE_SOURCES + _NAME_SOURCES
 
+# The mapping itself is pure and outlives this importer — it is fed from
+# Postgres now, not from these files.
 
-class TeamMappingError(RuntimeError):
-    """The code-to-name mapping is not trustworthy, so nothing is written."""
-
-
-def code_for(nome_completo: str) -> str:
-    """``"Fiorentina"`` -> ``"FIO"``."""
-    return nome_completo.strip()[:3].upper()
-
-
-def build_mapping(nomi: Iterable[str], codici: Iterable[str]) -> dict[str, str]:
-    """Map every code to its full name, or raise. Pure, and fail-closed.
-
-    Refuses rather than returning a partial mapping. A NULL ``nome_completo``
-    would make later joins silently drop rows, which is a worse failure than an
-    import that stops.
-    """
-    nomi = sorted({n.strip() for n in nomi if n.strip()})
-    codici = sorted({c.strip().upper() for c in codici if c.strip()})
-
-    mapping: dict[str, list[str]] = {}
-    for nome in nomi:
-        mapping.setdefault(code_for(nome), []).append(nome)
-
-    collisions = {code: names for code, names in mapping.items() if len(names) > 1}
-    if collisions:
-        raise TeamMappingError(
-            f"the first three letters are not unique across clubs: {collisions}"
-        )
-
-    unresolved = [code for code in codici if code not in mapping]
-    if unresolved:
-        raise TeamMappingError(
-            f"no full name found for {len(unresolved)} code(s): {', '.join(unresolved)}"
-        )
-
-    return {code: names[0] for code, names in mapping.items()}
 
 
 def read_season_codes(data_dir: Path) -> set[tuple[str, str]]:
