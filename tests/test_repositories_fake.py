@@ -9,6 +9,8 @@ before any SQL is built at all.
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -17,6 +19,37 @@ from sqlalchemy import BigInteger, Column, MetaData, Table
 import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.db.base import Base
 from fantabot.db.repositories.admin import AdminRepository, UnknownTableError
+from fantabot.db.repositories.sentiment import SentimentRepository, to_record
+
+
+def _sentiment_row(**overrides: str) -> dict[str, str]:
+    """One store.build_row output, all cells stringly typed as it emits them."""
+    row = {
+        "data_run": "2026-10-07",
+        "giorni_lookback": "14",
+        "stagione": "2026/27",
+        "id": "6916",
+        "nome": "Ahanor",
+        "squadra": "ATA",
+        "ruolo": "Difensore",
+        "ruoli_mantra": "B;DS;E",
+        "ruolo_campo": "B;DS",
+        "deriva_ruolo": "0.70",
+        "sentiment": "-0.40",
+        "disponibilita": "0.20",
+        "titolarita": "0.30",
+        "mercato": "-0.60",
+        "forma": "0.00",
+        "rigorista": "0.00",
+        "piazzati": "0.00",
+        "confidenza": "0.70",
+        "riassunto": "Infortunio muscolare.",
+        "n_fonti": "2",
+        "fonti": "https://a;https://b",
+        "modello": "test",
+    }
+    row.update(overrides)
+    return row
 
 
 class _FakeResult:
@@ -131,3 +164,60 @@ class TestHealth:
 
         assert ok is False
         assert latency_ms >= 0
+
+
+class TestSentimentWritePath:
+    """The empty-batch no-op and the string key shape, without a database."""
+
+    def test_an_empty_batch_issues_no_statement(self) -> None:
+        """store.append_rows returns before touching the filesystem, so a run
+        that produced nothing leaves no artefact. Same contract here."""
+        session = _session()
+
+        sent = SentimentRepository(session).upsert_rows([])
+
+        assert sent == 0
+        assert session.statements == []
+
+    def test_a_non_empty_batch_issues_exactly_one_statement(self) -> None:
+        session = _session()
+
+        sent = SentimentRepository(session).upsert_rows([_sentiment_row()])
+
+        assert sent == 1
+        assert len(session.statements) == 1
+
+    def test_force_produces_an_update_and_the_default_a_do_nothing(self) -> None:
+        plain = _session()
+        SentimentRepository(plain).upsert_rows([_sentiment_row()])
+
+        forced = _session()
+        SentimentRepository(forced).upsert_rows([_sentiment_row()], force=True)
+
+        assert "DO NOTHING" in plain.statements[0].upper()
+        assert "DO UPDATE" in forced.statements[0].upper()
+
+
+class TestSentimentRecordConversion:
+    """build_row emits strings because its target was a CSV. The typing lives
+    here so build_row stays pure and its eleven tests keep describing it."""
+
+    def test_the_run_date_becomes_a_date(self) -> None:
+        assert to_record(_sentiment_row())["data_run"] == date(2026, 10, 7)
+
+    def test_the_player_id_becomes_an_integer_for_the_foreign_key(self) -> None:
+        assert to_record(_sentiment_row())["player_id"] == 6916
+
+    def test_scores_keep_two_decimal_places_as_decimals(self) -> None:
+        record = to_record(_sentiment_row())
+
+        assert record["confidenza"] == Decimal("0.70")
+        assert record["deriva_ruolo"] == Decimal("0.70")
+
+    def test_sources_are_split_into_an_array(self) -> None:
+        assert to_record(_sentiment_row())["fonti"] == ["https://a", "https://b"]
+
+    def test_no_sources_is_an_empty_array_not_a_list_containing_empty(self) -> None:
+        record = to_record(_sentiment_row(fonti="", n_fonti="0"))
+
+        assert record["fonti"] == []

@@ -314,3 +314,96 @@ class TestBonusMalusSeed:
             )
         ).scalar()
         assert orphans == 0
+
+
+class TestSentimentWriteAgainstALiveTable:
+    """The upsert semantics, where a fake session cannot settle them."""
+
+    @staticmethod
+    def _row(player_id: int, **overrides: str) -> dict[str, str]:
+        row = {
+            "data_run": "2026-10-07",
+            "giorni_lookback": "14",
+            "stagione": "2026/27",
+            "id": str(player_id),
+            "nome": "Canary",
+            "squadra": "ATA",
+            "ruolo": "Difensore",
+            "ruoli_mantra": "B;DS;E",
+            "ruolo_campo": "B;DS",
+            "deriva_ruolo": "0.70",
+            "sentiment": "-0.40",
+            "disponibilita": "0.20",
+            "titolarita": "0.30",
+            "mercato": "-0.60",
+            "forma": "0.00",
+            "rigorista": "0.00",
+            "piazzati": "0.00",
+            "confidenza": "0.70",
+            "riassunto": "prima lettura",
+            "n_fonti": "2",
+            "fonti": "https://a;https://b",
+            "modello": "test",
+        }
+        row.update(overrides)
+        return row
+
+    @staticmethod
+    def _a_real_player(db_session: Session) -> int:
+        return int(
+            db_session.execute(text("SELECT id FROM players ORDER BY id LIMIT 1")).scalar()
+        )
+
+    def test_the_same_key_twice_inserts_once(self, db_session: Session) -> None:
+        from fantabot.db.repositories.sentiment import SentimentRepository
+
+        player_id = self._a_real_player(db_session)
+        repo = SentimentRepository(db_session)
+
+        repo.upsert_rows([self._row(player_id)])
+        repo.upsert_rows([self._row(player_id, riassunto="seconda lettura")])
+
+        rows = db_session.execute(
+            text("SELECT riassunto FROM player_sentiment WHERE player_id = :p"),
+            {"p": player_id},
+        ).scalars().all()
+        assert rows == ["prima lettura"], "the second write should have been ignored"
+
+    def test_force_overwrites_in_place_and_never_adds_a_row(
+        self, db_session: Session
+    ) -> None:
+        """Today --force merely skips the resume filter and append_rows has no
+        dedup, so it writes a duplicate that _load keeps. This is the fix."""
+        from fantabot.db.repositories.sentiment import SentimentRepository
+
+        player_id = self._a_real_player(db_session)
+        repo = SentimentRepository(db_session)
+
+        repo.upsert_rows([self._row(player_id)])
+        repo.upsert_rows([self._row(player_id, riassunto="corretta")], force=True)
+
+        rows = db_session.execute(
+            text("SELECT riassunto FROM player_sentiment WHERE player_id = :p"),
+            {"p": player_id},
+        ).scalars().all()
+        assert rows == ["corretta"]
+
+    def test_existing_keys_comes_back_as_the_strings_the_cli_compares(
+        self, db_session: Session
+    ) -> None:
+        """Against a real date column, which is where a (date, int) tuple would
+        otherwise slip through and silently disable resume."""
+        from datetime import date
+
+        from fantabot.db.repositories.sentiment import SentimentRepository
+
+        player_id = self._a_real_player(db_session)
+        repo = SentimentRepository(db_session)
+        repo.upsert_rows([self._row(player_id)])
+
+        keys = repo.existing_keys(date(2026, 10, 7))
+
+        assert (date(2026, 10, 7).isoformat(), str(player_id)) in keys
+        for stored_date, stored_id in keys:
+            assert isinstance(stored_date, str)
+            assert isinstance(stored_id, str)

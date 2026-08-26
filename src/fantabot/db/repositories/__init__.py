@@ -2,9 +2,11 @@
 
 from fantabot.db.repositories._base import RepositoryBase
 from fantabot.db.repositories.admin import AdminRepository, UnknownTableError
+from fantabot.db.repositories.sentiment import SentimentRepository
 
 __all__ = [
     "AdminRepository",
     "RepositoryBase",
+    "SentimentRepository",
     "UnknownTableError",
 ]
