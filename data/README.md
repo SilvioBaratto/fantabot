@@ -1,147 +1,148 @@
 # data/
 
-Scraped fantacalcio datasets for `leghe.fantacalcio.it` decision logic (see
-`../CLAUDE.md` → "Stats source"). Each CSV is produced by the matching
-script in `../scripts/`:
+**The database is the source of truth.** These files are the one-time seed it
+was built from, plus the two Mantra reference files that are still read from
+disk. Nothing reads the scraped CSVs any more: the scrapers write to Postgres,
+the analysis scripts query it, and `fantabot news-fetch` stores its readings
+there.
 
-| CSV | Scraper |
-|---|---|
-| `quotazioni_classic.csv`, `quotazioni_mantra.csv` | `scripts/scrape_quotazioni.py` |
-| `statistiche_classic.csv`, `statistiche_mantra.csv` | `scripts/scrape_statistiche.py` |
-| `voti.csv`, `bonus_malus.csv` | `scripts/scrape_voti.py` |
-| `player_sentiment_2026-27.csv` | `fantabot news-fetch` (see `../docs/spec-news-sentiment.md`) |
+They are kept because a seed you cannot replay is not a seed, and because they
+are the only record of what the site said on the day they were captured — see
+"What the migration found" below, which is a live example of why that matters.
 
-`classic` = 3-role scoring (D/C/A), `mantra` = multi-role scoring (same
-match data, finer-grained role tags). Rows join across files on `id`
-(player id) + `stagione`; `voti.csv`/`bonus_malus.csv` also share
-`giornata` (matchday) + `squadra` + `avversario` for a given match.
+```bash
+docker compose up -d          # Postgres on 54321, Adminer on 18082
+alembic upgrade head
+fantabot db-import --all      # seed from these files, once
+fantabot db-check             # health, row counts, sizes
+```
 
-## File summaries
+## Tables
 
-### `quotazioni_classic.csv` — 3,201 rows × 9 cols, 152 KB
-Preseason market quotations (quotazioni), one row per player per season.
-Seasons: `2022/23`..`2026/27` (5). No nulls.
+`classic` = 3-role scoring (P/D/C/A), `mantra` = multi-role scoring on the same
+match data. Both share a table wherever the grain is identical; the `listone`
+column tells them apart.
 
-| col | dtype | notes |
-|---|---|---|
-| `stagione` | str | e.g. `2022/23` |
-| `id` | int | player id, 3–7568, 1414 unique players |
-| `nome` | str | 1440 unique |
-| `squadra` | str | 3-letter club code, 27 unique (promoted/relegated clubs across seasons) |
-| `ruolo_codice` | str | single-letter role: `p/d/c/a` |
-| `ruolo` | str | Portiere/Difensore/Centrocampista/Attaccante |
-| `qi` | int | quotazione iniziale (season-open credit price), 0–43 |
-| `qa` | int | quotazione attuale (current price), 0–44 |
-| `fvm` | int | fantavalore di mercato (market value index), 0–500 |
+| table | grain | rows at seed | source |
+|---|---|---|---|
+| `players` | one footballer | 1,474 | union of every id source |
+| `teams` | one club per season | 100 | derived, gated |
+| `quotazioni` | player × season × listone | 6,402 | `scripts/scrape_quotazioni.py` |
+| `statistiche` | player × season × listone × fonte | 16,068 | `scripts/scrape_statistiche.py` |
+| `qi_bias` | player × season × listone | 5,356 | `scripts/analyze_qi_bias.py` |
+| `target_price` | player × season × listone | 1,046 | `scripts/target_price.py` |
+| `voti` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
+| `bonus_malus` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
+| `player_sentiment` | player × run day | 0 | `fantabot news-fetch --write` |
+| `bot_state` | one lega | 0 | `lineup.py` |
+| `auction_bids` | one bid | 0 | `auction.py` |
+| `league_snapshot`, `league_team_snapshot`, `league_player_pool` | point in time | 0 | not yet produced — SPEC open question 5 |
 
-### `quotazioni_mantra.csv` — 3,201 rows × 9 cols, 174 KB
-Same rows/season coverage as `quotazioni_classic.csv`, but with mantra's
-multi-role tagging instead of `ruolo_codice`/`ruolo`.
+Row counts are what the CSVs held. They are **floors, not fixtures**: the
+scrapers read the live site and it moves.
 
-| col | dtype | notes |
-|---|---|---|
-| `ruoli_codice` | str | `;`-joined multi-role codes, e.g. `C;T`, 32 unique combos |
-| `ruoli` | str | `;`-joined full role names, e.g. `Cen.centrale;Trequartista` |
-| *(rest same as classic: `stagione`, `id`, `nome`, `squadra`, `qi`, `qa`, `fvm`)* | | |
+### `players` — 1,474, not 1,414
 
-### `statistiche_classic.csv` — 8,034 rows × 18 cols, 662 KB
-Season-aggregated per-player performance stats. Seasons: `2022/23`..`2025/26`
-(4 — `2026/27` not started yet). No nulls.
+Seeded from the **union** of every id source, not from `quotazioni` alone.
+`quotazioni` knows 1,414 ids; `voti`/`bonus_malus` reference 60 more — players
+who appeared in a match but never got a quotazione, from short loans and
+mid-season transfers away. Seeding from `quotazioni` looks correct until `voti`
+loads and 88 rows per file violate the foreign key.
 
-| col | dtype | notes |
-|---|---|---|
-| `stagione`, `id`, `nome`, `squadra`, `ruolo_codice`, `ruolo` | | same semantics as quotazioni |
-| `fonte` | str | rating source, 3 unique (`fantacalcio` most common) |
-| `partite_giocate` | int | games played, 0–38 |
-| `media_voto` | str | avg raw rating, **comma-decimal** (e.g. `"6,25"`) — cast with `.str.replace(',', '.').astype(float)` |
-| `media_fantavoto` | str | avg fantasy rating, same comma-decimal format |
-| `gol` | int | goals scored, 0–26 |
-| `gol_subiti` | int | goals conceded (goalkeepers), 0–68 |
-| `rigori_segnati` / `rigori_tirati` / `rigori_parati` | int | penalties scored/taken/saved |
-| `assist` | int | 0–17 |
-| `ammonizioni` / `espulsioni` | int | yellow/red cards |
+94 ids are spelled more than one way across seasons (`SORIANO`/`Soriano`,
+`Lucumi'`/`Lucumì`). The most recent season wins, ties break toward
+`quotazioni`.
 
-### `statistiche_mantra.csv` — 8,034 rows × 18 cols, 716 KB
-Same rows/stats as `statistiche_classic.csv`, with `ruoli_codice`/`ruoli`
-(multi-role, 32 unique combos) instead of `ruolo_codice`/`ruolo`.
+### `teams` — the bridge between two vocabularies
 
-### `voti.csv` — 50,634 rows × 18 cols, 5.0 MB
-Per-player, per-matchday match ratings across 3 rating sources. Seasons:
-`2022/23`..`2025/26` (4). **`id` has 3,039 nulls** — these are `Allenatore`
-(coach) rows, which have no player id.
+`quotazioni`, `statistiche`, `qi_bias` and `target_price` identify a club by a
+three-letter code; `voti` and `bonus_malus` use the full name. Nothing in the
+data states the correspondence, so it is derived — the code is the name's first
+three letters, upper-cased — and then **gated**: a prefix collision or an
+unresolved code raises and nothing is written. A partial mapping is the worse
+failure, because it makes later joins return zero rows while every table still
+looks populated.
 
-| col | dtype | notes |
-|---|---|---|
-| `stagione`, `giornata`, `data`, `ora` | | matchday identity; `data` is `dd/mm/yyyy` str |
-| `squadra`, `avversario` | str | team and opponent for that match |
-| `gol_squadra`, `gol_avversario` | int | final score for that match |
-| `id`, `nome`, `ruolo_codice`, `ruolo` | | player identity (id null for coach rows) |
-| `voto_fc` / `fantavoto_fc` | str | rating/fantasy-rating from fantacalcio.it source, comma-decimal, may be empty string for DNP |
-| `voto_stat` / `fantavoto_stat` | str | rating from stats-provider source |
-| `voto_italia` / `fantavoto_italia` | str | rating from Italia source |
+Season-scoped, not global: 27 distinct clubs across five seasons, 20 in any one.
 
-### `bonus_malus.csv` — 50,634 rows × 19 cols, 4.3 MB
-Same grain as `voti.csv` (one row per player per match) but with raw
-bonus/malus event counts instead of ratings. Same `id` null count (3,039,
-coach rows) and season coverage (`2022/23`..`2025/26`).
+### `statistiche` — `media_voto` is nullable and that is the point
 
-| col | dtype | notes |
-|---|---|---|
-| `stagione`, `giornata`, `data`, `squadra`, `avversario` | | same as voti.csv |
-| `id`, `nome`, `ruolo_codice`, `ruolo` | | player identity |
-| `ammonizione`, `espulsione` | int | 0/1 flags |
-| `gol_segnati`, `gol_subiti`, `autoreti` | int | goals for/against/own-goals, per match |
-| `rigori_segnati`, `rigori_sbagliati`, `rigori_parati` | int | penalty scored/missed/saved |
-| `assist` | int | |
-| `mvp` | int | 0/1 man-of-the-match flag |
+The source writes `"0,0"` for a player it has no average for. That is absent,
+not a grade of zero, and 2,846 rows carry it. Stored as 0 they would drag every
+average computed from this table toward zero and nothing would look wrong. The
+counter columns are the opposite case and are NOT NULL.
 
-### `player_sentiment_2026-27.csv` — one row per player per run, appended weekly
-Agent-collected news sentiment. **Not a scraper output**: `fantabot news-fetch`
-runs one Claude Agent SDK query per player over WebSearch/WebFetch and validates
-the reply against a pydantic schema. Runs every Wednesday in-season; each run
-appends 523 rows dated `data_run`, so a player accumulates a time-series.
+### `voti` / `bonus_malus` — `squadra_raw` is corrupt
 
-This file is **tracked by git** (unlike the rest of `data/`). A past Wednesday
-cannot be regenerated — the news has moved on — so it is the historical record.
+⚠️ The scraper labels **every row in a match block with the fixture's home
+team**, so the column cannot say which side a player played for
+(`scripts/analyze_qi_bias_by_team.py:8-13`). Nothing keys, indexes or joins on
+it, and a test enforces that.
 
-| col | dtype | notes |
-|---|---|---|
-| `data_run` | str | `yyyy-mm-dd`, the run that produced the row |
-| `giorni_lookback` | int | days of news the query covered (default 14) |
-| `stagione`, `id`, `nome`, `squadra`, `ruolo` | | joins to every other file on `id` + `stagione`; `ruolo` is the **Classic** role |
-| `ruoli_mantra` | str | the frozen late-July Mantra tag, copied from `quotazioni_mantra.csv` |
-| `ruolo_campo` | str | Mantra codes he is **actually** being played in, per this run's coverage. Uppercase, `;`-joined, sorted. Empty = the sources said nothing about his position |
-| `deriva_ruolo` | float | 0..1. `0.0` if `ruolo_campo` ⊆ `ruoli_mantra` or empty, else `confidenza`. **>0 means the platform's tag is stale** |
-| `sentiment`, `mercato`, `forma` | float | −1..+1 |
-| `disponibilita`, `titolarita`, `rigorista`, `piazzati`, `confidenza` | float | 0..1 |
-| `riassunto` | str | Italian, ≤600 chars, facts with dates |
-| `n_fonti`, `fonti` | int / str | count and `;`-joined URLs actually read |
-| `modello` | str | model id, so a mid-season model change is visible in the data |
+What does survive is the fixture: `squadra_raw` and `avversario_raw` identify
+home and away correctly, and the two goal columns are that fixture's score. A
+player's real club for a season comes from `quotazioni`.
 
-**Why `ruolo_campo` exists.** `rules/sistema-mantra.md`: fantacalcio.it assigns
-Mantra roles in late July and does not revisit them for the rest of the season,
-and admits a player's tactical role can evolve without the tag following. So
-`quotazioni_mantra.csv` drifts by design and never self-corrects — this is the
-only column that can tell you it has.
+3,039 rows per file are coach (`Allenatore`) rows with no player id. Postgres
+forbids a nullable column in a primary key, and those rows would collide with
+each other anyway, so each table has a surrogate key plus two disjoint partial
+unique indexes — one for rows with a player, one for rows without.
 
-## Gotchas
+### `target_price` — the season the CSV never had
 
-- **Comma-decimal columns**: `media_voto`, `media_fantavoto`,
-  `voto_*`/`fantavoto_*` are strings using Italian `,` decimal separators
-  — not numeric dtype. Convert before math.
-- **`id` nulls**: only in `voti.csv`/`bonus_malus.csv`, always
-  `ruolo == "Allenatore"` (coach) rows — filter these out for player-level
-  analysis (`ruolo_codice != "all"`).
-- **classic vs mantra**: identical row counts/keys per pair; differ only in
-  role granularity. Pick one per analysis, don't merge both (duplicate
-  data).
-- **Season coverage differs by file**: `quotazioni_*` goes through
-  `2026/27` (preseason prices already published); `statistiche_*`/`voti.csv`/
-  `bonus_malus.csv` stop at `2025/26` (season not played yet);
-  `player_sentiment_2026-27.csv` is `2026/27`-only.
-- **`confidenza == 0` is not a neutral player.** It means no coverage was found.
-  Exclude those rows before averaging — a 0.0 sentiment from silence and a 0.0
-  from balanced news are different facts.
-- **Decimal separator**: `player_sentiment_*.csv` uses `.` decimals, unlike the
-  scraped files above. It is a new file; the comma-decimals were not worth
-  propagating.
+`stagione` does not exist in `target_price_2026_27_*.csv`; it lived in the
+filename. It is a real NOT NULL column here, which is what lets a second
+season's prices coexist with this one.
+
+`prior_media_fantavoto` and `predicted_pct_delta` are nullable — 160 and 363
+rows per listone have nothing to reason from. Unlike `statistiche`, this file
+marks absence with a blank, so **zero is a real prediction**: one player
+genuinely forecasts `+0.0`.
+
+## Decimal separators are not consistent
+
+Measured, not assumed:
+
+| file | comma-decimals | dot-decimals | absent marked as |
+|---|---|---|---|
+| `statistiche_*.csv` | 13,222 | 0 | `"0,0"` |
+| `voti.csv` | 102,100 | 0 | — |
+| `qi_bias_*.csv` | 0 | all | — |
+| `target_price_*.csv` | 0 | all | `""` |
+
+One parser would have to guess, and guessing wrong does not raise: `"38.46"`
+with commas swapped for dots is still `38.46`, and `"38,46"` read as a plain
+decimal is `3846`. So there are two — `italian_decimal` and `plain_decimal` —
+and each refuses the other's format.
+
+## Still read from disk
+
+- `mantra_schemi.json`, `mantra_compat.json` — the 11 Mantra schemas and the
+  out-of-position matrix, collected once by `fantabot mantra-grid` and verified
+  by hand. Tracked in git.
+- `storage_state.json` — Playwright's session snapshot, holding cookies and the
+  league-scoped bearer token. Git-ignored, and staying on disk only until the
+  encrypted-token work in SPEC open question 1.
+
+## What the migration found
+
+Two things that were invisible while the data lived in files:
+
+- **The 2026/27 listone grew from 523 players to 544** on 2026-08-26, when the
+  first database-backed scrape picked up 21 signings added since the CSVs were
+  captured on 2026-08-19 — Elmas to Atalanta, Badiashile to Napoli, Grabara to
+  Juventus among them. Nothing was dropped. `target_price` has priced 523 of
+  them, so the 21 newcomers currently have no target price.
+- **`voti.csv` has no blank cells at all**, in any of its six grade columns
+  across 50,634 rows. The blanks are in `target_price`. Earlier notes described
+  the opposite.
+
+## Historical: resolved open questions
+
+- **Open question 2** — this file is a table dictionary now, not a CSV one.
+- **Open question 3** — `voti.squadra_raw` is stored corrupt-but-labelled rather
+  than repaired at import. Repairing it would hide a scraper bug that is still
+  live.
+- **Open question 4** — `docs/fantalab/`'s asta price model is out of scope for
+  this phase. `target_price` and `auction_bids` are built to SPEC's Schema, and
+  may be reshaped when that model lands.

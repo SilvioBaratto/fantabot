@@ -57,23 +57,54 @@ Scaffold + decision engine done and tested. **Not yet live-capable** — see
 2. No stats/injuries/probable-lineup source is wired in yet — implement
    `data_sources.StatsSource` once one is picked.
 
+Persistence is done: all ten scraped CSVs, the sentiment series, the lineup
+guard and the auction budget live in Postgres, and the auction budget now
+survives a mid-asta restart.
+
 ## Setup
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 playwright install chromium
-cp .env.example .env   # fill in LEGA_EMAIL / LEGA_PASSWORD / LEGA_URL
-fantabot auth          # interactive, opens a real browser — log in once
-fantabot config-check   # sanity check env is loaded
-pytest                  # strategy.py's decision logic, no live site needed
+cp .env.example .env   # fill in LEGA_EMAIL / LEGA_PASSWORD / LEGA_URL / FANTABOT_LEAGUE_ID
+
+docker compose up -d    # Postgres on 54321, Adminer on http://localhost:18082
+alembic upgrade head
+fantabot db-import --all  # one-time seed from the CSVs in data/
+fantabot db-check         # health, per-table row counts and sizes
+
+fantabot auth           # interactive, opens a real browser — log in once
+fantabot config-check   # sanity check env is loaded (secrets masked)
+pytest                  # decision logic; opens zero sockets
+pytest -m db            # integration tier, needs the stack above
+```
+
+## Storage
+
+Postgres is the source of truth. The CSVs in `data/` are the one-time seed it
+was built from and nothing reads them any more — the scrapers, the analysis
+scripts and `news-fetch` all go through the database. See
+[`data/README.md`](data/README.md) for the table dictionary, and
+[`SPEC.md`](SPEC.md) for why each departure from the file layout was made.
+
+```bash
+docker compose up -d              # db + adminer, nothing else
+alembic upgrade head              # apply migrations
+alembic check                     # do models and migrations still agree?
+fantabot db-import --all          # idempotent; safe to re-run
+fantabot db-import --table voti --dry-run
 ```
 
 ## Commands
 
 ```bash
 fantabot auth            # one-time interactive login, saves data/storage_state.json
-fantabot config-check    # print resolved settings
+fantabot config-check    # print resolved settings, secrets masked
+fantabot db-check        # database health + per-table row counts and sizes
+fantabot db-import       # seed Postgres from data/ — needs --all or --table
+fantabot news-fetch      # weekly sentiment run; --write stores it
+fantabot mantra-grid     # one-off, collects the Mantra schema grid
 fantabot lineup-submit   # single run — blocked until data source + DOM selectors are in
 ```
 

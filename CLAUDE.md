@@ -19,6 +19,12 @@ hatchling. No frontend, no BAML (yet — see "Future: BAML upgrade path" below).
 ```bash
 pip install -e ".[dev]"
 playwright install chromium
+
+docker compose up -d         # Postgres on 54321, Adminer on 18082
+alembic upgrade head
+fantabot db-import --all     # one-time seed from the CSVs in data/
+fantabot db-check            # health, per-table row counts and sizes
+
 fantabot auth                # one-time interactive login → data/storage_state.json
 fantabot config-check
 fantabot lineup-submit
@@ -27,9 +33,14 @@ fantabot news-fetch --limit 5           # smoke test, queries but writes nothing
 fantabot news-fetch --write             # the weekly run: all 523, both leagues
 fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
 
-pytest
+pytest                       # default tier: zero sockets, db tests deselected
+pytest -m db                 # integration tier, needs the compose stack
 ruff check src tests
 mypy
+
+alembic revision --autogenerate -m "..."
+alembic upgrade head
+alembic check                # models and migrations agree?
 ```
 
 ## Architecture
@@ -47,10 +58,11 @@ mypy
    that the interactive OAuth-equivalent flow never runs inside the
    unattended loop. If leghe.fantacalcio.it's login form turns out to be
    simple (no captcha), this can be scripted later; don't do it speculatively.
-4. **`state.py`** — JSON persistence (`data/state.json`) of
-   `last_lineup_matchday` and `last_auction_session_id` +
-   `processed_bids`, so a cron restart doesn't resubmit a lineup or reset an
-   auction's budget tracking mid-session.
+4. **`state.py`** — one function: `storage_state_path()`. Runtime state moved
+   to Postgres (`bot_state`, `auction_bids`), keyed by lega because the account
+   is in two and one flat file could not tell them apart. This module imports
+   nothing from `db/` on purpose — `auth.py` and `browser.py` sit on its import
+   chain, and `fantabot auth` has to work before a database exists.
 5. **`models.py`** — frozen dataclasses (`Player`, `RosterSlot`, `Lineup`,
    `AuctionListing`, `BidDecision`, ...) plus `VALID_FORMATIONS`, the 7 legal
    classic-mode (D, C, A) splits summing to 10 outfield players.
@@ -65,10 +77,19 @@ mypy
    returns `None` (pass) once at the cap.
 7. **`data_sources/`** — `StatsSource` `Protocol` (`projected_scores`,
    `player_pool`, `target_price`), still unimplemented. Alongside it,
-   `news_sentiment.py` reads the sentiment time-series produced by
-   `fantabot news-fetch`: `latest`, `trailing` (silent rows excluded), and
-   `drifted()` for players whose frozen Mantra tag no longer describes them.
-   Not wired into `strategy.py` yet — that is a later phase.
+   `models.py` (the frozen value types, and the single definition of the eight
+   `SCORES`) and `news_sentiment.py`, a thin adapter over the sentiment read
+   repository: `latest`, `trailing` (silent rows excluded), `drifted()`. It
+   holds a session, never a cached table — `auction.py` polls for hours and
+   would otherwise hold a frozen reading for a whole asta. Not wired into
+   `strategy.py` yet.
+
+13. **`db/`** — the persistence shell. `engine.py` builds the Engine lazily on
+   first `get_session()`, never at import; `base.py` carries the naming
+   convention that makes `alembic downgrade` work; `models/` is the schema,
+   `repositories/` every query, `importers/` the one-time CSV seed. Everything
+   here is I/O — decision logic stays in the pure modules. A test enforces that
+   `create_engine` appears nowhere outside this package.
 10. **`agentkit/`** — the Claude Agent SDK plumbing, shared by every command
    that queries. `env.py` closes both credential leak vectors (`os.environ`
    *and* `ClaudeAgentOptions.env`, since `session_resume.py:356` reads either),
@@ -126,6 +147,9 @@ mypy
 - **Stats source**: still unchosen for `StatsSource` proper. News sentiment is
   now covered by `fantabot news-fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores.
+- **Bearer token**: still a git-ignored file. The decision is made — encrypted
+  in Postgres, written by a CLI login flow that re-authenticates on expiry —
+  but it is the next phase. See `SPEC.md` open question 1.
 - **Mantra vs Classic**: the user plays **both**, one league each. `models.Role`
   (P/D/C/A) and `VALID_FORMATIONS` (7 Classic tuples) are Classic-only, so
   `strategy.pick_starting_lineup` cannot field a Mantra XI at all — Mantra has 12
@@ -153,6 +177,12 @@ mypy
   a suite that queries is a suite nobody runs.
 - Ruff: line length 100, target py311, same `select`/`ignore` as mailwise.
   `mypy --strict` on `src/fantabot` (tests excluded).
+- **The database is the source of truth.** `data/`'s CSVs are the one-time seed
+  and nothing reads them any more; the scrapers and `news-fetch` write to
+  Postgres. Row counts in `data/README.md` are floors, not fixtures — the
+  scrapers read a live site and it moves.
+- Every importer and repository write is an **upsert**. A killed run is
+  restarted, never repaired.
 
 ## Future: BAML upgrade path
 
