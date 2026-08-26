@@ -1,11 +1,21 @@
+from __future__ import annotations
+
 import asyncio
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
 
 from fantabot import auth as auth_module
+
+if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
+    from datetime import datetime
+
+    import httpx
+
+    from fantabot.tokens.store import TokenStore
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -309,6 +319,127 @@ def db_import(
         console.print(
             f"[green]{result.table}: {result.inserted:,} inserted, "
             f"{result.unchanged:,} unchanged, {result.total:,} total[/green]"
+        )
+
+
+def token_status_rows(
+    store: TokenStore,
+    *,
+    now: datetime,
+    verify: bool = False,
+    transport: httpx.BaseTransport | None = None,
+) -> list[tuple[str, str, str, str]]:
+    """The rendered table body. **This is the injection point.**
+
+    A Typer command has nowhere to accept a transport, so the work lives here
+    and the command is a thin shell over it. `--verify` fires exactly one
+    request per stored row; without it, nothing is built at all.
+    """
+    from fantabot import apileague
+    from fantabot.tokens.errors import TokenError
+    from fantabot.tokens.status import orphaned, render_state
+
+    rows = store.status()
+    stale = orphaned(rows)
+    fingerprint = store.key_fingerprint
+
+    rendered: list[tuple[str, str, str, str]] = []
+    for row in rows:
+        state = render_state(
+            row, now=now, key_fingerprint=fingerprint, is_orphaned=row.league_id in stale
+        )
+        if verify:
+            try:
+                apileague.league_status(
+                    row.league_id, store=store, transport=transport, now=now
+                )
+                store.mark_verified(row.league_id, now)
+                state = f"{state} · verified"
+            except TokenError as exc:
+                state = f"{state} · {exc}"
+        rendered.append(
+            (
+                str(row.league_id),
+                row.league_name or "—",
+                f"{row.expires_at:%Y-%m-%d}",
+                state,
+            )
+        )
+    return rendered
+
+
+@app.command()
+def token_status(
+    league: int = typer.Option(0, "--league", help="Only this lega's row."),
+    verify: bool = typer.Option(
+        False, "--verify", help="Also call the API once per row to prove the token works."
+    ),
+) -> None:
+    """What is stored, when it expires, and whether it still works.
+
+    Reads only the database, so it works with the browser closed and the site
+    down — and because `expires_at` is a plaintext column, it still reports
+    expiry with `FANTABOT_ENCRYPTION_KEY` absent. That is the situation where a
+    straight answer matters most.
+    """
+    from datetime import UTC, datetime
+
+    from rich.table import Table
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.config import settings
+    from fantabot.db import database_manager
+    from fantabot.tokens.crypto import TokenCipher
+    from fantabot.tokens.errors import TokenError
+    from fantabot.tokens.status import MISSING
+    from fantabot.tokens.store import TokenStore
+
+    # No key is not an error here. The whole point of the plaintext expiry
+    # columns is that this command still answers without one.
+    cipher = None
+    if settings.fantabot_encryption_key:
+        try:
+            cipher = TokenCipher(settings.fantabot_encryption_key)
+        except TokenError as exc:
+            console.print(f"[yellow]{exc}[/yellow]")
+    else:
+        console.print(
+            "[yellow]FANTABOT_ENCRYPTION_KEY is not set — expiries below are still "
+            "accurate; nothing can be decrypted.[/yellow]"
+        )
+
+    try:
+        with database_manager.get_session() as session:
+            rows = token_status_rows(TokenStore(session, cipher), now=datetime.now(UTC))
+    except SQLAlchemyError as exc:
+        dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
+        console.print(f"[red]Cannot reach the database at {dsn}[/red]")
+        console.print(f"[red]{type(exc).__name__}: {str(exc).splitlines()[0]}[/red]")
+        console.print("Start it with: [bold]docker compose up -d[/bold]")
+        raise typer.Exit(code=1) from None
+
+    wanted = league or settings.fantabot_league_id
+    if wanted:
+        rows = [r for r in rows if r[0] == str(wanted)]
+        if not rows:
+            # A lega is only *known* to exist if you named it or .env did.
+            rows = [(str(wanted), "—", "—", MISSING)]
+
+    if not rows:
+        console.print("[yellow]No tokens stored — run [bold]fantabot login[/bold].[/yellow]")
+        return
+
+    table = Table("lega", "name", "expires", "state")
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
+
+    if any(MISSING in row[3] or "ORPHANED" in row[3] for row in rows):
+        console.print(
+            "[dim]ORPHANED = the token is still valid, but a later login did not find "
+            "that lega on the account. Nothing is deleted automatically; remove it "
+            "with [bold]fantabot token-forget --league <id>[/bold].[/dim]"
         )
 
 
