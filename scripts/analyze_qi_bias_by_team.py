@@ -23,14 +23,16 @@ large but the median is near zero (or opposite sign) means the "team-wide"
 bias is really 1-2 outlier players dragging the average, not a genuine
 squad-wide mispricing pattern — flagged as "outlier-driven" in the table.
 
+Reads from Postgres: `docker compose up -d && fantabot db-import --all` first.
+
 Usage:
-    python scripts/analyze_qi_bias_by_team.py [--data-dir data] [--min-qi 3] [--top-n 15]
+    python scripts/analyze_qi_bias_by_team.py [--min-qi 3] [--top-n 15]
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
+import sys
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
@@ -38,6 +40,10 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
 
 console = Console()
 
@@ -51,21 +57,6 @@ class BiasRow:
     qi: int
     delta: int
     pct_delta: float
-
-
-def load_bias(path: Path, min_qi: int) -> list[BiasRow]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return [
-            BiasRow(
-                stagione=row["stagione"],
-                squadra=row["squadra"],
-                qi=int(row["qi"]),
-                delta=int(row["delta"]),
-                pct_delta=float(row["pct_delta"]),
-            )
-            for row in csv.DictReader(f)
-            if int(row["qi"]) > min_qi
-        ]
 
 
 def summarize(rows: list[BiasRow]) -> dict[str, float]:
@@ -91,19 +82,18 @@ def sign_consistency(rows_by_season: dict[str, list[BiasRow]]) -> tuple[float, i
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--min-qi", type=int, default=2, help="exclude rows with qi <= this (floor-effect guard)")
     parser.add_argument("--top-n", type=int, default=15)
     args = parser.parse_args()
 
     for system in SYSTEMS:
-        path = args.data_dir / f"qi_bias_{system}.csv"
-        rows = load_bias(path, args.min_qi)
+        with _db.session() as handle:
+            rows = _db.load_bias_rows(handle, system, min_qi=args.min_qi)
         if not rows:
             console.print(f"[yellow]{system}: no rows after qi>{args.min_qi} filter, skipping[/yellow]")
             continue
 
-        console.rule(f"[bold]{system.upper()}[/bold]  ({path}, {len(rows)} rows after qi>{args.min_qi} filter)")
+        console.rule(f"[bold]{system.upper()}[/bold]  ({len(rows)} rows after qi>{args.min_qi} filter)")
 
         by_team: dict[str, list[BiasRow]] = defaultdict(list)
         by_team_season: dict[str, dict[str, list[BiasRow]]] = defaultdict(lambda: defaultdict(list))

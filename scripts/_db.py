@@ -54,6 +54,7 @@ class BiasRow:
     squadra: str
     role: str
     qi: int
+    delta: int
     pct_delta: float
 
 
@@ -119,13 +120,16 @@ def load_bias_rows(
         clauses.append("stagione = ANY(:seasons)")
         params["seasons"] = sorted(seasons)
     if min_qi is not None:
-        clauses.append("qi >= :min_qi")
+        # Strictly greater, matching the scripts: --min-qi 2 means "qi > 2",
+        # the floor-effect guard. `>=` silently widened every sample by ~5%.
+        clauses.append("qi > :min_qi")
         params["min_qi"] = min_qi
 
     rows = handle.execute(
         text(
-            "SELECT b.stagione, b.player_id, p.nome, b.squadra, b.ruoli_codice[1], "
-            "b.qi, b.pct_delta FROM qi_bias b JOIN players p ON p.id = b.player_id "
+            "SELECT b.stagione, b.player_id, p.nome, b.squadra, b.ruoli_codice, "
+            "b.qi, b.delta, b.pct_delta "
+            "FROM qi_bias b JOIN players p ON p.id = b.player_id "
             f"WHERE {' AND '.join(clauses)} "
             "ORDER BY b.stagione, b.squadra, p.nome, b.player_id"
         ),
@@ -138,12 +142,26 @@ def load_bias_rows(
             id=str(player_id),
             nome=nome,
             squadra=squadra,
-            role=(role or "").lower(),
+            role=_role_string(codes, listone),
             qi=qi,
+            delta=delta,
             pct_delta=float(pct_delta),
         )
-        for stagione, player_id, nome, squadra, role, qi, pct_delta in rows
+        for stagione, player_id, nome, squadra, codes, qi, delta, pct_delta in rows
     ]
+
+
+def _role_string(codes: list[str], listone: str) -> str:
+    """Reproduce the source files' role spelling from the normalised codes.
+
+    The two files never agreed: ``qi_bias_classic.csv`` writes a single
+    lower-case letter, ``qi_bias_mantra.csv`` a ``;``-joined upper-case set. The
+    importer normalised both to an upper-case array, so the spelling is
+    reconstructed here rather than in the table — the scripts group and print by
+    this string, and changing it would change their output for no reason.
+    """
+    joined = ";".join(codes)
+    return joined.lower() if listone == "classic" else joined
 
 
 def load_quotes(
@@ -158,7 +176,7 @@ def load_quotes(
 
     rows = handle.execute(
         text(
-            "SELECT q.stagione, q.player_id, p.nome, q.squadra, q.ruoli_codice[1], "
+            "SELECT q.stagione, q.player_id, p.nome, q.squadra, q.ruoli_codice, "
             "q.qi, q.qa, q.fvm FROM quotazioni q JOIN players p ON p.id = q.player_id "
             f"WHERE {' AND '.join(clauses)} "
             "ORDER BY q.stagione, q.squadra, p.nome, q.player_id"
@@ -172,10 +190,10 @@ def load_quotes(
             id=str(player_id),
             nome=nome,
             squadra=squadra,
-            role=(role or "").lower(),
+            role=_role_string(codes, listone),
             qi=qi,
             qa=qa,
             fvm=fvm,
         )
-        for stagione, player_id, nome, squadra, role, qi, qa, fvm in rows
+        for stagione, player_id, nome, squadra, codes, qi, qa, fvm in rows
     ]

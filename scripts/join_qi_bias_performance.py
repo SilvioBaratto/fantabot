@@ -21,14 +21,16 @@ our data window); 2022/23 is dropped from this join entirely since we can't
 tell "no prior data because dataset starts here" apart from "no prior data
 because genuinely new" — would bias the no_prior_data bucket.
 
+Reads from Postgres: `docker compose up -d && fantabot db-import --all` first.
+
 Usage:
-    python scripts/join_qi_bias_performance.py [--data-dir data] [--min-appearances 10] [--top-n 15]
+    python scripts/join_qi_bias_performance.py [--min-appearances 10] [--top-n 15]
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
+import sys
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
@@ -37,16 +39,16 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
+
 console = Console()
 
 SEASON_ORDER = ["2022/23", "2023/24", "2024/25", "2025/26"]
 PREV_SEASON = dict(zip(SEASON_ORDER[1:], SEASON_ORDER[:-1], strict=True))
 
 SYSTEMS = ["classic", "mantra"]
-
-
-def parse_decimal(raw: str) -> float:
-    return float(raw.replace(",", "."))
 
 
 @dataclass(frozen=True)
@@ -66,42 +68,6 @@ class BiasRow:
     pct_delta: float
 
 
-def load_prior_stats(path: Path) -> dict[tuple[str, str], PriorStats]:
-    """(id, stagione) -> PriorStats, media_fantavoto averaged across the 3 fonte rows."""
-    by_key: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
-    with path.open(newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            by_key[(row["id"], row["stagione"])].append(row)
-
-    out: dict[tuple[str, str], PriorStats] = {}
-    for key, rows in by_key.items():
-        fantavoti = [parse_decimal(r["media_fantavoto"]) for r in rows if r["media_fantavoto"] not in ("", "0,0")]
-        if not fantavoti:
-            continue
-        out[key] = PriorStats(
-            partite_giocate=int(rows[0]["partite_giocate"]),
-            media_fantavoto=statistics.mean(fantavoti),
-        )
-    return out
-
-
-def load_bias_rows(path: Path) -> list[BiasRow]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return [
-            BiasRow(
-                stagione=row["stagione"],
-                id=row["id"],
-                nome=row["nome"],
-                squadra=row["squadra"],
-                role=row["role"],
-                qi=int(row["qi"]),
-                pct_delta=float(row["pct_delta"]),
-            )
-            for row in csv.DictReader(f)
-            if row["stagione"] in PREV_SEASON
-        ]
-
-
 def safe_correlation(xs: list[float], ys: list[float]) -> float | None:
     if len(xs) < 5 or len(set(xs)) < 2 or len(set(ys)) < 2:
         return None
@@ -110,22 +76,22 @@ def safe_correlation(xs: list[float], ys: list[float]) -> float | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--min-appearances", type=int, default=10)
     parser.add_argument("--top-n", type=int, default=15)
     args = parser.parse_args()
 
     for system in SYSTEMS:
-        bias_path = args.data_dir / f"qi_bias_{system}.csv"
-        stats_path = args.data_dir / f"statistiche_{system}.csv"
-        if not bias_path.exists():
-            console.print(f"[yellow]{system}: {bias_path} missing, run analyze_qi_bias.py first[/yellow]")
+        with _db.session() as handle:
+            prior_stats = _db.load_prior_stats(handle, system)
+            bias_rows = _db.load_bias_rows(handle, system, seasons=set(PREV_SEASON))
+
+        if not bias_rows:
+            console.print(
+                f"[yellow]{system}: no qi_bias rows — run `fantabot db-import --all`[/yellow]"
+            )
             continue
 
         console.rule(f"[bold]{system.upper()}[/bold]")
-
-        prior_stats = load_prior_stats(stats_path)
-        bias_rows = load_bias_rows(bias_path)
 
         has_prior: list[tuple[BiasRow, PriorStats]] = []
         no_prior: list[BiasRow] = []
