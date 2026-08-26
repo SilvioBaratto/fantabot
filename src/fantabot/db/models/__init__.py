@@ -18,15 +18,17 @@ from fantabot.db.models.reference import (
     TargetPrice,
     Team,
 )
-from fantabot.db.models.runtime import BotState
+from fantabot.db.models.runtime import BID_OUTCOMES, AuctionBid, BotState
 from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
 
 __all__ = [
+    "BID_OUTCOMES",
     "COACH_ROLE",
     "FONTI",
     "LISTONI",
     "MACRO_ROLES",
     "SCORE_COLUMNS",
+    "AuctionBid",
     "Base",
     "BonusMalus",
     "BotState",

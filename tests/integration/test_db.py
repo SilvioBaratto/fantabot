@@ -6,6 +6,8 @@ the stack up first: ``docker compose up -d && alembic upgrade head``.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -666,3 +668,123 @@ class TestBotState:
 
         for table in Base.metadata.tables.values():
             assert "processed_bids" not in table.c
+
+
+class TestAuctionBudget:
+    """Remaining budget as a derived query. SPEC criterion 12 hangs on this."""
+
+    ALLOCATION: ClassVar[dict[str, int]] = {"P": 25, "D": 75, "C": 175, "A": 225}
+    LEAGUE = 4_103_937
+    SESSION = "asta-iniziale-2026-27"
+
+    def _bid(
+        self,
+        db_session: Session,
+        player_id: int,
+        role: str,
+        amount: int,
+        *,
+        second: int,
+        outcome: str = "pending",
+        price: int | None = None,
+    ) -> None:
+        from datetime import UTC, datetime
+
+        from fantabot.db.repositories.runtime import AuctionRepository
+
+        repo = AuctionRepository(db_session)
+        placed_at = datetime(2026, 8, 26, 20, 0, second, tzinfo=UTC)
+        repo.record_bid(
+            league_id=self.LEAGUE,
+            session_id=self.SESSION,
+            player_id=player_id,
+            role=role,
+            amount=amount,
+            placed_at=placed_at,
+        )
+        if outcome != "pending":
+            repo.settle_bid(
+                league_id=self.LEAGUE,
+                session_id=self.SESSION,
+                player_id=player_id,
+                placed_at=placed_at,
+                outcome=outcome,
+                price=price,
+            )
+
+    def _players(self, db_session: Session, n: int) -> list[int]:
+        return [
+            int(v)
+            for v in db_session.execute(
+                text("SELECT id FROM players ORDER BY id LIMIT :n"), {"n": n}
+            ).scalars()
+        ]
+
+    def _remaining(self, db_session: Session) -> dict[str, int]:
+        from fantabot.db.repositories.runtime import AuctionRepository
+
+        return AuctionRepository(db_session).remaining_budget(
+            self.LEAGUE, self.SESSION, self.ALLOCATION
+        )
+
+    def test_won_bids_reduce_only_their_own_role(self, db_session: Session) -> None:
+        a, b, c = self._players(db_session, 3)
+        for i, (player, amount) in enumerate([(a, 20), (b, 30), (c, 40)]):
+            self._bid(db_session, player, "C", amount, second=i, outcome="won", price=amount)
+
+        remaining = self._remaining(db_session)
+
+        assert remaining["C"] == 175 - 90
+        assert remaining["P"] == 25
+        assert remaining["A"] == 225
+
+    def test_lost_bids_reduce_nothing(self, db_session: Session) -> None:
+        """auction.py subtracted the bid whether it won or not, so a losing
+        bidding war permanently shrank the budget for somebody else's player."""
+        (player,) = self._players(db_session, 1)
+        self._bid(db_session, player, "A", 90, second=0, outcome="lost")
+
+        assert self._remaining(db_session)["A"] == 225
+
+    def test_a_pending_bid_reserves_its_amount(self, db_session: Session) -> None:
+        """A bid is written before it is placed. Between the two the credits are
+        committed — freeing them would let a crash re-spend money already gone."""
+        (player,) = self._players(db_session, 1)
+        self._bid(db_session, player, "D", 40, second=0)
+
+        assert self._remaining(db_session)["D"] == 75 - 40
+
+    def test_the_settled_price_wins_over_the_bid_amount(self, db_session: Session) -> None:
+        """We bid 50 and the hammer fell at 45. 45 is what was spent."""
+        (player,) = self._players(db_session, 1)
+        self._bid(db_session, player, "A", 50, second=0, outcome="won", price=45)
+
+        assert self._remaining(db_session)["A"] == 225 - 45
+
+    def test_the_budget_survives_a_restart(self, db_session: Session) -> None:
+        """Criterion 12. The in-memory counter this replaces reset to full
+        credits on any crash, so the bot would re-spend what it had spent."""
+        a, b = self._players(db_session, 2)
+        self._bid(db_session, a, "C", 20, second=0, outcome="won", price=20)
+        self._bid(db_session, b, "C", 30, second=1, outcome="won", price=30)
+
+        # A "restart" is simply asking again: nothing is held in memory.
+        assert self._remaining(db_session)["C"] == 175 - 50
+        assert self._remaining(db_session)["C"] == 175 - 50
+
+    def test_a_session_with_no_bids_has_the_full_allocation(
+        self, db_session: Session
+    ) -> None:
+        from fantabot.db.repositories.runtime import AuctionRepository
+
+        remaining = AuctionRepository(db_session).remaining_budget(
+            self.LEAGUE, "a-session-that-never-happened", self.ALLOCATION
+        )
+
+        assert remaining == self.ALLOCATION
+
+    def test_it_never_reports_a_negative_budget(self, db_session: Session) -> None:
+        (player,) = self._players(db_session, 1)
+        self._bid(db_session, player, "P", 99, second=0, outcome="won", price=99)
+
+        assert self._remaining(db_session)["P"] == 0
