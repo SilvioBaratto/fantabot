@@ -1,0 +1,48 @@
+# Database only. fantabot itself stays a host-installed CLI under cron — there
+# is no app service, no Dockerfile and no entrypoint here (SPEC assumption 1).
+#
+# Host ports are picked to coexist with the other stacks in this workspace:
+# optimizer holds 54320/18081 and clipcraft holds 5433/8090.
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: fantabot_db
+    environment:
+      POSTGRES_DB: fantabot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${FANTABOT_DB_HOST_PORT:-54321}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fantabot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - fantabot_network
+    restart: unless-stopped
+
+  # Adminer — database management UI
+  adminer:
+    image: adminer:latest
+    container_name: fantabot_adminer
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "${FANTABOT_ADMINER_HOST_PORT:-18082}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fantabot_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  fantabot_network:
