@@ -2,10 +2,10 @@
 
 Two separate guarantees, easy to conflate:
 
-* **No connect at import.** ``fantabot auth`` has to work with the compose stack
-  down, and CLAUDE.md requires the default test run to open zero sockets. A
-  module-scope ``create_engine`` would turn ``fantabot --help`` into a
-  connection attempt and make all 156 tests need Postgres just to collect.
+* **No connect at import.** ``fantabot --help`` has to work with the compose
+  stack down, and CLAUDE.md requires the default test run to open zero sockets.
+  A module-scope ``create_engine`` would turn ``fantabot --help`` into a
+  connection attempt and make the whole suite need Postgres just to collect.
 * **No engine outside ``db/``.** The rule is about *ownership of connections*,
   not about the ``sqlalchemy`` name. Consumers legitimately annotate a
   ``Session`` parameter — under ``mypy --strict`` that means importing it — so
@@ -42,6 +42,7 @@ def test_importing_the_cli_opens_no_connection() -> None:
     script = textwrap.dedent(
         """
         import socket
+        import sys
 
         def boom(*args, **kwargs):
             raise AssertionError("a connection was opened at import time")
@@ -51,6 +52,16 @@ def test_importing_the_cli_opens_no_connection() -> None:
         socket.create_connection = boom
 
         import fantabot.cli
+
+        # Checked here, BEFORE fantabot.db is imported below — otherwise this
+        # test would be asserting against its own import.
+        #
+        # Newly true, and newly worth pinning: until `auth.py` was deleted,
+        # cli.py -> auth.py -> browser.py -> playwright.sync_api ran at module
+        # scope, so importing the CLI loaded Playwright unconditionally.
+        assert "playwright" not in sys.modules, "importing the CLI loaded Playwright"
+        assert "sqlalchemy" not in sys.modules, "importing the CLI loaded SQLAlchemy"
+
         import fantabot.db
 
         assert fantabot.db.database_manager.engine is None, "engine built at import"

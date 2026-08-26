@@ -61,7 +61,18 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
     assert offenders == [], f"src/fantabot/{module} reaches the database: {offenders}"
 
 
-def test_the_auth_path_can_be_imported_with_no_database() -> None:
+def test_the_browser_chain_can_be_imported_with_no_database() -> None:
+    """The guarantee moved, and this is where it moved to.
+
+    It used to be about `fantabot auth` — a command that no longer exists. What
+    survives it is the *import chain*: `state.py` and `browser.py` must load
+    without a database, so `fantabot --help` never becomes a connection attempt
+    (SPEC assumption 6).
+
+    `fantabot.login` is deliberately **not** imported here. It imports
+    `fantabot.db`, legitimately — which is precisely what this test forbids on
+    this chain.
+    """
     script = textwrap.dedent(
         """
         import socket
@@ -74,7 +85,6 @@ def test_the_auth_path_can_be_imported_with_no_database() -> None:
 
         import fantabot.state
         import fantabot.browser
-        import fantabot.auth
         """
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)

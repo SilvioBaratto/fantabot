@@ -623,3 +623,58 @@ def test_every_printed_line_is_derivable_without_a_decrypt(
     assert str(_tokens.TEAM_MANTRA) in output
     assert "2027-08-19" in output
     assert "200" in output
+
+
+# --- T20: through the real command ----------------------------------------
+
+
+def test_fantabot_auth_is_gone() -> None:
+    from typer.testing import CliRunner
+
+    from fantabot.cli import app
+
+    result = CliRunner().invoke(app, ["auth"])
+
+    assert result.exit_code != 0
+
+
+def test_login_is_registered_with_all_four_flags() -> None:
+    from typer.testing import CliRunner
+
+    from fantabot.cli import app
+
+    output = CliRunner().invoke(app, ["login", "--help"]).output
+
+    for flag in ("--league", "--force", "--no-verify", "--save-session"):
+        assert flag in output, f"{flag} is missing from `fantabot login --help`"
+
+
+def test_a_missing_key_exits_two_through_the_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SC 1, through the real Typer command rather than login.run()."""
+    from typer.testing import CliRunner
+
+    from fantabot import config
+    from fantabot.cli import app
+
+    monkeypatch.setattr(config.settings, "fantabot_encryption_key", "")
+    result = CliRunner().invoke(app, ["login"])
+
+    assert result.exit_code == 2
+    assert "Fernet.generate_key()" in result.output
+
+
+def test_a_malformed_key_exits_two_through_the_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from fantabot import config
+    from fantabot.cli import app
+
+    monkeypatch.setattr(config.settings, "fantabot_encryption_key", "not-a-key")
+    result = CliRunner().invoke(app, ["login"])
+
+    assert result.exit_code == 2
+    assert "44-character urlsafe-base64" in result.output

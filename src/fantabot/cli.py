@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING
 import typer
 from rich.console import Console
 
-from fantabot import auth as auth_module
-
 if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     from datetime import datetime
 
@@ -19,12 +17,6 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
-
-
-@app.command()
-def auth() -> None:
-    """One-time interactive login — opens a real browser window, saves the session."""
-    auth_module.run()
 
 
 @app.command()
@@ -441,6 +433,41 @@ def token_status(
             "that lega on the account. Nothing is deleted automatically; remove it "
             "with [bold]fantabot token-forget --league <id>[/bold].[/dim]"
         )
+
+
+@app.command()
+def login(
+    league: int = typer.Option(0, "--league", help="Only capture this lega."),
+    force: bool = typer.Option(False, "--force", help="Re-auth even if the token is valid."),
+    verify: bool = typer.Option(
+        True, "--verify/--no-verify", help="Confirm each stored token against the API."
+    ),
+    save_session: bool = typer.Option(
+        False, "--save-session", help="Also write data/storage_state.json (default: off)."
+    ),
+) -> None:
+    """Sign in once; store every lega's bearer token encrypted in Postgres.
+
+    Replaces `fantabot auth`. You log in yourself in a real browser window —
+    nothing here scripts a credential, and nothing clicks anything after you do.
+    The token is then read from localStorage, encrypted and written to
+    `league_tokens`, keyed by lega.
+
+    Running it again when every token is still valid opens no browser at all.
+    """
+    from fantabot import login as login_module
+    from fantabot.tokens.errors import TokenError
+
+    try:
+        login_module.run(
+            league=league, force=force, verify=verify, save_session=save_session
+        )
+    except login_module.LoginAborted as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=exc.code) from None
+    except TokenError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
 
 
 if __name__ == "__main__":
