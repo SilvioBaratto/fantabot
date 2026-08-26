@@ -104,3 +104,34 @@ class TestTeamsSeed:
             text("SELECT count(*) FROM teams WHERE stagione = '2026/27' AND nome_completo <> ''")
         ).scalar()
         assert count == 20
+
+
+class TestQuotazioniSeed:
+    def test_both_listoni_hold_3201_rows(self, db_session: Session) -> None:
+        rows = db_session.execute(
+            text("SELECT listone, count(*) FROM quotazioni GROUP BY 1 ORDER BY 1")
+        ).all()
+        assert rows == [("classic", 3201), ("mantra", 3201)]
+
+    def test_every_classic_row_has_exactly_one_valid_role(self, db_session: Session) -> None:
+        bad = db_session.execute(
+            text(
+                "SELECT count(*) FROM quotazioni WHERE listone = 'classic' AND ("
+                "cardinality(ruoli_codice) <> 1 "
+                "OR NOT (ruoli_codice[1] = ANY(ARRAY['P','D','C','A'])))"
+            )
+        ).scalar()
+        assert bad == 0
+
+    def test_nothing_is_orphaned(self, db_session: Session) -> None:
+        """The composite foreign key to teams is season-scoped, because a club
+        code only means something within a season."""
+        orphans = db_session.execute(
+            text(
+                "SELECT count(*) FROM quotazioni q "
+                "LEFT JOIN players p ON p.id = q.player_id "
+                "LEFT JOIN teams t ON t.stagione = q.stagione AND t.codice = q.squadra "
+                "WHERE p.id IS NULL OR t.codice IS NULL"
+            )
+        ).scalar()
+        assert orphans == 0

@@ -23,6 +23,7 @@ import pytest
 
 from fantabot.db.importers._csv import italian_decimal, plain_decimal, split_codes
 from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
+from fantabot.db.importers.quotazioni import read_rows as quotazioni_rows
 from fantabot.db.importers.teams import TeamMappingError, build_mapping, code_for
 
 
@@ -213,3 +214,55 @@ class TestTeamMappingIsFailClosed:
     def test_code_for_upper_cases_the_first_three_letters(self) -> None:
         assert code_for("Fiorentina") == "FIO"
         assert code_for(" udinese ") == "UDI"
+
+
+class TestQuotazioniRows:
+    """Classic and Mantra differ only in the role column name, so one reader
+    handles both and the listone is what distinguishes the rows."""
+
+    @staticmethod
+    def _write(tmp_path: Path) -> None:
+        (tmp_path / "quotazioni_classic.csv").write_text(
+            "stagione,id,nome,squadra,ruolo_codice,ruolo,qi,qa,fvm\n"
+            "2026/27,7,Tizio,ata,P,Portiere,12,13,40\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "quotazioni_mantra.csv").write_text(
+            "stagione,id,nome,squadra,ruoli_codice,ruoli,qi,qa,fvm\n"
+            "2026/27,7,Tizio,ATA,B;DS;E,Braccetto;Dif.;Esterno,12,13,40\n",
+            encoding="utf-8",
+        )
+
+    def test_both_files_land_with_their_own_listone(self, tmp_path: Path) -> None:
+        self._write(tmp_path)
+
+        rows = quotazioni_rows(tmp_path)
+
+        assert sorted(row["listone"] for row in rows) == ["classic", "mantra"]
+
+    def test_classic_roles_become_a_one_element_array(self, tmp_path: Path) -> None:
+        self._write(tmp_path)
+
+        classic = next(r for r in quotazioni_rows(tmp_path) if r["listone"] == "classic")
+
+        assert classic["ruoli_codice"] == ["P"]
+
+    def test_mantra_roles_are_split_on_semicolons(self, tmp_path: Path) -> None:
+        self._write(tmp_path)
+
+        mantra = next(r for r in quotazioni_rows(tmp_path) if r["listone"] == "mantra")
+
+        assert mantra["ruoli_codice"] == ["B", "DS", "E"]
+        assert mantra["ruoli"] == ["BRACCETTO", "DIF.", "ESTERNO"]
+
+    def test_the_club_code_is_upper_cased_to_match_teams(self, tmp_path: Path) -> None:
+        """quotazioni_classic writes 'ata' in this fixture; the composite
+        foreign key to teams.codice would miss it uncorrected."""
+        self._write(tmp_path)
+
+        classic = next(r for r in quotazioni_rows(tmp_path) if r["listone"] == "classic")
+
+        assert classic["squadra"] == "ATA"
+
+    def test_a_missing_file_contributes_nothing(self, tmp_path: Path) -> None:
+        assert quotazioni_rows(tmp_path) == []

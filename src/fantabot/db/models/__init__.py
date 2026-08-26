@@ -7,12 +7,14 @@ its table.
 
 from fantabot.db.base import Base, TimestampMixin
 from fantabot.db.models.matches import ProbeMatchGrain
-from fantabot.db.models.reference import Player, Team
+from fantabot.db.models.reference import LISTONI, Player, Quotazione, Team
 
 __all__ = [
+    "LISTONI",
     "Base",
     "Player",
     "ProbeMatchGrain",
+    "Quotazione",
     "Team",
     "TimestampMixin",
 ]

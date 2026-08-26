@@ -6,7 +6,17 @@ match-grain tables, points at it.
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, String, Text
+from sqlalchemy import (
+    ARRAY,
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    SmallInteger,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from fantabot.db.base import Base, TimestampMixin
@@ -55,3 +65,49 @@ class Team(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Team {self.stagione} {self.codice} {self.nome_completo!r}>"
+
+
+# Both listoni share every fact table; this is the discriminator.
+LISTONI: tuple[str, ...] = ("classic", "mantra")
+_LISTONE_CHECK = "listone IN ('classic', 'mantra')"
+
+
+class Quotazione(Base, TimestampMixin):
+    """One player's valuation for one season, on one listone.
+
+    Classic and Mantra share this table because the grain is identical and the
+    only difference is the role column. ``ruoli_codice`` holds a single-element
+    array for Classic (``{P}``) and the full set for Mantra (``{B,DS,E}``).
+
+    The source CSVs store those ``;``-joined. The array is a deliberate
+    departure: ``;``-splitting in SQL is not something a query should have to do,
+    and role membership is the most common filter this table will serve.
+    """
+
+    __tablename__ = "quotazioni"
+
+    stagione: Mapped[str] = mapped_column(String(7), primary_key=True)
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id"), primary_key=True
+    )
+    listone: Mapped[str] = mapped_column(String(7), primary_key=True)
+
+    squadra: Mapped[str] = mapped_column(String(3), nullable=False)
+    ruoli_codice: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    ruoli: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    qi: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    qa: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    fvm: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    __table_args__ = (
+        # Composite FK, not a plain one: a club code only means something within
+        # a season, because promotion and relegation change the set of 20.
+        ForeignKeyConstraint(
+            ["stagione", "squadra"], ["teams.stagione", "teams.codice"]
+        ),
+        CheckConstraint(_LISTONE_CHECK, name="listone"),
+        Index("ix_quotazioni_stagione_squadra", "stagione", "squadra"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Quotazione {self.stagione} {self.listone} player={self.player_id}>"
