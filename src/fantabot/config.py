@@ -17,6 +17,11 @@ class Settings(BaseSettings):
 
     fantabot_auto_act: bool = False
 
+    # The l_id from docs/leghe-api.md — 4103937 for legamiallerotaie2, 3584692
+    # for legamiallerotaie. Runtime state is keyed by it because the account is
+    # in two leghe and one flat file could not tell them apart. 0 means unset.
+    fantabot_league_id: int = 0
+
     # The driver must stay +psycopg2. SPEC assumption 3: fantabot is a batch
     # process, and `postgresql+asyncpg://` breaks `alembic upgrade head`.
     fantabot_database_url: str = Field(

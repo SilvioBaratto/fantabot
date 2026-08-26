@@ -18,6 +18,7 @@ from fantabot.db.models.reference import (
     TargetPrice,
     Team,
 )
+from fantabot.db.models.runtime import BotState
 from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "SCORE_COLUMNS",
     "Base",
     "BonusMalus",
+    "BotState",
     "Player",
     "PlayerSentiment",
     "QiBias",

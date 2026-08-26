@@ -611,3 +611,58 @@ class TestPoolFromPostgres:
         ]
 
         assert from_db == from_csv
+
+
+class TestBotState:
+    """Runtime state, keyed by lega."""
+
+    def test_a_lega_with_no_row_reports_nothing_done(self, db_session: Session) -> None:
+        """Same answer state.load() gave for a missing file: a bot that has done
+        nothing and one whose file is absent are the same situation."""
+        from fantabot.db.repositories.runtime import RuntimeRepository
+
+        assert RuntimeRepository(db_session).last_lineup_matchday(999_999) is None
+
+    def test_the_two_leghe_are_tracked_independently(self, db_session: Session) -> None:
+        """The reason the table is keyed at all. One flat file meant submitting
+        in one lega marked the other done."""
+        from fantabot.db.repositories.runtime import RuntimeRepository
+
+        repo = RuntimeRepository(db_session)
+        repo.record_lineup_submitted(3_584_692, 5)
+        repo.record_lineup_submitted(4_103_937, 12)
+
+        assert repo.last_lineup_matchday(3_584_692) == 5
+        assert repo.last_lineup_matchday(4_103_937) == 12
+
+    def test_recording_twice_updates_rather_than_duplicating(
+        self, db_session: Session
+    ) -> None:
+        from fantabot.db.repositories.runtime import RuntimeRepository
+
+        repo = RuntimeRepository(db_session)
+        repo.record_lineup_submitted(4_103_937, 12)
+        repo.record_lineup_submitted(4_103_937, 13)
+
+        assert repo.last_lineup_matchday(4_103_937) == 13
+
+    def test_the_auction_session_shares_the_row_without_clobbering_it(
+        self, db_session: Session
+    ) -> None:
+        """Both writers upsert the same primary key, so each must set only its
+        own column — otherwise starting an asta would forget the matchday."""
+        from fantabot.db.repositories.runtime import RuntimeRepository
+
+        repo = RuntimeRepository(db_session)
+        repo.record_lineup_submitted(4_103_937, 12)
+        repo.record_auction_session(4_103_937, "riparazione-1")
+
+        assert repo.last_lineup_matchday(4_103_937) == 12
+        assert repo.last_auction_session_id(4_103_937) == "riparazione-1"
+
+    def test_processed_bids_exists_nowhere_in_the_schema(self) -> None:
+        """It was persisted and never appended to. auction_bids replaces it."""
+        from fantabot.db.base import Base
+
+        for table in Base.metadata.tables.values():
+            assert "processed_bids" not in table.c
