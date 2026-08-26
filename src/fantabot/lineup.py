@@ -1,7 +1,7 @@
 from playwright.sync_api import Page
 from rich.console import Console
 
-from fantabot import browser, state, strategy
+from fantabot import browser, strategy
 from fantabot.config import settings
 from fantabot.data_sources import StatsSource
 from fantabot.models import Lineup, MatchdayInfo, RosterSlot
@@ -35,15 +35,27 @@ def submit_lineup(page: Page, lineup: Lineup) -> None:
 
 
 def run_once(stats_source: StatsSource, headless: bool = True) -> None:
+    """Submit one matchday's lineup, unless this lega already has it.
+
+    The no-resubmit guard is a database read now, and it is scoped to
+    ``FANTABOT_LEAGUE_ID``: the account is in two leghe, and the flat file this
+    replaces had one matchday for both, so submitting in one marked the other
+    done.
+    """
+    from fantabot.db import database_manager
+    from fantabot.db.repositories.runtime import RuntimeRepository
+
     settings.require_credentials()
-    bot_state = state.load()
+    league_id = settings.fantabot_league_id
 
     with browser.context(headless=headless) as ctx:
         page = ctx.new_page()
         page.goto(settings.lega_url)
 
         info = scrape_matchday_info(page)
-        if bot_state.get("last_lineup_matchday") == info.matchday:
+        with database_manager.get_session() as session:
+            already = RuntimeRepository(session).last_lineup_matchday(league_id)
+        if already == info.matchday:
             console.print(f"[yellow]Matchday {info.matchday} already submitted, skipping.[/yellow]")
             return
 
@@ -63,6 +75,8 @@ def run_once(stats_source: StatsSource, headless: bool = True) -> None:
             return
 
         submit_lineup(page, lineup)
-        bot_state["last_lineup_matchday"] = info.matchday
-        state.save(bot_state)
+        # Recorded only after the submit returns. Marking it first would make a
+        # failed submit look done and skip the matchday for good.
+        with database_manager.get_session() as session:
+            RuntimeRepository(session).record_lineup_submitted(league_id, info.matchday)
         console.print("[green]Lineup submitted.[/green]")
