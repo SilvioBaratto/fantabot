@@ -18,20 +18,24 @@ here), rp (rigori parati), ass (assist), amm (ammonizioni), esp (espulsioni).
 Parsed with stdlib html.parser (no BeautifulSoup dependency needed).
 
 Usage:
-    python scripts/scrape_statistiche.py [--out-dir data] [--seasons 2022/23 ...] [--providers fantacalcio statistico italia]
+    python scripts/scrape_statistiche.py [--seasons 2022/23 ...] [--providers fantacalcio statistico italia]
 
 Default seasons: 2022/23 through 2025/26 (2026/27 excluded — preseason, all
 zeros as of writing; pass --seasons explicitly to include it).
 
-Writes (rows from every season/fonte stacked together):
-    <out-dir>/statistiche_classic.csv
-    <out-dir>/statistiche_mantra.csv
+Upserts, tagged by "stagione", "fonte" and "listone":
+    statistiche — one row per player per season per provider per listone
+    players     — id and name, for the foreign key
+    teams       — the three-letter code
+
+`fonte` is why one player has several rows for one season: each provider grades
+independently, and the three disagree often enough that collapsing them would
+throw away the disagreement.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 import time
 import urllib.error
@@ -207,110 +211,6 @@ def fetch_provider(season: str, provider: str) -> list[PlayerStatsRow]:
     parser = StatisticheParser(season, provider)
     parser.feed(html)
     return parser.rows
-
-
-def write_classic_csv(rows: list[PlayerStatsRow], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "stagione",
-                "fonte",
-                "id",
-                "nome",
-                "squadra",
-                "ruolo_codice",
-                "ruolo",
-                "partite_giocate",
-                "media_voto",
-                "media_fantavoto",
-                "gol",
-                "gol_subiti",
-                "rigori_segnati",
-                "rigori_tirati",
-                "rigori_parati",
-                "assist",
-                "ammonizioni",
-                "espulsioni",
-            ]
-        )
-        for r in sorted(
-            rows, key=lambda r: (r.season, r.provider, r.team, r.role_classic_code, r.name)
-        ):
-            writer.writerow(
-                [
-                    r.season,
-                    r.provider,
-                    r.player_id,
-                    r.name,
-                    r.team,
-                    r.role_classic_code,
-                    r.role_classic_label,
-                    r.stats.get("pg", ""),
-                    r.stats.get("mv", ""),
-                    r.stats.get("mfv", ""),
-                    r.stats.get("gol", ""),
-                    r.stats.get("gs", ""),
-                    r.rigori_segnati,
-                    r.rigori_tirati,
-                    r.stats.get("rp", ""),
-                    r.stats.get("ass", ""),
-                    r.stats.get("amm", ""),
-                    r.stats.get("esp", ""),
-                ]
-            )
-
-
-def write_mantra_csv(rows: list[PlayerStatsRow], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "stagione",
-                "fonte",
-                "id",
-                "nome",
-                "squadra",
-                "ruoli_codice",
-                "ruoli",
-                "partite_giocate",
-                "media_voto",
-                "media_fantavoto",
-                "gol",
-                "gol_subiti",
-                "rigori_segnati",
-                "rigori_tirati",
-                "rigori_parati",
-                "assist",
-                "ammonizioni",
-                "espulsioni",
-            ]
-        )
-        for r in sorted(
-            rows, key=lambda r: (r.season, r.provider, r.team, r.role_mantra_codes, r.name)
-        ):
-            writer.writerow(
-                [
-                    r.season,
-                    r.provider,
-                    r.player_id,
-                    r.name,
-                    r.team,
-                    ";".join(code.upper() for code in r.role_mantra_codes),
-                    ";".join(r.role_mantra_labels),
-                    r.stats.get("pg", ""),
-                    r.stats.get("mv", ""),
-                    r.stats.get("mfv", ""),
-                    r.stats.get("gol", ""),
-                    r.stats.get("gs", ""),
-                    r.rigori_segnati,
-                    r.rigori_tirati,
-                    r.stats.get("rp", ""),
-                    r.stats.get("ass", ""),
-                    r.stats.get("amm", ""),
-                    r.stats.get("esp", ""),
-                ]
-            )
 
 
 def main() -> None:

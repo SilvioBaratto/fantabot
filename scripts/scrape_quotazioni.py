@@ -1,4 +1,4 @@
-"""Scrape official player quotazioni from fantacalcio.it, all seasons, into two CSVs.
+"""Scrape official player quotazioni from fantacalcio.it, all seasons, into Postgres.
 
 Source: https://www.fantacalcio.it/quotazioni-fantacalcio[/YYYY-YY] — server-renders
 the full player table (~500-700 rows) in one plain GET per season, no API/JS
@@ -8,19 +8,24 @@ class="player-row"> carries the data as element attributes/text; parsed here
 with stdlib html.parser (no BeautifulSoup dependency needed).
 
 Usage:
-    python scripts/scrape_quotazioni.py [--out-dir data] [--seasons 2022/23 2023/24 ...]
+    python scripts/scrape_quotazioni.py [--seasons 2022/23 2023/24 ...]
 
 Default seasons: 2022/23 through 2026/27 (current).
 
-Writes (rows from every requested season stacked, tagged by "stagione"):
-    <out-dir>/quotazioni_classic.csv
-    <out-dir>/quotazioni_mantra.csv
+Upserts, tagged by "stagione" and "listone" so both role systems share a table:
+    quotazioni  — one row per player per season per listone (classic, mantra)
+    players     — id and name, so the foreign keys resolve
+    teams       — the three-letter code; the full name is filled in afterwards
+                  by _db.resolve_team_names_or_report()
+
+This must run before scrape_voti and scrape_statistiche on a fresh database:
+it is the only scraper that writes players and teams, and the others point at
+them.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 import time
 import urllib.request
@@ -174,50 +179,6 @@ def fetch_season(season: str) -> list[PlayerRow]:
     parser = QuotazioniParser(season)
     parser.feed(html)
     return parser.rows
-
-
-def write_classic_csv(rows: list[PlayerRow], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["stagione", "id", "nome", "squadra", "ruolo_codice", "ruolo", "qi", "qa", "fvm"]
-        )
-        for r in sorted(rows, key=lambda r: (r.season, r.team, r.role_classic_code, r.name)):
-            writer.writerow(
-                [
-                    r.season,
-                    r.player_id,
-                    r.name,
-                    r.team,
-                    r.role_classic_code,
-                    r.role_classic_label,
-                    r.c_qi,
-                    r.c_qa,
-                    r.c_fvm,
-                ]
-            )
-
-
-def write_mantra_csv(rows: list[PlayerRow], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["stagione", "id", "nome", "squadra", "ruoli_codice", "ruoli", "qi", "qa", "fvm"]
-        )
-        for r in sorted(rows, key=lambda r: (r.season, r.team, r.role_mantra_codes, r.name)):
-            writer.writerow(
-                [
-                    r.season,
-                    r.player_id,
-                    r.name,
-                    r.team,
-                    ";".join(code.upper() for code in r.role_mantra_codes),
-                    ";".join(r.role_mantra_labels),
-                    r.m_qi,
-                    r.m_qa,
-                    r.m_fvm,
-                ]
-            )
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-"""Scrape official match-by-match player grades from fantacalcio.it into two CSVs.
+"""Scrape official match-by-match player grades from fantacalcio.it into Postgres.
 
 Source: https://www.fantacalcio.it/voti-fantacalcio-serie-a/{season}/{giornata} —
 server-renders every match of that giornata in one plain GET (verified: same
@@ -13,27 +13,30 @@ of <div class="player-item cell"> rows. Each row carries:
     savedPenalties, assists, manOfTheMatch
   - yellow/red card, encoded as a CSS class on the grade span rather than a
     bonus stat (ammonizione/espulsione are real malus categories in
-    fantacalcio scoring, so they're pulled into bonus_malus.csv here even
-    though the site doesn't list them among its 8 icon columns)
+    fantacalcio scoring, so they're pulled into the bonus_malus table here
+    even though the site doesn't list them among its 8 icon columns)
 Confirmed identical markup/column set across 2022/23-2025/26. Parsed with
 stdlib html.parser (no BeautifulSoup dependency needed).
 
 Usage:
-    python scripts/scrape_voti.py [--out-dir data] [--seasons 2022/23 2023/24 ...]
+    python scripts/scrape_voti.py [--seasons 2022/23 2023/24 ...]
 
 Default seasons: 2022/23 through 2025/26. Giornate per season are discovered
 from that season's "Giornata" <select> (38 for a 20-team Serie A season, but
 not hardcoded).
 
-Writes (rows from every season/giornata/match/player stacked together):
-    <out-dir>/voti.csv         — Voto e FantaVoto (3 sources)
-    <out-dir>/bonus_malus.csv  — Bonus e Malus (8 stats + cards)
+Upserts, one row per season/giornata/player in each:
+    voti         — Voto e FantaVoto (3 sources)
+    bonus_malus  — Bonus e Malus (8 stats + cards)
+    players      — ids seen here that the listone never carried
+
+Both match tables are written in two passes, one per partial unique index,
+because coach rows have no player_id. See fantabot.db.upserts.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import re
 import sys
 import time
@@ -394,94 +397,6 @@ def to_payloads(rows: list[PlayerMatchRow]) -> tuple[list[dict], list[dict]]:
             }
         )
     return voti, bonus
-
-
-def write_voti_csv(rows: list[PlayerMatchRow], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "stagione",
-                "giornata",
-                "data",
-                "ora",
-                "squadra",
-                "avversario",
-                "gol_squadra",
-                "gol_avversario",
-                "id",
-                "nome",
-                "ruolo_codice",
-                "ruolo",
-                "voto_fc",
-                "fantavoto_fc",
-                "voto_stat",
-                "fantavoto_stat",
-                "voto_italia",
-                "fantavoto_italia",
-            ]
-        )
-        for r in sorted(rows, key=lambda r: (r.season, r.giornata, r.team, r.name)):
-            writer.writerow(
-                [
-                    r.season,
-                    r.giornata,
-                    r.date,
-                    r.time,
-                    r.team,
-                    r.opponent,
-                    r.goals_for,
-                    r.goals_against,
-                    r.player_id,
-                    r.name,
-                    r.role_code,
-                    r.role_label,
-                    r.voto_fc,
-                    r.fantavoto_fc,
-                    r.voto_stat,
-                    r.fantavoto_stat,
-                    r.voto_italia,
-                    r.fantavoto_italia,
-                ]
-            )
-
-
-def write_bonus_malus_csv(rows: list[PlayerMatchRow], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "stagione",
-                "giornata",
-                "data",
-                "squadra",
-                "avversario",
-                "id",
-                "nome",
-                "ruolo_codice",
-                "ruolo",
-                "ammonizione",
-                "espulsione",
-                *BONUS_KEYS,
-            ]
-        )
-        for r in sorted(rows, key=lambda r: (r.season, r.giornata, r.team, r.name)):
-            writer.writerow(
-                [
-                    r.season,
-                    r.giornata,
-                    r.date,
-                    r.team,
-                    r.opponent,
-                    r.player_id,
-                    r.name,
-                    r.role_code,
-                    r.role_label,
-                    int(r.ammonizione),
-                    int(r.espulsione),
-                    *[r.bonus.get(k, "") for k in BONUS_KEYS],
-                ]
-            )
 
 
 def main() -> None:
