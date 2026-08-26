@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.db.models.tokens import LeagueToken
@@ -33,6 +33,13 @@ UPSERT_COLUMNS: tuple[str, ...] = tuple(
     c.name for c in LeagueToken.__table__.columns if c.name not in _IMMUTABLE
 )
 
+# Columns whose value must come from the server, never from the ORM instance.
+# `updated_at` carries a server_default, and that default only fires when the
+# column is *absent* from the INSERT — passing `getattr(row, "updated_at")` on an
+# unflushed instance sends an explicit NULL and violates the NOT NULL constraint.
+# It still belongs in the SET clause, so a replaced row's timestamp moves.
+_SERVER_TIMESTAMPS = frozenset({"updated_at"})
+
 
 class LeagueTokenRepository(RepositoryBase):
     """One row per lega, replaced rather than versioned."""
@@ -50,14 +57,25 @@ class LeagueTokenRepository(RepositoryBase):
         `last_verified_at` resets to NULL for the same reason: a new credential
         has not been verified merely because its predecessor was.
         """
-        values = {name: getattr(row, name) for name in UPSERT_COLUMNS}
+        values = {
+            name: getattr(row, name)
+            for name in UPSERT_COLUMNS
+            if name not in _SERVER_TIMESTAMPS
+        }
         values["last_verified_at"] = None
 
         statement = insert(LeagueToken).values(league_id=row.league_id, **values)
         self.session.execute(
             statement.on_conflict_do_update(
                 index_elements=[LeagueToken.league_id],
-                set_={name: statement.excluded[name] for name in UPSERT_COLUMNS},
+                set_={
+                    name: (
+                        func.now()
+                        if name in _SERVER_TIMESTAMPS
+                        else statement.excluded[name]
+                    )
+                    for name in UPSERT_COLUMNS
+                },
             )
         )
 
