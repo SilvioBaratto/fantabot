@@ -53,6 +53,7 @@ class Importer:
 def _registry() -> tuple[Importer, ...]:
     """Built lazily so importing this package does not pull in every model."""
     from fantabot.db.importers import (
+        bonus_malus,
         players,
         qi_bias,
         quotazioni,
@@ -115,6 +116,14 @@ def _registry() -> tuple[Importer, ...]:
             sources=voti.SOURCE_FILES,
             load=voti.load,
             description="Match grain, 50634 rows, two conflict targets.",
+            expected_rows=50634,
+            depends_on=("players",),
+        ),
+        Importer(
+            name="bonus_malus",
+            sources=bonus_malus.SOURCE_FILES,
+            load=bonus_malus.load,
+            description="Match grain, same two conflict targets as voti.",
             expected_rows=50634,
             depends_on=("players",),
         ),

@@ -281,3 +281,36 @@ class TestVotiSeed:
             )
         ).scalar()
         assert impossible == 0
+
+
+class TestBonusMalusSeed:
+    def test_it_agrees_with_voti_row_for_row(self, db_session: Session) -> None:
+        """Same grain, same coach rows, same count — which is why they share
+        the two-conflict-target upsert instead of each restating it."""
+        total, coaches = db_session.execute(
+            text(
+                "SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) "
+                "FROM bonus_malus"
+            )
+        ).one()
+        assert (total, coaches) == (50634, 3039)
+
+    def test_no_counter_is_ever_null(self, db_session: Session) -> None:
+        """A player who scored no goals scored zero goals — a fact, not a gap."""
+        nulls = db_session.execute(
+            text(
+                "SELECT count(*) FROM bonus_malus WHERE ammonizione IS NULL "
+                "OR gol_segnati IS NULL OR assist IS NULL OR mvp IS NULL"
+            )
+        ).scalar()
+        assert nulls == 0
+
+    def test_every_player_row_resolves(self, db_session: Session) -> None:
+        orphans = db_session.execute(
+            text(
+                "SELECT count(*) FROM bonus_malus b "
+                "LEFT JOIN players p ON p.id = b.player_id "
+                "WHERE b.player_id IS NOT NULL AND p.id IS NULL"
+            )
+        ).scalar()
+        assert orphans == 0
