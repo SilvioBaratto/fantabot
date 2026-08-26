@@ -75,3 +75,60 @@ def test_the_league_password_is_not_printed_either(monkeypatch: pytest.MonkeyPat
     result = runner.invoke(app, ["config-check"])
 
     assert "LeagueCanary99" not in result.output
+
+
+def test_the_encryption_key_is_not_printed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Fernet key is the credential this whole phase exists to protect.
+
+    `Field(repr=False)` does **not** suppress `model_dump`, which is what
+    `cli.py` prints — re-verified 2026-08-26 with a canary. So the exclude set
+    is the only thing standing between the key and every cron log.
+    """
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_encryption_key", "KeyCanary777")
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 0
+    assert "KeyCanary777" not in result.output
+
+
+def test_the_encryption_key_presence_is_reported_without_its_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Masked is not the same as invisible: the operator ran this to find out."""
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_encryption_key", "KeyCanary777")
+    assert "fantabot_encryption_key set: True" in runner.invoke(app, ["config-check"]).output
+
+    monkeypatch.setattr(config.settings, "fantabot_encryption_key", "")
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 0
+    assert "fantabot_encryption_key set: False" in result.output
+
+
+def test_the_apileague_base_url_is_shown_not_masked() -> None:
+    """A non-credential that looks masked is a lie about what is secret."""
+    result = runner.invoke(app, ["config-check"])
+
+    assert "apileague.fantacalcio.it" in result.output
+
+
+def test_the_dead_state_file_setting_is_gone() -> None:
+    """`data/state.json` was ported to bot_state/auction_bids a phase ago.
+
+    Printing a path to a file nothing reads, one line above the new key line,
+    is the kind of stale output that teaches an operator to skim.
+    """
+    from fantabot import config
+
+    assert not hasattr(config.settings, "fantabot_state_file")
+
+    output = runner.invoke(app, ["config-check"]).output
+    assert "fantabot_state_file" not in output
+    # `fantabot_storage_state` survives and is a different thing — asserting on
+    # the bare substring "state.json" would match `storage_state.json` and pass
+    # for the wrong reason.
+    assert "storage_state.json" in output

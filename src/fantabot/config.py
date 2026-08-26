@@ -13,7 +13,6 @@ class Settings(BaseSettings):
 
     fantabot_data_dir: Path = Path("./data")
     fantabot_storage_state: Path = Path("./data/storage_state.json")
-    fantabot_state_file: Path = Path("./data/state.json")
 
     fantabot_auto_act: bool = False
 
@@ -32,6 +31,15 @@ class Settings(BaseSettings):
     # 54320/18081 belong to optimizer and 5433/8090 to clipcraft.
     fantabot_db_host_port: int = 54321
     fantabot_adminer_host_port: int = 18082
+
+    # Fernet key for the league_tokens ciphertext column. No validator: this
+    # class is instantiated at import (below), so one that rejects a malformed
+    # key would turn `fantabot --help` into a traceback. TokenCipher validates.
+    #
+    # repr=False does NOT suppress model_dump, which is what config-check
+    # prints — the name must also be in cli.py's exclude set, and a test pins it.
+    fantabot_encryption_key: str = Field(default="", repr=False)
+    fantabot_apileague_base_url: str = "https://apileague.fantacalcio.it"
 
     stats_source_base_url: str = ""
     stats_source_api_key: str = Field(default="", repr=False)

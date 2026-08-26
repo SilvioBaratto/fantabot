@@ -28,10 +28,16 @@ def config_check() -> None:
     # file. `lega_password` was being dumped verbatim before the DSN existed —
     # `repr=False` does not suppress `model_dump`, which is why the exclude set
     # is the only thing standing between a secret and the log.
-    secrets = {"stats_source_api_key", "lega_password", "fantabot_database_url"}
+    secrets = {
+        "stats_source_api_key",
+        "lega_password",
+        "fantabot_database_url",
+        "fantabot_encryption_key",
+    }
     console.print(settings.model_dump(exclude=secrets))
     console.print(f"stats_source_api_key set: {bool(settings.stats_source_api_key)}")
     console.print(f"lega_password set: {bool(settings.lega_password)}")
+    console.print(f"fantabot_encryption_key set: {bool(settings.fantabot_encryption_key)}")
 
     # An invalid DSN should fail loudly here rather than at the first connect.
     dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
