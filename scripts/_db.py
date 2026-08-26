@@ -428,3 +428,51 @@ def upsert_match_grain(handle: Session, voti: list[dict], bonus: list[dict]) -> 
             ),
         )
     return len(voti), len(bonus)
+
+
+def backfill_team_names(handle: Session) -> int:
+    """Resolve teams.nome_completo from the two vocabularies already in Postgres.
+
+    Thin pass-through to ReferenceRepository so the scrapers have one name to
+    call and do not each grow their own copy.
+    """
+    from fantabot.db.repositories.reference import ReferenceRepository
+
+    return ReferenceRepository(handle).backfill_team_names()
+
+
+def resolve_team_names_or_report() -> int:
+    """Run the backfill, reporting rather than failing on an unresolved mapping.
+
+    Called at the end of both scrapers. A mapping failure must not mark a
+    *successful* scrape as failed: by the time this runs the rows are already
+    committed, and exiting non-zero would say the scrape did not happen. The
+    operator's remedy is the standalone entry point below, once that season's
+    fixtures exist.
+    """
+    from fantabot.club_names import TeamMappingError
+
+    try:
+        with session() as handle:
+            changed = backfill_team_names(handle)
+    except TeamMappingError as exc:
+        print(
+            f"teams: names not resolved ({exc}) — run "
+            "`python scripts/_db.py backfill-team-names` once that season's "
+            "fixtures are scraped"
+        )
+        return 0
+    if changed:
+        print(f"teams: resolved {changed} club name(s)")
+    return changed
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "backfill-team-names":
+        with session() as _handle:
+            print(f"resolved {backfill_team_names(_handle)} club name(s)")
+    else:
+        print("usage: python scripts/_db.py backfill-team-names")
+        raise SystemExit(2)

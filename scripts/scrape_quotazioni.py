@@ -281,6 +281,10 @@ def main() -> None:
 
     print(f"{len(all_rows)} players across {len(args.seasons)} seasons -> {stored} quotazioni rows")
 
+    # A promoted club arrives here first, named after its own code by the
+    # placeholder insert. Resolve it now if fixtures exist to resolve it from.
+    _db.resolve_team_names_or_report()
+
 
 if __name__ == "__main__":
     main()

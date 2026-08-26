@@ -100,6 +100,78 @@ class TestTeamsSeed:
         ).scalar()
         assert blank == 0
 
+    def test_no_club_is_named_after_its_own_code(self, db_session: Session) -> None:
+        """The guard this suite was missing.
+
+        `test_no_club_is_missing_its_full_name` asserts non-empty, and "COM" is
+        non-empty — so the scraper path writing the three-letter code into the
+        name column passed every check here. On a scrapers-only rebuild that is
+        100 rows out of 100, and the next promoted club would have stayed "COM"
+        indefinitely with this suite green.
+        """
+        wrong = db_session.execute(
+            text("SELECT count(*) FROM teams WHERE nome_completo = codice")
+        ).scalar()
+        assert wrong == 0
+
+    def test_the_backfill_is_a_no_op_once_names_are_resolved(
+        self, db_session: Session
+    ) -> None:
+        """Idempotent, and asserted on the digest rather than on the count.
+
+        `count(*) WHERE nome_completo = codice` is 0 whether or not a name was
+        silently rewritten, so it cannot detect a backfill that churns.
+        """
+        from fantabot.db.repositories.reference import ReferenceRepository
+
+        digest = "SELECT md5(string_agg(stagione||codice||nome_completo, ',' ORDER BY stagione, codice)) FROM teams"
+        before = db_session.execute(text(digest)).scalar()
+
+        changed = ReferenceRepository(db_session).backfill_team_names()
+
+        assert changed == 0
+        assert db_session.execute(text(digest)).scalar() == before
+
+    def test_with_no_fixtures_the_backfill_writes_nothing(
+        self, db_session: Session
+    ) -> None:
+        """A July `scrape_quotazioni` against a fresh database must not die.
+
+        The listone lands before any fixture exists, so there are no full names
+        to map from. That is not an error — the placeholder codes stay until
+        fixtures arrive. Run inside the rolled-back fixture transaction.
+        """
+        from fantabot.db.repositories.reference import ReferenceRepository
+
+        db_session.execute(text("DELETE FROM voti"))
+        db_session.execute(text("DELETE FROM bonus_malus"))
+
+        assert ReferenceRepository(db_session).backfill_team_names() == 0
+
+    def test_a_prefix_collision_refuses_and_writes_nothing(
+        self, db_session: Session
+    ) -> None:
+        """Fail closed. A partial mapping leaves NULLs that later joins drop."""
+        from fantabot.club_names import TeamMappingError
+        from fantabot.db.repositories.reference import ReferenceRepository
+
+        digest = "SELECT md5(string_agg(stagione||codice||nome_completo, ',' ORDER BY stagione, codice)) FROM teams"
+        before = db_session.execute(text(digest)).scalar()
+        # "Milan" and "Milanese" both reduce to MIL.
+        db_session.execute(
+            text(
+                "INSERT INTO voti (stagione, giornata, data, squadra_raw, avversario_raw,"
+                " gol_squadra, gol_avversario, nome, ruolo_codice, ruolo)"
+                " VALUES ('2025/26', 99, '2026-01-01', 'Milanese', 'Milanese',"
+                " 0, 0, 'Collisione', 'A', 'Attaccante')"
+            )
+        )
+
+        with pytest.raises(TeamMappingError):
+            ReferenceRepository(db_session).backfill_team_names()
+
+        assert db_session.execute(text(digest)).scalar() == before
+
     def test_the_current_season_resolves_though_voti_has_no_rows_for_it(
         self, db_session: Session
     ) -> None:

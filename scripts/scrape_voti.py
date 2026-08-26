@@ -505,6 +505,10 @@ def main() -> None:
 
     print(f"{total} player-match rows across {len(args.seasons)} seasons -> voti + bonus_malus")
 
+    # Fixtures carry the full club names, so this is where a placeholder code
+    # written by an earlier listone scrape finally resolves.
+    _db.resolve_team_names_or_report()
+
 
 if __name__ == "__main__":
     main()
