@@ -5,11 +5,12 @@ the tables matched the ten CSVs; once the CSVs are gone there is no independent
 source, and "the database is correct" would become unfalsifiable unless the
 properties are restated as things the data must satisfy *on its own terms*.
 
-**Nothing here skips.** ``test_full_seed.py:87-90`` and ``test_db.py:628-630``
-both call ``pytest.skip`` when their source files are absent, which means
-deleting the CSVs would leave ``pytest -m db`` printing green while 21
-cross-source checks quietly stopped running. A green suite that stopped checking
-is worse than a red one. Every *data* invariant below fails against an empty
+**Nothing here skips**, and that is the whole reason this module exists. The two
+suites it replaces each guarded themselves with a skip when their source files
+were absent, so deleting the CSVs would have left ``pytest -m db`` printing
+green while 21 cross-source checks quietly stopped running. Measured before the
+deletion, with the files moved aside: ``21 skipped``, exit 0. A green suite that
+stopped checking is worse than a red one. Every *data* invariant below fails against an empty
 database, and that is verified rather than assumed: against a freshly migrated
 scratch database this module gives **17 failed, 2 passed**. The two that pass
 are the schema pins at the end, which read ``information_schema`` rather than
@@ -24,7 +25,7 @@ database. A check that deleting the data would satisfy is not checking anything,
 so each constraint first asserts it had rows to inspect.
 
 **The schema pins replace the column-accounting check.**
-``test_full_seed.py:171-175`` compared each CSV header against its table, because
+``test_full_seed.py`` compared each CSV header against its table, because
 *a dropped column changes no count* — every floor above stays green while a field
 silently stops being written. That comparison dies with the files, but the drift
 risk only moves: it is now ``scripts/_db.py``'s hand-written ``INSERT INTO``
