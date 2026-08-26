@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.db
 
-PROBE = "_probe_match_grain"
+CANARY_TABLE = "players"
+CANARY_ID = 999_999_999
 
 
 def test_the_session_reaches_a_migrated_database(db_session: Session) -> None:
@@ -23,22 +24,20 @@ def test_the_session_reaches_a_migrated_database(db_session: Session) -> None:
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
             "WHERE table_schema = 'public' AND table_name = :name)"
         ),
-        {"name": PROBE},
+        {"name": CANARY_TABLE},
     ).scalar()
-    assert exists, f"{PROBE} is missing — run: alembic upgrade head"
+    assert exists, f"{CANARY_TABLE} is missing — run: alembic upgrade head"
 
 
 def test_a_row_written_in_a_test_is_visible_inside_that_test(db_session: Session) -> None:
     db_session.execute(
-        text(
-            f'INSERT INTO "{PROBE}" (stagione, giornata, player_id, nome, ruoli_codice) '
-            "VALUES ('2026/27', 1, 999999, 'Fixture Canary', ARRAY['P'])"
-        )
+        text(f'INSERT INTO "{CANARY_TABLE}" (id, nome) VALUES (:id, :n)'),
+        {"id": CANARY_ID, "n": "Fixture Canary"},
     )
     db_session.commit()
 
     count = db_session.execute(
-        text(f'SELECT count(*) FROM "{PROBE}" WHERE nome = :n'), {"n": "Fixture Canary"}
+        text(f'SELECT count(*) FROM "{CANARY_TABLE}" WHERE id = :id'), {"id": CANARY_ID}
     ).scalar()
     assert count == 1
 
@@ -47,7 +46,7 @@ def test_the_previous_test_left_nothing_behind(db_session: Session) -> None:
     """Runs after the insert above and must not see it. This is what makes the
     tier re-runnable: a failed run does not poison the next one."""
     count = db_session.execute(
-        text(f'SELECT count(*) FROM "{PROBE}" WHERE nome = :n'), {"n": "Fixture Canary"}
+        text(f'SELECT count(*) FROM "{CANARY_TABLE}" WHERE id = :id'), {"id": CANARY_ID}
     ).scalar()
     assert count == 0
 

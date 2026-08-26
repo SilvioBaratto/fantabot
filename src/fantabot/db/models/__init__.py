@@ -6,7 +6,7 @@ its table.
 """
 
 from fantabot.db.base import Base, TimestampMixin
-from fantabot.db.models.matches import ProbeMatchGrain
+from fantabot.db.models.matches import COACH_ROLE, BonusMalus, Voto
 from fantabot.db.models.reference import (
     FONTI,
     LISTONI,
@@ -20,16 +20,18 @@ from fantabot.db.models.reference import (
 )
 
 __all__ = [
+    "COACH_ROLE",
     "FONTI",
     "LISTONI",
     "MACRO_ROLES",
     "Base",
+    "BonusMalus",
     "Player",
-    "ProbeMatchGrain",
     "QiBias",
     "Quotazione",
     "Statistica",
     "TargetPrice",
     "Team",
     "TimestampMixin",
+    "Voto",
 ]

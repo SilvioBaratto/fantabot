@@ -69,7 +69,7 @@ def test_reports_health_latency_and_a_row_per_table(monkeypatch: Any) -> None:
     assert result.exit_code == 0
     assert "health" in result.output
     assert "ms" in result.output
-    assert "_probe_match_grain" in result.output
+    assert "players" in result.output
     assert "7" in result.output
 
 

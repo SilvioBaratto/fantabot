@@ -12,12 +12,13 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
 from sqlalchemy import Index
 
 import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.db.base import Base
 
-PROBE = "_probe_match_grain"
+MATCH_TABLES = ("voti", "bonus_malus")
 
 
 def test_naming_convention_covers_every_constraint_kind() -> None:
@@ -58,31 +59,63 @@ def test_importing_models_opens_no_socket() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def _probe_indexes() -> list[Index]:
-    return sorted(Base.metadata.tables[PROBE].indexes, key=lambda i: i.name or "")
+def _partial_indexes(table: str) -> list[Index]:
+    return sorted(
+        (index for index in Base.metadata.tables[table].indexes if index.unique),
+        key=lambda index: index.name or "",
+    )
 
 
-def test_probe_has_a_surrogate_primary_key() -> None:
+@pytest.mark.parametrize("table", MATCH_TABLES)
+def test_match_grain_uses_a_surrogate_primary_key(table: str) -> None:
     """Postgres forbids a nullable column in a primary key, so the match grain
-    cannot use SPEC's ``(stagione, giornata, player_id)`` directly."""
-    table = Base.metadata.tables[PROBE]
-    assert [c.name for c in table.primary_key.columns] == ["id"]
-    assert table.c.player_id.nullable is True
+    cannot use SPEC's ``(stagione, giornata, player_id)`` directly — and the
+    3039 coach rows per file would collide with each other anyway."""
+    metadata_table = Base.metadata.tables[table]
+
+    assert [column.name for column in metadata_table.primary_key.columns] == ["id"]
+    assert metadata_table.c.player_id.nullable is True
 
 
-def test_probe_declares_exactly_two_partial_unique_indexes() -> None:
-    """Disjoint predicates: every row is covered by exactly one of them."""
-    indexes = _probe_indexes()
+@pytest.mark.parametrize("table", MATCH_TABLES)
+def test_match_grain_declares_two_disjoint_partial_unique_indexes(table: str) -> None:
+    """Every row is covered by exactly one: with a player, or without."""
+    indexes = _partial_indexes(table)
+
     assert len(indexes) == 2
-    assert all(index.unique for index in indexes)
-
     predicates = sorted(
         str(index.dialect_options["postgresql"]["where"]) for index in indexes
     )
     assert predicates == ["player_id IS NOT NULL", "player_id IS NULL"]
 
 
-def test_probe_carries_an_array_column() -> None:
-    """The other construct the schema cannot avoid: ``;``-joined role codes
-    become ``text[]``, and autogenerate has to round-trip that type."""
-    assert Base.metadata.tables[PROBE].c.ruoli_codice.type.__class__.__name__ == "ARRAY"
+def test_the_corrupt_team_column_is_named_raw_and_never_keyed_on() -> None:
+    """scripts/analyze_qi_bias_by_team.py documents that the scraper labels
+    every row in a match block with the fixture's home team, so the column
+    cannot say which side a player played for."""
+    for table in MATCH_TABLES:
+        metadata_table = Base.metadata.tables[table]
+        assert "squadra_raw" in metadata_table.c
+        assert "squadra" not in metadata_table.c
+
+        keyed = {
+            column.name
+            for index in metadata_table.indexes
+            for column in index.columns
+        } | {column.name for column in metadata_table.primary_key.columns}
+        assert "squadra_raw" not in keyed
+        assert not [
+            fk for fk in metadata_table.foreign_keys if "squadra" in fk.parent.name
+        ]
+
+
+def test_the_throwaway_probe_is_gone() -> None:
+    """It existed only to prove ARRAY and partial indexes round-trip. Left in,
+    it would be a table in db-check that appears nowhere in SPEC's Schema."""
+    assert "_probe_match_grain" not in Base.metadata.tables
+
+
+def test_quotazioni_still_carries_the_array_column() -> None:
+    """The construct the probe was proving. It now lives on a real table."""
+    column = Base.metadata.tables["quotazioni"].c.ruoli_codice
+    assert column.type.__class__.__name__ == "ARRAY"

@@ -1,53 +1,68 @@
-"""Match-grain tables.
+"""Match-grain tables: one row per player per matchday.
 
-Today this holds only ``ProbeMatchGrain``, which is **throwaway**: it exists so
-the Alembic scaffold can prove, against a real Postgres and before a single row
-is imported, that autogenerate round-trips the two constructs the real schema
-cannot avoid. It is retired in T20, when the real ``voti`` and ``bonus_malus``
-tables replace it. It must never reach a database that anyone keeps.
+The two largest tables in the schema, 50,634 rows each, and the only place where
+a nullable foreign key is required.
 
-The shape it probes is the resolution of a problem SPEC states but does not
-solve. SPEC asks for ``voti`` keyed ``(stagione, giornata, player_id)`` with
-``player_id`` nullable — and Postgres forbids a nullable column in a primary
-key. It also would not work if it were allowed: all 3039 coach rows carry an
-empty ``id``, so they would collide with each other. The resolution is a
-surrogate primary key plus two *disjoint* partial unique indexes, one for rows
-that have a player and one for rows that do not.
+**Why the primary key is surrogate.** SPEC asks for ``(stagione, giornata,
+player_id)`` with ``player_id`` nullable. Postgres forbids a nullable column in a
+primary key, and it would not work if it allowed it: 3039 rows per file are coach
+(``Allenatore``) rows with an empty id, so they would all collide with each
+other. The resolution — proven against a real database before any row was
+imported — is a surrogate key plus two **disjoint** partial unique indexes, one
+covering rows that have a player and one covering rows that do not. Every row is
+covered by exactly one of them, and both were verified duplicate-free across all
+50,634 rows before the constraint was written.
+
+**Why ``squadra`` is called ``squadra_raw``.** The column is corrupt, by a
+scraper bug that is still live and documented at
+``scripts/analyze_qi_bias_by_team.py:8-13``: every row in a match block is
+labelled with the fixture's *home* team, so the column cannot say which side a
+player played for. What survives is the fixture — ``squadra_raw`` and
+``avversario_raw`` together identify home and away correctly, and
+``gol_squadra``/``gol_avversario`` are that fixture's score. A player's real club
+for a season comes from ``quotazioni``, never from here. Nothing keys or joins on
+these two columns, deliberately.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import ARRAY, BigInteger, Identity, Index, SmallInteger, String, Text, text
+from datetime import date, time
+from decimal import Decimal
+
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    ForeignKey,
+    Identity,
+    Index,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    Time,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fantabot.db.base import Base
+from fantabot.db.base import Base, TimestampMixin
+
+# Coach rows carry this instead of a player role, and no player id.
+COACH_ROLE = "ALL"
 
 
-class ProbeMatchGrain(Base):
-    """THROWAWAY probe — see the module docstring. Retired in T20."""
-
-    __tablename__ = "_probe_match_grain"
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    stagione: Mapped[str] = mapped_column(String(7), nullable=False)
-    giornata: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    player_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    nome: Mapped[str] = mapped_column(Text, nullable=False)
-    ruoli_codice: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
-
-    __table_args__ = (
-        # Rows with a player: unique on the platform id.
+def _partial_unique_indexes(table: str) -> tuple[Index, ...]:
+    """The two disjoint keys that stand in for an impossible primary key."""
+    return (
         Index(
-            "uq_probe_match_grain_player",
+            f"uq_{table}_player",
             "stagione",
             "giornata",
             "player_id",
             unique=True,
             postgresql_where=text("player_id IS NOT NULL"),
         ),
-        # Coach rows: no id to key on, so the display name carries it.
         Index(
-            "uq_probe_match_grain_coach",
+            f"uq_{table}_coach",
             "stagione",
             "giornata",
             "nome",
@@ -55,3 +70,94 @@ class ProbeMatchGrain(Base):
             postgresql_where=text("player_id IS NULL"),
         ),
     )
+
+
+class Voto(Base, TimestampMixin):
+    """One player's grades for one matchday, from all three grading sources.
+
+    The six grade columns are nullable because a player can be ungraded, and a
+    grade of zero is a real (terrible) grade rather than an absence.
+    """
+
+    __tablename__ = "voti"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+
+    stagione: Mapped[str] = mapped_column(String(7), nullable=False)
+    giornata: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    data: Mapped[date] = mapped_column(Date, nullable=False)
+    ora: Mapped[time | None] = mapped_column(Time, nullable=True)
+
+    squadra_raw: Mapped[str] = mapped_column(String(32), nullable=False)
+    avversario_raw: Mapped[str] = mapped_column(String(32), nullable=False)
+    gol_squadra: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    gol_avversario: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    player_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("players.id"), nullable=True
+    )
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    ruolo_codice: Mapped[str] = mapped_column(String(3), nullable=False)
+    ruolo: Mapped[str] = mapped_column(Text, nullable=False)
+
+    voto_fc: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), nullable=True)
+    fantavoto_fc: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    voto_stat: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), nullable=True)
+    fantavoto_stat: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    voto_italia: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), nullable=True)
+    fantavoto_italia: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+
+    __table_args__ = (
+        *_partial_unique_indexes("voti"),
+        Index("ix_voti_stagione_giornata", "stagione", "giornata"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Voto {self.stagione} g{self.giornata} player={self.player_id}>"
+
+
+class BonusMalus(Base, TimestampMixin):
+    """One player's countable events for one matchday.
+
+    Same grain and the same keying problem as ``voti``, and the same 3039 coach
+    rows. The ten counters are NOT NULL: a player who scored no goals scored
+    zero goals, which is a fact rather than a gap. There is no ``ora`` column —
+    the source file does not carry one.
+    """
+
+    __tablename__ = "bonus_malus"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+
+    stagione: Mapped[str] = mapped_column(String(7), nullable=False)
+    giornata: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    data: Mapped[date] = mapped_column(Date, nullable=False)
+
+    squadra_raw: Mapped[str] = mapped_column(String(32), nullable=False)
+    avversario_raw: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    player_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("players.id"), nullable=True
+    )
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    ruolo_codice: Mapped[str] = mapped_column(String(3), nullable=False)
+    ruolo: Mapped[str] = mapped_column(Text, nullable=False)
+
+    ammonizione: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    espulsione: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    gol_segnati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    gol_subiti: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    autoreti: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    rigori_segnati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    rigori_sbagliati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    rigori_parati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    assist: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    mvp: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    __table_args__ = (
+        *_partial_unique_indexes("bonus_malus"),
+        Index("ix_bonus_malus_stagione_giornata", "stagione", "giornata"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<BonusMalus {self.stagione} g{self.giornata} player={self.player_id}>"
