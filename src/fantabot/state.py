@@ -1,28 +1,26 @@
-import json
+"""Where the browser session is stored.
+
+This module used to hold ``data/state.json`` — an untyped ``dict[str, Any]`` with
+three keys, loaded with a defaults-first merge and saved with ``default=str``.
+Runtime state lives in Postgres now: ``bot_state`` for what has been done and
+``auction_bids`` for what has been spent, both keyed by lega, which the flat file
+could not represent.
+
+What is left is one path. It stays a plain function over ``settings`` and imports
+nothing from ``fantabot.db`` on purpose: ``auth.py`` and ``browser.py`` sit on
+this import chain, and ``fantabot auth`` has to work before a database exists.
+"""
+
 from pathlib import Path
-from typing import Any
 
 from fantabot.config import settings
 
-_DEFAULT_STATE: dict[str, Any] = {
-    "last_lineup_matchday": None,
-    "last_auction_session_id": None,
-    "processed_bids": [],
-}
-
-
-def load() -> dict[str, Any]:
-    path = settings.fantabot_state_file
-    if not path.exists():
-        return dict(_DEFAULT_STATE)
-    return {**_DEFAULT_STATE, **json.loads(path.read_text())}
-
-
-def save(state: dict[str, Any]) -> None:
-    path = settings.fantabot_state_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, default=str))
-
 
 def storage_state_path() -> Path:
+    """Where Playwright's cookies and localStorage snapshot is kept.
+
+    Not in the database. It holds live session cookies and the league-scoped
+    bearer token, so putting it there needs an encryption decision that SPEC
+    leaves open (assumption 6, open question 1).
+    """
     return settings.fantabot_storage_state
