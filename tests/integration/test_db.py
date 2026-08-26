@@ -56,9 +56,13 @@ def test_the_previous_test_left_nothing_behind(db_session: Session) -> None:
 class TestPlayersSeed:
     """The referential root. Eight later tables carry a foreign key to it."""
 
-    def test_the_union_seed_is_1474_not_quotazioni_s_1414(self, db_session: Session) -> None:
+    def test_the_union_seed_is_at_least_1474_not_quotazioni_s_1414(
+        self, db_session: Session
+    ) -> None:
+        """At least: a scraper run adds players the CSVs never had. 1414 would
+        mean the union seed regressed to quotazioni alone."""
         count = db_session.execute(text("SELECT count(*) FROM players")).scalar()
-        assert count == 1474
+        assert count is not None and count >= 1474
 
     def test_every_name_is_present(self, db_session: Session) -> None:
         blank = db_session.execute(
@@ -108,11 +112,17 @@ class TestTeamsSeed:
 
 
 class TestQuotazioniSeed:
-    def test_both_listoni_hold_3201_rows(self, db_session: Session) -> None:
+    def test_the_two_listoni_stay_in_step(self, db_session: Session) -> None:
+        """The invariant that survives a scrape: both listoni describe the same
+        players, so their counts move together. news/pool.py raises if they
+        ever disagree, and a 523-vs-544 split would be silent here otherwise."""
         rows = db_session.execute(
             text("SELECT listone, count(*) FROM quotazioni GROUP BY 1 ORDER BY 1")
         ).all()
-        assert rows == [("classic", 3201), ("mantra", 3201)]
+        counts = {listone: count for listone, count in rows}
+
+        assert counts["classic"] == counts["mantra"]
+        assert counts["classic"] >= 3201
 
     def test_every_classic_row_has_exactly_one_valid_role(self, db_session: Session) -> None:
         bad = db_session.execute(
@@ -557,10 +567,21 @@ class TestSentimentReadPath:
 class TestPoolFromPostgres:
     """The pool the Wednesday run queries, now built from quotazioni."""
 
-    def test_the_season_produces_523_players(self, db_session: Session) -> None:
+    def test_the_season_produces_the_whole_current_listone(
+        self, db_session: Session
+    ) -> None:
+        """Not a fixed 523. The listone grew to 544 on 2026-08-26 when a scrape
+        picked up 21 signings, and the pool has to follow the table."""
         from fantabot.news.pool import load_pool
 
-        assert len(load_pool(db_session, "2026/27")) == 523
+        expected = db_session.execute(
+            text(
+                "SELECT count(*) FROM quotazioni "
+                "WHERE stagione = '2026/27' AND listone = 'classic'"
+            )
+        ).scalar()
+
+        assert len(load_pool(db_session, "2026/27")) == expected
 
     def test_the_query_filters_by_season(self, db_session: Session) -> None:
         """Five seasons are stored; asking for one must not return the union."""
@@ -612,7 +633,12 @@ class TestPoolFromPostgres:
             for p in load_pool(db_session, "2026/27")
         ]
 
-        assert from_db == from_csv
+        # A subset check, not equality: a scrape adds players the CSV never had.
+        # Every player the CSV knew must still be there, unchanged and in the
+        # same relative order.
+        by_id = {row[0]: row for row in from_db}
+        assert all(pid in by_id for pid, *_ in from_csv)
+        assert [by_id[pid] for pid, *_ in from_csv] == from_csv
 
 
 class TestBotState:

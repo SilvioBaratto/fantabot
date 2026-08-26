@@ -28,6 +28,10 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
+
 BASE_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -219,9 +223,6 @@ def write_mantra_csv(rows: list[PlayerRow], path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("data"), help="Directory to write CSVs into"
-    )
-    parser.add_argument(
         "--seasons",
         nargs="+",
         default=DEFAULT_SEASONS,
@@ -244,14 +245,41 @@ def main() -> None:
         print("No player rows found for any season — page structure may have changed.", file=sys.stderr)
         raise SystemExit(1)
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    classic_path = args.out_dir / "quotazioni_classic.csv"
-    mantra_path = args.out_dir / "quotazioni_mantra.csv"
+    payload: list[dict[str, object]] = []
+    for r in all_rows:
+        payload.append(
+            {
+                "stagione": r.season,
+                "player_id": int(r.player_id),
+                "nome": r.name,
+                "listone": "classic",
+                "squadra": r.team.upper(),
+                "ruoli_codice": [r.role_classic_code.upper()],
+                "ruoli": [r.role_classic_label],
+                "qi": int(r.c_qi or 0),
+                "qa": int(r.c_qa or 0),
+                "fvm": int(r.c_fvm or 0),
+            }
+        )
+        payload.append(
+            {
+                "stagione": r.season,
+                "player_id": int(r.player_id),
+                "nome": r.name,
+                "listone": "mantra",
+                "squadra": r.team.upper(),
+                "ruoli_codice": [c.upper() for c in r.role_mantra_codes],
+                "ruoli": r.role_mantra_labels,
+                "qi": int(r.m_qi or 0),
+                "qa": int(r.m_qa or 0),
+                "fvm": int(r.m_fvm or 0),
+            }
+        )
 
-    write_classic_csv(all_rows, classic_path)
-    write_mantra_csv(all_rows, mantra_path)
+    with _db.session() as handle:
+        stored = _db.upsert_quotazioni(handle, payload)
 
-    print(f"{len(all_rows)} total rows across {len(args.seasons)} seasons -> {classic_path}, {mantra_path}")
+    print(f"{len(all_rows)} players across {len(args.seasons)} seasons -> {stored} quotazioni rows")
 
 
 if __name__ == "__main__":

@@ -295,3 +295,44 @@ def upsert_target_price(
         payload,
     )
     return len(payload)
+
+
+def upsert_quotazioni(handle: Session, rows: list[dict[str, object]]) -> int:
+    """Write scraped valuations. Idempotent on (stagione, player_id, listone).
+
+    Dimensions first: ``players`` and ``teams`` must hold every id and club the
+    facts reference, or the foreign keys reject the batch. The scraper knows
+    both — it scraped them — so it seeds them in the same transaction rather
+    than requiring a separate import first.
+    """
+    if not rows:
+        return 0
+
+    handle.execute(
+        text(
+            "INSERT INTO players (id, nome) VALUES (:player_id, :nome) "
+            "ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome"
+        ),
+        [{"player_id": r["player_id"], "nome": r["nome"]} for r in rows],
+    )
+    handle.execute(
+        text(
+            "INSERT INTO teams (stagione, codice, nome_completo) "
+            "VALUES (:stagione, :squadra, :squadra) "
+            "ON CONFLICT (stagione, codice) DO NOTHING"
+        ),
+        [{"stagione": r["stagione"], "squadra": r["squadra"]} for r in rows],
+    )
+    handle.execute(
+        text(
+            "INSERT INTO quotazioni (stagione, player_id, listone, squadra, "
+            "ruoli_codice, ruoli, qi, qa, fvm) VALUES (:stagione, :player_id, "
+            ":listone, :squadra, :ruoli_codice, :ruoli, :qi, :qa, :fvm) "
+            "ON CONFLICT (stagione, player_id, listone) DO UPDATE SET "
+            "squadra = EXCLUDED.squadra, ruoli_codice = EXCLUDED.ruoli_codice, "
+            "ruoli = EXCLUDED.ruoli, qi = EXCLUDED.qi, qa = EXCLUDED.qa, "
+            "fvm = EXCLUDED.fvm"
+        ),
+        rows,
+    )
+    return len(rows)
