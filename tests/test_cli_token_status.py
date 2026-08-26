@@ -194,6 +194,10 @@ def test_a_rejected_token_is_reported_in_the_row_and_does_not_raise() -> None:
 
     assert "fantabot login" in rows[0][3]
     assert store.verified == []
+    # "ok (357d) · apileague rejected the token" reads as a contradiction —
+    # observed on a real run against the live API.
+    assert not rows[0][3].startswith("ok"), f"contradictory state: {rows[0][3]}"
+    assert rows[0][3].startswith("REJECTED")
 
 
 # --- the command shell ----------------------------------------------------
@@ -297,3 +301,31 @@ def test_a_fake_league_token_is_never_constructed_with_a_real_token() -> None:
     )
 
     assert PLAINTEXT.encode() not in row.ciphertext
+
+
+def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """It did not, and no unit test noticed.
+
+    Every `--verify` test called `token_status_rows(..., verify=True)` directly,
+    so the *wiring* from the Typer command was never covered — and the command
+    dropped the flag on the floor. `fantabot token-status --verify` made no
+    request at all. Found by running the real binary against a real database,
+    not by the suite.
+    """
+    from fantabot import cli
+    from fantabot.db import database_manager
+
+    seen: dict[str, Any] = {}
+
+    def spy(store: Any, *, now: Any, verify: bool = False, transport: Any = None) -> list[Any]:
+        seen["verify"] = verify
+        return []
+
+    monkeypatch.setattr(cli, "token_status_rows", spy)
+    monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
+
+    runner.invoke(app, ["token-status"])
+    assert seen["verify"] is False
+
+    runner.invoke(app, ["token-status", "--verify"])
+    assert seen["verify"] is True, "--verify never reached token_status_rows"

@@ -29,6 +29,7 @@ from fantabot.tokens.status import TokenStatus
 
 console = Console()
 
+LOGIN_URL = "https://leghe.fantacalcio.it"
 EXIT_PREFLIGHT = 2
 
 
@@ -206,16 +207,22 @@ def _capture(
     moment: datetime,
 ) -> LoginResult:
     """The browser step, the parse, and the encrypted write."""
-    from fantabot.config import settings
     from fantabot.db import database_manager
     from fantabot.tokens.store import TokenStore
 
-    url = settings.lega_url or "https://leghe.fantacalcio.it"
-    console.print(f"\nOpening {url} — log in, then press Enter here.")
+    # The site root, deliberately — NOT `settings.lega_url`.
+    #
+    # Signing in does not need a lega-specific page, and `lega_url` is not
+    # trustworthy for this: `.env.example` ships it as the placeholder
+    # `.../nome-della-tua-lega`, which is non-empty, so an `or` fallback never
+    # fires and the browser lands on a dead URL. Observed on a real run before
+    # anyone had filled it in. `lega_url` stays what lineup.py and auction.py
+    # use for their own pages.
+    console.print(f"\nOpening {LOGIN_URL} — log in, then press Enter here.")
 
     with browser_factory() as ctx:
         page = ctx.new_page()
-        page.goto(url)
+        page.goto(LOGIN_URL)
         prompt("Press Enter once you are logged in and can see your leghe... ")
 
         # Read INSIDE the body. After the context closes this call raises, and

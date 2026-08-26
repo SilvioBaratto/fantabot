@@ -678,3 +678,39 @@ def test_a_malformed_key_exits_two_through_the_command(
 
     assert result.exit_code == 2
     assert "44-character urlsafe-base64" in result.output
+
+
+def test_login_navigates_to_the_site_root_not_to_lega_url(
+    stub_db: Any, with_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Observed on a real run: `.env.example` ships LEGA_URL as the placeholder
+    `.../nome-della-tua-lega`, which is non-empty — so an `or` fallback never
+    fires and the browser lands on a dead page. Signing in does not need a
+    lega-specific URL, and the root always works."""
+    from fantabot import config
+
+    monkeypatch.setattr(
+        config.settings, "lega_url", "https://leghe.fantacalcio.it/nome-della-tua-lega"
+    )
+
+    class _Recording(_FakeContext):
+        def __init__(self) -> None:
+            super().__init__()
+            self.urls: list[str] = []
+
+        def new_page(self) -> Any:
+            outer = self
+
+            class _P(_FakePage):
+                def goto(self, url: str) -> None:
+                    outer.urls.append(url)
+                    super().goto(url)
+
+            self.page = _P()
+            return self.page
+
+    ctx = _Recording()
+    login.run(browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+
+    assert ctx.urls == [login.LOGIN_URL]
+    assert "nome-della-tua-lega" not in ctx.urls[0]

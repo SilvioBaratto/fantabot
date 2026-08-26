@@ -348,7 +348,12 @@ def token_status_rows(
                 store.mark_verified(row.league_id, now)
                 state = f"{state} · verified"
             except TokenError as exc:
-                state = f"{state} · {exc}"
+                # Replace rather than append when the local verdict was "ok".
+                # Seen on a real run: "ok (357d) · apileague rejected the token"
+                # reads as a contradiction. The local check and the server's
+                # answer are two different facts, and when they disagree the
+                # server's is the one that matters.
+                state = f"REJECTED — {exc}" if state.startswith("ok") else f"{state} · {exc}"
         rendered.append(
             (
                 str(row.league_id),
@@ -403,7 +408,9 @@ def token_status(
 
     try:
         with database_manager.get_session() as session:
-            rows = token_status_rows(TokenStore(session, cipher), now=datetime.now(UTC))
+            rows = token_status_rows(
+                TokenStore(session, cipher), now=datetime.now(UTC), verify=verify
+            )
     except SQLAlchemyError as exc:
         dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
         console.print(f"[red]Cannot reach the database at {dsn}[/red]")
