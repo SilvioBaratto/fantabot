@@ -124,7 +124,7 @@ mypy
   turn-based queue, or something else — confirm by watching one before
   trusting `auction.py`'s polling assumption.
 - **Stats source**: still unchosen for `StatsSource` proper. News sentiment is
-  now covered by `fantabot news-fetch` (see `SPEC.md`), which is a different
+  now covered by `fantabot news-fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores.
 - **Mantra vs Classic**: the user plays **both**, one league each. `models.Role`
   (P/D/C/A) and `VALID_FORMATIONS` (7 Classic tuples) are Classic-only, so

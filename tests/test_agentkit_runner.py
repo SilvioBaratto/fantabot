@@ -243,7 +243,7 @@ def test_outcome_is_falsy_when_it_carries_a_failure() -> None:
 
 
 def test_the_repo_has_exactly_one_message_loop() -> None:
-    """SPEC.md success criterion 14, enforced rather than asserted in prose.
+    """docs/spec-news-sentiment.md success criterion 14, enforced rather than asserted in prose.
 
     The sibling optimizer-theory repo had to undo five copies of this loop. The
     cheapest moment to stop the second one is before it is written.

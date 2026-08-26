@@ -9,7 +9,7 @@ script in `../scripts/`:
 | `quotazioni_classic.csv`, `quotazioni_mantra.csv` | `scripts/scrape_quotazioni.py` |
 | `statistiche_classic.csv`, `statistiche_mantra.csv` | `scripts/scrape_statistiche.py` |
 | `voti.csv`, `bonus_malus.csv` | `scripts/scrape_voti.py` |
-| `player_sentiment_2026-27.csv` | `fantabot news-fetch` (see `../SPEC.md`) |
+| `player_sentiment_2026-27.csv` | `fantabot news-fetch` (see `../docs/spec-news-sentiment.md`) |
 
 `classic` = 3-role scoring (D/C/A), `mantra` = multi-role scoring (same
 match data, finer-grained role tags). Rows join across files on `id`
