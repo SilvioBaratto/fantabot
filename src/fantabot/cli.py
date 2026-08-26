@@ -50,10 +50,6 @@ def lineup_submit(
     raise typer.Exit(code=1)
 
 
-if __name__ == "__main__":
-    app()
-
-
 @app.command()
 def news_fetch(
     scope: str = typer.Option("pool", help="Only 'pool' is implemented — see below."),
@@ -192,3 +188,7 @@ def mantra_grid(
     console.print(
         "[yellow]Verify both by hand against rules/sistema-mantra.md before committing.[/yellow]"
     )
+
+
+if __name__ == "__main__":
+    app()
