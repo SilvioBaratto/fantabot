@@ -76,7 +76,18 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 docker compose up -d    # Postgres on 54321, Adminer on http://localhost:18082
 alembic upgrade head
-fantabot db-import --all  # one-time seed from the CSVs in data/
+
+# Fill an empty database from the site. This is the only way that works on a
+# fresh clone: data/'s CSVs are git-ignored (.gitignore:8), so they have never
+# been part of a checkout. Measured end to end on 2026-08-26 — under 5 minutes
+# for four seasons, most of it the voti leg.
+python scripts/scrape_quotazioni.py     # ~1 GET/season  -> players, teams, quotazioni
+python scripts/scrape_statistiche.py    # ~3 GETs/season -> statistiche
+python scripts/scrape_voti.py           # ~38 GETs/season, 1s apart -> voti, bonus_malus
+python scripts/analyze_qi_bias.py       # both listoni   -> qi_bias
+python scripts/target_price.py --system classic   # NOTE: one system per run,
+python scripts/target_price.py --system mantra    # --system defaults to classic
+
 fantabot db-check         # health, per-table row counts and sizes
 
 fantabot login          # interactive, opens a real browser — log in once
