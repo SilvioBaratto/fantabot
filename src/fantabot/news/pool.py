@@ -6,16 +6,25 @@ one news CSV serves both, and every row carries the Classic ``ruolo`` and the
 Mantra tag side by side.
 
 That means a join, and a join is a thing that can be silently wrong. An id
-present in one file and missing from the other **raises**: nulling the Mantra tag
-would ship rows whose ``ruoli_mantra`` is empty, and that column is the entire
-Mantra half of the feature. A broken join must look like a broken join.
+present in one listone and missing from the other **raises**: nulling the Mantra
+tag would ship rows whose ``ruoli_mantra`` is empty, and that column is the
+entire Mantra half of the feature. A broken join must look like a broken join.
+
+The pool comes from the ``quotazioni`` table now rather than the two CSVs.
+``build_pool`` keeps every rule — the two raises and the ``(squadra, nome)``
+ordering — and stays pure, so the join logic is still testable with dictionaries
+and no database. ``load_pool`` is the thin shell that fetches.
 """
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from fantabot.db.repositories.reference import QuotazioneRow
 
 
 class PoolJoinError(RuntimeError):
@@ -35,17 +44,18 @@ class PoolPlayer:
     """The frozen late-July Mantra tag, ``;``-joined uppercase, e.g. ``"DD;DC"``."""
 
 
-def load_pool(classic_path: Path, mantra_path: Path, season: str) -> list[PoolPlayer]:
-    """Join the two quotazioni files on id for one season.
+def build_pool(
+    classic: dict[str, QuotazioneRow],
+    mantra: dict[str, QuotazioneRow],
+    season: str,
+) -> list[PoolPlayer]:
+    """Join the two listoni on id. Pure — no session, no files.
 
     Ordered by (squadra, nome) so resume, logs and diffs stay stable across runs.
     """
-    classic = _rows_by_id(classic_path, season)
-    mantra = _rows_by_id(mantra_path, season)
-
     if not classic and not mantra:
         raise PoolJoinError(
-            f"no players for season {season!r} in {classic_path} or {mantra_path}; "
+            f"no players for season {season!r} in either listone; "
             f"a silent empty pool would make a cron run look successful"
         )
 
@@ -53,7 +63,7 @@ def load_pool(classic_path: Path, mantra_path: Path, season: str) -> list[PoolPl
     only_mantra = sorted(mantra.keys() - classic.keys())
     if only_classic or only_mantra:
         raise PoolJoinError(
-            f"quotazioni files disagree for season {season!r}: "
+            f"the two listoni disagree for season {season!r}: "
             f"{len(classic)} classic rows vs {len(mantra)} mantra rows; "
             f"only in classic: {only_classic or '-'}; only in mantra: {only_mantra or '-'}"
         )
@@ -61,16 +71,22 @@ def load_pool(classic_path: Path, mantra_path: Path, season: str) -> list[PoolPl
     players = [
         PoolPlayer(
             id=player_id,
-            nome=row["nome"],
-            squadra=row["squadra"],
-            ruolo=row["ruolo"],
-            ruoli_mantra=mantra[player_id]["ruoli_codice"],
+            nome=row.nome,
+            squadra=row.squadra,
+            # Classic carries exactly one role, stored as a one-element array.
+            ruolo=row.ruoli[0] if row.ruoli else "",
+            ruoli_mantra=";".join(mantra[player_id].ruoli_codice),
         )
         for player_id, row in classic.items()
     ]
     return sorted(players, key=lambda p: (p.squadra, p.nome))
 
 
-def _rows_by_id(path: Path, season: str) -> dict[str, dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        return {row["id"]: row for row in csv.DictReader(handle) if row["stagione"] == season}
+def load_pool(session: Session, season: str) -> list[PoolPlayer]:
+    """Fetch both listoni for one season and join them. The I/O shell."""
+    from fantabot.db.repositories.reference import ReferenceRepository
+
+    repo = ReferenceRepository(session)
+    return build_pool(
+        repo.quotazioni(season, "classic"), repo.quotazioni(season, "mantra"), season
+    )

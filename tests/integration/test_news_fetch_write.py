@@ -122,3 +122,19 @@ def test_force_updates_in_place_rather_than_appending(
 
     assert result.exit_code == 0
     assert _stored(canary_player) == ["corretta"]
+
+
+def test_scope_pool_builds_the_pool_from_postgres() -> None:
+    """Moved from the default tier: the pool is a query now, so news-fetch
+    needs the stack up even for --no-run."""
+    result = runner.invoke(app, ["news-fetch", "--scope", "pool", "--limit", "1", "--no-run"])
+
+    assert result.exit_code == 0
+
+
+def test_print_prompt_with_no_run_spends_nothing() -> None:
+    result = runner.invoke(app, ["news-fetch", "--limit", "1", "--print-prompt", "--no-run"])
+
+    assert result.exit_code == 0
+    assert "GIOCATORE" in result.output
+    assert "Fonti preferite" in result.output

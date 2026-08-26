@@ -1,43 +1,48 @@
-"""T4: the player universe, joined across the two quotazioni files.
+"""The player universe, joined across the two listoni.
 
-One news CSV serves both leagues, so every row carries the Classic role and the
-Mantra tag side by side. That means a join, and a join means a way to be wrong:
-an id in one file and not the other must raise, never quietly produce a row with
-an empty Mantra tag — that column is the whole Mantra half of the feature.
+One sentiment series serves both leagues, so every row carries the Classic role
+and the Mantra tag side by side. That means a join, and a join means a way to be
+wrong: an id in one listone and not the other must raise, never quietly produce
+a row with an empty Mantra tag — that column is the whole Mantra half of the
+feature.
+
+The rows come from ``quotazioni`` now rather than from two CSVs, but
+``build_pool`` is still pure, so these stay in the socket-free tier and test the
+join itself rather than the fetch. Season filtering moved into the query, so it
+is asserted in tests/integration/ alongside the end-to-end check that the
+database produces the same 523 players in the same order.
 """
-
-from pathlib import Path
 
 import pytest
 
-from fantabot.news.pool import PoolJoinError, PoolPlayer, load_pool
-
-CLASSIC_HEADER = "stagione,id,nome,squadra,ruolo_codice,ruolo,qi,qa,fvm\n"
-MANTRA_HEADER = "stagione,id,nome,squadra,ruoli_codice,ruoli,qi,qa,fvm\n"
+from fantabot.db.repositories.reference import QuotazioneRow
+from fantabot.news.pool import PoolJoinError, PoolPlayer, build_pool
 
 
-def _write(path: Path, header: str, *rows: str) -> Path:
-    path.write_text(header + "".join(row + "\n" for row in rows), encoding="utf-8")
-    return path
-
-
-def _pair(tmp_path: Path, classic: list[str], mantra: list[str]) -> tuple[Path, Path]:
-    return (
-        _write(tmp_path / "classic.csv", CLASSIC_HEADER, *classic),
-        _write(tmp_path / "mantra.csv", MANTRA_HEADER, *mantra),
+def _q(player_id: str, nome: str, squadra: str, ruolo: str, codici: str) -> QuotazioneRow:
+    return QuotazioneRow(
+        player_id=player_id,
+        nome=nome,
+        squadra=squadra,
+        ruoli_codice=tuple(code for code in codici.split(";") if code),
+        ruoli=(ruolo,) if ruolo else (),
     )
 
 
-def test_join_carries_both_roles(tmp_path: Path) -> None:
-    classic, mantra = _pair(
-        tmp_path,
-        ["2026/27,6916,Ahanor,ATA,d,Difensore,10,10,25"],
-        ["2026/27,6916,Ahanor,ATA,DD;DC,Dd;Dc,10,10,25"],
-    )
+def _pair(
+    classic: list[QuotazioneRow], mantra: list[QuotazioneRow]
+) -> tuple[dict[str, QuotazioneRow], dict[str, QuotazioneRow]]:
+    return ({r.player_id: r for r in classic}, {r.player_id: r for r in mantra})
 
-    pool = load_pool(classic, mantra, season="2026/27")
 
-    assert pool == [
+AHANOR_C = _q("6916", "Ahanor", "ATA", "Difensore", "D")
+AHANOR_M = _q("6916", "Ahanor", "ATA", "Dd;Dc", "DD;DC")
+
+
+def test_the_join_carries_both_role_systems() -> None:
+    classic, mantra = _pair([AHANOR_C], [AHANOR_M])
+
+    assert build_pool(classic, mantra, "2026/27") == [
         PoolPlayer(
             id="6916",
             nome="Ahanor",
@@ -48,105 +53,69 @@ def test_join_carries_both_roles(tmp_path: Path) -> None:
     ]
 
 
-def test_other_seasons_are_filtered_out(tmp_path: Path) -> None:
-    classic, mantra = _pair(
-        tmp_path,
-        [
-            "2025/26,177,Ilicic,ATA,a,Attaccante,11,10,0",
-            "2026/27,6916,Ahanor,ATA,d,Difensore,10,10,25",
-        ],
-        [
-            "2025/26,177,Ilicic,ATA,A,Attaccante,11,10,0",
-            "2026/27,6916,Ahanor,ATA,DD;DC,Dd;Dc,10,10,25",
-        ],
-    )
+def test_the_classic_role_keeps_the_casing_a_human_wrote() -> None:
+    """It goes straight into the prompt. "DIFENSORE" is not what the source says."""
+    classic, mantra = _pair([AHANOR_C], [AHANOR_M])
 
-    pool = load_pool(classic, mantra, season="2026/27")
-
-    assert [p.id for p in pool] == ["6916"]
+    assert build_pool(classic, mantra, "2026/27")[0].ruolo == "Difensore"
 
 
-def test_the_season_is_a_parameter_not_a_constant(tmp_path: Path) -> None:
-    classic, mantra = _pair(
-        tmp_path,
-        ["2025/26,177,Ilicic,ATA,a,Attaccante,11,10,0"],
-        ["2025/26,177,Ilicic,ATA,A,Attaccante,11,10,0"],
-    )
+def test_a_player_missing_from_mantra_raises() -> None:
+    """Nulling the tag would ship a row whose ruoli_mantra is empty."""
+    classic, mantra = _pair([AHANOR_C], [])
 
-    assert [p.id for p in load_pool(classic, mantra, season="2025/26")] == ["177"]
+    with pytest.raises(PoolJoinError, match="only in classic"):
+        build_pool(classic, mantra, "2026/27")
 
 
-def test_a_player_missing_from_the_mantra_file_raises(tmp_path: Path) -> None:
-    classic, mantra = _pair(
-        tmp_path,
-        [
-            "2026/27,6916,Ahanor,ATA,d,Difensore,10,10,25",
-            "2026/27,4521,Zaccagni,LAZ,c,Centrocampista,18,18,90",
-        ],
-        ["2026/27,6916,Ahanor,ATA,DD;DC,Dd;Dc,10,10,25"],
-    )
+def test_a_player_missing_from_classic_raises() -> None:
+    classic, mantra = _pair([], [AHANOR_M])
+
+    with pytest.raises(PoolJoinError, match="only in mantra"):
+        build_pool(classic, mantra, "2026/27")
+
+
+def test_the_error_names_the_offending_ids() -> None:
+    classic, mantra = _pair([AHANOR_C], [])
 
     with pytest.raises(PoolJoinError) as excinfo:
-        load_pool(classic, mantra, season="2026/27")
+        build_pool(classic, mantra, "2026/27")
 
-    message = str(excinfo.value)
-    assert "4521" in message
-    assert "2" in message and "1" in message  # both counts named
+    assert "6916" in str(excinfo.value)
 
 
-def test_a_player_missing_from_the_classic_file_raises(tmp_path: Path) -> None:
+def test_an_empty_season_raises_rather_than_returning_nothing() -> None:
+    """A silent empty pool would make a cron run look successful."""
+    with pytest.raises(PoolJoinError, match="no players"):
+        build_pool({}, {}, "2030/31")
+
+
+def test_the_pool_is_ordered_by_club_then_name() -> None:
+    """Resume, logs and diffs all depend on this being stable across runs."""
+    rows = [
+        ("2", "Zaccagni", "LAZ"),
+        ("1", "Ahanor", "ATA"),
+        ("3", "Bastoni", "INT"),
+        ("4", "Acerbi", "INT"),
+    ]
     classic, mantra = _pair(
-        tmp_path,
-        ["2026/27,6916,Ahanor,ATA,d,Difensore,10,10,25"],
-        [
-            "2026/27,6916,Ahanor,ATA,DD;DC,Dd;Dc,10,10,25",
-            "2026/27,4521,Zaccagni,LAZ,W;T,W;T,18,18,90",
-        ],
+        [_q(i, n, s, "Difensore", "D") for i, n, s in rows],
+        [_q(i, n, s, "Dc", "DC") for i, n, s in rows],
     )
 
-    with pytest.raises(PoolJoinError):
-        load_pool(classic, mantra, season="2026/27")
+    pool = build_pool(classic, mantra, "2026/27")
 
-
-def test_an_empty_season_raises_rather_than_returning_nothing(tmp_path: Path) -> None:
-    # A silent empty pool would make a cron run look successful while doing nothing.
-    classic, mantra = _pair(tmp_path, [], [])
-
-    with pytest.raises(PoolJoinError):
-        load_pool(classic, mantra, season="2026/27")
-
-
-def test_the_pool_is_ordered_deterministically(tmp_path: Path) -> None:
-    # Resume, logs and diffs all depend on a stable order across runs.
-    classic, mantra = _pair(
-        tmp_path,
-        [
-            "2026/27,4521,Zaccagni,LAZ,c,Centrocampista,18,18,90",
-            "2026/27,6916,Ahanor,ATA,d,Difensore,10,10,25",
-        ],
-        [
-            "2026/27,4521,Zaccagni,LAZ,W;T,W;T,18,18,90",
-            "2026/27,6916,Ahanor,ATA,DD;DC,Dd;Dc,10,10,25",
-        ],
-    )
-
-    assert [p.nome for p in load_pool(classic, mantra, season="2026/27")] == [
-        "Ahanor",
-        "Zaccagni",
+    assert [(p.squadra, p.nome) for p in pool] == [
+        ("ATA", "Ahanor"),
+        ("INT", "Acerbi"),
+        ("INT", "Bastoni"),
+        ("LAZ", "Zaccagni"),
     ]
 
 
-_DATA = Path(__file__).resolve().parent.parent / "data"
-REAL_CLASSIC = _DATA / "quotazioni_classic.csv"
-REAL_MANTRA = _DATA / "quotazioni_mantra.csv"
+def test_a_player_with_no_classic_role_does_not_crash_the_join() -> None:
+    """Defensive: the column is NOT NULL, but an empty array would otherwise
+    index-error rather than produce a visibly wrong row."""
+    classic, mantra = _pair([_q("1", "Nobody", "ATA", "", "D")], [_q("1", "Nobody", "ATA", "Dc", "DC")])
 
-
-@pytest.mark.skipif(
-    not (REAL_CLASSIC.exists() and REAL_MANTRA.exists()),
-    reason="data/ is gitignored; this check only runs where the scraped files exist",
-)
-def test_the_real_files_join_to_523_players() -> None:
-    pool = load_pool(REAL_CLASSIC, REAL_MANTRA, season="2026/27")
-
-    assert len(pool) == 523
-    assert all(p.ruoli_mantra for p in pool)
+    assert build_pool(classic, mantra, "2026/27")[0].ruolo == ""

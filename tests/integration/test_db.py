@@ -550,3 +550,64 @@ class TestSentimentReadPath:
         ids = [d.player_id for d in SentimentReadRepository(db_session).drifted()]
 
         assert str(player_id) not in ids
+
+
+class TestPoolFromPostgres:
+    """The pool the Wednesday run queries, now built from quotazioni."""
+
+    def test_the_season_produces_523_players(self, db_session: Session) -> None:
+        from fantabot.news.pool import load_pool
+
+        assert len(load_pool(db_session, "2026/27")) == 523
+
+    def test_the_query_filters_by_season(self, db_session: Session) -> None:
+        """Five seasons are stored; asking for one must not return the union."""
+        from fantabot.news.pool import load_pool
+
+        assert len(load_pool(db_session, "2025/26")) < 523 * 2
+
+    def test_a_season_with_no_rows_raises(self, db_session: Session) -> None:
+        from fantabot.news.pool import PoolJoinError, load_pool
+
+        with pytest.raises(PoolJoinError, match="no players"):
+            load_pool(db_session, "2099/00")
+
+    def test_the_order_and_every_field_match_the_old_csv_path(
+        self, db_session: Session
+    ) -> None:
+        """The migration's real acceptance test: the pool is not merely the same
+        size, it is the same list."""
+        import csv
+        from pathlib import Path
+
+        from fantabot.config import settings
+        from fantabot.news.pool import load_pool
+
+        data_dir = Path(settings.fantabot_data_dir)
+        if not (data_dir / "quotazioni_classic.csv").exists():
+            pytest.skip("source CSVs absent")
+
+        def rows_by_id(name: str) -> dict[str, dict[str, str]]:
+            with (data_dir / name).open(newline="", encoding="utf-8") as handle:
+                return {
+                    row["id"]: row
+                    for row in csv.DictReader(handle)
+                    if row["stagione"] == "2026/27"
+                }
+
+        classic = rows_by_id("quotazioni_classic.csv")
+        mantra = rows_by_id("quotazioni_mantra.csv")
+        from_csv = sorted(
+            (
+                (pid, row["nome"], row["squadra"], row["ruolo"], mantra[pid]["ruoli_codice"])
+                for pid, row in classic.items()
+            ),
+            key=lambda t: (t[2], t[1]),
+        )
+
+        from_db = [
+            (p.id, p.nome, p.squadra, p.ruolo, p.ruoli_mantra)
+            for p in load_pool(db_session, "2026/27")
+        ]
+
+        assert from_db == from_csv
