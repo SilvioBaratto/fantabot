@@ -54,7 +54,7 @@ def lineup_submit(
 def news_fetch(
     scope: str = typer.Option("pool", help="Only 'pool' is implemented — see below."),
     write: bool = typer.Option(
-        False, "--write", help="Append to the CSV. Off = query and discard."
+        False, "--write", help="Store the readings. Off = query and discard."
     ),
     force: bool = typer.Option(
         False, "--force", help="Re-query players that already have today's row."
@@ -74,7 +74,6 @@ def news_fetch(
     from fantabot.news.pipeline import fetch_all
     from fantabot.news.pool import load_pool
     from fantabot.news.prompt import build_prompt
-    from fantabot.news.store import append_rows, existing_keys
 
     if scope != "pool":
         # Not deferred-and-half-built: reading a roster needs the league API
@@ -96,11 +95,19 @@ def news_fetch(
     if only:
         players = [p for p in players if only.lower() in p.nome.lower()]
     today = date.today()
-    out_path = data_dir / f"player_sentiment_{season.replace('/', '-')}.csv"
 
-    if not force:
-        seen = existing_keys(out_path)
+    # The resume filter is a database query now, so it runs only when the
+    # command is actually going to spend something. --no-run stays a fully
+    # offline dry run — it must not require the stack to be up — and says
+    # plainly that its count is unfiltered.
+    if not (force or no_run):
+        from fantabot.db import database_manager
+        from fantabot.db.repositories.sentiment import SentimentRepository
+
+        with database_manager.get_session() as session:
+            seen = SentimentRepository(session).existing_keys(today)
         players = [p for p in players if (today.isoformat(), p.id) not in seen]
+
     if limit:
         players = players[:limit]
 
@@ -109,7 +116,10 @@ def news_fetch(
             console.print(build_prompt(player, lookback_days, today))
 
     if no_run:
-        console.print(f"[dim]--no-run: {len(players)} players prepared, nothing queried.[/dim]")
+        console.print(
+            f"[dim]--no-run: {len(players)} players prepared, nothing queried. "
+            "The resume filter was not applied — it needs the database.[/dim]"
+        )
         return
 
     if not players:
@@ -135,8 +145,14 @@ def news_fetch(
         console.print("[yellow]rate limits were hit; the run backed off and continued[/yellow]")
 
     if write:
-        append_rows(out_path, result.rows)
-        console.print(f"[green]{len(result.rows)} rows -> {out_path}[/green]")
+        from fantabot.db import database_manager
+        from fantabot.db.repositories.sentiment import SentimentRepository
+
+        with database_manager.get_session() as session:
+            # force means both "re-query him" and "overwrite what is stored":
+            # without it a same-day re-run is a no-op rather than a duplicate.
+            stored = SentimentRepository(session).upsert_rows(result.rows, force=force)
+        console.print(f"[green]{stored} rows -> player_sentiment[/green]")
     else:
         for row in result.rows:
             console.print(row)
