@@ -253,13 +253,73 @@ def _capture(
 
     saved = _write_session(state_blob) if state_blob is not None else _warn_stale_session()
 
+    verified, failures = (
+        _verify([one.league_id for one in to_store], cipher, transport, moment)
+        if verify
+        else ([], [])
+    )
+
+    console.print(
+        f"\n{len(to_store)} token(s) stored, {len(verified)} verified."
+        + (f" {len(failures)} failed verification." if failures else "")
+    )
+
     return LoginResult(
         stored=[one.league_id for one in to_store],
-        verified=[],
-        failures=[],
+        verified=verified,
+        failures=failures,
         browser_opened=True,
         session_saved=saved,
     )
+
+
+def _verify(
+    league_ids: list[int],
+    cipher: TokenCipher,
+    transport: object | None,
+    moment: datetime,
+) -> tuple[list[int], list[tuple[int, str]]]:
+    """One GET per stored lega, proving the token authenticates headlessly.
+
+    **A failure never rolls back the stored row.** The row is a credential we
+    hold; whether the site liked it this second is a separate fact, which is
+    exactly why `last_verified_at` is nullable rather than the row being
+    conditional on it. A network blip must not cost you a token you just typed a
+    password for.
+    """
+    import httpx
+
+    from fantabot import apileague
+    from fantabot.db import database_manager
+    from fantabot.tokens.store import TokenStore
+
+    console.print("\nVerifying:")
+    verified: list[int] = []
+    failures: list[tuple[int, str]] = []
+
+    for league_id in league_ids:
+        with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
+            try:
+                body = apileague.league_status(
+                    league_id,
+                    store=store,
+                    transport=transport if isinstance(transport, httpx.BaseTransport) else None,
+                    now=moment,
+                )
+            except TokenError as exc:
+                failures.append((league_id, str(exc)))
+                console.print(f"  [yellow]{league_id}  {exc}[/yellow]")
+                continue
+            store.mark_verified(league_id, moment)
+
+        verified.append(league_id)
+        console.print(
+            f"  {league_id}  GET /onboarding/v1/league/status  200  "
+            f"sId={body.get('sId')} mday={body.get('mday')}"
+        )
+
+    return verified, failures
 
 
 def _write_session(blob: dict[str, Any]) -> bool:

@@ -58,6 +58,7 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
     rows: list[TokenStatus] = []
     writes: list[Any] = []
     stamped: list[int] = []
+    verified: list[int] = []
 
     monkeypatch.setattr(login, "_preflight_database", lambda: None)
 
@@ -75,6 +76,12 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
         def touch_seen(self, league_ids: Any, at: Any) -> None:
             stamped.extend(league_ids)
 
+        def load_plaintext(self, league_id: int, *, now: Any = None) -> str:
+            return _tokens.make_token(l_id=league_id)
+
+        def mark_verified(self, league_id: int, at: Any) -> None:
+            verified.append(league_id)
+
     import fantabot.tokens.store as store_module
 
     monkeypatch.setattr(store_module, "TokenStore", _Store)
@@ -90,7 +97,7 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
 
     monkeypatch.setattr(database_manager, "get_session", lambda: _Session())
 
-    return {"rows": rows, "writes": writes, "stamped": stamped}
+    return {"rows": rows, "writes": writes, "stamped": stamped, "verified": verified}
 
 
 @pytest.fixture
@@ -515,3 +522,104 @@ def test_no_printed_line_contains_a_token(
         blob = json.loads(one["value"])
         for entry in blob[f"current-user-{_tokens.USER_ID}"]["leagues"]:
             assert entry["token"][:16] not in output
+
+
+# --- T19: verification ----------------------------------------------------
+
+
+def _transport(status: int = 200, body: dict[str, Any] | None = None) -> Any:
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=body if body is not None else {"sId": 21, "mday": 2})
+
+    return httpx.MockTransport(handler)
+
+
+def _exploding_transport() -> Any:
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("--no-verify still made a request")
+
+    return httpx.MockTransport(handler)
+
+
+def test_no_verify_stores_without_firing_a_request(stub_db: Any, with_key: None) -> None:
+    result = login.run(
+        browser_factory=_FakeContext(),
+        verify=False,
+        transport=_exploding_transport(),
+        prompt=_answers(""),
+        now=NOW,
+    )
+
+    assert len(result.stored) == 2
+    assert result.verified == []
+
+
+def test_a_200_marks_each_lega_verified(stub_db: Any, with_key: None) -> None:
+    result = login.run(
+        browser_factory=_FakeContext(),
+        transport=_transport(),
+        prompt=_answers(""),
+        now=NOW,
+    )
+
+    assert sorted(result.verified) == sorted([_tokens.LEGA_CLASSIC, _tokens.LEGA_MANTRA])
+    assert result.failures == []
+
+
+def test_a_rejected_token_is_reported_but_the_row_stays_stored(
+    stub_db: Any, with_key: None
+) -> None:
+    """last_verified_at is nullable precisely so a blip costs no credential."""
+    result = login.run(
+        browser_factory=_FakeContext(),
+        transport=_transport(401, {"code": "ATH001"}),
+        prompt=_answers(""),
+        now=NOW,
+    )
+
+    assert len(result.stored) == 2
+    assert result.verified == []
+    assert len(result.failures) == 2
+    assert all("fantabot login" in reason for _, reason in result.failures)
+
+
+def test_the_report_contains_no_token_and_no_key(
+    stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    login.run(
+        browser_factory=_FakeContext(),
+        transport=_transport(),
+        prompt=_answers(""),
+        now=NOW,
+    )
+    output = capsys.readouterr().out
+
+    assert GOOD_KEY[:8] not in output
+    for entry in _tokens.storage_state()["origins"][0]["localStorage"]:
+        if entry["name"] == "LEAGUES2024_LOCAL":
+            blob = json.loads(entry["value"])
+            for lega in blob[f"current-user-{_tokens.USER_ID}"]["leagues"]:
+                assert lega["token"][:16] not in output
+
+
+def test_every_printed_line_is_derivable_without_a_decrypt(
+    stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """lega id, name, team id, expiry — all plaintext columns or claims."""
+    login.run(
+        browser_factory=_FakeContext(),
+        transport=_transport(),
+        prompt=_answers(""),
+        now=NOW,
+    )
+    output = capsys.readouterr().out
+
+    assert str(_tokens.TEAM_MANTRA) in output
+    assert "2027-08-19" in output
+    assert "200" in output
