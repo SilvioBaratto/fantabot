@@ -470,5 +470,51 @@ def login(
         raise typer.Exit(code=1) from None
 
 
+@app.command()
+def token_forget(
+    league: int = typer.Option(0, "--league", help="The lega whose row to remove."),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt."),
+) -> None:
+    """Remove one lega's stored token. Deliberate, one at a time.
+
+    There is no `--all` and no wildcard, on purpose. Removal is manual because a
+    `leagues[]` that came back short — a partial load, an API blip — would
+    otherwise silently destroy a working token, and re-login is the only
+    recovery. Keeping a dead row costs a line of output; deleting a live one
+    costs a credential.
+    """
+    from datetime import UTC, datetime
+
+    from fantabot.db import database_manager
+    from fantabot.tokens.status import render_state
+    from fantabot.tokens.store import TokenStore
+
+    if not league:
+        console.print("[red]--league is required. There is no --all.[/red]")
+        raise typer.Exit(code=2)
+
+    with database_manager.get_session() as session:
+        store = TokenStore(session)
+        row = next((r for r in store.status() if r.league_id == league), None)
+
+        if row is None:
+            console.print(
+                f"[yellow]No stored token for lega {league} — nothing to remove.[/yellow]"
+            )
+            return
+
+        # Lega, name and expiry only: never the ciphertext, never the fingerprint.
+        state = render_state(row, now=datetime.now(UTC), key_fingerprint=None)
+        console.print(f"{row.league_id}  {row.league_name or '—'}  {state}")
+
+        if not yes and not typer.confirm(f"Remove the stored token for lega {league}?"):
+            console.print("Nothing removed.")
+            return
+
+        store.forget(league)
+
+    console.print(f"[green]Removed the stored token for lega {league}.[/green]")
+
+
 if __name__ == "__main__":
     app()
