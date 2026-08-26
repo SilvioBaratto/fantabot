@@ -10,8 +10,12 @@ run has to stay socket-free.
 """
 
 from fantabot.db.base import Base, TimestampMixin
+from fantabot.db.engine import DatabaseManager, database_manager, get_session
 
 __all__ = [
     "Base",
+    "DatabaseManager",
     "TimestampMixin",
+    "database_manager",
+    "get_session",
 ]
