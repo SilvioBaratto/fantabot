@@ -7,12 +7,20 @@ numbers, not about how a CSV was stored, so they outlive the importers.
 
 from __future__ import annotations
 
+from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from fantabot.parsing import italian_decimal, plain_decimal, split_codes, split_flags
+from fantabot.parsing import (
+    italian_decimal,
+    parse_date,
+    parse_time,
+    plain_decimal,
+    split_codes,
+    split_flags,
+)
 
 
 class TestItalianDecimal:
@@ -120,3 +128,18 @@ class TestSplitFlags:
 
     def test_empty_is_an_empty_list(self) -> None:
         assert split_flags("") == []
+
+
+class TestMatchGrainParsing:
+    def test_dates_are_read_in_italian_order(self) -> None:
+        """01/02/2025 is 1 February, not 2 January. Read the American way,
+        every match in the first twelve days of a month lands in the wrong one."""
+        assert parse_date("01/02/2025") == date(2025, 2, 1)
+
+    def test_a_kick_off_time_is_parsed(self) -> None:
+        assert parse_time("12:30") == time(12, 30)
+
+    def test_a_missing_kick_off_time_is_none(self) -> None:
+        """bonus_malus carries no time at all; voti carries one for every row."""
+        assert parse_time("") is None
+        assert parse_time("   ") is None

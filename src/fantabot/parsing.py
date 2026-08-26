@@ -27,6 +27,7 @@ renders numbers, not about how a file was stored.
 
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 
 # Empty means the row has no measurement; "0,0" is the site's explicit no-data
@@ -97,3 +98,21 @@ def split_flags(raw: str) -> list[str]:
     script that emits it.
     """
     return [part.strip() for part in raw.split(";") if part.strip()]
+
+
+def parse_date(raw: str) -> date:
+    """``"01/02/2025"`` -> ``date(2025, 2, 1)``. Italian order, not American.
+
+    Read the American way, every match in the first twelve days of a month is
+    silently misfiled — 01/02 becomes January 2nd — and nothing raises.
+    """
+    return datetime.strptime(raw.strip(), "%d/%m/%Y").date()
+
+
+def parse_time(raw: str) -> time | None:
+    """``"12:30"`` -> ``time(12, 30)``; empty -> ``None``.
+
+    bonus_malus has no kick-off time at all, and voti has one for every row.
+    """
+    value = raw.strip()
+    return datetime.strptime(value, "%H:%M").time() if value else None

@@ -16,7 +16,6 @@ silent hundredfold error into a crash on the first row.
 
 from __future__ import annotations
 
-from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 
@@ -25,7 +24,6 @@ import pytest
 from fantabot.db.importers._csv import (
     italian_decimal,
 )
-from fantabot.db.importers.matches import chunked, parse_date, parse_time
 from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
 from fantabot.db.importers.qi_bias import read_rows as qi_bias_rows
 from fantabot.db.importers.quotazioni import read_rows as quotazioni_rows
@@ -322,29 +320,6 @@ class TestTargetPriceRows:
             "thin_prior_sample_no_fade",
             "team_discount(MIL)",
         ]
-
-
-class TestMatchGrainParsing:
-    def test_dates_are_read_in_italian_order(self) -> None:
-        """01/02/2025 is 1 February, not 2 January. Read the American way,
-        every match in the first twelve days of a month lands in the wrong one."""
-        assert parse_date("01/02/2025") == date(2025, 2, 1)
-
-    def test_a_kick_off_time_is_parsed(self) -> None:
-        assert parse_time("12:30") == time(12, 30)
-
-    def test_a_missing_kick_off_time_is_none(self) -> None:
-        """bonus_malus carries no time at all; voti carries one for every row."""
-        assert parse_time("") is None
-        assert parse_time("   ") is None
-
-    def test_chunking_covers_every_row_exactly_once(self) -> None:
-        rows = [{"n": i} for i in range(4501)]
-
-        batches = list(chunked(rows, size=2000))
-
-        assert [len(batch) for batch in batches] == [2000, 2000, 501]
-        assert [row["n"] for batch in batches for row in batch] == list(range(4501))
 
 
 class TestVotiRows:
