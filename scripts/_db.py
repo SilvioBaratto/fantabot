@@ -21,6 +21,7 @@ Prerequisites this module adds to every script that imports it:
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections import defaultdict
 from collections.abc import Iterator
@@ -54,8 +55,14 @@ class BiasRow:
     squadra: str
     role: str
     qi: int
+    qa: int
     delta: int
     pct_delta: float
+
+    @property
+    def log_ratio(self) -> float:
+        """``log(qa / qi)`` — what target_price fits its role fades on."""
+        return math.log(self.qa / self.qi)
 
 
 @dataclass(frozen=True)
@@ -144,6 +151,7 @@ def load_bias_rows(
             squadra=squadra,
             role=_role_string(codes, listone),
             qi=qi,
+            qa=qi + delta,
             delta=delta,
             pct_delta=float(pct_delta),
         )

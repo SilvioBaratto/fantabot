@@ -94,6 +94,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 import csv
 import math
 import statistics
@@ -103,6 +104,10 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _db  # noqa: E402
 
 console = Console()
 
@@ -142,10 +147,6 @@ REGULAR_APPEARANCES_HI = 38
 TEAM_DISCOUNT_ALLOWLIST = {"NAP", "MIL"}
 
 
-def parse_decimal(raw: str) -> float:
-    return float(raw.replace(",", "."))
-
-
 @dataclass(frozen=True)
 class PriorStats:
     partite_giocate: int
@@ -166,42 +167,6 @@ class BiasRow:
     @property
     def log_ratio(self) -> float:
         return math.log(self.qa / self.qi)
-
-
-def load_prior_stats(path: Path) -> dict[tuple[str, str], PriorStats]:
-    by_key: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
-    with path.open(newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            by_key[(row["id"], row["stagione"])].append(row)
-
-    out: dict[tuple[str, str], PriorStats] = {}
-    for key, rows in by_key.items():
-        fantavoti = [parse_decimal(r["media_fantavoto"]) for r in rows if r["media_fantavoto"] not in ("", "0,0")]
-        if not fantavoti:
-            continue
-        out[key] = PriorStats(
-            partite_giocate=int(rows[0]["partite_giocate"]),
-            media_fantavoto=statistics.mean(fantavoti),
-        )
-    return out
-
-
-def load_bias_rows(path: Path, seasons: set[str], min_qi: int) -> list[BiasRow]:
-    with path.open(newline="", encoding="utf-8") as f:
-        return [
-            BiasRow(
-                stagione=row["stagione"],
-                id=row["id"],
-                nome=row["nome"],
-                squadra=row["squadra"],
-                role=row["role"],
-                qi=int(row["qi"]),
-                qa=int(row["qa"]),
-                pct_delta=float(row["pct_delta"]),
-            )
-            for row in csv.DictReader(f)
-            if row["stagione"] in seasons and int(row["qi"]) > min_qi
-        ]
 
 
 @dataclass(frozen=True)
@@ -236,9 +201,12 @@ class RoleFade:
         return math.exp(self.predict_log_ratio(prior_fantamedia))
 
 
-def fit_role_fades(data_dir: Path, system: str) -> dict[str, RoleFade]:
-    prior_stats = load_prior_stats(data_dir / f"statistiche_{system}.csv")
-    bias_rows = load_bias_rows(data_dir / f"qi_bias_{system}.csv", set(TRAIN_SEASONS), MIN_QI)
+def fit_role_fades(system: str) -> dict[str, RoleFade]:
+    with _db.session() as handle:
+        prior_stats = _db.load_prior_stats(handle, system)
+        bias_rows = _db.load_bias_rows(
+            handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
+        )
 
     by_role: dict[str, list[tuple[float, float]]] = defaultdict(list)
     for row in bias_rows:
@@ -264,8 +232,11 @@ def fit_role_fades(data_dir: Path, system: str) -> dict[str, RoleFade]:
     return fades
 
 
-def team_discount_factors(data_dir: Path, system: str) -> dict[str, float]:
-    bias_rows = load_bias_rows(data_dir / f"qi_bias_{system}.csv", set(TRAIN_SEASONS), MIN_QI)
+def team_discount_factors(system: str) -> dict[str, float]:
+    with _db.session() as handle:
+        bias_rows = _db.load_bias_rows(
+            handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
+        )
     by_team: dict[str, list[float]] = defaultdict(list)
     for row in bias_rows:
         by_team[row.squadra].append(row.pct_delta)
@@ -295,22 +266,20 @@ class TargetPriceRow:
     flags: str
 
 
-def compute_target_prices(data_dir: Path, system: str) -> list[TargetPriceRow]:
-    fades = fit_role_fades(data_dir, system)
-    team_factors = team_discount_factors(data_dir, system)
-    prior_stats = load_prior_stats(data_dir / f"statistiche_{system}.csv")
-
-    role_col = "ruolo_codice" if system == "classic" else "ruoli_codice"
-    with (data_dir / f"quotazioni_{system}.csv").open(newline="", encoding="utf-8") as f:
-        target_universe = [row for row in csv.DictReader(f) if row["stagione"] == TARGET_SEASON]
+def compute_target_prices(system: str) -> list[TargetPriceRow]:
+    fades = fit_role_fades(system)
+    team_factors = team_discount_factors(system)
+    with _db.session() as handle:
+        prior_stats = _db.load_prior_stats(handle, system)
+        target_universe = _db.load_quotes(handle, system, seasons={TARGET_SEASON})
 
     out: list[TargetPriceRow] = []
     for row in target_universe:
-        player_id = row["id"]
-        role = row[role_col]
+        player_id = row.id
+        role = row.role
         role_bucket = macro_role(role, system)
-        squadra = row["squadra"]
-        qi = int(row["qi"])
+        squadra = row.squadra
+        qi = row.qi
 
         flags = []
         prior = prior_stats.get((player_id, PRIOR_SEASON_FOR_TARGET))
@@ -340,7 +309,7 @@ def compute_target_prices(data_dir: Path, system: str) -> list[TargetPriceRow]:
         out.append(
             TargetPriceRow(
                 id=player_id,
-                nome=row["nome"],
+                nome=row.nome,
                 squadra=squadra,
                 role=role,
                 macro_role=role_bucket,
@@ -358,13 +327,12 @@ def compute_target_prices(data_dir: Path, system: str) -> list[TargetPriceRow]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--system", choices=["classic", "mantra"], default="classic")
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--top-n", type=int, default=15)
     args = parser.parse_args()
-    out_path = args.out or args.data_dir / f"target_price_2026_27_{args.system}.csv"
+    out_path = args.out or Path("data") / f"target_price_2026_27_{args.system}.csv"
 
-    fades = fit_role_fades(args.data_dir, args.system)
+    fades = fit_role_fades(args.system)
     console.print(f"[bold]{args.system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
     fade_table = Table()
     fade_table.add_column("macro role")
@@ -373,8 +341,12 @@ def main() -> None:
     fade_table.add_column("intercept", justify="right")
     fade_table.add_column("clamp range (as %)", justify="right")
     # RoleFade doesn't carry n; recompute just for display
-    prior_stats_dbg = load_prior_stats(args.data_dir / f"statistiche_{args.system}.csv")
-    bias_rows_dbg = load_bias_rows(args.data_dir / f"qi_bias_{args.system}.csv", set(TRAIN_SEASONS), MIN_QI)
+    with _db.session() as handle:
+        prior_stats_dbg = _db.load_prior_stats(handle, args.system)
+    with _db.session() as handle:
+        bias_rows_dbg = _db.load_bias_rows(
+            handle, args.system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
+        )
     n_by_role: dict[str, int] = defaultdict(int)
     for row in bias_rows_dbg:
         role = macro_role(row.role, args.system)
@@ -393,10 +365,10 @@ def main() -> None:
         )
     console.print(fade_table)
 
-    team_factors = team_discount_factors(args.data_dir, args.system)
+    team_factors = team_discount_factors(args.system)
     console.print(f"\n[bold]Team discount factors applied:[/bold] {team_factors}\n")
 
-    rows = compute_target_prices(args.data_dir, args.system)
+    rows = compute_target_prices(args.system)
 
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
