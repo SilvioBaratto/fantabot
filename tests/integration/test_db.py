@@ -240,3 +240,44 @@ class TestTargetPriceSeed:
             )
         ).scalar()
         assert lowercase > 0
+
+
+class TestVotiSeed:
+    """The largest table, and the only place a nullable foreign key is required."""
+
+    def test_all_50634_rows_land_with_3039_coach_rows(self, db_session: Session) -> None:
+        total, coaches = db_session.execute(
+            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM voti")
+        ).one()
+        assert (total, coaches) == (50634, 3039)
+
+    def test_every_coach_row_is_identifiable(self, db_session: Session) -> None:
+        """They are keyed on nome by the second partial index, so a blank name
+        would collide 3039 ways."""
+        bad = db_session.execute(
+            text(
+                "SELECT count(*) FROM voti WHERE player_id IS NULL "
+                "AND (nome IS NULL OR nome = '' OR ruolo_codice <> 'ALL')"
+            )
+        ).scalar()
+        assert bad == 0
+
+    def test_the_union_seeded_players_are_reachable(self, db_session: Session) -> None:
+        """88 rows reference a player who exists only because players was
+        seeded from the union rather than from quotazioni."""
+        orphans = db_session.execute(
+            text(
+                "SELECT count(*) FROM voti v LEFT JOIN players p ON p.id = v.player_id "
+                "WHERE v.player_id IS NOT NULL AND p.id IS NULL"
+            )
+        ).scalar()
+        assert orphans == 0
+
+    def test_no_grade_exceeds_the_scale(self, db_session: Session) -> None:
+        impossible = db_session.execute(
+            text(
+                "SELECT count(*) FROM voti "
+                "WHERE voto_fc > 10 OR voto_stat > 10 OR voto_italia > 10"
+            )
+        ).scalar()
+        assert impossible == 0

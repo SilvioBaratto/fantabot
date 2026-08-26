@@ -16,6 +16,7 @@ silent hundredfold error into a crash on the first row.
 
 from __future__ import annotations
 
+from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from fantabot.db.importers._csv import (
     split_codes,
     split_flags,
 )
+from fantabot.db.importers.matches import chunked, parse_date, parse_time
 from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
 from fantabot.db.importers.qi_bias import read_rows as qi_bias_rows
 from fantabot.db.importers.quotazioni import read_rows as quotazioni_rows
@@ -34,6 +36,7 @@ from fantabot.db.importers.statistiche import read_rows as statistiche_rows
 from fantabot.db.importers.target_price import SeasonNotInFilenameError, season_from_filename
 from fantabot.db.importers.target_price import read_rows as target_price_rows
 from fantabot.db.importers.teams import TeamMappingError, build_mapping, code_for
+from fantabot.db.importers.voti import read_rows as voti_rows
 
 
 class TestItalianDecimal:
@@ -428,3 +431,77 @@ class TestSplitFlags:
 
     def test_empty_is_an_empty_list(self) -> None:
         assert split_flags("") == []
+
+
+class TestMatchGrainParsing:
+    def test_dates_are_read_in_italian_order(self) -> None:
+        """01/02/2025 is 1 February, not 2 January. Read the American way,
+        every match in the first twelve days of a month lands in the wrong one."""
+        assert parse_date("01/02/2025") == date(2025, 2, 1)
+
+    def test_a_kick_off_time_is_parsed(self) -> None:
+        assert parse_time("12:30") == time(12, 30)
+
+    def test_a_missing_kick_off_time_is_none(self) -> None:
+        """bonus_malus carries no time at all; voti carries one for every row."""
+        assert parse_time("") is None
+        assert parse_time("   ") is None
+
+    def test_chunking_covers_every_row_exactly_once(self) -> None:
+        rows = [{"n": i} for i in range(4501)]
+
+        batches = list(chunked(rows, size=2000))
+
+        assert [len(batch) for batch in batches] == [2000, 2000, 501]
+        assert [row["n"] for batch in batches for row in batch] == list(range(4501))
+
+
+class TestVotiRows:
+    @staticmethod
+    def _write(tmp_path: Path, player_id: str, ruolo_codice: str) -> None:
+        (tmp_path / "voti.csv").write_text(
+            "stagione,giornata,data,ora,squadra,avversario,gol_squadra,gol_avversario,"
+            "id,nome,ruolo_codice,ruolo,voto_fc,fantavoto_fc,voto_stat,fantavoto_stat,"
+            "voto_italia,fantavoto_italia\n"
+            f'2024/25,3,01/02/2025,12:30,Atalanta,Bologna,2,1,{player_id},Tizio,'
+            f'{ruolo_codice},Centrocampista,"6,25","7,25","6,0","7,0","6,5","7,5"\n',
+            encoding="utf-8",
+        )
+
+    def test_a_coach_row_keeps_its_name_and_carries_no_player(self, tmp_path: Path) -> None:
+        """3039 rows per file. A NOT NULL foreign key would reject all of them."""
+        self._write(tmp_path, "", "all")
+        row = voti_rows(tmp_path)[0]
+
+        assert row["player_id"] is None
+        assert row["nome"] == "Tizio"
+        assert row["ruolo_codice"] == "ALL"
+
+    def test_a_player_row_carries_its_id(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "7", "c")
+        row = voti_rows(tmp_path)[0]
+
+        assert row["player_id"] == 7
+        assert row["ruolo_codice"] == "C"
+
+    def test_the_corrupt_team_columns_are_carried_as_raw(self, tmp_path: Path) -> None:
+        """Kept, but named so nobody mistakes them for the player's own club."""
+        self._write(tmp_path, "7", "c")
+        row = voti_rows(tmp_path)[0]
+
+        assert row["squadra_raw"] == "Atalanta"
+        assert row["avversario_raw"] == "Bologna"
+        assert "squadra" not in row
+
+    def test_the_fixture_score_is_kept(self, tmp_path: Path) -> None:
+        """Four columns the plan never named. Row counts would not have caught
+        their absence."""
+        self._write(tmp_path, "7", "c")
+        row = voti_rows(tmp_path)[0]
+
+        assert (row["gol_squadra"], row["gol_avversario"]) == (2, 1)
+
+    def test_grades_are_comma_decimals(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "7", "c")
+
+        assert voti_rows(tmp_path)[0]["voto_fc"] == Decimal("6.25")

@@ -59,6 +59,7 @@ def _registry() -> tuple[Importer, ...]:
         statistiche,
         target_price,
         teams,
+        voti,
     )
 
     return (
@@ -108,6 +109,14 @@ def _registry() -> tuple[Importer, ...]:
             description="Auction prices. Season comes from the filename.",
             expected_rows=1046,
             depends_on=("players", "teams"),
+        ),
+        Importer(
+            name="voti",
+            sources=voti.SOURCE_FILES,
+            load=voti.load,
+            description="Match grain, 50634 rows, two conflict targets.",
+            expected_rows=50634,
+            depends_on=("players",),
         ),
     )
 
