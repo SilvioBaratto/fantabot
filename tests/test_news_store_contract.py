@@ -1,30 +1,25 @@
-"""Two contracts a Postgres port breaks silently. Pinned before anything moves.
+"""``deriva_ruolo`` is a confidence value, not a flag.
 
-Neither is covered by the existing suites, and both fail in a way that reports
-success:
+``mantra.drift`` returns ``0.0`` or the model's own ``confidenza``, and
+``drifted()`` ranks players by it. Stored as a boolean the ranking collapses to
+arbitrary order and nothing looks wrong. SPEC's Schema called the column
+boolean; ruled against on 2026-08-26 in favour of the code, and amended.
 
-* ``existing_keys`` returns ``set[tuple[str, str]]`` and ``cli.py:102`` compares
-  it against ``(today.isoformat(), p.id)`` — both ``str``. If a repository
-  returns ``(date, int)`` instead, the resume filter matches nothing, all 523
-  players are re-queried, and the run finishes reporting success while spending
-  a full pass for nothing.
-* ``deriva_ruolo`` is a **confidence value**, not a flag. ``mantra.drift``
-  returns ``0.0`` or the model's ``confidenza``, and ``drifted()`` ranks players
-  by it. Stored as a boolean the ranking collapses to arbitrary order and
-  nothing looks wrong.
-
-These run against unmodified ``src/`` on purpose: they describe what is true
-today, so the port has something to be measured against.
+This file was written before the port, to describe what was true then. The
+other contract it pinned — that ``existing_keys`` returns two strings, because
+``cli.py`` compares against ``(today.isoformat(), p.id)`` — now belongs to the
+repository, and is asserted against a real ``date`` column in
+``tests/integration/test_db.py``, which is where it could actually go wrong.
+``build_row`` is unchanged, so everything below still pins live code.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 from fantabot.news.models import PlayerSentiment
 from fantabot.news.pool import PoolPlayer
-from fantabot.news.store import build_row, existing_keys
+from fantabot.news.store import build_row
 
 AHANOR = PoolPlayer(
     id="6916", nome="Ahanor", squadra="ATA", ruolo="Difensore", ruoli_mantra="B;DS;E"
@@ -58,32 +53,6 @@ def _row(**overrides: object) -> dict[str, str]:
         stagione="2026/27",
         modello="test",
     )
-
-
-class TestResumeKeyShape:
-    """The key that makes killing a half-finished 523-player run free."""
-
-    def test_both_elements_are_strings(self, tmp_path: Path) -> None:
-        path = tmp_path / "player_sentiment_2026-27.csv"
-        path.write_text("data_run,id\n2026-10-07,6916\n", encoding="utf-8")
-
-        keys = existing_keys(path)
-
-        assert keys == {("2026-10-07", "6916")}
-        for data_run, player_id in keys:
-            assert isinstance(data_run, str)
-            assert isinstance(player_id, str)
-
-    def test_it_matches_what_the_cli_compares_against(self, tmp_path: Path) -> None:
-        """cli.py:102 builds (today.isoformat(), p.id). A repository returning
-        (date, int) would match nothing and silently re-query everyone."""
-        path = tmp_path / "player_sentiment_2026-27.csv"
-        path.write_text(f"data_run,id\n{RUN_DAY.isoformat()},{AHANOR.id}\n", encoding="utf-8")
-
-        assert (RUN_DAY.isoformat(), AHANOR.id) in existing_keys(path)
-
-    def test_a_missing_file_is_an_empty_set_not_an_error(self, tmp_path: Path) -> None:
-        assert existing_keys(tmp_path / "nope.csv") == set()
 
 
 class TestDerivaRuoloIsAConfidenceNotAFlag:

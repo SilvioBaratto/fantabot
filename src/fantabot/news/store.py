@@ -1,21 +1,22 @@
-"""The CSV store: one row per player per run, appended forever.
+"""Flattening one validated record into the columns the store holds.
 
-Append-only, deliberately. A past Wednesday cannot be regenerated — the news has
-moved on — so rewriting the file is a data-loss event with no undo. The resume
-index keyed on ``(data_run, id)`` is what makes killing a half-finished run free:
-restart, and only the players without a row for today get queried again.
+The storage itself is Postgres now —
+``db/repositories/sentiment.py::SentimentRepository`` owns writing and the
+resume index, and ``(data_run, player_id)`` is a primary key rather than a set
+rebuilt by re-reading the whole file. What stays here is ``build_row``, which is
+pure and is still the one place ``deriva_ruolo`` is computed.
 
-Floats are written with a ``.`` decimal separator. The scraped CSVs in ``data/``
-use Italian comma-decimals, which ``data/README.md`` documents as a gotcha to
-work around — not a convention worth propagating into a new file.
+``COLUMNS`` stays too, and is not merely documentation: a test asserts the
+``player_sentiment`` table matches it name for name, so the two cannot drift.
+
+Scores are formatted with a ``.`` decimal separator. The scraped CSVs in
+``data/`` use Italian comma-decimals, which ``data/README.md`` documents as a
+gotcha to work around — not a convention worth propagating.
 """
 
 from __future__ import annotations
 
-import csv
-from collections.abc import Sequence
 from datetime import date
-from pathlib import Path
 
 from fantabot.data_sources.models import SCORES
 
@@ -89,29 +90,6 @@ def build_row(
     }
     row.update({name: _score(getattr(sentiment, name)) for name in _SCORES})
     return row
-
-
-def append_rows(path: Path, rows: Sequence[dict[str, str]]) -> None:
-    """Append rows, writing the header only when creating the file."""
-    if not rows:
-        return
-
-    is_new = not path.exists()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=COLUMNS)
-        if is_new:
-            writer.writeheader()
-        writer.writerows(rows)
-
-
-def existing_keys(path: Path) -> set[tuple[str, str]]:
-    """``(data_run, id)`` pairs already on disk. Empty when the file is absent."""
-    if not path.exists():
-        return set()
-
-    with path.open(newline="", encoding="utf-8") as handle:
-        return {(row["data_run"], row["id"]) for row in csv.DictReader(handle)}
 
 
 def _score(value: float) -> str:
