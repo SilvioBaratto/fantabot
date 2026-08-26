@@ -174,3 +174,57 @@ def test_only_fonti_became_an_array() -> None:
     assert table.c.fonti.type.__class__.__name__ == "ARRAY"
     assert table.c.ruolo_campo.type.__class__.__name__ == "Text"
     assert table.c.ruoli_mantra.type.__class__.__name__ == "Text"
+
+
+SCHEMA_TABLES = frozenset(
+    {
+        "players",
+        "teams",
+        "quotazioni",
+        "statistiche",
+        "qi_bias",
+        "target_price",
+        "voti",
+        "bonus_malus",
+        "player_sentiment",
+        "bot_state",
+        "auction_bids",
+        "league_snapshot",
+        "league_team_snapshot",
+        "league_player_pool",
+    }
+)
+
+
+def test_every_table_spec_names_exists_and_nothing_else_does() -> None:
+    """SPEC criterion 4's first half, checked against the metadata rather than
+    a database: the schema is complete, and it has not grown anything extra."""
+    assert set(Base.metadata.tables) == SCHEMA_TABLES
+
+
+def test_snapshots_are_keyed_from_captured_at_outward() -> None:
+    """Append-only and time-stamped: the point of the tables is the drift, so
+    the timestamp leads the key rather than being an attribute of it."""
+    for table in ("league_snapshot", "league_team_snapshot", "league_player_pool"):
+        columns = [c.name for c in Base.metadata.tables[table].primary_key.columns]
+        assert columns[0] == "captured_at", table
+        assert "league_id" in columns, table
+
+
+def test_the_league_pool_has_no_foreign_key_to_players() -> None:
+    """The two lists come from different places — players from the scraped
+    CSVs, this from the live API — and do not have to agree. A constraint would
+    make a snapshot fail because the seed is a week stale, which is the drift
+    the table exists to record."""
+    assert Base.metadata.tables["league_player_pool"].foreign_keys == set()
+
+
+def test_the_snapshot_tables_have_no_importer_and_say_why() -> None:
+    """They ship empty on purpose. SPEC open question 5 decides the producer,
+    and adding an HTTP client is on SPEC's Ask-first list — so the absence is a
+    decision, and the docstring has to be the thing that says so."""
+    from fantabot.db import importers
+    from fantabot.db.models import league
+
+    assert "league_snapshot" not in importers.names()
+    assert "open question 5" in league.__doc__.lower()  # type: ignore[union-attr]

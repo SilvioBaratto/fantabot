@@ -6,6 +6,11 @@ its table.
 """
 
 from fantabot.db.base import Base, TimestampMixin
+from fantabot.db.models.league import (
+    LeaguePlayerPool,
+    LeagueSnapshot,
+    LeagueTeamSnapshot,
+)
 from fantabot.db.models.matches import COACH_ROLE, BonusMalus, Voto
 from fantabot.db.models.reference import (
     FONTI,
@@ -32,6 +37,9 @@ __all__ = [
     "Base",
     "BonusMalus",
     "BotState",
+    "LeaguePlayerPool",
+    "LeagueSnapshot",
+    "LeagueTeamSnapshot",
     "Player",
     "PlayerSentiment",
     "QiBias",
