@@ -190,5 +190,50 @@ def mantra_grid(
     )
 
 
+@app.command()
+def db_check() -> None:
+    """Database health, plus a row count and on-disk size for every table."""
+    from rich.table import Table
+    from sqlalchemy.exc import SQLAlchemyError
+
+    import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
+    from fantabot.config import settings
+    from fantabot.db import database_manager
+    from fantabot.db.repositories.admin import AdminRepository
+
+    try:
+        with database_manager.get_session() as session:
+            repo = AdminRepository(session)
+            ok, latency_ms = repo.health()
+            stats = repo.table_stats()
+    except SQLAlchemyError as exc:
+        # An unreachable database is the normal case this command exists to
+        # report, so it exits nonzero with an instruction rather than a stack
+        # trace. The DSN is masked: cron captures stdout.
+        from sqlalchemy.engine import make_url
+
+        dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
+        console.print(f"[red]Cannot reach the database at {dsn}[/red]")
+        console.print(f"[red]{type(exc).__name__}: {str(exc).splitlines()[0]}[/red]")
+        console.print("Start it with: [bold]docker compose up -d[/bold]")
+        raise typer.Exit(code=1) from None
+
+    status = "[green]ok[/green]" if ok else "[red]unhealthy[/red]"
+    console.print(f"health: {status}  latency: {latency_ms} ms")
+
+    table = Table("table", "rows", "size")
+    for row in stats:
+        rows = "—" if row["row_count"] is None else f"{row['row_count']:,}"
+        table.add_row(row["name"], rows, row["size_pretty"])
+    console.print(table)
+
+    missing = [row["name"] for row in stats if not row["exists"]]
+    if missing:
+        console.print(
+            f"[yellow]{len(missing)} table(s) declared but not in the database: "
+            f"{', '.join(missing)}. Run: [bold]alembic upgrade head[/bold][/yellow]"
+        )
+
+
 if __name__ == "__main__":
     app()
