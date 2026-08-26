@@ -7,8 +7,10 @@ Runtime state lives in Postgres now: ``bot_state`` for what has been done and
 could not represent.
 
 What is left is one path. It stays a plain function over ``settings`` and imports
-nothing from ``fantabot.db`` on purpose: ``auth.py`` and ``browser.py`` sit on
-this import chain, and ``fantabot auth`` has to work before a database exists.
+nothing from ``fantabot.db`` on purpose: ``browser.py`` sits on this import
+chain, and ``fantabot --help`` has to work before a database exists. ``login.py``
+does reach the database — deliberately — but only inside its command body, so it
+can *report* an unreachable one rather than fail to import.
 """
 
 from pathlib import Path

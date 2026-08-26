@@ -448,7 +448,7 @@ def login(
 ) -> None:
     """Sign in once; store every lega's bearer token encrypted in Postgres.
 
-    Replaces `fantabot auth`. You log in yourself in a real browser window —
+    Replaces the old `auth` command. You log in yourself in a real browser —
     nothing here scripts a credential, and nothing clicks anything after you do.
     The token is then read from localStorage, encrypted and written to
     `league_tokens`, keyed by lega.

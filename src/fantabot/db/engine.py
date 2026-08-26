@@ -7,8 +7,8 @@ context manager rather than a dependency, and nothing is per-request.
 Two properties are load-bearing:
 
 * **Lazy.** The engine is built on the first ``get_session()``, never at import.
-  ``fantabot auth`` must work with the compose stack down, and the default test
-  run must open zero sockets.
+  ``fantabot --help`` and ``fantabot login --help`` must work with the compose
+  stack down, and the default test run must open zero sockets.
 * **Injectable.** ``session_factory`` can be supplied, so the repository and
   importer suites exercise transaction behaviour against a fake with no
   database anywhere near them.

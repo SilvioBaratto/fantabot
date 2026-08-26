@@ -5,8 +5,9 @@ Everything in this package is I/O. Decision logic stays in the pure modules —
 per CLAUDE.md's working rules.
 
 Importing this package must never construct an Engine or open a socket:
-``fantabot auth`` has to work with the compose stack down, and the default test
-run has to stay socket-free.
+``fantabot --help`` has to work with the compose stack down — and so does
+``fantabot login --help``, which is what SC 22 pins — and the default test run
+has to stay socket-free.
 """
 
 from fantabot.db.base import Base, TimestampMixin

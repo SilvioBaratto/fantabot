@@ -16,7 +16,7 @@ def scrape_matchday_info(page: Page) -> MatchdayInfo:
     """
     raise NotImplementedError(
         "scrape_matchday_info: leghe.fantacalcio.it DOM not mapped yet — "
-        "run `fantabot auth`, open the roster page, and record the selectors."
+        "run `fantabot login`, open the roster page, and record the selectors."
     )
 
 

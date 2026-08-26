@@ -1,6 +1,6 @@
 """`fantabot login` — sign in once, store every lega's token encrypted.
 
-Replaces `fantabot auth`. Same headed browser, same manual sign-in; what is new
+Replaces the old `auth` command. Same headed browser, same manual sign-in; new
 is that the bearer token goes into Postgres encrypted instead of sitting in a
 plaintext file, and that `storage_state.json` is written only on request.
 
