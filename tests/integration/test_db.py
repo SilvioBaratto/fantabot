@@ -135,3 +135,37 @@ class TestQuotazioniSeed:
             )
         ).scalar()
         assert orphans == 0
+
+
+class TestStatisticheSeed:
+    def test_both_listoni_hold_8034_rows_across_three_sources(
+        self, db_session: Session
+    ) -> None:
+        rows = db_session.execute(
+            text("SELECT listone, count(*) FROM statistiche GROUP BY 1 ORDER BY 1")
+        ).all()
+        assert rows == [("classic", 8034), ("mantra", 8034)]
+
+        fonti = db_session.execute(
+            text("SELECT count(DISTINCT fonte) FROM statistiche")
+        ).scalar()
+        assert fonti == 3
+
+    def test_the_no_data_marker_is_null_and_never_zero(self, db_session: Session) -> None:
+        """SPEC criterion 9, stated as the two numbers it turns on."""
+        zeros, nulls = db_session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE media_voto = 0), "
+                "count(*) FILTER (WHERE media_voto IS NULL) FROM statistiche"
+            )
+        ).one()
+        assert (zeros, nulls) == (0, 2846)
+
+    def test_no_counter_column_is_ever_null(self, db_session: Session) -> None:
+        nulls = db_session.execute(
+            text(
+                "SELECT count(*) FROM statistiche WHERE partite_giocate IS NULL "
+                "OR gol IS NULL OR assist IS NULL OR espulsioni IS NULL"
+            )
+        ).scalar()
+        assert nulls == 0

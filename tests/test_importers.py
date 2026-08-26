@@ -24,6 +24,7 @@ import pytest
 from fantabot.db.importers._csv import italian_decimal, plain_decimal, split_codes
 from fantabot.db.importers.players import PlayerRef, read_refs, resolve_names
 from fantabot.db.importers.quotazioni import read_rows as quotazioni_rows
+from fantabot.db.importers.statistiche import read_rows as statistiche_rows
 from fantabot.db.importers.teams import TeamMappingError, build_mapping, code_for
 
 
@@ -266,3 +267,53 @@ class TestQuotazioniRows:
 
     def test_a_missing_file_contributes_nothing(self, tmp_path: Path) -> None:
         assert quotazioni_rows(tmp_path) == []
+
+
+class TestStatisticheRows:
+    """The no-data marker is the whole risk here: "0,0" must not become 0."""
+
+    @staticmethod
+    def _write(tmp_path: Path, media: str) -> None:
+        header = (
+            "stagione,fonte,id,nome,squadra,ruolo_codice,ruolo,partite_giocate,"
+            "media_voto,media_fantavoto,gol,gol_subiti,rigori_segnati,rigori_tirati,"
+            "rigori_parati,assist,ammonizioni,espulsioni\n"
+        )
+        # Comma-decimals must be quoted, exactly as the real file writes them —
+        # unquoted, "6,25" is two CSV fields and the whole row shifts left.
+        (tmp_path / "statistiche_classic.csv").write_text(
+            header
+            + f'2026/27,fantacalcio,7,Tizio,ATA,C,Centrocampista,30,"{media}","6,25",'
+            "25,0,0,0,0,3,4,0\n",
+            encoding="utf-8",
+        )
+
+    def test_the_no_data_marker_becomes_null_not_zero(self, tmp_path: Path) -> None:
+        """2846 rows carry "0,0". Stored as 0 they would drag every average
+        that reads this table toward zero, and nothing would look wrong."""
+        self._write(tmp_path, "0,0")
+
+        assert statistiche_rows(tmp_path)[0]["media_voto"] is None
+
+    def test_a_real_average_is_parsed_as_a_decimal(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "6,25")
+
+        assert statistiche_rows(tmp_path)[0]["media_voto"] == Decimal("6.25")
+
+    def test_counters_are_integers_and_a_zero_counter_stays_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """Unlike the averages, a counter that says zero means zero."""
+        self._write(tmp_path, "6,25")
+        row = statistiche_rows(tmp_path)[0]
+
+        assert row["partite_giocate"] == 30
+        assert row["rigori_segnati"] == 0
+        assert row["gol"] == 25
+
+    def test_the_grading_source_is_carried_into_the_key(self, tmp_path: Path) -> None:
+        """Three fonte values publish different averages for the same player,
+        so the grain is four-way rather than three."""
+        self._write(tmp_path, "6,25")
+
+        assert statistiche_rows(tmp_path)[0]["fonte"] == "fantacalcio"

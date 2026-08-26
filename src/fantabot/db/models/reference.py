@@ -6,6 +6,8 @@ match-grain tables, points at it.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy import (
     ARRAY,
     BigInteger,
@@ -13,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Numeric,
     SmallInteger,
     String,
     Text,
@@ -111,3 +114,61 @@ class Quotazione(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Quotazione {self.stagione} {self.listone} player={self.player_id}>"
+
+
+# The three grading sources the site publishes side by side.
+FONTI: tuple[str, ...] = ("fantacalcio", "italia", "statistico")
+
+
+class Statistica(Base, TimestampMixin):
+    """One player's season totals, per listone and per grading source.
+
+    Three ``fonte`` values — fantacalcio, italia, statistico — publish different
+    averages for the same player, so the grain is four-way, not three.
+
+    ``media_voto`` and ``media_fantavoto`` are **nullable**. The source writes
+    ``"0,0"`` for a player it has no average for, which is absent rather than a
+    grade of zero: 2846 of the 8034 rows per listone carry it. Storing that as 0
+    would drag every average that reads this table toward zero and nothing would
+    look wrong. The counter columns really are zero when they say zero, so they
+    are NOT NULL.
+    """
+
+    __tablename__ = "statistiche"
+
+    stagione: Mapped[str] = mapped_column(String(7), primary_key=True)
+    fonte: Mapped[str] = mapped_column(String(12), primary_key=True)
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id"), primary_key=True
+    )
+    listone: Mapped[str] = mapped_column(String(7), primary_key=True)
+
+    squadra: Mapped[str] = mapped_column(String(3), nullable=False)
+    ruoli_codice: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    ruoli: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+
+    partite_giocate: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    media_voto: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), nullable=True)
+    media_fantavoto: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), nullable=True)
+    gol: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    gol_subiti: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    rigori_segnati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    rigori_tirati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    rigori_parati: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    assist: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    ammonizioni: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    espulsioni: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["stagione", "squadra"], ["teams.stagione", "teams.codice"]
+        ),
+        CheckConstraint(_LISTONE_CHECK, name="listone"),
+        CheckConstraint(
+            "fonte IN ('fantacalcio', 'italia', 'statistico')", name="fonte"
+        ),
+        Index("ix_statistiche_stagione_player", "stagione", "player_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Statistica {self.stagione} {self.fonte} player={self.player_id}>"
