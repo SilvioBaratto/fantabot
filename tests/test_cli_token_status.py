@@ -204,13 +204,42 @@ def test_a_rejected_token_is_reported_in_the_row_and_does_not_raise() -> None:
 
 
 def test_an_empty_table_says_to_log_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no lega configured and no rows, there is nothing to call MISSING.
+
+    `fantabot_league_id` is pinned to 0 rather than inherited: this test read the
+    developer's own `.env`, and passed only because that value happened to be
+    unset. Setting it to a real lega turned the output into a MISSING row and
+    broke the test for a reason that had nothing to do with the code.
+    """
+    from fantabot import config
     from fantabot.db import database_manager
 
+    monkeypatch.setattr(config.settings, "fantabot_league_id", 0)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
     result = runner.invoke(app, ["token-status"])
 
     assert result.exit_code == 0
     assert "No tokens stored" in result.output
+
+
+def test_a_configured_league_with_no_row_is_reported_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SC 11's MISSING half, via `.env` rather than `--league`.
+
+    A lega is *known* if `fantabot_league_id` names it, so an empty table stops
+    saying "nothing stored" and starts naming the lega that is absent.
+    """
+    from fantabot import config
+    from fantabot.db import database_manager
+
+    monkeypatch.setattr(config.settings, "fantabot_league_id", 4103937)
+    monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
+    result = runner.invoke(app, ["token-status"])
+
+    assert result.exit_code == 0
+    assert "MISSING" in result.output
+    assert "4103937" in result.output
 
 
 def test_an_unknown_league_is_reported_missing(monkeypatch: pytest.MonkeyPatch) -> None:
