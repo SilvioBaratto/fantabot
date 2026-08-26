@@ -213,6 +213,19 @@ def fit_role_fades(system: str) -> dict[str, RoleFade]:
         role = macro_role(row.role, system)
         if role == GOALKEEPER_MACRO:
             continue
+        if row.qa <= 0:
+            # `log_ratio` is log(qa/qi) and log(0) is undefined, so this would
+            # raise `ValueError: math domain error` from inside a property.
+            #
+            # It is not merely a crash guard. A player the platform has marked
+            # worthless mid-season is a data artefact, not evidence about how
+            # quotazioni fade, and the appearance filter below cannot catch him:
+            # he is excluded on *this* season's qa while that filter reads his
+            # *prior* season. Goglichidze (6537, UDI) is the live case — qa 0 in
+            # 2025/26 with 33 appearances in 2024/25, squarely inside the
+            # 25-38 cohort. He still gets priced by the fallback path; he just
+            # does not teach the fade.
+            continue
         prior = prior_stats.get((row.id, PREV_OF_TRAIN[row.stagione]))
         if prior is None or not (REGULAR_APPEARANCES_LO <= prior.partite_giocate <= REGULAR_APPEARANCES_HI):
             continue
