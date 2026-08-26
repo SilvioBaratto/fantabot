@@ -31,7 +31,7 @@ being played as, and `deriva_ruolo` flags when the frozen tag has gone stale.
 Suggested cron (Wednesday mornings, in-season):
 
 ```cron
-0 9 * * 3 cd /path/to/fantabot && .venv/bin/fantabot news-fetch --write >> data/news_cron.log 2>&1
+0 9 * * 3 cd /path/to/fantabot && /path/to/conda-env/bin/fantabot news-fetch --write >> data/news_cron.log 2>&1
 ```
 
 ## Mantra tactical grid (`fantabot mantra-grid`)
@@ -64,8 +64,8 @@ survives a mid-asta restart.
 ## Setup
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+conda activate fanta
+pip install -e ".[dev]"   # re-run this whenever pyproject.toml changes
 playwright install chromium
 cp .env.example .env   # fill in LEGA_EMAIL / LEGA_PASSWORD / LEGA_URL / FANTABOT_LEAGUE_ID
 
@@ -152,9 +152,10 @@ verifying selectors against the live site in a low-stakes matchday.
   (5s interval) meant to be started shortly before the scheduled auction and
   left running for its duration, not fired once from cron.
 
-Example crontab (adjust path once `.venv` location is final):
+Example crontab. cron gets no shell profile, so the conda env's binary is named
+in full rather than relying on an activated environment:
 
 ```cron
 # check for an open lineup deadline 3x/day
-0 8,14,20 * * * cd "/Volumes/External SSD/fantabot" && .venv/bin/fantabot lineup-submit >> data/cron.log 2>&1
+0 8,14,20 * * * cd "/Volumes/External SSD/fantabot" && /path/to/conda-env/bin/fantabot lineup-submit >> data/cron.log 2>&1
 ```

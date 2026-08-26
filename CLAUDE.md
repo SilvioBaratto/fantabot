@@ -17,7 +17,8 @@ hatchling. No frontend, no BAML (yet — see "Future: BAML upgrade path" below).
 ## Common commands
 
 ```bash
-pip install -e ".[dev]"
+conda activate fanta        # the only environment; there is no .venv
+pip install -e ".[dev]"     # re-run whenever pyproject.toml changes
 playwright install chromium
 
 docker compose up -d         # Postgres on 54321, Adminer on 18082
