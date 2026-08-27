@@ -227,6 +227,68 @@ def mantra_grid(
 
 
 @app.command()
+def aste_scan(
+    seed: Path = typer.Option(..., help="Registry file to merge into and rewrite."),
+    only: str = typer.Option("", help="Keep one format: mantra or classic. Empty = both."),
+) -> None:
+    """Ask FantaLab which auctions are live and merge them into the registry.
+
+    Replaces walking the page's React tree with one authenticated GET — spike S2.
+    Both formats are fetched: filtering is a query, never a decision taken at
+    collection time, and the poller filtering to Mantra is what threw away 85%
+    of the population.
+    """
+    import json
+
+    from fantabot.aste.client import AuthExpired, LiveAuctionsClient, ScanEmpty
+    from fantabot.aste.registry import from_seed_row, merge, to_seed_rows
+    from fantabot.config import settings
+    from fantabot.db import database_manager
+    from fantabot.tokens.crypto import TokenCipher
+    from fantabot.tokens.fantalab_store import FantalabStore
+
+    cipher = TokenCipher(settings.fantabot_encryption_key)
+    with database_manager.get_session() as session:
+        stored = FantalabStore(session, cipher).load()
+    if stored is None or not stored.id_token:
+        console.print("[red]No FantaLab session stored. Run: fantabot fantalab-login[/red]")
+        raise typer.Exit(2)
+
+    try:
+        scanned = LiveAuctionsClient(stored.id_token).live_auctions()
+    except (AuthExpired, ScanEmpty) as exc:
+        # Both are refusals, not empty results. Reporting zero here would look
+        # exactly like a quiet night and the next scan would never be run.
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+
+    if only:
+        scanned = [c for c in scanned if c.asta_type == only]
+
+    known = []
+    if seed.exists():
+        # The legacy file predates storing the format; everything in it was Mantra.
+        known = [from_seed_row(row, asta_type="mantra")
+                 for row in json.loads(seed.read_text(encoding="utf-8"))]
+
+    merged = merge(known, scanned)
+    seed.parent.mkdir(parents=True, exist_ok=True)
+    seed.write_text(
+        json.dumps(to_seed_rows(merged), ensure_ascii=False, indent=0) + "\n",
+        encoding="utf-8",
+    )
+
+    added = len(merged) - len(known)
+    formats: dict[str, int] = {}
+    for config in scanned:
+        formats[config.asta_type] = formats.get(config.asta_type, 0) + 1
+    console.print(
+        f"live {len(scanned)} ({', '.join(f'{k} {v}' for k, v in sorted(formats.items()))})"
+        f" · registry {len(known)} -> {len(merged)} (+{added})"
+    )
+
+
+@app.command()
 def fantalab_login(
     force: bool = typer.Option(False, "--force", help="Re-authenticate even if a session exists."),
     browser: str = typer.Option(
