@@ -103,6 +103,19 @@ class AsteRepository(RepositoryBase):
             written += len(chunk)
         return written
 
+    def known_player_ids(self) -> frozenset[int]:
+        """Every id `players` actually holds.
+
+        The backfill needs this to avoid a foreign-key violation on a player the
+        listone knows and our reference table does not — which is not
+        hypothetical: it sank a full load on 2026-08-27 over Konaté A.
+        """
+        from sqlalchemy import select
+
+        from fantabot.db.models.reference import Player
+
+        return frozenset(self.session.execute(select(Player.id)).scalars())
+
     def count_assignments(self, asta_type: str | None = None) -> int:
         """How many sales are stored, optionally for one format.
 
