@@ -227,6 +227,51 @@ def mantra_grid(
 
 
 @app.command()
+def aste_collect(
+    auction: str = typer.Option(..., "--one", help="Auction uuid to follow."),
+    shard: str = typer.Option(..., help="Firebase shard, from the auction's list card."),
+    out: Path = typer.Option(..., help="Landing-zone JSONL to append to."),
+) -> None:
+    """Subscribe to one live auction and append every state to the landing zone.
+
+    Writes to disk, never to the database. A database outage must not be able to
+    stop collection — the file survived eleven process kills on 2026-08-26 and a
+    socket would not have.
+    """
+    import asyncio
+
+    from fantabot.aste.landing import LandingZone
+    from fantabot.aste.stream import Outcome, SinkFailed, watch_auction
+    from fantabot.aste.transport import open_stream
+
+    zone = LandingZone(out)
+    console.print(f"following {auction[:8]} on fantalab-{shard} -> {out}")
+
+    async def run() -> Outcome:
+        return await watch_auction(
+            auction,
+            shard,
+            open_stream=open_stream,
+            on_state=lambda state: zone.write(auction, state),
+            sleep=asyncio.sleep,
+        )
+
+    try:
+        outcome = asyncio.run(run())
+    except SinkFailed as exc:
+        # Not a transport problem, and not survivable by reconnecting: if the
+        # sink is failing, continuing would reconnect forever and store nothing.
+        console.print(f"[red]the landing zone failed: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    except KeyboardInterrupt:
+        console.print(f"[yellow]stopped — {zone.written} states written[/yellow]")
+        return
+
+    colour = "green" if outcome is Outcome.ENDED else "yellow"
+    console.print(f"[{colour}]{outcome.value} — {zone.written} states written[/{colour}]")
+
+
+@app.command()
 def aste_backfill(
     events: Path = typer.Argument(..., help="Collector log: one merged state per line."),
     seed: Path = typer.Option(..., help="The scan seed describing each auction."),
