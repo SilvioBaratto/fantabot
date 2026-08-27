@@ -29,7 +29,7 @@ a checkpoint that outlived its file — is testable with no database at all.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -210,13 +210,54 @@ def assignments_for_pass(
         return []
     from fantabot.aste.reconstruct import reconstruct
 
-    return _rows(reconstruct(read_records(landing)))
+    return _rows(reconstruct(iter_records(landing)))
+
+
+def iter_records(path: Path) -> Iterator[dict[str, Any]]:
+    """Every complete record in ``path``, streamed.
+
+    The whole-file pass has to exist — a window starting mid-turn rebuilds a
+    ladder from nothing — but it must not *hold* the whole file. ``read_from``
+    takes it in one ``handle.read()``, so the bytes, the decoded string, the
+    split lines and the parsed dicts are alive together: a 92 MB landing zone
+    put the loader at 1.6 GB resident, re-paid every ten seconds, against a file
+    growing 3 MB a minute with hours of auctions left (measured 2026-08-27
+    22:27). Streaming makes the peak the reconstruction state, which is bounded
+    by sales rather than by bytes.
+
+    A trailing line without its newline is one the collector is still writing,
+    and is left for the next pass — the same rule ``read_from`` applies with
+    ``rfind``.
+    """
+    try:
+        handle = path.open("rb")
+    except OSError as exc:
+        # The same distinction read_from makes: a missing zone is not a quiet
+        # pass, and must not read as one.
+        raise LandingZoneMissing(path) from exc
+
+    with handle:
+        for raw in handle:
+            if not raw.endswith(b"\n"):
+                return
+            line = raw.decode("utf-8", "replace").strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                # Whole but not JSON. Skipped for the reason the landing reader
+                # skips one: losing a record beats refusing the file.
+                continue
 
 
 def read_records(path: Path) -> list[dict[str, Any]]:
-    """Every complete record in ``path``, from the beginning."""
-    records, _offset = read_from(path, 0)
-    return records
+    """Every complete record in ``path``, from the beginning, as a list.
+
+    Kept for tests and for callers that genuinely want them all at once. The
+    loader does not — see ``iter_records``.
+    """
+    return list(iter_records(path))
 
 
 def _rows(assignments: Iterable[Assignment]) -> list[dict[str, Any]]:

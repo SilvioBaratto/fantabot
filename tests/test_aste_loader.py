@@ -12,11 +12,20 @@ needs no database.
 from __future__ import annotations
 
 import json
+import tracemalloc
 from pathlib import Path
 
 import pytest
 
-from fantabot.aste.loader import CachedPlayerIds, Checkpoint, SeedRows, read_from
+from fantabot.aste.loader import (
+    CachedPlayerIds,
+    Checkpoint,
+    LandingZoneMissing,
+    SeedRows,
+    iter_records,
+    read_from,
+    read_records,
+)
 
 
 def _write(path: Path, *records: dict) -> None:
@@ -305,3 +314,79 @@ class TestTheSeedIsRereadWhileFollowing:
         source.read()
         seed.unlink()
         assert [row[0] for row in source.read()] == ["a-0"]
+
+
+class TestTheWholeFilePassIsStreamed:
+    """Rebuilding assignments from the whole landing zone must not hold it.
+
+    The windowing fix made every pass reconstruct from the entire file, which is
+    correct — a window starting mid-turn rebuilds a ladder from nothing — but
+    `read_from` reads it with a single `handle.read()`, so the bytes, the
+    decoded string, the list of split lines and the list of parsed dicts are all
+    alive at once.
+
+    Measured 2026-08-27 22:27: a 92 MB landing zone, 175,803 records, and the
+    loader resident at **1.6 GB** — a tenth of the machine, re-paid every ten
+    seconds. The file was growing 3 MB a minute with hours of auctions left,
+    so the run this was told to leave up all night would not have survived it.
+    """
+
+    def _zone(self, path: Path, records: int) -> None:
+        with path.open("w", encoding="utf-8") as handle:
+            for i in range(records):
+                handle.write(
+                    json.dumps(
+                        {
+                            "auction_id": f"a-{i % 50}",
+                            "seen_at": "2026-08-27T22:00:00+00:00",
+                            "state": {"last_update": i, "price": i % 90, "pad": "x" * 400},
+                        }
+                    )
+                    + "\n"
+                )
+
+    def test_it_yields_lazily_rather_than_returning_a_list(self, tmp_path: Path) -> None:
+        path = tmp_path / "live.jsonl"
+        self._zone(path, 5)
+        stream = iter_records(path)
+        assert not isinstance(stream, list), "a list is the thing that cost 1.6 GB"
+        assert next(iter(stream))["auction_id"] == "a-0"
+
+    def test_it_reads_the_same_records_as_the_eager_reader(self, tmp_path: Path) -> None:
+        path = tmp_path / "live.jsonl"
+        self._zone(path, 200)
+        assert list(iter_records(path)) == read_records(path)
+
+    def test_a_line_still_being_written_is_left_for_the_next_pass(self, tmp_path: Path) -> None:
+        path = tmp_path / "live.jsonl"
+        self._zone(path, 3)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write('{"auction_id": "a-9", "state": {"pri')
+        assert len(list(iter_records(path))) == 3
+
+    def test_a_missing_zone_is_still_named_rather_than_read_as_empty(self, tmp_path: Path) -> None:
+        with pytest.raises(LandingZoneMissing):
+            list(iter_records(tmp_path / "never-created.jsonl"))
+
+    def test_it_holds_a_fraction_of_what_the_eager_reader_holds(self, tmp_path: Path) -> None:
+        """The property that regressed, measured rather than asserted."""
+        path = tmp_path / "live.jsonl"
+        self._zone(path, 20_000)
+
+        tracemalloc.start()
+        eager = read_records(path)
+        eager_peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert len(eager) == 20_000
+        del eager
+
+        tracemalloc.start()
+        seen = sum(1 for _ in iter_records(path))
+        streamed_peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert seen == 20_000
+
+        assert streamed_peak < eager_peak / 10, (
+            f"streaming held {streamed_peak:,} bytes against {eager_peak:,} eager — "
+            "the point is that the file's size stops being the loader's size"
+        )
