@@ -153,11 +153,24 @@ alembic check                # models and migrations agree?
    `is_session_over` are `NotImplementedError` stubs — same reason as above.
 
 14. **`aste/`** — the auction harvester, and the reason `docs/fantalab/05` exists.
-   `sse.py`/`reducer.py`/`reconstruct.py`/`registry.py`/`compare.py` are pure;
-   `stream.py`/`transport.py`/`landing.py`/`loader.py`/`supervisor.py` are the
-   I/O shell. **The database is never on the collection path** — a test walks the
-   capture modules' imports and fails if any can reach `fantabot.db`, because an
-   outage must cost catch-up time and never a record.
+   `sse.py`/`reducer.py`/`reconstruct.py`/`registry.py`/`compare.py`/`backfill.py`
+   are pure; `stream.py`/`transport.py`/`landing.py`/`loader.py`/`supervisor.py`
+   are the I/O shell, and `cli.py` holds the five commands — they were extracted
+   from the root `cli.py` at 951 lines, and are registered with `register(app)`
+   **above** its `__main__` guard, because a registration below it gives
+   `python cli.py` a shorter menu than `fantabot`. **The database is never on the
+   collection path** — a test walks the capture modules' imports and fails if any
+   can reach `fantabot.db`, because an outage must cost catch-up time and never a
+   record.
+   `aste-collect --seed` re-reads the seed every 60 s (`--reload-seed 0` to stop)
+   and adopts auctions that opened after launch: turnover was 20–30% of the live
+   population per 15–20 minutes, so reading it once lost real coverage. A reload
+   is a diff, never a restart, and a half-written seed — `aste-scan` rewrites the
+   file the collector reads — costs one cycle and a count in the report.
+   Two habits this package keeps re-learning, both the same shape: **a drop
+   nobody counts reads as an empty input** (hence `DroppedEvents`), and **a
+   failure stored inside a completed task is invisible for as long as the loop
+   runs** (hence the reap each reload cycle).
    **`scripts/*_aste_live.py` is the retired poller.** Kept as a fallback and as
    the thing `scripts/compare_collectors.py` measures against; it reads merged
    snapshots, so two raises inside one interval collapse into one. The shadow run
@@ -226,8 +239,8 @@ alembic check                # models and migrations agree?
   the shell keeps it in history.
 - `strategy.py` must stay pure (no Playwright, no network). It is no longer the
   only tested module — `agentkit/`, `news/`, `mantra_grid/` and
-  `data_sources/news_sentiment.py`, `tokens/` and `apileague.py` all have suites,
-  503 tests in total — but the
+  `data_sources/news_sentiment.py`, `tokens/`, `apileague.py` and `aste/` all have
+  suites, 716 tests plus 115 in the `db` tier — but the
   reason it was testable is the reason they are: the decision logic has no I/O.
   Keep new logic in a pure module and the I/O in a thin shell around it.
 - **The test suite makes zero agent calls and opens zero sockets.** Runners and
