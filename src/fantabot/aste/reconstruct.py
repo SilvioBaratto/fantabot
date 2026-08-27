@@ -7,9 +7,14 @@ verifies this module and not the reducer.
 
 Three behaviours carry the weight:
 
-**Duplicates are absorbed, not counted.** A restarted collector re-emits the
-current state of every auction it is watching; 2026-08-26 saw eleven restarts.
-Those repeats carry the same ``last_update``, so that is the identity used.
+**Duplicates are absorbed, not counted** — but not by the ``last_update`` guard
+below, which mutation testing on 2026-08-27 showed to be redundant: removing it
+reconstructs the whole recorded evening to the same 11,498 assignments and
+70,152 rungs. Two other rules do the work, and they are the ones to preserve:
+``sold`` keeps the first close per (auction, player), and a rung is appended only
+on a *price change*. The guard stays as cheap insurance against an input shape
+neither of those covers, and is described here as what it is rather than as what
+it was assumed to be.
 
 **A ladder belongs to one player's turn.** The node is a single mutable slot:
 when the player on the block changes, the previous ladder is finished. Failing

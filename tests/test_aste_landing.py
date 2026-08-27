@@ -82,3 +82,51 @@ def test_unicode_survives_the_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
     LandingZone(path).write("a-1", {"nome": "Konaté A."})
     assert "Konaté" in path.read_text(encoding="utf-8")
+
+
+def test_a_record_is_on_disk_before_the_writer_exits(tmp_path: Path) -> None:
+    """Read from a *separate process*, which is the only reader that cannot be
+    fooled by a buffer.
+
+    The docstring claims a `kill -9` loses at most the line in flight. Mutation
+    testing on 2026-08-27 replaced append-and-close with a held handle and every
+    test still passed — because a same-process read sees data that CPython has
+    flushed on garbage collection, which a killed process never does. This is the
+    assertion that mutant fails.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    path = tmp_path / "events.jsonl"
+    LandingZone(path).write("a-1", {"price": 7})
+
+    # A fresh interpreter: no shared buffers, no shared file objects.
+    script = textwrap.dedent(
+        f"""
+        import json, sys
+        lines = open({str(path)!r}, encoding="utf-8").read().splitlines()
+        assert len(lines) == 1, f"expected one durable record, found {{len(lines)}}"
+        assert json.loads(lines[0])["state"]["price"] == 7
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_every_write_is_durable_not_only_the_last(tmp_path: Path) -> None:
+    """A handle flushed once at the end would pass the single-record case."""
+    import subprocess
+    import sys
+
+    path = tmp_path / "events.jsonl"
+    zone = LandingZone(path)
+    for i in range(50):
+        zone.write("a-1", {"price": i})
+
+    script = (
+        f"lines = open({str(path)!r}, encoding='utf-8').read().splitlines()\n"
+        "assert len(lines) == 50, len(lines)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

@@ -159,3 +159,34 @@ def test_no_recorded_ladder_ever_steps_downwards() -> None:
         f"{len(descending)} ladder(s) step downwards; first: "
         f"{[b.price for b in descending[0].ladder] if descending else None}"
     )
+
+
+def test_what_actually_stops_a_sale_being_counted_twice() -> None:
+    """Not the `last_update` guard, which is what the docstring implied.
+
+    Mutation-tested 2026-08-27: removing that guard changes nothing — the whole
+    recorded evening reconstructs to the same 11,498 assignments and 70,152
+    rungs. Two other rules do the work, and these are the ones worth pinning:
+
+    * `sold` — first close per (auction, player) wins, so the node continuing to
+      return a closed state cannot re-sell the player;
+    * a rung is appended only on a *price change*, so a state observed twice at
+      the same price adds nothing to the ladder.
+    """
+    close = {"update_type": "close_auction", "player_id": "p", "price": 9, "last_update": 4}
+    rows = [
+        {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                      "price": 0, "last_update": 1}},
+        {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                      "price": 9, "last_update": 2}},
+        # The node keeps returning the closed state; a poller reads it repeatedly,
+        # each time with a *different* last_update, so the guard cannot help here.
+        {"auction_id": "a", "state": {**close, "last_update": 4}},
+        {"auction_id": "a", "state": {**close, "last_update": 5}},
+        {"auction_id": "a", "state": {**close, "last_update": 6}},
+    ]
+    (assignment,) = reconstruct(rows)
+    assert assignment.price == 9
+    assert [b.price for b in assignment.ladder] == [0, 9], (
+        "a re-observation at the same price is the same offer, not a new rung"
+    )
