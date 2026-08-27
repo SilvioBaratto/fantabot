@@ -167,10 +167,19 @@ alembic check                # models and migrations agree?
    population per 15–20 minutes, so reading it once lost real coverage. A reload
    is a diff, never a restart, and a half-written seed — `aste-scan` rewrites the
    file the collector reads — costs one cycle and a count in the report.
-   Two habits this package keeps re-learning, both the same shape: **a drop
-   nobody counts reads as an empty input** (hence `DroppedEvents`), and **a
-   failure stored inside a completed task is invisible for as long as the loop
-   runs** (hence the reap each reload cycle).
+   **Both commands re-read the seed**, and both had to learn it separately: the
+   collector adopting a new auction while the loader still held the startup seed
+   made every adopted auction's events "unknown", dropped, and checkpointed past.
+   **`--pool` must exceed the live population** — 649 on 2026-08-27, against a
+   default of 250 that silently followed the first 250 and never freed a permit,
+   because a watcher on a live evening does not finish. Both were invisible from
+   the suite and obvious within minutes of a real run.
+   Three habits this package keeps re-learning, all the same shape: **a drop
+   nobody counts reads as an empty input** (hence `DroppedEvents`), **a failure
+   stored inside a completed task is invisible for as long as the loop runs**
+   (hence the reap each reload cycle), and **a run with no end must speak while
+   it runs** (hence the `live / expected` heartbeat — the summary it printed at
+   exit was never reached).
    **`scripts/*_aste_live.py` is the retired poller.** Kept as a fallback and as
    the thing `scripts/compare_collectors.py` measures against; it reads merged
    snapshots, so two raises inside one interval collapse into one. The shadow run
