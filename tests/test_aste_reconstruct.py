@@ -94,3 +94,23 @@ def test_the_recorded_evening_matches_the_poller_era_resolver() -> None:
         "this module."
     )
     assert len(reconstruct(states)) == EVENING_ASSIGNMENTS
+
+
+def test_an_auction_first_seen_between_players_does_not_crash() -> None:
+    """A `confirm` state carries no player_id: the slot is empty between sales.
+    If collection starts there, `None` is the player on the block — which is not
+    the same as never having seen the auction. Conflating the two raised
+    KeyError on the next raise, and a live capture that began mid-turn found it
+    where the recorded evening never could: that file always starts on a
+    first_call."""
+    rows = [
+        {"auction_id": "a-1", "state": {"update_type": "confirm", "last_update": 1}},
+        {"auction_id": "a-1", "state": {"update_type": "raise", "price": 5, "last_update": 2}},
+        {"auction_id": "a-1", "state": {"update_type": "first_call", "player_id": "p",
+                                        "price": 0, "last_update": 3}},
+        {"auction_id": "a-1", "state": {"update_type": "close_auction", "player_id": "p",
+                                        "price": 9, "last_update": 4}},
+    ]
+    (assignment,) = reconstruct(rows)
+    assert assignment.price == 9
+    assert [b.price for b in assignment.ladder] == [0, 9], "the pre-turn raise must not leak in"

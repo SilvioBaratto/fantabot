@@ -300,8 +300,24 @@ def aste_load(
             console.print(f"[yellow]{unlinked} assignment(s) carry no player link[/yellow]")
         return len(records), size - new_offset
 
+    from sqlalchemy.exc import SQLAlchemyError
+
     while True:
-        carried, behind = pass_once()
+        try:
+            carried, behind = pass_once()
+        except SQLAlchemyError as exc:
+            # The checkpoint has not moved, so nothing is lost — the next pass
+            # re-reads exactly what this one could not write. Said out loud,
+            # because a raw driver traceback tells you the connection failed and
+            # not that the collector is fine and the catch-up is pending.
+            console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+            console.print("Collection is unaffected — the landing zone keeps growing.")
+            console.print("Start it with: [bold]docker compose up -d[/bold], then re-run.")
+            if not follow:
+                raise typer.Exit(1) from exc
+            time.sleep(interval)
+            continue
+
         suffix = " (dry run — nothing written)" if dry_run else ""
         # Lag is reported every pass, not only when it is large: a loader that
         # only speaks up when it is already behind gives no warning it is losing.

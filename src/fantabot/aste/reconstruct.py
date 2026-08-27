@@ -32,6 +32,9 @@ from fantabot.aste.models import Assignment, Bid
 
 CLOSE = "close_auction"
 
+#: Distinguishes "no player on the block" from "this auction is new to us".
+_UNSEEN = object()
+
 #: States that put a price on the board. ``confirm`` and ``reset`` do not: the
 #: first clears the slot after a sale, the second annuls a call outright.
 BIDDING = frozenset({"first_call", "raise", CLOSE})
@@ -53,7 +56,7 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
     seen_updates: set[tuple[str, Any]] = set()
     sold: set[tuple[str, str]] = set()
     ladders: dict[str, list[Bid]] = {}
-    on_the_block: dict[str, str | None] = {}
+    on_the_block: dict[str, object] = {}
     assignments: list[Assignment] = []
 
     for row in rows:
@@ -71,7 +74,14 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
             seen_updates.add((auction_id, stamp))
 
         player_id = state.get("player_id")
-        if on_the_block.get(auction_id) != player_id:
+        # `None` is a real value here — a `confirm` state carries no player_id
+        # because the slot is empty between sales. Using it as "not seen yet"
+        # meant an auction whose first observed state had no player never got a
+        # ladder at all, and the next raise raised KeyError. Found by a live
+        # capture that began mid-turn, not by the recorded evening, which only
+        # ever started on a first_call.
+        previous = on_the_block.get(auction_id, _UNSEEN)
+        if previous is _UNSEEN or previous != player_id:
             on_the_block[auction_id] = player_id
             ladders[auction_id] = []
 
