@@ -21,11 +21,23 @@ when the player on the block changes, the previous ladder is finished. Failing
 to reset there would splice unrelated auctions of different players into one
 implausible run.
 
-**The first close for a player wins.** After a close the node keeps returning
-the closed state until the next call begins, so a naive pass counts one sale
-many times. ``scripts/resolve_aste_live.py`` made the same choice, and matching
-it is what lets the recorded evening be a regression test rather than a
-re-derivation.
+**The last close for a player wins.** After a close the node keeps returning the
+closed state until the next call begins, so a naive pass counts one sale many
+times — and the first draft drew the wrong rule from that true observation.
+An annulled call is re-auctioned, and the *second* close is the real sale. In
+the recorded evening 271 (auction, player) pairs close at two different prices;
+first-wins recorded the superseded one, lost the buyer on 175 of them, and
+undercounted the evening's spend by 1,814 credits.
+
+Last-wins covers both: a re-emission carries the same price, so first and last
+agree, and a genuine re-auction takes the later close — which is also the turn
+whose ladder ``first_call`` has already reset to, so price and ladder now
+describe the same turn.
+
+``scripts/resolve_aste_live.py`` still takes the first, so the two disagree on
+those 271 by design. The recorded evening remains a regression test for the
+*count*, which is identical under either rule; it is not one for the prices, and
+a test now says so rather than implying otherwise.
 """
 
 from __future__ import annotations
@@ -60,7 +72,9 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
     consumed in the order given, which is the order they were observed.
     """
     seen_updates: set[tuple[str, Any]] = set()
-    sold: set[tuple[str, str]] = set()
+    #: (auction, player) -> its index in ``assignments``, so a later close can
+    #: replace an earlier one in place rather than appending a second sale.
+    sold: dict[tuple[str, str], int] = {}
     ladders: dict[str, list[Bid]] = {}
     on_the_block: dict[str, object] = {}
     assignments: list[Assignment] = []
@@ -113,18 +127,22 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
 
         if update_type != CLOSE or not isinstance(player_id, str) or rung is None:
             continue
-        if (auction_id, player_id) in sold:
-            continue
-        sold.add((auction_id, player_id))
-        assignments.append(
-            Assignment(
-                auction_id=auction_id,
-                player_id=player_id,
-                price=rung.price,
-                buyer_team_id=rung.team_id,
-                closed_at_ms=state.get("last_update"),
-                ladder=tuple(ladder),
-            )
+        # Last close wins: a re-emission repeats the same price, and a re-auction
+        # supersedes the annulled one. Recorded in order of first sale so the
+        # output still reads chronologically.
+        key = (auction_id, player_id)
+        assignment = Assignment(
+            auction_id=auction_id,
+            player_id=player_id,
+            price=rung.price,
+            buyer_team_id=rung.team_id,
+            closed_at_ms=state.get("last_update"),
+            ladder=tuple(ladder),
         )
+        if key in sold:
+            assignments[sold[key]] = assignment
+        else:
+            sold[key] = len(assignments)
+            assignments.append(assignment)
 
     return assignments

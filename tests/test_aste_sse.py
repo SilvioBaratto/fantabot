@@ -80,3 +80,25 @@ def test_a_dropped_frame_is_counted_not_hidden() -> None:
     assert buffer.malformed == 1
     buffer.feed(LIVE)
     assert buffer.malformed == 1, "valid frames must not inflate the count"
+
+
+def test_parse_discards_an_unterminated_tail_as_its_docstring_says() -> None:
+    """`parse` split on the separator and parsed the final element like any
+    other, so an unterminated frame was *emitted* — the opposite of the claim,
+    and the opposite of what `FrameBuffer` does with the same bytes."""
+    text = 'event: patch\ndata: {"path":"/","data":{"price":999}}'  # no trailing blank line
+    assert parse(text) == []
+
+
+def test_the_two_entry_points_agree_on_a_stream_cut_mid_frame() -> None:
+    """The chunk-independence test replays a recording that ends exactly on a
+    separator — the one input where these two cannot disagree. That made `parse`
+    a false oracle: correct only by accident of the fixture.
+
+    The transport gives no guarantee about where a stream stops, which is the
+    module's own stated reason for `FrameBuffer` existing.
+    """
+    truncated = LIVE[:-1]
+    buffer = FrameBuffer()
+    streamed = [frame for byte in truncated for frame in buffer.feed(byte)]
+    assert [f.event for f in streamed] == [f.event for f in parse(truncated)]

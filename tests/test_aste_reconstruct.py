@@ -34,6 +34,13 @@ EVENING = Path(__file__).parent.parent / "data" / "aste_live" / "events_2026-08-
 # which.
 EVENING_LINES = 144_518
 EVENING_ASSIGNMENTS = 11_498
+
+#: Total credits across the evening's sales, under **last close wins**.
+#:
+#: The count alone was a weak oracle and said so only in hindsight: it is
+#: identical under first-wins and last-wins, so the rule could be — and was —
+#: wrong on 271 sales with every test green. The spend is the number that moves.
+EVENING_SPEND = 172_286
 FIXTURE_ASSIGNMENTS = 18
 
 
@@ -93,7 +100,11 @@ def test_the_recorded_evening_matches_the_poller_era_resolver() -> None:
         "re-derive EVENING_ASSIGNMENTS with scripts/resolve_aste_live.py before touching "
         "this module."
     )
-    assert len(reconstruct(states)) == EVENING_ASSIGNMENTS
+    assignments = reconstruct(states)
+    assert len(assignments) == EVENING_ASSIGNMENTS
+    assert sum(a.price for a in assignments) == EVENING_SPEND, (
+        "the count is identical under first-wins and last-wins; the spend is not"
+    )
 
 
 def test_an_auction_first_seen_between_players_does_not_crash() -> None:
@@ -190,3 +201,58 @@ def test_what_actually_stops_a_sale_being_counted_twice() -> None:
     assert [b.price for b in assignment.ladder] == [0, 9], (
         "a re-observation at the same price is the same offer, not a new rung"
     )
+
+
+def test_a_re_auctioned_player_is_sold_at_the_second_price_not_the_first() -> None:
+    """"First close wins" was justified by the node re-emitting a closed state.
+    That justification is sound and the rule drawn from it was not: an annulled
+    call is re-auctioned, and the *second* close is the real sale.
+
+    Observed in the recorded evening, auction `a10a5ee3…` / player `9fa1a4e4…`:
+    closed at 31 at 18:22:02, then closed again at 67 at 18:24:08 — two minutes
+    apart, not a re-emission. 271 pairs across the evening close at two different
+    prices; 175 assignments record no buyer where the later close names one; the
+    recorded spend is 1,814 credits short.
+
+    Last close wins covers both cases: a re-emission carries the same price, so
+    first and last agree, and a genuine re-auction takes the later one — which is
+    also the turn whose ladder `first_call` has already reset to.
+    """
+    rows = [
+        {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                      "price": 0, "last_update": 1}},
+        {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                      "price": 31, "last_update": 2}},
+        {"auction_id": "a", "state": {"update_type": "close_auction", "player_id": "p",
+                                      "price": 31, "last_update": 3, "fantateam_id": "t1"}},
+        {"auction_id": "a", "state": {"update_type": "confirm", "last_update": 4}},
+        # The call was annulled; the same player goes back on the block.
+        {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                      "price": 0, "last_update": 5}},
+        {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                      "price": 67, "last_update": 6}},
+        {"auction_id": "a", "state": {"update_type": "close_auction", "player_id": "p",
+                                      "price": 67, "last_update": 7, "fantateam_id": "t2"}},
+    ]
+    (assignment,) = reconstruct(rows)
+    assert assignment.price == 67, "the annulled turn's price must not be the sale"
+    assert assignment.buyer_team_id == "t2"
+    assert [b.price for b in assignment.ladder] == [0, 67], (
+        "and the ladder must belong to the turn that actually sold"
+    )
+
+
+def test_a_re_emitted_close_still_collapses_to_one_sale() -> None:
+    """The case "first wins" existed for. Last-wins must not reintroduce it."""
+    close = {"update_type": "close_auction", "player_id": "p", "price": 9,
+             "fantateam_id": "t"}
+    rows = [
+        {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                      "price": 0, "last_update": 1}},
+        {"auction_id": "a", "state": {**close, "last_update": 2}},
+        {"auction_id": "a", "state": {**close, "last_update": 3}},
+        {"auction_id": "a", "state": {**close, "last_update": 4}},
+    ]
+    (assignment,) = reconstruct(rows)
+    assert assignment.price == 9
+    assert assignment.buyer_team_id == "t"

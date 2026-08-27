@@ -66,12 +66,6 @@ def _frame(block: str) -> Frame | None:
     return Frame(event=event, path=None, data=payload)
 
 
-def parse(text: str) -> list[Frame]:
-    """Every complete frame in ``text``. An incomplete tail is discarded."""
-    blocks = text.split(SEPARATOR)
-    return [frame for block in blocks if (frame := _frame(block)) is not None]
-
-
 class FrameBuffer:
     """Accumulates transport chunks and emits frames as they complete.
 
@@ -111,3 +105,19 @@ class FrameBuffer:
         remainder, self._pending = self._pending, ""
         frame = _frame(remainder)
         return [frame] if frame is not None else []
+
+
+def parse(text: str) -> list[Frame]:
+    """Every **complete** frame in ``text``. An unterminated tail is discarded.
+
+    Delegates to ``FrameBuffer`` rather than splitting again. The first version
+    split on the separator and parsed the final element like any other, so an
+    unterminated frame was emitted — the opposite of this docstring, and the
+    opposite of what ``FrameBuffer`` did with the same bytes.
+
+    That divergence was invisible because every fixture ends on a separator, so
+    the tail was always the empty string. Worse, ``parse`` is what the
+    chunk-independence test compares ``feed`` against: a false oracle, correct
+    only by accident of the recording. One implementation removes the possibility.
+    """
+    return FrameBuffer().feed(text)
