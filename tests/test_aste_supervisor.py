@@ -26,7 +26,10 @@ def _configs(n: int) -> list[AuctionConfig]:
 
 
 async def _no_sleep(_seconds: float) -> None:
-    return None
+    # Yields once rather than returning flat: a coroutine that never awaits
+    # anything gives the loop no chance to start the watchers spawned before it,
+    # so a reload cycle would see a population that has not moved yet.
+    await asyncio.sleep(0)
 
 
 def _run(supervisor: Supervisor, configs: list[AuctionConfig]) -> Any:
@@ -204,3 +207,77 @@ def test_a_watcher_is_called_with_the_config_alone() -> None:
 def test_the_report_carries_no_field_nothing_reads() -> None:
     """`Report._seen` was a set that was never added to and never queried."""
     assert not [f for f in dataclasses.fields(Report) if f.name.startswith("_")]
+
+
+class TestAdoptingNewAuctions:
+    """An asta that opens after the collector started was never followed.
+
+    `aste-collect --seed` read the file once. `aste-scan` writes it again every
+    time it runs, and on a live evening it finds rooms that did not exist an
+    hour earlier — 207 were open at once on 2026-08-27. The retired poller
+    re-read its seed each cycle; the supervisor that replaced it did not, so
+    every auction opening mid-evening was lost with nothing saying so.
+    """
+
+    def test_an_auction_added_to_the_seed_gets_a_watcher(self) -> None:
+        seen: list[str] = []
+        batches = [_configs(1), _configs(3)]
+
+        async def watch(config: AuctionConfig) -> Outcome:
+            seen.append(config.auction_id)
+            return Outcome.ENDED
+
+        report = _run_reloading(watch, batches)
+        assert sorted(seen) == ["a-0", "a-1", "a-2"]
+        assert report.expected == 3, "the denominator has to grow with the population"
+
+    def test_an_auction_already_followed_is_not_followed_twice(self) -> None:
+        seen: list[str] = []
+
+        async def watch(config: AuctionConfig) -> Outcome:
+            seen.append(config.auction_id)
+            return Outcome.ENDED
+
+        _run_reloading(watch, [_configs(2), _configs(2), _configs(2)])
+        assert sorted(seen) == ["a-0", "a-1"], "a reload is a diff, not a restart"
+
+    def test_an_unreadable_seed_is_skipped_rather_than_fatal(self) -> None:
+        """`aste-scan` rewrites the file the collector is reading.
+
+        Catching a half-written seed must cost one reload, not the evening's
+        collection — every watcher already running would die with it.
+        """
+        seen: list[str] = []
+        calls: list[int] = []
+
+        async def watch(config: AuctionConfig) -> Outcome:
+            seen.append(config.auction_id)
+            return Outcome.ENDED
+
+        def reload() -> list[AuctionConfig]:
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")
+            return _configs(3)
+
+        report = asyncio.run(
+            Supervisor(watch=watch, sleep=_no_sleep).run(
+                _configs(2), reload=reload, reload_every=0.0, reloads=2
+            )
+        )
+        assert sorted(seen) == ["a-0", "a-1", "a-2"]
+        assert report.reload_failures == 1
+
+
+def _run_reloading(watch: Any, batches: list[list[AuctionConfig]]) -> Any:
+    """Run with a reload callable that yields each batch in turn."""
+    remaining = list(batches[1:])
+
+    def reload() -> list[AuctionConfig]:
+        return remaining.pop(0) if remaining else batches[-1]
+
+    return asyncio.run(
+        Supervisor(watch=watch, sleep=_no_sleep).run(
+            batches[0], reload=reload, reload_every=0.0, reloads=len(batches) - 1
+        )
+    )

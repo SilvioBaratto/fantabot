@@ -469,8 +469,12 @@ def aste_collect(
     auction: str = typer.Option("", "--one", help="A single auction uuid to follow."),
     shard: str = typer.Option("", help="Its Firebase shard. Required with --one."),
     pool: int = typer.Option(0, help="Concurrent streams. 0 = the measured default."),
+    reload_seed: float = typer.Option(
+        60.0,
+        help="Seconds between re-reads of --seed, to pick up auctions that open later. 0 = off.",
+    ),
 ) -> None:
-    """Subscribe to one live auction and append every state to the landing zone.
+    """Subscribe to live auctions and append every state to the landing zone.
 
     Writes to disk, never to the database. A database outage must not be able to
     stop collection — the file survived eleven process kills on 2026-08-26 and a
@@ -489,16 +493,29 @@ def aste_collect(
         console.print("[red]Give either --seed, or both --one and --shard.[/red]")
         raise typer.Exit(2)
 
-    if seed is not None:
-        configs = [
+    def read_seed() -> list[AuctionConfig]:
+        return [
             from_seed_row(row, asta_type="mantra")
             for row in json.loads(seed.read_text(encoding="utf-8"))
         ]
+
+    if seed is not None:
+        configs = read_seed()
     else:
         configs = [AuctionConfig(auction_id=auction, db_shard=shard, asta_type="mantra")]
 
+    # Only a seed can grow. With --one there is nothing to re-read, and an asta
+    # that opens later is an asta the collector never hears about — which is how
+    # every room opening after the first scan was lost.
+    reload = read_seed if seed is not None and reload_seed > 0 else None
+
     zone = LandingZone(out)
     console.print(f"following {len(configs)} auction(s) -> {out}")
+    if reload is not None:
+        console.print(
+            f"re-reading {seed} every {reload_seed:g}s for new auctions — "
+            "runs until interrupted"
+        )
 
     async def watch(config: AuctionConfig) -> Outcome:
         return await watch_auction(
@@ -516,7 +533,9 @@ def aste_collect(
     )
 
     try:
-        report = asyncio.run(supervisor.run(configs))
+        report = asyncio.run(
+            supervisor.run(configs, reload=reload, reload_every=reload_seed)
+        )
     except SinkFailed as exc:
         # Not a transport problem, and not survivable by reconnecting: if the
         # sink is failing, continuing would reconnect forever and store nothing.

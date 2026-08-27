@@ -25,7 +25,7 @@ number that only ever rises is a signal even when nothing else looks wrong.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 
 from fantabot.aste.registry import AuctionConfig
@@ -43,6 +43,9 @@ DEFAULT_MAX_RESTARTS = 5
 #: sink is closed over in the `watch` callable, where the id is in scope.
 Watch = Callable[[AuctionConfig], Awaitable[Outcome]]
 
+#: Re-reads the population. Raising is survivable; see `run`.
+Reload = Callable[[], list[AuctionConfig]]
+
 
 @dataclass
 class Report:
@@ -59,12 +62,17 @@ class Report:
     unreachable: int = 0
     crashed: int = 0
     live: int = 0
+    adopted: int = 0
+    reload_failures: int = 0
 
     def summary(self) -> str:
-        return (
+        line = (
             f"{self.live}/{self.expected} live · ended {self.ended} · "
             f"unreachable {self.unreachable} · crashed {self.crashed}"
         )
+        if self.adopted or self.reload_failures:
+            line += f" · adopted {self.adopted} · unreadable seed {self.reload_failures}"
+        return line
 
 
 class Supervisor:
@@ -85,10 +93,30 @@ class Supervisor:
         self._max_restarts = max(1, max_restarts)
         self._retry_delay = retry_delay
 
-    async def run(self, configs: list[AuctionConfig]) -> Report:
-        """Follow every auction until each ends or gives up."""
-        report = Report(expected=len(configs))
+    async def run(
+        self,
+        configs: list[AuctionConfig],
+        *,
+        reload: Reload | None = None,
+        reload_every: float = 60.0,
+        reloads: int | None = None,
+    ) -> Report:
+        """Follow every auction until each ends or gives up.
+
+        With ``reload``, the population is re-read every ``reload_every``
+        seconds and any auction not already followed gets a watcher. Without it
+        the seed is read once, which is what the collector did: `aste-scan`
+        rewrites that file whenever it runs, and on a live evening it finds
+        rooms that did not exist an hour earlier — so every asta opening
+        mid-evening was lost, with nothing in the report saying so.
+
+        ``reloads`` bounds the number of cycles. ``None`` means until the
+        process is interrupted, which is how an evening is collected.
+        """
+        report = Report()
         semaphore = asyncio.Semaphore(self._pool)
+        started: set[str] = set()
+        tasks: set[asyncio.Task[None]] = set()
 
         async def supervise(config: AuctionConfig) -> None:
             attempts = 0
@@ -124,5 +152,51 @@ class Supervisor:
 
             report.unreachable += 1
 
-        await asyncio.gather(*(supervise(config) for config in configs))
+        def adopt(batch: Iterable[AuctionConfig]) -> None:
+            """Start a watcher for every auction not already followed."""
+            for config in batch:
+                if config.auction_id in started:
+                    continue
+                started.add(config.auction_id)
+                report.expected += 1
+                tasks.add(asyncio.create_task(supervise(config)))
+
+        def reap() -> None:
+            """Surface a finished watcher's exception now, not at the end.
+
+            With no reload loop the final ``gather`` raised it immediately. With
+            one, a ``SinkFailed`` would sit inside a completed task until the
+            loop ended — and the loop is meant to run all evening, so a full
+            disk would go unnoticed for exactly as long as it matters.
+            """
+            for task in [one for one in tasks if one.done()]:
+                tasks.discard(task)
+                if (failure := task.exception()) is not None:
+                    for other in tasks:
+                        other.cancel()
+                    raise failure
+
+        adopt(configs)
+        if reload is None:
+            await asyncio.gather(*tasks)
+            return report
+
+        cycles = 0
+        while reloads is None or cycles < reloads:
+            cycles += 1
+            await self._sleep(reload_every)
+            reap()
+            try:
+                batch = reload()
+            except Exception:
+                # A half-written seed costs one cycle. Letting it out would kill
+                # every watcher already running, which is the opposite of what a
+                # reload is for.
+                report.reload_failures += 1
+                continue
+            before = len(started)
+            adopt(batch)
+            report.adopted += len(started) - before
+
+        await asyncio.gather(*tasks)
         return report
