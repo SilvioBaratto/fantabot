@@ -156,3 +156,43 @@ def test_a_failing_sink_stops_the_watch_instead_of_reconnecting() -> None:
                 open_stream=_transport([PUT, GONE]),
             )
         )
+
+
+def test_backoff_resets_after_a_connection_that_worked() -> None:
+    """The counter only ever climbed. A watcher that dropped three times early in
+    an evening then ran healthily for hours still waited 30–90 seconds before
+    every later reconnect, because `attempt` was never zeroed.
+
+    `max_attempts` should bound *consecutive* failures, not lifetime ones — a
+    stream that delivered frames has proved the shard is reachable.
+    """
+    waits: list[float] = []
+
+    async def record_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    asyncio.run(
+        watch_auction(
+            AUCTION, SHARD,
+            on_state=lambda _s: None,
+            sleep=record_sleep,
+            # fail, fail, then a connection that delivers a frame, then fail again
+            open_stream=_transport(ConnectionError, ConnectionError, [PUT], ConnectionError,
+                                   [PUT, GONE]),
+            jitter=lambda: 0.5,
+        )
+    )
+    assert len(waits) >= 3
+    assert waits[2] < waits[1], (
+        "the wait after a working connection must drop back, not keep climbing: "
+        f"{waits}"
+    )
+
+
+def test_a_shard_that_never_connects_still_gives_up() -> None:
+    """Resetting on success must not make an unreachable auction retry for ever."""
+    outcome, _ = _run(
+        open_stream=_transport(*[ConnectionError] * 4),
+        max_attempts=4,
+    )
+    assert outcome is Outcome.UNREACHABLE

@@ -26,8 +26,8 @@ from enum import Enum
 from typing import Any, Protocol
 
 from fantabot.aste.models import valid_shard
-from fantabot.aste.reducer import apply_frame
-from fantabot.aste.sse import FrameBuffer
+from fantabot.aste.reducer import ROOT, apply_frame
+from fantabot.aste.sse import Frame, FrameBuffer
 
 #: Firebase's regional host. The shard is the only part that varies, and it is
 #: not derivable — it comes off the auction's list card.
@@ -63,6 +63,17 @@ class OpenStream(Protocol):
     """Opens a connection and yields transport chunks."""
 
     def __call__(self, url: str) -> AsyncIterator[str]: ...
+
+
+def is_auction_gone(frame: Frame) -> bool:
+    """Does this frame say the node was deleted?
+
+    Only a **root** ``put`` with null data does. The path was not checked at
+    first, so a child deletion — a nested ``put`` with null data — read as the
+    room closing and dropped the auction for the rest of the evening, while the
+    report called it a normal ending.
+    """
+    return frame.event == "put" and frame.path in ROOT and frame.data is None
 
 
 def stream_url(auction_id: str, shard: str) -> str:
@@ -103,10 +114,18 @@ async def watch_auction(
 
     while max_attempts is None or attempt < max_attempts:
         buffer = FrameBuffer()
+        # A connection that delivered a frame has proved the shard reachable, so
+        # the next failure starts the backoff over. Without this the counter only
+        # climbed: a watcher that dropped three times early in an evening waited
+        # 30-90 s before every reconnect for the rest of it, however healthy the
+        # stream had been in between. `max_attempts` bounds *consecutive*
+        # failures, which is the thing worth bounding.
+        delivered = False
         try:
             async for chunk in open_stream(url):
                 for frame in buffer.feed(chunk):
-                    if frame.event == "put" and frame.data is None:
+                    delivered = True
+                    if is_auction_gone(frame):
                         return Outcome.ENDED
                     updated = apply_frame(state, frame)
                     if updated == state:
@@ -130,7 +149,7 @@ async def watch_auction(
             # how a watch ends without anyone being told.
             pass
 
-        attempt += 1
+        attempt = 1 if delivered else attempt + 1
         if max_attempts is not None and attempt >= max_attempts:
             break
         await sleep(_delay(attempt, jitter))

@@ -70,3 +70,41 @@ def test_the_folded_state_is_what_reconstruct_expects() -> None:
 
     rows = [{"auction_id": live["fantaleague_id"], "state": live}]
     assert reconstruct(rows) == [], "a raise is not an assignment"
+
+
+NESTED_NULL = 'event: put\ndata: {"path":"/price","data":null}\n\n'
+NESTED_PUT = 'event: put\ndata: {"path":"/price","data":42}\n\n'
+
+
+def test_a_nested_put_does_not_replace_the_whole_state() -> None:
+    """`Frame.path` was parsed and then consulted by nothing, so a frame aimed at
+    a child key was applied at the root: a nested `put` wiped the auction.
+
+    `docs/spec-aste-streaming.md`'s own Code Style snippet refuses a non-root
+    path — that guard was specified and never implemented.
+    """
+    state = fold(parse(LIVE)[:1])
+    assert state["price"] == 261
+    after = apply_frame(state, parse(NESTED_PUT)[0])
+    assert after == state, "an unhandled path must leave the node as it was"
+
+
+def test_a_nested_null_put_is_not_the_room_closing() -> None:
+    """The dangerous half. `watch_auction` reads a `put` with null data as the
+    auction ending, and did so without checking the path — so a child deletion
+    dropped the auction for the rest of the evening while the report called it a
+    normal ending."""
+    from fantabot.aste.stream import is_auction_gone
+
+    assert is_auction_gone(parse('event: put\ndata: {"path":"/","data":null}\n\n')[0])
+    assert not is_auction_gone(parse(NESTED_NULL)[0])
+
+
+def test_an_unhandled_path_is_counted_rather_than_silently_dropped() -> None:
+    """Refusing is right; refusing in silence is the failure this phase keeps
+    finding in itself."""
+    from fantabot.aste.reducer import unsupported_paths
+
+    counter = unsupported_paths()
+    apply_frame({}, parse(NESTED_PUT)[0], seen=counter)
+    assert counter["/price"] == 1
