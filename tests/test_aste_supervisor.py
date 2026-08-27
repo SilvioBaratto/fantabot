@@ -1,0 +1,138 @@
+"""The supervisor: many auctions at once, and noticing when one stops.
+
+Everything is driven by injected fakes — no socket, no clock. What is pinned is
+the behaviour the poller got wrong twice: a watcher that dies must come back,
+and an auction that ends must not.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import pytest
+
+from fantabot.aste.registry import AuctionConfig
+from fantabot.aste.stream import Outcome
+from fantabot.aste.supervisor import DEFAULT_POOL, Supervisor
+
+
+def _configs(n: int) -> list[AuctionConfig]:
+    return [
+        AuctionConfig(auction_id=f"a-{i}", db_shard="18", asta_type="mantra") for i in range(n)
+    ]
+
+
+async def _noop(_state: dict[str, Any]) -> None:
+    return None
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None
+
+
+def _run(supervisor: Supervisor, configs: list[AuctionConfig]) -> Any:
+    return asyncio.run(supervisor.run(configs))
+
+
+def test_every_auction_gets_a_watcher() -> None:
+    seen: list[str] = []
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        seen.append(config.auction_id)
+        return Outcome.ENDED
+
+    _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(5))
+    assert sorted(seen) == [f"a-{i}" for i in range(5)]
+
+
+def test_an_auction_that_ended_is_not_restarted() -> None:
+    """The poller could not tell an ending from a drop and gave up on both. Here
+    an ending is an observed fact, so restarting one would poll a dead node
+    forever."""
+    counts: dict[str, int] = {}
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        counts[config.auction_id] = counts.get(config.auction_id, 0) + 1
+        return Outcome.ENDED
+
+    _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(3))
+    assert set(counts.values()) == {1}
+
+
+def test_a_watcher_that_raises_is_restarted() -> None:
+    """On 2026-08-26 a JSONDecodeError killed one watcher silently while the
+    heartbeat kept reporting health. A crash must be survivable and visible."""
+    attempts: dict[str, int] = {}
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        n = attempts.get(config.auction_id, 0) + 1
+        attempts[config.auction_id] = n
+        if n == 1:
+            raise RuntimeError("boom")
+        return Outcome.ENDED
+
+    supervisor = Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep)
+    report = _run(supervisor, _configs(2))
+    assert attempts == {"a-0": 2, "a-1": 2}
+    assert report.crashed == 2, "a crash must be counted, not just survived"
+
+
+def test_an_unreachable_auction_is_retried_then_given_up_on() -> None:
+    """Unreachable is our failure, not the auction's ending. It is retried — but
+    not forever, or one dead shard occupies a slot all evening."""
+    attempts: dict[str, int] = {}
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        attempts[config.auction_id] = attempts.get(config.auction_id, 0) + 1
+        return Outcome.UNREACHABLE
+
+    supervisor = Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep, max_restarts=3)
+    report = _run(supervisor, _configs(1))
+    assert attempts["a-0"] == 3
+    assert report.unreachable == 1
+
+
+def test_the_pool_bounds_how_many_run_at_once() -> None:
+    """S1 found no server-side cap at 207 concurrent streams — the whole live
+    population. The bound here is our own sanity, not theirs."""
+    concurrent = 0
+    peak = 0
+
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        nonlocal concurrent, peak
+        concurrent += 1
+        peak = max(peak, concurrent)
+        await asyncio.sleep(0)
+        concurrent -= 1
+        return Outcome.ENDED
+
+    _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep, pool=4), _configs(20))
+    assert peak <= 4
+
+
+def test_the_default_pool_covers_a_whole_live_population() -> None:
+    """207 was the entire live list on 2026-08-27, and it did not refuse. A
+    default below that would throttle for a limit nobody imposed."""
+    assert DEFAULT_POOL >= 207
+
+
+def test_the_report_says_live_over_expected_not_just_live() -> None:
+    """A heartbeat that only prints what is running cannot distinguish a quiet
+    evening from half the watchers having died."""
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        return Outcome.ENDED
+
+    report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(6))
+    assert report.expected == 6
+    assert report.ended == 6
+    assert "6" in report.summary() and "/" in report.summary()
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_an_empty_or_single_population_is_handled(count: int) -> None:
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        return Outcome.ENDED
+
+    report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(count))
+    assert report.expected == count

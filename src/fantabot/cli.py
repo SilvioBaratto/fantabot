@@ -418,9 +418,11 @@ def aste_load(
 
 @app.command()
 def aste_collect(
-    auction: str = typer.Option(..., "--one", help="Auction uuid to follow."),
-    shard: str = typer.Option(..., help="Firebase shard, from the auction's list card."),
     out: Path = typer.Option(..., help="Landing-zone JSONL to append to."),
+    seed: Path = typer.Option(None, help="Registry to follow in full. Omit to use --one."),
+    auction: str = typer.Option("", "--one", help="A single auction uuid to follow."),
+    shard: str = typer.Option("", help="Its Firebase shard. Required with --one."),
+    pool: int = typer.Option(0, help="Concurrent streams. 0 = the measured default."),
 ) -> None:
     """Subscribe to one live auction and append every state to the landing zone.
 
@@ -429,25 +431,47 @@ def aste_collect(
     socket would not have.
     """
     import asyncio
+    import json
 
     from fantabot.aste.landing import LandingZone
+    from fantabot.aste.registry import AuctionConfig, from_seed_row
     from fantabot.aste.stream import Outcome, SinkFailed, watch_auction
+    from fantabot.aste.supervisor import DEFAULT_POOL, Supervisor
     from fantabot.aste.transport import open_stream
 
-    zone = LandingZone(out)
-    console.print(f"following {auction[:8]} on fantalab-{shard} -> {out}")
+    if seed is None and not (auction and shard):
+        console.print("[red]Give either --seed, or both --one and --shard.[/red]")
+        raise typer.Exit(2)
 
-    async def run() -> Outcome:
+    if seed is not None:
+        configs = [
+            from_seed_row(row, asta_type="mantra")
+            for row in json.loads(seed.read_text(encoding="utf-8"))
+        ]
+    else:
+        configs = [AuctionConfig(auction_id=auction, db_shard=shard, asta_type="mantra")]
+
+    zone = LandingZone(out)
+    console.print(f"following {len(configs)} auction(s) -> {out}")
+
+    async def watch(config: AuctionConfig, **_unused: object) -> Outcome:
         return await watch_auction(
-            auction,
-            shard,
+            config.auction_id,
+            config.db_shard,
             open_stream=open_stream,
-            on_state=lambda state: zone.write(auction, state),
+            on_state=lambda state: zone.write(config.auction_id, state),
             sleep=asyncio.sleep,
         )
 
+    supervisor = Supervisor(
+        watch=watch,
+        on_state=lambda _s: None,
+        sleep=asyncio.sleep,
+        pool=pool or DEFAULT_POOL,
+    )
+
     try:
-        outcome = asyncio.run(run())
+        report = asyncio.run(supervisor.run(configs))
     except SinkFailed as exc:
         # Not a transport problem, and not survivable by reconnecting: if the
         # sink is failing, continuing would reconnect forever and store nothing.
@@ -457,8 +481,7 @@ def aste_collect(
         console.print(f"[yellow]stopped — {zone.written} states written[/yellow]")
         return
 
-    colour = "green" if outcome is Outcome.ENDED else "yellow"
-    console.print(f"[{colour}]{outcome.value} — {zone.written} states written[/{colour}]")
+    console.print(f"{report.summary()} · {zone.written} states written")
 
 
 @app.command()
