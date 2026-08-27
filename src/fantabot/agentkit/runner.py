@@ -22,7 +22,7 @@ from typing import Any, Generic, Protocol, TypeVar, cast
 from claude_agent_sdk import RateLimitEvent, query
 from pydantic import BaseModel, ValidationError
 
-from .env import assert_subscription_auth
+from .env import assert_auth
 from .options import AgentRequest, build_options
 
 log = logging.getLogger(__name__)
@@ -115,5 +115,5 @@ async def consume(stream: AsyncIterator[Any], schema: type[M], label: str) -> Ou
 async def run(request: AgentRequest, schema: type[M]) -> Outcome[M]:
     """Build options, prove the auth, and consume the stream. The public entry point."""
     options = build_options(request, schema)
-    assert_subscription_auth(options.env or {})
+    assert_auth(options.env or {})
     return await consume(query(prompt=request.prompt, options=options), schema, request.label)

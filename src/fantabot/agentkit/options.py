@@ -47,13 +47,35 @@ class AgentRequest:
     max_turns: int
 
 
+def agent_env() -> dict[str, str]:
+    """The subprocess environment handed to the Claude Code CLI.
+
+    Empty on the subscription path — that emptiness is load-bearing, see env.py.
+    Populated only when an operator has explicitly pointed fantabot at an
+    Anthropic-compatible shim (Ollama, LiteLLM, a gateway). options.env is the
+    only channel used either way, so a stripped os.environ still cannot leak.
+    """
+    from ..config import settings
+
+    if not settings.fantabot_agent_base_url:
+        return {}
+    return {
+        "ANTHROPIC_BASE_URL": settings.fantabot_agent_base_url,
+        "ANTHROPIC_AUTH_TOKEN": settings.fantabot_agent_auth_token,
+        # Empty string, not absent — that is how a caller neutralizes a variable
+        # without it counting as a credential (see assert_subscription_auth).
+        "ANTHROPIC_API_KEY": "",
+    }
+
+
 def build_options(request: AgentRequest, schema: type[BaseModel]) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=request.model,
-        # Empty, and checked by assert_subscription_auth before any query: the SDK
-        # reads ANTHROPIC_API_KEY from options.env as well as os.environ
-        # (session_resume.py:356), so leaving this unset is half the auth proof.
-        env={},
+        # Empty on the subscription path, and checked by assert_auth before any
+        # query: the SDK reads ANTHROPIC_API_KEY from options.env as well as
+        # os.environ (session_resume.py:356), so leaving this unset is half the
+        # auth proof. Non-empty only for an explicitly configured shim.
+        env=agent_env(),
         allowed_tools=list(request.allowed_tools),
         disallowed_tools=list(BLOCKED_TOOLS),
         # [] and not None. Without it the SDK loads this repo's CLAUDE.md, its hooks

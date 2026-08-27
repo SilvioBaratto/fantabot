@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
+import pytest
 from claude_agent_sdk import RateLimitEvent, ResultMessage
 from claude_agent_sdk.types import RateLimitInfo
 from pydantic import BaseModel, ConfigDict, Field
@@ -86,9 +87,33 @@ def test_build_options_carries_model_and_tools() -> None:
     assert options.max_turns == 12
 
 
-def test_build_options_leaves_env_empty() -> None:
+def test_build_options_leaves_env_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     # The second leak vector. See agentkit/env.py.
+    #
+    # The backend is pinned rather than read: with FANTABOT_AGENT_BASE_URL set in
+    # the developer's .env this env is *correctly* non-empty, and the assertion
+    # had no way to know that was right.
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_agent_base_url", "")
     assert build_options(_request(), Sample).env == {}
+
+
+def test_build_options_carries_the_shim_env_when_one_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The other half: options.env is the only channel the shim is reached
+    # through, so an empty one here would silently fall back to the subscription.
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_agent_base_url", "http://localhost:11434")
+    monkeypatch.setattr(config.settings, "fantabot_agent_auth_token", "ollama")
+
+    env = build_options(_request(), Sample).env
+
+    assert env["ANTHROPIC_BASE_URL"] == "http://localhost:11434"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "ollama"
+    assert env["ANTHROPIC_API_KEY"] == ""
 
 
 def test_build_options_blocks_delegation() -> None:

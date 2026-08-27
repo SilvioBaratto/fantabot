@@ -100,6 +100,24 @@ alembic check                # models and migrations agree?
    that queries. `env.py` closes both credential leak vectors (`os.environ`
    *and* `ClaudeAgentOptions.env`, since `session_resume.py:356` reads either),
    `options.py` builds the options, `runner.py` holds **the one message loop**.
+   `runner.run` calls `assert_auth`, which picks one of two mirror-image proofs:
+   `assert_subscription_auth` ("no credential anywhere", the default) or
+   `assert_byo_backend` ("a base URL *and* a token"), the latter only when
+   `FANTABOT_AGENT_BASE_URL` is set. That opt-in routes the fan-out at any
+   Anthropic-compatible shim — Ollama's is the **local** daemon on
+   `http://localhost:11434`; `ollama.com` serves no `/v1/messages`, so cloud
+   models go through that same daemon with a `:cloud` model suffix. Verified
+   end-to-end on 2026-08-26 against `deepseek-v4-flash:cloud`: **WebSearch and
+   WebFetch both work** — Claude Code runs them client-side, not through
+   Anthropic's server-side `web_search` tool, so a shim does not cost the search
+   (the guides warning otherwise are about Bedrock, which is a different path) —
+   and `output_format`'s json_schema survives, because the shim honours forced
+   `tool_choice`. `news-fetch --limit 1` returned a schema-valid row citing four
+   same-day sources. `resolve_agent_model` refuses a `claude-*` id with a base
+   URL set, and a non-`claude-*` id without one; both are otherwise silent until
+   the cron log. Two cosmetic stderr lines are expected on this path: a
+   `claude.ai connectors are disabled` warning, and one
+   `[claude-code:unrecognized_model] ... generate_session_title` per query.
    Agent-level failures are returned, never raised. Two tests enforce the
    boundary: exactly one `async for message` in the repo, and no
    `claude_agent_sdk` import outside `agentkit/`.
@@ -190,7 +208,7 @@ alembic check                # models and migrations agree?
 - `strategy.py` must stay pure (no Playwright, no network). It is no longer the
   only tested module — `agentkit/`, `news/`, `mantra_grid/` and
   `data_sources/news_sentiment.py`, `tokens/` and `apileague.py` all have suites,
-  483 tests in total — but the
+  503 tests in total — but the
   reason it was testable is the reason they are: the decision logic has no I/O.
   Keep new logic in a pure module and the I/O in a thin shell around it.
 - **The test suite makes zero agent calls and opens zero sockets.** Runners and

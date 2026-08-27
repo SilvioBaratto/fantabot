@@ -35,11 +35,22 @@ def config_check() -> None:
         "lega_password",
         "fantabot_database_url",
         "fantabot_encryption_key",
+        # Harmless on Ollama, where the documented value is the placeholder
+        # "ollama". Not harmless behind a gateway, where it is a real bearer
+        # token — and config-check cannot tell the two apart, so neither prints.
+        "fantabot_agent_auth_token",
     }
     console.print(settings.model_dump(exclude=secrets))
     console.print(f"stats_source_api_key set: {bool(settings.stats_source_api_key)}")
     console.print(f"lega_password set: {bool(settings.lega_password)}")
     console.print(f"fantabot_encryption_key set: {bool(settings.fantabot_encryption_key)}")
+    console.print(f"fantabot_agent_auth_token set: {bool(settings.fantabot_agent_auth_token)}")
+    # Printed in full, unlike the token: it is routing, not a credential, and an
+    # unexpected value here is the fastest explanation for a cron run that went
+    # somewhere other than the subscription.
+    console.print(
+        f"fantabot_agent_base_url: {settings.fantabot_agent_base_url or '(subscription)'}"
+    )
 
     # An invalid DSN should fail loudly here rather than at the first connect.
     dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
@@ -70,7 +81,7 @@ def news_fetch(
     limit: int = typer.Option(0, help="Stop after N players (0 = no limit)."),
     only: str = typer.Option("", help="One player by name, substring match."),
     concurrency: int = typer.Option(4, help="Parallel agent queries."),
-    model: str = typer.Option("claude-sonnet-5", help="Model id."),
+    model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
     season: str = typer.Option("2026/27", help="Which stagione to fetch."),
     lookback_days: int = typer.Option(14, help="Days of news each query should cover."),
     print_prompt: bool = typer.Option(False, "--print-prompt", help="Show the built prompt."),
@@ -78,6 +89,7 @@ def news_fetch(
 ) -> None:
     """Fetch weekly news sentiment for the season's quotati players."""
     from fantabot.agentkit.env import strip_dangerous_env
+    from fantabot.config import settings
     from fantabot.news.pipeline import fetch_all
     from fantabot.news.pool import load_pool
     from fantabot.news.prompt import build_prompt
@@ -94,6 +106,12 @@ def news_fetch(
             "of your two leagues you mean."
         )
         raise typer.Exit(code=2)
+
+    try:
+        model = settings.resolve_agent_model(model)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
 
     from fantabot.db import database_manager
     from fantabot.db.repositories.sentiment import SentimentRepository
@@ -161,7 +179,7 @@ def news_fetch(
 @app.command()
 def mantra_grid(
     write: bool = typer.Option(False, "--write", help="Write the JSON files if every gate passes."),
-    model: str = typer.Option("claude-sonnet-5", help="Model id."),
+    model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
 ) -> None:
     """Collect the 11 Mantra schemas and the out-of-position matrix. One-off, not cron."""
     from fantabot.agentkit.env import strip_dangerous_env
@@ -169,8 +187,14 @@ def mantra_grid(
     from fantabot.mantra_grid.collect import CollectError, collect
     from fantabot.mantra_grid.writer import COMPAT_FILENAME, SCHEMI_FILENAME, write_json
 
+    try:
+        model = settings.resolve_agent_model(model)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
     strip_dangerous_env()
-    console.print("Collecting the 11 Mantra schemas and the compatibility matrix...")
+    console.print(f"Collecting the 11 Mantra schemas and the compatibility matrix via {model}...")
     try:
         result = asyncio.run(collect(model))
     except CollectError as exc:

@@ -132,3 +132,31 @@ def test_the_dead_state_file_setting_is_gone() -> None:
     # the bare substring "state.json" would match `storage_state.json` and pass
     # for the wrong reason.
     assert "storage_state.json" in output
+
+
+def test_the_agent_auth_token_is_not_printed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A gateway bearer token in FANTABOT_AGENT_AUTH_TOKEN must not reach the log.
+
+    On Ollama the value is the documented placeholder "ollama" and harmless.
+    Behind LiteLLM or any other gateway it is a real credential, and
+    ``config-check`` cannot tell the two apart — so it prints neither.
+    """
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_agent_auth_token", "TokenCanary777")
+
+    result = runner.invoke(app, ["config-check"])
+
+    assert "TokenCanary777" not in result.output
+    assert "fantabot_agent_auth_token set: True" in result.output
+
+
+def test_the_agent_base_url_is_printed_in_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Routing, not a credential — and the fastest answer to "which backend ran?"."""
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_agent_base_url", "http://localhost:11434")
+    assert "http://localhost:11434" in runner.invoke(app, ["config-check"]).output
+
+    monkeypatch.setattr(config.settings, "fantabot_agent_base_url", "")
+    assert "fantabot_agent_base_url: (subscription)" in runner.invoke(app, ["config-check"]).output

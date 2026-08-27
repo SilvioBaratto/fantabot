@@ -72,3 +72,46 @@ def assert_subscription_auth(options_env: Mapping[str, str]) -> None:
                 f"OAuth subscription. Call strip_dangerous_env() before building "
                 f"options."
             )
+
+
+def assert_byo_backend(options_env: Mapping[str, str]) -> None:
+    """Raise unless the run is genuinely pointed at a shim.
+
+    The mirror image of :func:`assert_subscription_auth`. There the proof is "no
+    credential anywhere". Here it is "a base URL and a token" — because
+    ``ANTHROPIC_BASE_URL`` with no token makes the CLI fall back to the OAuth
+    subscription and silently ignore the shim, which looks identical to working
+    until the bill or the rate limit says otherwise.
+    """
+    if not options_env.get("ANTHROPIC_BASE_URL"):
+        raise AuthLeakError(
+            "ANTHROPIC_BASE_URL is missing from options.env; without it the CLI "
+            "falls back to the OAuth subscription and the shim is ignored."
+        )
+    if not options_env.get("ANTHROPIC_AUTH_TOKEN"):
+        raise AuthLeakError(
+            "ANTHROPIC_AUTH_TOKEN is missing from options.env; the CLI will not "
+            "start against a custom base URL without one. Ollama ignores the "
+            "value — 'ollama' is the documented placeholder."
+        )
+    for name in DANGEROUS_VARS:
+        if os.environ.get(name):
+            raise AuthLeakError(
+                f"{name} is set in os.environ and would race options.env. "
+                f"Call strip_dangerous_env() before building options."
+            )
+
+
+def assert_auth(options_env: Mapping[str, str]) -> None:
+    """Dispatch to whichever proof this run's backend needs. The only entry point.
+
+    Imported inside the function, not at module scope: ``config`` instantiates
+    ``Settings`` at import, and this module sits on the import chain of every
+    agent command.
+    """
+    from ..config import settings
+
+    if settings.fantabot_agent_base_url:
+        assert_byo_backend(options_env)
+    else:
+        assert_subscription_auth(options_env)
