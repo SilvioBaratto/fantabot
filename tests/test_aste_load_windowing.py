@@ -43,7 +43,7 @@ def _write(path: Path, states: list[dict]) -> None:
 
 
 def _ladder(rows: list[dict]) -> list[int]:
-    _auctions, _events, assignments, _unlinked = build(rows, SEED, {}, "mantra")
+    assignments = build(rows, SEED, {}, "mantra").assignments
     return [rung["price"] for rung in assignments[0]["ladder"]] if assignments else []
 
 

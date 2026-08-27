@@ -37,12 +37,13 @@ def test_the_format_comes_from_the_caller_not_the_seed() -> None:
 def test_events_for_unknown_auctions_are_dropped_not_raised() -> None:
     """A foreign key would refuse them anyway. Dropping here gives the caller a
     count instead of an exception partway through a 144,518-row load."""
-    assert event_rows(STATES, known=set()) == []
-    assert len(event_rows(STATES, known={AUCTION_ID})) == len(STATES)
+    rows, dropped = event_rows(STATES, known=set())
+    assert rows == [] and dropped.unknown_auction == len(STATES)
+    assert len(event_rows(STATES, known={AUCTION_ID})[0]) == len(STATES)
 
 
 def test_an_event_row_keeps_the_state_whole() -> None:
-    row = event_rows(STATES, known={AUCTION_ID})[0]
+    row = event_rows(STATES, known={AUCTION_ID})[0][0]
     assert row["payload"] == STATES[0]["state"], "the raw state must survive verbatim"
     assert row["last_update"] == STATES[0]["state"].get("last_update")
 
@@ -72,9 +73,52 @@ def test_an_assignment_row_carries_its_ladder_as_plain_data() -> None:
 
 
 def test_build_produces_a_consistent_set() -> None:
-    auctions, events, assignments, unmatched = build(STATES, SEED, {}, "mantra")
+    built = build(STATES, SEED, {}, "mantra")
+    auctions, events = built.auctions, built.events
+    assignments, unmatched = built.assignments, built.unlinked_players
     assert len(auctions) == 1
     assert len(events) == len(STATES)
     assert len(assignments) == len(reconstruct(STATES))
     assert unmatched == len(assignments)
     assert {a["asta_id"] for a in assignments} <= {row["id"] for row in auctions}
+
+
+def test_a_record_without_a_timestamp_is_dropped_rather_than_raised() -> None:
+    """Every other field on the record is guarded; `seen_at` was indexed.
+
+    `event_rows` checks `auction_id` and `state` with `.get()` and a type test,
+    then reaches straight into `row["seen_at"]`. One truncated line — the last
+    write of a killed collector — raised `KeyError` at row 140,000 of a 144,518
+    row load, which is the exact failure the guards above it were written to
+    prevent.
+    """
+    rows, dropped = event_rows([{**STATES[0], "seen_at": None}], {AUCTION_ID})
+    assert rows == []
+    assert dropped.bad_timestamp == 1
+
+
+def test_an_unparseable_timestamp_is_dropped_too() -> None:
+    rows, dropped = event_rows([{**STATES[0], "seen_at": "not a date"}], {AUCTION_ID})
+    assert rows == [] and dropped.bad_timestamp == 1
+
+
+def test_each_reason_a_record_is_dropped_is_counted_separately() -> None:
+    """A drop nobody counts reads as "there was nothing to load"."""
+    _, dropped = event_rows(
+        [
+            {**STATES[0], "auction_id": "someone-elses-auction"},
+            {**STATES[0], "state": "not a mapping"},
+            {**STATES[0], "seen_at": None},
+            STATES[0],
+        ],
+        {AUCTION_ID},
+    )
+    assert (dropped.unknown_auction, dropped.malformed_state, dropped.bad_timestamp) == (1, 1, 1)
+    assert dropped.total == 3
+    assert not event_rows(STATES, {AUCTION_ID})[1].any
+
+
+def test_build_reports_what_it_dropped() -> None:
+    built = build([*STATES, {**STATES[0], "seen_at": None}], SEED, {}, "mantra")
+    assert built.dropped_events.bad_timestamp == 1
+    assert len(built.events) == len(STATES)

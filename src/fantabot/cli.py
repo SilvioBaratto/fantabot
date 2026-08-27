@@ -13,6 +13,7 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
 
     import httpx
 
+    from fantabot.aste.backfill import DroppedEvents
     from fantabot.tokens.store import TokenStore
 
 app = typer.Typer(no_args_is_help=True)
@@ -315,6 +316,20 @@ def fantalab_login(
         raise typer.Exit(exc.code) from None
 
 
+def _report_dropped(dropped: DroppedEvents) -> None:
+    """Say what did not become an event row.
+
+    Only when something did: a zero line every pass is noise nobody reads, and
+    noise nobody reads is how the non-zero one gets missed. An unknown auction
+    is routine — the collector follows rooms the seed does not describe — so it
+    is reported at a lower key than a record that was simply broken.
+    """
+    if not dropped.any:
+        return
+    colour = "yellow" if dropped.malformed_state or dropped.bad_timestamp else "dim"
+    console.print(f"[{colour}]{dropped.total} record(s) dropped — {dropped.summary()}[/{colour}]")
+
+
 @app.command()
 def aste_load(
     landing: Path = typer.Argument(..., help="Landing-zone JSONL the collector appends to."),
@@ -376,7 +391,7 @@ def aste_load(
         known = {row["id"] for row in auctions}
         # Events from the window: they are append-only, so re-reading would
         # re-upload the whole evening every pass.
-        events = event_rows(records, known)
+        events, dropped = event_rows(records, known)
         # Assignments from the WHOLE landing zone. A window that starts mid-turn
         # rebuilds a ladder from nothing, and the upsert is DO UPDATE — the short
         # ladder would overwrite the complete one and the checkpoint would never
@@ -405,6 +420,7 @@ def aste_load(
         size = landing.stat().st_size if landing.exists() else new_offset
         if unlinked:
             console.print(f"[yellow]{unlinked} assignment(s) carry no player link[/yellow]")
+        _report_dropped(dropped)
         return len(records), size - new_offset
 
     from sqlalchemy.exc import SQLAlchemyError
@@ -553,13 +569,13 @@ def aste_backfill(
         with database_manager.get_session() as session:
             known_players = AsteRepository(session).known_player_ids()
 
-    auctions, event_rows, assignments, unlinked = build(
-        states, seed_rows, bridge, asta_type, known_players
-    )
+    built = build(states, seed_rows, bridge, asta_type, known_players)
     console.print(
-        f"auctions {len(auctions)} · events {len(event_rows)} from {len(states)} states"
-        f" · assignments {len(assignments)}"
+        f"auctions {len(built.auctions)} · events {len(built.events)} from {len(states)} states"
+        f" · assignments {len(built.assignments)}"
     )
+    _report_dropped(built.dropped_events)
+    unlinked = built.unlinked_players
     if unlinked:
         # A staleness signal, not a warning to scroll past: a few is a transfer
         # window, a lot means the reference table no longer describes the listone.
@@ -577,9 +593,9 @@ def aste_backfill(
 
     with database_manager.get_session() as session:
         repo = AsteRepository(session)
-        repo.upsert_auctions(auctions)
-        repo.upsert_events(event_rows)
-        repo.upsert_assignments(assignments)
+        repo.upsert_auctions(built.auctions)
+        repo.upsert_events(built.events)
+        repo.upsert_assignments(built.assignments)
         session.commit()
         console.print(f"[green]stored — {repo.count_assignments()} assignments in total")
 

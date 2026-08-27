@@ -39,6 +39,68 @@ class BackfillSummary:
     unlinked_players: int
 
 
+@dataclass(frozen=True, slots=True)
+class DroppedEvents:
+    """Why records did not become event rows, one count per reason.
+
+    Separate counts because the reasons mean different things. An unknown
+    auction is routine — the collector followed rooms the seed does not
+    describe. A malformed state or an unusable timestamp is a broken record,
+    and a run that quietly drops those looks exactly like a run with nothing
+    to load.
+    """
+
+    unknown_auction: int = 0
+    malformed_state: int = 0
+    bad_timestamp: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.unknown_auction + self.malformed_state + self.bad_timestamp
+
+    @property
+    def any(self) -> bool:
+        return self.total > 0
+
+    def summary(self) -> str:
+        return (
+            f"unknown auction {self.unknown_auction} · "
+            f"malformed state {self.malformed_state} · "
+            f"bad timestamp {self.bad_timestamp}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltRows:
+    """Everything a backfill would write, plus what it refused to.
+
+    Named fields rather than a tuple: this grew from four elements to five, and
+    a positional unpack at two call sites is one inserted field away from
+    loading assignments into the events table.
+    """
+
+    auctions: list[dict[str, Any]]
+    events: list[dict[str, Any]]
+    assignments: list[dict[str, Any]]
+    unlinked_players: int
+    dropped_events: DroppedEvents
+
+
+def _parse_seen_at(value: Any) -> datetime | None:
+    """The record's own timestamp, or ``None`` if it does not have a usable one.
+
+    ``str(value)`` was applied before parsing, which turned a *missing* key into
+    the string ``"None"`` and a ``KeyError`` into a ``ValueError`` — the same
+    crash, further from its cause.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
@@ -75,30 +137,42 @@ def auction_rows(seed: Iterable[Sequence[Any]], asta_type: str) -> list[dict[str
     ]
 
 
-def event_rows(states: Iterable[Mapping[str, Any]], known: set[str]) -> list[dict[str, Any]]:
-    """Frame rows, dropping any auction the registry does not know.
+def event_rows(
+    states: Iterable[Mapping[str, Any]], known: set[str]
+) -> tuple[list[dict[str, Any]], DroppedEvents]:
+    """Frame rows, plus a count of every record that did not become one.
 
-    A foreign key would refuse those anyway; dropping them here means the caller
-    gets a count rather than an exception halfway through a 144,518-row load.
+    A foreign key would refuse an unknown auction anyway; dropping it here means
+    the caller gets a count rather than an exception halfway through a
+    144,518-row load. The count is now returned instead of merely promised —
+    a silent drop is indistinguishable from an empty input, and one of these
+    reasons is a broken record rather than a routine one.
     """
     rows = []
+    unknown = malformed = undated = 0
     for row in states:
         auction_id = row.get("auction_id")
         state = row.get("state")
         if not isinstance(auction_id, str) or auction_id not in known:
+            unknown += 1
             continue
         if not isinstance(state, Mapping):
+            malformed += 1
+            continue
+        seen_at = _parse_seen_at(row.get("seen_at"))
+        if seen_at is None:
+            undated += 1
             continue
         rows.append(
             {
                 "asta_id": auction_id,
                 "last_update": state.get("last_update"),
-                "seen_at": datetime.fromisoformat(str(row["seen_at"])),
+                "seen_at": seen_at,
                 "update_type": state.get("update_type"),
                 "payload": dict(state),
             }
         )
-    return rows
+    return rows, DroppedEvents(unknown, malformed, undated)
 
 
 def assignment_rows(
@@ -156,11 +230,11 @@ def build(
     listone: Mapping[str, Mapping[str, Any]],
     asta_type: str,
     known_players: frozenset[int] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], int]:
+) -> BuiltRows:
     """Every row a backfill writes, built without touching a database."""
     auctions = auction_rows(seed, asta_type)
     known = {row["id"] for row in auctions}
-    events = event_rows(states, known)
+    events, dropped = event_rows(states, known)
     assignments, unlinked = assignment_rows(reconstruct(states), listone, known_players)
     assignments = [row for row in assignments if row["asta_id"] in known]
-    return auctions, events, assignments, unlinked
+    return BuiltRows(auctions, events, assignments, unlinked, dropped)
