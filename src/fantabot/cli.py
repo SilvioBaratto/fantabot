@@ -477,7 +477,7 @@ def aste_collect(
     zone = LandingZone(out)
     console.print(f"following {len(configs)} auction(s) -> {out}")
 
-    async def watch(config: AuctionConfig, **_unused: object) -> Outcome:
+    async def watch(config: AuctionConfig) -> Outcome:
         return await watch_auction(
             config.auction_id,
             config.db_shard,
@@ -488,7 +488,6 @@ def aste_collect(
 
     supervisor = Supervisor(
         watch=watch,
-        on_state=lambda _s: None,
         sleep=asyncio.sleep,
         pool=pool or DEFAULT_POOL,
     )

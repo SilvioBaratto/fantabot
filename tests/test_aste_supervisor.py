@@ -8,23 +8,21 @@ and an auction that ends must not.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import inspect
 from typing import Any
 
 import pytest
 
 from fantabot.aste.registry import AuctionConfig
 from fantabot.aste.stream import Outcome
-from fantabot.aste.supervisor import DEFAULT_POOL, Supervisor
+from fantabot.aste.supervisor import DEFAULT_POOL, Report, Supervisor
 
 
 def _configs(n: int) -> list[AuctionConfig]:
     return [
         AuctionConfig(auction_id=f"a-{i}", db_shard="18", asta_type="mantra") for i in range(n)
     ]
-
-
-async def _noop(_state: dict[str, Any]) -> None:
-    return None
 
 
 async def _no_sleep(_seconds: float) -> None:
@@ -42,7 +40,7 @@ def test_every_auction_gets_a_watcher() -> None:
         seen.append(config.auction_id)
         return Outcome.ENDED
 
-    _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(5))
+    _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(5))
     assert sorted(seen) == [f"a-{i}" for i in range(5)]
 
 
@@ -56,7 +54,7 @@ def test_an_auction_that_ended_is_not_restarted() -> None:
         counts[config.auction_id] = counts.get(config.auction_id, 0) + 1
         return Outcome.ENDED
 
-    _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(3))
+    _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(3))
     assert set(counts.values()) == {1}
 
 
@@ -72,7 +70,7 @@ def test_a_watcher_that_raises_is_restarted() -> None:
             raise RuntimeError("boom")
         return Outcome.ENDED
 
-    supervisor = Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep)
+    supervisor = Supervisor(watch=watch, sleep=_no_sleep)
     report = _run(supervisor, _configs(2))
     assert attempts == {"a-0": 2, "a-1": 2}
     assert report.crashed == 2, "a crash must be counted, not just survived"
@@ -87,7 +85,7 @@ def test_an_unreachable_auction_is_retried_then_given_up_on() -> None:
         attempts[config.auction_id] = attempts.get(config.auction_id, 0) + 1
         return Outcome.UNREACHABLE
 
-    supervisor = Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep, max_restarts=3)
+    supervisor = Supervisor(watch=watch, sleep=_no_sleep, max_restarts=3)
     report = _run(supervisor, _configs(1))
     assert attempts["a-0"] == 3
     assert report.unreachable == 1
@@ -107,7 +105,7 @@ def test_the_pool_bounds_how_many_run_at_once() -> None:
         concurrent -= 1
         return Outcome.ENDED
 
-    _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep, pool=4), _configs(20))
+    _run(Supervisor(watch=watch, sleep=_no_sleep, pool=4), _configs(20))
     assert peak <= 4
 
 
@@ -123,7 +121,7 @@ def test_the_report_says_live_over_expected_not_just_live() -> None:
     async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
         return Outcome.ENDED
 
-    report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(6))
+    report = _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(6))
     assert report.expected == 6
     assert report.ended == 6
     assert "6" in report.summary() and "/" in report.summary()
@@ -134,7 +132,7 @@ def test_an_empty_or_single_population_is_handled(count: int) -> None:
     async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
         return Outcome.ENDED
 
-    report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(count))
+    report = _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(count))
     assert report.expected == count
 
 
@@ -153,7 +151,7 @@ def test_a_sink_failure_escapes_instead_of_being_retried() -> None:
     async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
         raise SinkFailed("No space left on device")
 
-    supervisor = Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep)
+    supervisor = Supervisor(watch=watch, sleep=_no_sleep)
     with pytest.raises(SinkFailed, match="No space left"):
         _run(supervisor, _configs(3))
 
@@ -171,5 +169,38 @@ def test_an_ordinary_crash_is_still_survived() -> None:
             raise ValueError("Expecting value: line 1 column 1")
         return Outcome.ENDED
 
-    report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(1))
+    report = _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(1))
     assert report.ended == 1 and report.crashed == 1
+
+
+def test_the_supervisor_does_not_own_a_state_callback() -> None:
+    """`on_state` was a constructor parameter the supervisor could not use.
+
+    States have to be written *per auction* — the landing zone needs the id
+    alongside the state — and one callback shared by every watcher cannot supply
+    it. So the only caller closed `zone.write(config.auction_id, ...)` into its
+    own `watch` and absorbed the supervisor's copy with `**_unused`, passing
+    `lambda _s: None` to satisfy a parameter that did nothing. The `watch`
+    callable already carries the sink; the supervisor never needed a second one.
+    """
+    assert "on_state" not in inspect.signature(Supervisor.__init__).parameters
+    watch_type = inspect.signature(Supervisor.__init__).parameters["watch"]
+    assert watch_type.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_a_watcher_is_called_with_the_config_alone() -> None:
+    seen: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    async def watch(*args: object, **kwargs: object) -> Outcome:
+        seen.append((args, kwargs))
+        return Outcome.ENDED
+
+    _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(1))
+    assert seen == [((_configs(1)[0],), {})], (
+        "the supervisor should hand a watcher its config and nothing else"
+    )
+
+
+def test_the_report_carries_no_field_nothing_reads() -> None:
+    """`Report._seen` was a set that was never added to and never queried."""
+    assert not [f for f in dataclasses.fields(Report) if f.name.startswith("_")]

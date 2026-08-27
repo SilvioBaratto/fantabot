@@ -26,8 +26,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from fantabot.aste.registry import AuctionConfig
 from fantabot.aste.stream import Outcome, SinkFailed
@@ -38,8 +37,11 @@ DEFAULT_POOL = 250
 #: How many times an *unreachable* auction is retried before its slot is freed.
 DEFAULT_MAX_RESTARTS = 5
 
-Watch = Callable[..., Awaitable[Outcome]]
-OnState = Callable[[dict[str, Any]], Awaitable[None] | None]
+#: A watcher is handed its config and nothing else. Where its states go is the
+#: caller's business: the landing zone needs the auction id alongside every
+#: state, and one callback shared across watchers cannot supply it — so the
+#: sink is closed over in the `watch` callable, where the id is in scope.
+Watch = Callable[[AuctionConfig], Awaitable[Outcome]]
 
 
 @dataclass
@@ -57,7 +59,6 @@ class Report:
     unreachable: int = 0
     crashed: int = 0
     live: int = 0
-    _seen: set[str] = field(default_factory=set)
 
     def summary(self) -> str:
         return (
@@ -73,14 +74,12 @@ class Supervisor:
         self,
         *,
         watch: Watch,
-        on_state: OnState,
         sleep: Callable[[float], Awaitable[None]],
         pool: int = DEFAULT_POOL,
         max_restarts: int = DEFAULT_MAX_RESTARTS,
         retry_delay: float = 5.0,
     ) -> None:
         self._watch = watch
-        self._on_state = on_state
         self._sleep = sleep
         self._pool = max(1, pool)
         self._max_restarts = max(1, max_restarts)
@@ -98,7 +97,7 @@ class Supervisor:
                 async with semaphore:
                     report.live += 1
                     try:
-                        outcome = await self._watch(config, on_state=self._on_state)
+                        outcome = await self._watch(config)
                     except asyncio.CancelledError:
                         raise
                     except SinkFailed:
