@@ -227,6 +227,84 @@ def mantra_grid(
 
 
 @app.command()
+def aste_backfill(
+    events: Path = typer.Argument(..., help="Collector log: one merged state per line."),
+    seed: Path = typer.Option(..., help="The scan seed describing each auction."),
+    listone: Path = typer.Option(
+        Path("data/aste_live/listone_map.json"),
+        help="uuid -> fantacalcio_id bridge from GET /v2/listone.",
+    ),
+    asta_type: str = typer.Option("mantra", help="Format the seed was collected for."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Build and report, write nothing."),
+) -> None:
+    """Load a recorded collector log into `asta`, `asta_event` and `asta_assignment`.
+
+    The same code path the live loader uses. A backfill that grows its own way of
+    building rows leaves one of the two untested, and the difference shows up on
+    an evening that cannot be collected twice.
+    """
+    import json
+
+    from fantabot.aste.backfill import build, read_jsonl
+    from fantabot.db.models.aste import ASTA_TYPES
+
+    # Checked before any work: asta_type is NOT NULL and only two values exist,
+    # so a typo caught here beats a constraint violation after building 144,518
+    # rows.
+    if asta_type not in ASTA_TYPES:
+        console.print(f"[red]{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}")
+        raise typer.Exit(2)
+    for label, path in (("events", events), ("seed", seed)):
+        if not path.exists():
+            console.print(f"[red]{label} file not found: {path}[/red]")
+            raise typer.Exit(2)
+
+    states = read_jsonl(events)
+    seed_rows = json.loads(seed.read_text(encoding="utf-8"))
+    bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    if not bridge:
+        console.print(f"[yellow]no listone at {listone}; assignments will carry no player link")
+
+    known_players: frozenset[int] | None = None
+    if not dry_run:
+        from fantabot.db import database_manager
+        from fantabot.db.repositories.aste import AsteRepository
+
+        with database_manager.get_session() as session:
+            known_players = AsteRepository(session).known_player_ids()
+
+    auctions, event_rows, assignments, unlinked = build(
+        states, seed_rows, bridge, asta_type, known_players
+    )
+    console.print(
+        f"auctions {len(auctions)} · events {len(event_rows)} from {len(states)} states"
+        f" · assignments {len(assignments)}"
+    )
+    if unlinked:
+        # A staleness signal, not a warning to scroll past: a few is a transfer
+        # window, a lot means the reference table no longer describes the listone.
+        console.print(
+            f"[yellow]{unlinked} assignment(s) carry no player link — "
+            "`players` is behind the listone[/yellow]"
+        )
+
+    if dry_run:
+        console.print("[yellow]dry run — nothing written[/yellow]")
+        return
+
+    from fantabot.db import database_manager
+    from fantabot.db.repositories.aste import AsteRepository
+
+    with database_manager.get_session() as session:
+        repo = AsteRepository(session)
+        repo.upsert_auctions(auctions)
+        repo.upsert_events(event_rows)
+        repo.upsert_assignments(assignments)
+        session.commit()
+        console.print(f"[green]stored — {repo.count_assignments()} assignments in total")
+
+
+@app.command()
 def db_check() -> None:
     """Database health, plus a row count and on-disk size for every table."""
     from rich.table import Table
