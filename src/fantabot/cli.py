@@ -229,6 +229,9 @@ def mantra_grid(
 @app.command()
 def fantalab_login(
     force: bool = typer.Option(False, "--force", help="Re-authenticate even if a session exists."),
+    browser: str = typer.Option(
+        "", help="Installed browser to drive: msedge, chrome. Empty = bundled Chromium."
+    ),
 ) -> None:
     """Sign in to FantaLab once; store the session encrypted in Postgres.
 
@@ -244,7 +247,7 @@ def fantalab_login(
     from fantabot.fantalab_login import run as run_login
 
     try:
-        run_login(force=force)
+        run_login(force=force, channel=browser or None)
     except LoginAborted as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(exc.code) from None

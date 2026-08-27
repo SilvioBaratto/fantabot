@@ -34,8 +34,15 @@ def context(headless: bool = True) -> Iterator[BrowserContext]:
 
 
 @contextmanager
-def interactive_login_context() -> Iterator[BrowserContext]:
-    """Headed context with no saved state — used only by `fantabot login`.
+def interactive_login_context(channel: str | None = None) -> Iterator[BrowserContext]:
+    """Headed context with no saved state — used only by the login commands.
+
+    ``channel`` picks an installed browser (``"msedge"``, ``"chrome"``) instead
+    of Playwright's bundled Chromium. It exists because Google refuses OAuth in
+    a browser it considers automated — *"This browser or app may not be
+    secure"*. Whether a channel helps is not obvious: the detection is about
+    automation flags rather than the brand, so this is a cheap thing to try and
+    not a fix to rely on. `fantalab-login --browser msedge`.
 
     **It no longer writes anything.** The caller decides, because it has to:
     `ctx.storage_state()` must be read *inside* the body, and this function used
@@ -47,7 +54,10 @@ def interactive_login_context() -> Iterator[BrowserContext]:
     `--save-session`.
     """
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
+        launch: dict[str, object] = {"headless": False}
+        if channel:
+            launch["channel"] = channel
+        browser = pw.chromium.launch(**launch)  # type: ignore[arg-type]
         ctx = browser.new_context()
         try:
             yield ctx

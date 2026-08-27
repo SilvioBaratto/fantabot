@@ -57,12 +57,12 @@ class FantalabLoginResult:
 BrowserFactory = Callable[[], AbstractContextManager[Any]]
 
 
-def _real_browser() -> AbstractContextManager[Any]:
+def _real_browser(channel: str | None = None) -> AbstractContextManager[Any]:
     # Imported here, not at module scope: `fantabot --help` must not load
     # Playwright, and a test pins that.
     from fantabot import browser
 
-    return browser.interactive_login_context()
+    return browser.interactive_login_context(channel)
 
 
 def _prompt(message: str) -> str:
@@ -122,6 +122,7 @@ def _read_session(ctx: Any, prompt: Callable[[str], str]) -> FantalabSession:
 def run(
     *,
     force: bool = False,
+    channel: str | None = None,
     browser_factory: BrowserFactory | None = None,
     prompt: Callable[[str], str] = _prompt,
     now: datetime | None = None,
@@ -155,7 +156,7 @@ def run(
         "When the auction list has finished loading, come back here."
     )
 
-    factory = browser_factory or _real_browser
+    factory = browser_factory or (lambda: _real_browser(channel))
     with factory() as ctx:
         page = ctx.new_page()
         page.goto(LOGIN_URL)
