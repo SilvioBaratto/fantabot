@@ -354,6 +354,7 @@ def aste_load(
 
     from fantabot.aste.backfill import auction_rows, event_rows
     from fantabot.aste.loader import (
+        CachedPlayerIds,
         Checkpoint,
         LandingZoneMissing,
         assignments_for_pass,
@@ -371,6 +372,20 @@ def aste_load(
     seed_rows = json.loads(seed.read_text(encoding="utf-8"))
     bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
     checkpoint = Checkpoint(landing)
+    # Both are constant for the run: the seed is read once above, and `players`
+    # only moves when someone runs `db-import`. Rebuilding them inside the pass
+    # body meant a session and 1,492 ids across the wire six times a minute.
+    auctions = auction_rows(seed_rows, asta_type)
+    known = {row["id"] for row in auctions}
+
+    def fetch_known_players() -> frozenset[int]:
+        from fantabot.db import database_manager
+        from fantabot.db.repositories.aste import AsteRepository
+
+        with database_manager.get_session() as session:
+            return AsteRepository(session).known_player_ids()
+
+    player_cache = CachedPlayerIds(fetch_known_players)
 
     def pass_once() -> tuple[int, int]:
         """Records carried, and bytes still behind the writer."""
@@ -379,16 +394,8 @@ def aste_load(
         if not records:
             return 0, 0
 
-        known_players = None
-        if not dry_run:
-            from fantabot.db import database_manager
-            from fantabot.db.repositories.aste import AsteRepository
+        known_players = None if dry_run else player_cache.get(now=time.monotonic())
 
-            with database_manager.get_session() as session:
-                known_players = AsteRepository(session).known_player_ids()
-
-        auctions = auction_rows(seed_rows, asta_type)
-        known = {row["id"] for row in auctions}
         # Events from the window: they are append-only, so re-reading would
         # re-upload the whole evening every pass.
         events, dropped = event_rows(records, known)

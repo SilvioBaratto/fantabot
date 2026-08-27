@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from fantabot.aste.loader import Checkpoint, read_from
+from fantabot.aste.loader import CachedPlayerIds, Checkpoint, read_from
 
 
 def _write(path: Path, *records: dict) -> None:
@@ -198,3 +198,53 @@ def test_an_empty_landing_zone_reads_differently_from_a_missing_one(tmp_path: Pa
     )
     assert result.exit_code == 0
     assert "carried 0" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+
+
+class TestCachedPlayerIds:
+    """`known_player_ids()` was called inside the pass body.
+
+    Following a landing zone at the default ten-second interval, that is a
+    session opened and 1,492 ids pulled across the wire six times a minute, for
+    a table that changes when someone runs `db-import` — which is to say
+    almost never, but not never, so the answer cannot simply be cached for the
+    life of the process.
+    """
+
+    def test_the_first_pass_fetches(self) -> None:
+        calls = []
+        cache = CachedPlayerIds(lambda: (calls.append(1), frozenset({7}))[1], ttl=300.0)
+        assert cache.get(now=0.0) == frozenset({7})
+        assert len(calls) == 1
+
+    def test_a_later_pass_within_the_ttl_reuses_the_answer(self) -> None:
+        calls: list[int] = []
+        cache = CachedPlayerIds(lambda: (calls.append(1), frozenset({7}))[1], ttl=300.0)
+        cache.get(now=0.0)
+        cache.get(now=10.0)
+        cache.get(now=299.9)
+        assert len(calls) == 1, "the table did not change; neither should the query count"
+
+    def test_the_answer_is_refetched_once_the_ttl_has_passed(self) -> None:
+        answers = [frozenset({7}), frozenset({7, 8})]
+        cache = CachedPlayerIds(lambda: answers.pop(0), ttl=300.0)
+        assert cache.get(now=0.0) == frozenset({7})
+        assert cache.get(now=300.0) == frozenset({7, 8}), (
+            "a db-import during a long follow must eventually be seen"
+        )
+
+    def test_a_failed_fetch_does_not_poison_the_cache(self) -> None:
+        """A momentary database outage must not turn every player unlinked.
+
+        `aste-load --follow` already survives an outage by skipping the pass;
+        a cache that stored the failure would keep nulling `fantacalcio_id`
+        long after the database came back.
+        """
+
+        def explode() -> frozenset[int]:
+            raise RuntimeError("database unreachable")
+
+        cache = CachedPlayerIds(explode, ttl=300.0)
+        with pytest.raises(RuntimeError):
+            cache.get(now=0.0)
+        cache._fetch = lambda: frozenset({7})  # type: ignore[method-assign]
+        assert cache.get(now=0.1) == frozenset({7})

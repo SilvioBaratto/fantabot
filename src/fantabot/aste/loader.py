@@ -29,7 +29,7 @@ a checkpoint that outlived its file — is testable with no database at all.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,38 @@ class LandingZoneMissing(FileNotFoundError):
             f"Start one with: fantabot aste-collect --seed <seed> --out {path}"
         )
         self.path = path
+
+
+class CachedPlayerIds:
+    """The reference set of `fantacalcio_id`s, fetched at most once per TTL.
+
+    `known_player_ids()` was called inside the pass body, so following a
+    landing zone at the default ten-second interval opened a session and pulled
+    1,492 ids six times a minute — for a table that only changes when someone
+    runs `db-import`.
+
+    Not cached for the life of the process, though. A follow left running for a
+    day would keep nulling `fantacalcio_id` for a player imported that morning,
+    and the null is what makes an assignment show up as unlinked. A window is
+    the honest answer: rare enough to stop being a per-pass query, short enough
+    that an import is picked up without a restart.
+
+    A failed fetch is not stored. `aste-load --follow` already survives a
+    database outage by skipping the pass; a cache that remembered the failure
+    would go on unlinking players long after the database came back.
+    """
+
+    def __init__(self, fetch: Callable[[], frozenset[int]], ttl: float = 300.0) -> None:
+        self._fetch = fetch
+        self._ttl = ttl
+        self._value: frozenset[int] | None = None
+        self._fetched_at = 0.0
+
+    def get(self, *, now: float) -> frozenset[int]:
+        if self._value is None or now - self._fetched_at >= self._ttl:
+            value = self._fetch()
+            self._value, self._fetched_at = value, now
+        return self._value
 
 
 class Checkpoint:
