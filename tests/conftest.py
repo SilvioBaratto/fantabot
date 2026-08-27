@@ -14,6 +14,7 @@ things it has to get right:
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Generator
 from typing import Any, NoReturn
@@ -56,6 +57,30 @@ def _no_sockets(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(socket.socket, "connect", blocked)
     monkeypatch.setattr(socket.socket, "connect_ex", blocked)
     monkeypatch.setattr(socket, "create_connection", blocked)
+
+
+# --- A plain, fixed-width console, decided before anything imports Rich -----
+#
+# Eight tests asserted on plain substrings of a command's output and passed
+# everywhere except in a shell exporting ``FORCE_COLOR=3``, where Rich wrote
+# escape codes *through* the words being matched — its number highlighter
+# splits ``1,474`` into two coloured runs, so the substring is no longer in the
+# string. The tests were right and the environment was leaking in.
+#
+# This runs at module scope rather than in a fixture because a ``Console``
+# reads these variables in ``__init__`` and caches the answer, and ``cli.py``
+# builds one at import. By the time any fixture body runs, the decision has
+# been made. conftest is imported before the test modules that import the CLI,
+# so here it is still early enough.
+#
+# Width matters for the same reason colour does: Rich lays out ``--help`` in a
+# table sized to ``COLUMNS``, so a narrow window hyphenates an option name and
+# a test looking for ``--league`` stops finding it.
+for _forced in ("FORCE_COLOR", "CLICOLOR_FORCE", "TTY_COMPATIBLE", "CLICOLOR"):
+    os.environ.pop(_forced, None)
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
+os.environ["COLUMNS"] = "200"
 
 
 @pytest.fixture(scope="session")

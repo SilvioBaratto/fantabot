@@ -160,7 +160,7 @@ def test_a_failing_sink_stops_the_watch_instead_of_reconnecting() -> None:
 
 def test_backoff_resets_after_a_connection_that_worked() -> None:
     """The counter only ever climbed. A watcher that dropped three times early in
-    an evening then ran healthily for hours still waited 30–90 seconds before
+    an evening then ran healthily for hours still waited 30-90 seconds before
     every later reconnect, because `attempt` was never zeroed.
 
     `max_attempts` should bound *consecutive* failures, not lifetime ones — a
