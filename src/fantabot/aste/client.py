@@ -30,10 +30,12 @@ LIVE_URL = "https://api.fantalab.it/fantaleagues/live"
 class AuthExpired(RuntimeError):
     """The stored session no longer authenticates.
 
-    Its own type because the remedy is specific and human: the id_token lasts
-    about an hour from capture, and refreshing it is not yet implemented (see
-    ``docs/fantalab/05`` §3c). Returning an empty list instead would be
-    indistinguishable from a night with no auctions.
+    Its own type because the remedy is specific and human.
+
+    Not because expiry is expected: the tokens are Keycloak's and the stored
+    ``id_token`` is valid into 2032 (``docs/fantalab/05`` §3c). This fires when a
+    session is revoked, rotated elsewhere, or was never stored — and returning an
+    empty list instead would be indistinguishable from a night with no auctions.
     """
 
 
