@@ -31,13 +31,14 @@ from typing import Any
 from fantabot.aste.models import Assignment, Bid
 
 CLOSE = "close_auction"
+FIRST_CALL = "first_call"
 
 #: Distinguishes "no player on the block" from "this auction is new to us".
 _UNSEEN = object()
 
 #: States that put a price on the board. ``confirm`` and ``reset`` do not: the
 #: first clears the slot after a sale, the second annuls a call outright.
-BIDDING = frozenset({"first_call", "raise", CLOSE})
+BIDDING = frozenset({FIRST_CALL, "raise", CLOSE})
 
 
 def _bid(state: Mapping[str, Any]) -> Bid | None:
@@ -80,12 +81,21 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
         # ladder at all, and the next raise raised KeyError. Found by a live
         # capture that began mid-turn, not by the recorded evening, which only
         # ever started on a first_call.
+        update_type = state.get("update_type")
+
+        # A turn begins on `first_call`, and a turn can begin twice for the same
+        # player: an annulled call puts him back on the block from zero. Keying
+        # the reset on the *player* changing glued those two turns together —
+        # observed in auction `ccdbe75d` on 2026-08-26, where bidding climbed to
+        # 17, the call was annulled, and the player then sold at 0. The ladder
+        # came out climbing to 17 and falling to 0, which an ascending auction
+        # cannot produce, and an opponent model fitted on it would see a bidding
+        # war that ended at zero.
         previous = on_the_block.get(auction_id, _UNSEEN)
-        if previous is _UNSEEN or previous != player_id:
+        if update_type == FIRST_CALL or previous is _UNSEEN or previous != player_id:
             on_the_block[auction_id] = player_id
             ladders[auction_id] = []
 
-        update_type = state.get("update_type")
         if update_type not in BIDDING:
             continue
 

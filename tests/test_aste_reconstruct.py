@@ -114,3 +114,48 @@ def test_an_auction_first_seen_between_players_does_not_crash() -> None:
     (assignment,) = reconstruct(rows)
     assert assignment.price == 9
     assert [b.price for b in assignment.ladder] == [0, 9], "the pre-turn raise must not leak in"
+
+
+def test_a_recalled_player_starts_a_fresh_ladder() -> None:
+    """`first_call` begins a turn, and a turn can begin twice for one player.
+
+    Observed in auction `ccdbe75d` on 2026-08-26: bidding climbed to 17, the
+    call was annulled, and a second `first_call` put the same player back on the
+    block at 0, where he sold. Resetting only when the *player* changes glued
+    the two turns together and produced a ladder that climbs to 17 and then
+    falls to 0 — a descending ladder, which an ascending auction cannot produce.
+
+    The damage is not cosmetic. An opponent model fitted on that ladder sees a
+    bidding war that ended at zero.
+    """
+    rows = [
+        {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                      "price": 0, "last_update": 1}},
+        {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                      "price": 17, "last_update": 2}},
+        {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                      "price": 0, "last_update": 3}},
+        {"auction_id": "a", "state": {"update_type": "close_auction", "player_id": "p",
+                                      "price": 0, "last_update": 4}},
+    ]
+    (assignment,) = reconstruct(rows)
+    assert assignment.price == 0
+    assert [b.price for b in assignment.ladder] == [0], (
+        "the annulled turn's bidding must not appear in the sale that followed"
+    )
+
+
+def test_no_recorded_ladder_ever_steps_downwards() -> None:
+    """An ascending auction cannot produce one. This is the property the bug
+    above violated, asserted across the whole recorded evening rather than on a
+    fixture that happened not to contain the case."""
+    if not EVENING.exists():
+        pytest.skip("the recorded evening is not on this machine")
+    descending = [
+        a for a in reconstruct(_states(EVENING))
+        if [b.price for b in a.ladder] != sorted(b.price for b in a.ladder)
+    ]
+    assert descending == [], (
+        f"{len(descending)} ladder(s) step downwards; first: "
+        f"{[b.price for b in descending[0].ladder] if descending else None}"
+    )
