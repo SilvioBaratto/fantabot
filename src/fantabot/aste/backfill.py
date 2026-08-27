@@ -26,11 +26,7 @@ from typing import Any
 
 from fantabot.aste.models import Assignment
 from fantabot.aste.reconstruct import reconstruct
-
-#: Positions in a seed row, which is a list rather than an object because the
-#: scan writes it straight out of the page's props.
-SEED_ID, SEED_DB, SEED_TEAMS, SEED_CREDITS, SEED_MIN, SEED_MAX = 0, 1, 2, 3, 4, 5
-SEED_MODE, SEED_RAISE, SEED_TIMER, SEED_TIMER_FIRST = 6, 7, 8, 9
+from fantabot.aste.registry import from_seed_row
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,26 +51,28 @@ def auction_rows(seed: Iterable[Sequence[Any]], asta_type: str) -> list[dict[str
     seed predates storing it, because it only ever collected one format. That is
     the limitation this phase exists to remove, and a backfill should not pretend
     the old file knew something it did not.
+
+    Parsing belongs to ``registry``, which owns the format. A first draft read
+    the row here with its own index constants — two independent readings of one
+    positional file, which drift silently the moment a field is added.
     """
-    rows = []
-    for entry in seed:
-        rows.append(
-            {
-                "id": entry[SEED_ID],
-                "db_shard": str(entry[SEED_DB]),
-                "asta_type": asta_type,
-                "name": entry[-1] if len(entry) > SEED_TIMER_FIRST else None,
-                "num_teams": entry[SEED_TEAMS],
-                "num_credits": entry[SEED_CREDITS],
-                "min_player": entry[SEED_MIN],
-                "max_player": entry[SEED_MAX],
-                "asta_mode": entry[SEED_MODE],
-                "raise_mode": entry[SEED_RAISE],
-                "counter_time": entry[SEED_TIMER],
-                "counter_time_first": entry[SEED_TIMER_FIRST],
-            }
-        )
-    return rows
+    return [
+        {
+            "id": config.auction_id,
+            "db_shard": config.db_shard,
+            "asta_type": config.asta_type,
+            "name": config.name,
+            "num_teams": config.num_teams,
+            "num_credits": config.num_credits,
+            "min_player": config.min_player,
+            "max_player": config.max_player,
+            "asta_mode": config.asta_mode,
+            "raise_mode": config.raise_mode,
+            "counter_time": config.counter_time,
+            "counter_time_first": config.counter_time_first,
+        }
+        for config in (from_seed_row(entry, asta_type=asta_type) for entry in seed)
+    ]
 
 
 def event_rows(states: Iterable[Mapping[str, Any]], known: set[str]) -> list[dict[str, Any]]:

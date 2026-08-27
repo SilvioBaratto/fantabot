@@ -17,15 +17,36 @@ from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert
 
+from fantabot.db.base import Base
 from fantabot.db.models.aste import Asta, AstaAssignment, AstaEvent
 from fantabot.db.repositories._base import RepositoryBase
 
-#: 8 columns x 4000 rows stays far inside Postgres's parameter bound.
-CHUNK = 4000
+#: Postgres refuses a statement with more bind parameters than this.
+PARAMETER_LIMIT = 65_535
+
+#: Never chunk larger than this regardless of width, so one statement stays a
+#: reasonable unit of work and a failure costs a bounded amount of progress.
+MAX_CHUNK = 4000
 
 
-def _chunks(rows: Sequence[dict[str, Any]]) -> list[Sequence[dict[str, Any]]]:
-    return [rows[i : i + CHUNK] for i in range(0, len(rows), CHUNK)]
+def chunk_size(model: type[Base]) -> int:
+    """Rows per statement for ``model``.
+
+    Derived rather than fixed. A single constant cannot be right for tables of
+    different widths, and being wrong is silent until a batch grows: 4000 was
+    justified by a column count that held for ``asta_event`` and not for
+    ``asta``, whose 17 columns would have asked for 68,000 parameters against a
+    65,535 bound.
+    """
+    columns = len(model.__table__.columns)
+    return max(1, min(MAX_CHUNK, PARAMETER_LIMIT // columns - 1))
+
+
+def _chunks(
+    rows: Sequence[dict[str, Any]], model: type[Base]
+) -> list[Sequence[dict[str, Any]]]:
+    size = chunk_size(model)
+    return [rows[i : i + size] for i in range(0, len(rows), size)]
 
 
 class AsteRepository(RepositoryBase):
@@ -40,7 +61,7 @@ class AsteRepository(RepositoryBase):
         if not rows:
             return 0
         written = 0
-        for chunk in _chunks(rows):
+        for chunk in _chunks(rows, Asta):
             statement = insert(Asta).values(list(chunk))
             updatable = {
                 c.name: statement.excluded[c.name]
@@ -67,7 +88,7 @@ class AsteRepository(RepositoryBase):
         if not rows:
             return 0
         written = 0
-        for chunk in _chunks(rows):
+        for chunk in _chunks(rows, AstaEvent):
             statement = insert(AstaEvent).values(list(chunk))
             self.session.execute(
                 statement.on_conflict_do_nothing(
@@ -88,7 +109,7 @@ class AsteRepository(RepositoryBase):
         if not rows:
             return 0
         written = 0
-        for chunk in _chunks(rows):
+        for chunk in _chunks(rows, AstaAssignment):
             statement = insert(AstaAssignment).values(list(chunk))
             updatable = {
                 c.name: statement.excluded[c.name]

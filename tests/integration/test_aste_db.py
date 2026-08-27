@@ -21,6 +21,10 @@ from fantabot.db.repositories.aste import AsteRepository
 pytestmark = pytest.mark.db
 
 AUCTION = "11111111-1111-1111-1111-111111111111"
+OTHER = "22222222-2222-2222-2222-222222222222"
+
+#: Only rows keyed to these are this module's business.
+OURS = (AUCTION, OTHER)
 NOW = datetime(2026, 8, 27, 6, 0, tzinfo=UTC)
 
 
@@ -52,7 +56,19 @@ def _event(last_update: int | None, **over: object) -> dict[str, object]:
 
 
 def _count(session: Session, model: type) -> int:
-    return int(session.execute(select(func.count()).select_from(model)).scalar_one())
+    """Rows of ``model`` for **this test's** auctions only.
+
+    An earlier version counted the whole table and passed only because the
+    database happened to be empty. Loading the recorded evening turned all five
+    of these red at once — the tests were reading state they did not create, and
+    the rollback fixture cannot undo what another process committed.
+    """
+    column = model.asta_id if hasattr(model, "asta_id") else model.id
+    return int(
+        session.execute(
+            select(func.count()).select_from(model).where(column.in_(OURS))
+        ).scalar_one()
+    )
 
 
 def test_writing_the_same_events_twice_leaves_one_row_each(db_session: Session) -> None:
@@ -136,7 +152,10 @@ def test_an_unknown_player_does_not_cost_us_the_assignment(db_session: Session) 
 
 def test_counting_can_filter_by_format(db_session: Session) -> None:
     repo = AsteRepository(db_session)
-    other = "22222222-2222-2222-2222-222222222222"
+    other = OTHER
+    before_all = repo.count_assignments()
+    before_classic = repo.count_assignments("classic")
+    before_mantra = repo.count_assignments("mantra")
     repo.upsert_auctions([_auction(), _auction(id=other, asta_type="mantra")])
     repo.upsert_assignments(
         [
@@ -147,6 +166,8 @@ def test_counting_can_filter_by_format(db_session: Session) -> None:
         ]
     )
     db_session.flush()
-    assert repo.count_assignments() == 2
-    assert repo.count_assignments("classic") == 1
-    assert repo.count_assignments("mantra") == 1
+    # Deltas, not absolutes: this database also holds a recorded evening, and a
+    # test that asserts a table total is asserting on someone else's data.
+    assert repo.count_assignments() - before_all == 2
+    assert repo.count_assignments("classic") - before_classic == 1
+    assert repo.count_assignments("mantra") - before_mantra == 1

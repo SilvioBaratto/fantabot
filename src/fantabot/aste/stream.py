@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from enum import Enum
 from typing import Any, Protocol
 
+from fantabot.aste.models import valid_shard
 from fantabot.aste.reducer import apply_frame
 from fantabot.aste.sse import FrameBuffer
 
@@ -65,7 +66,8 @@ class OpenStream(Protocol):
 
 
 def stream_url(auction_id: str, shard: str) -> str:
-    return HOST.format(shard=shard) + NODE.format(auction_id=auction_id)
+    """The node's URL. Refuses a shard that would leave the Firebase domain."""
+    return HOST.format(shard=valid_shard(shard)) + NODE.format(auction_id=auction_id)
 
 
 def _delay(attempt: int, jitter: Callable[[], float]) -> float:

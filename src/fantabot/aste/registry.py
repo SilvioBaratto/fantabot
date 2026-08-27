@@ -20,6 +20,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from fantabot.aste.models import valid_shard
+
 #: Field order of a poller-era seed row. Positional because that file has no
 #: keys — it was written straight from the page's props.
 SEED_FIELDS = (
@@ -72,7 +74,7 @@ def from_card(card: Mapping[str, Any]) -> AuctionConfig:
     """
     return AuctionConfig(
         auction_id=str(card["fantaleague_id"]),
-        db_shard=str(card["db"]),
+        db_shard=valid_shard(card["db"]),
         asta_type=str(card["asta_type"]),
         name=card.get("fantaleague_name"),
         num_teams=card.get("num_teams"),
@@ -96,7 +98,7 @@ def from_seed_row(row: Sequence[Any], *, asta_type: str) -> AuctionConfig:
     values = dict(zip(SEED_FIELDS, row, strict=False))
     return AuctionConfig(
         auction_id=str(values["auction_id"]),
-        db_shard=str(values["db_shard"]),
+        db_shard=valid_shard(values["db_shard"]),
         asta_type=asta_type,
         name=values.get("name"),
         num_teams=values.get("num_teams"),
@@ -137,7 +139,7 @@ def merge(
                 previous,
                 **{
                     field: value
-                    for field, value in vars_of(config).items()
+                    for field, value in _vars_of(config).items()
                     if value is not None
                 },
             )
@@ -145,6 +147,6 @@ def merge(
     return [registry[key] for key in sorted(registry)]
 
 
-def vars_of(config: AuctionConfig) -> dict[str, Any]:
+def _vars_of(config: AuctionConfig) -> dict[str, Any]:
     """Field values of a slotted dataclass, which has no ``__dict__``."""
     return {field: getattr(config, field) for field in AuctionConfig.__slots__}
