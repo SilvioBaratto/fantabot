@@ -37,6 +37,12 @@ fantabot news-fetch --limit 5           # smoke test, queries but writes nothing
 fantabot news-fetch --write             # the weekly run: all 523, both leagues
 fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
 
+fantabot fantalab-login                 # headed, manual; session encrypted into Postgres
+fantabot aste-scan --seed seed.json     # which auctions are live, both formats
+fantabot aste-collect --seed seed.json --out landing.jsonl   # subscribe, append to disk
+fantabot aste-load landing.jsonl --seed seed.json --follow   # landing zone -> Postgres
+fantabot aste-backfill events.jsonl --seed seed.json         # a recorded evening
+
 pytest                       # default tier: zero sockets, db tests deselected
 pytest -m db                 # integration tier, needs the compose stack
 ruff check src tests
@@ -145,6 +151,19 @@ alembic check                # models and migrations agree?
    (`scrape_session_id`) lets `state.py` dedupe/reset role budgets across
    restarts. `scrape_session_id` / `scrape_current_listing` / `place_bid` /
    `is_session_over` are `NotImplementedError` stubs — same reason as above.
+
+14. **`aste/`** — the auction harvester, and the reason `docs/fantalab/05` exists.
+   `sse.py`/`reducer.py`/`reconstruct.py`/`registry.py`/`compare.py` are pure;
+   `stream.py`/`transport.py`/`landing.py`/`loader.py`/`supervisor.py` are the
+   I/O shell. **The database is never on the collection path** — a test walks the
+   capture modules' imports and fails if any can reach `fantabot.db`, because an
+   outage must cost catch-up time and never a record.
+   **`scripts/*_aste_live.py` is the retired poller.** Kept as a fallback and as
+   the thing `scripts/compare_collectors.py` measures against; it reads merged
+   snapshots, so two raises inside one interval collapse into one. The shadow run
+   of 2026-08-27 put numbers on that: same 23 rooms, 105 shared sales, and **224
+   rungs the poller could not see.** Use `aste-collect`.
+
 
 ## Known unknowns — resolve before flipping `FANTABOT_AUTO_ACT=true`
 
