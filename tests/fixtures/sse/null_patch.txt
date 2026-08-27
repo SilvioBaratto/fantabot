@@ -1,0 +1,3 @@
+event: patch
+data: {"path":"/","data":{"next_turn":"ec248fa6-ce93-41a2-807b-3e3fb69d9a98","price":null,"last_bid_time":null,"skip_control":null,"user_id":null,"last_update":1787773990100}}
+

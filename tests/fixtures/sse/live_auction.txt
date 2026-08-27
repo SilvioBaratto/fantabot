@@ -1,0 +1,15 @@
+event: put
+data: {"path":"/","data":{"fantaleague_id":"959f67a2-9d92-46a9-a467-519560635b27","fantateam_id":"edb3a341-6a22-4e05-9600-95c077aa7958","is_first":false,"last_bid_time":1787810461103,"last_update":1787810461068,"last_update_asta":1787810312614,"next_turn":"d01ce3bb-63b7-4e9a-931b-240efacda4a6","player_id":"dbd256fc-4861-493d-8fc6-8abc4503c061","price":261,"timeToPass":8,"update_type":"raise","user_id":"f56a3b10-e674-463b-b1a5-5f837564fcac"}}
+
+event: keep-alive
+data: null
+
+event: patch
+data: {"path":"/","data":{"price":262,"last_bid_time":1787810498503,"user_id":"fc1cb8ab-23ee-40df-ad4a-99bc6a7bc18e","last_update":1787810498479,"fantateam_id":"767f74bd-b8d0-4567-9f7f-08be1886bf99"}}
+
+event: patch
+data: {"path":"/","data":{"price":366,"last_bid_time":1787810523205,"last_update":1787810523181}}
+
+event: keep-alive
+data: null
+
