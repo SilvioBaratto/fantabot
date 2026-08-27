@@ -227,6 +227,91 @@ def mantra_grid(
 
 
 @app.command()
+def aste_load(
+    landing: Path = typer.Argument(..., help="Landing-zone JSONL the collector appends to."),
+    seed: Path = typer.Option(..., help="The scan seed describing each auction."),
+    listone: Path = typer.Option(
+        Path("data/aste_live/listone_map.json"),
+        help="uuid -> fantacalcio_id bridge from GET /v2/listone.",
+    ),
+    asta_type: str = typer.Option("mantra", help="Format the seed was collected for."),
+    follow: bool = typer.Option(False, "--follow", help="Keep reading as the file grows."),
+    interval: float = typer.Option(10.0, help="Seconds between passes when following."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Read and report, write nothing."),
+) -> None:
+    """Carry the landing zone into Postgres, resuming where the last pass stopped.
+
+    The database is deliberately not on the collection critical path: the
+    collector writes to the file and this reads from it. An outage costs
+    catch-up time, never a record.
+    """
+    import json
+    import time
+
+    from fantabot.aste.backfill import build
+    from fantabot.aste.loader import Checkpoint, read_from
+    from fantabot.db.models.aste import ASTA_TYPES
+
+    if asta_type not in ASTA_TYPES:
+        console.print(f"[red]{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}")
+        raise typer.Exit(2)
+    if not seed.exists():
+        console.print(f"[red]seed file not found: {seed}[/red]")
+        raise typer.Exit(2)
+
+    seed_rows = json.loads(seed.read_text(encoding="utf-8"))
+    bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    checkpoint = Checkpoint(landing)
+
+    def pass_once() -> tuple[int, int]:
+        """Records carried, and bytes still behind the writer."""
+        offset = checkpoint.read()
+        records, new_offset = read_from(landing, offset)
+        if not records:
+            return 0, 0
+
+        known_players = None
+        if not dry_run:
+            from fantabot.db import database_manager
+            from fantabot.db.repositories.aste import AsteRepository
+
+            with database_manager.get_session() as session:
+                known_players = AsteRepository(session).known_player_ids()
+
+        # The same build() the backfill uses. A loader that grew its own would
+        # leave one of the two untested.
+        auctions, events, assignments, unlinked = build(
+            records, seed_rows, bridge, asta_type, known_players
+        )
+        if not dry_run:
+            from fantabot.db import database_manager
+            from fantabot.db.repositories.aste import AsteRepository
+
+            with database_manager.get_session() as session:
+                repo = AsteRepository(session)
+                repo.upsert_auctions(auctions)
+                repo.upsert_events(events)
+                repo.upsert_assignments(assignments)
+                session.commit()
+            checkpoint.write(new_offset)
+
+        size = landing.stat().st_size if landing.exists() else new_offset
+        if unlinked:
+            console.print(f"[yellow]{unlinked} assignment(s) carry no player link[/yellow]")
+        return len(records), size - new_offset
+
+    while True:
+        carried, behind = pass_once()
+        suffix = " (dry run — nothing written)" if dry_run else ""
+        # Lag is reported every pass, not only when it is large: a loader that
+        # only speaks up when it is already behind gives no warning it is losing.
+        console.print(f"carried {carried} · {behind} bytes behind{suffix}")
+        if not follow:
+            return
+        time.sleep(interval)
+
+
+@app.command()
 def aste_collect(
     auction: str = typer.Option(..., "--one", help="Auction uuid to follow."),
     shard: str = typer.Option(..., help="Firebase shard, from the auction's list card."),
