@@ -22,8 +22,13 @@ from typing import Any
 
 from fantabot.aste.models import valid_shard
 
-#: Field order of a poller-era seed row. Positional because that file has no
-#: keys — it was written straight from the page's props.
+#: Field order of a seed row. Positional because the original file had no keys —
+#: it was written straight from the page's props.
+#:
+#: ``asta_type`` is **last, and appended rather than inserted**. The poller-era
+#: file has eleven fields and no format, so anything earlier in the tuple would
+#: silently reinterpret every value in it. Appending keeps those rows readable
+#: and lets new ones carry their own format.
 SEED_FIELDS = (
     "auction_id",
     "db_shard",
@@ -36,6 +41,7 @@ SEED_FIELDS = (
     "counter_time",
     "counter_time_first",
     "name",
+    "asta_type",
 )
 
 
@@ -91,15 +97,20 @@ def from_card(card: Mapping[str, Any]) -> AuctionConfig:
 def from_seed_row(row: Sequence[Any], *, asta_type: str) -> AuctionConfig:
     """Build a config from a poller-era seed row.
 
-    ``asta_type`` has to be supplied: that file predates storing it, because the
-    poller only ever collected one format. Inferring it would be inventing a
-    fact the file never held.
+    ``asta_type`` is a **fallback**, used only when the row does not carry one.
+    The poller-era file predates storing the format because it only ever
+    collected Mantra, so those rows need telling; rows written since carry their
+    own and must ignore the argument.
+
+    Getting that precedence backwards is not hypothetical: it labelled 185
+    Classic auctions as Mantra, with the collection-time filter already removed.
+    The format was being destroyed at persistence instead.
     """
     values = dict(zip(SEED_FIELDS, row, strict=False))
     return AuctionConfig(
         auction_id=str(values["auction_id"]),
         db_shard=valid_shard(values["db_shard"]),
-        asta_type=asta_type,
+        asta_type=str(values.get("asta_type") or asta_type),
         name=values.get("name"),
         num_teams=values.get("num_teams"),
         num_credits=values.get("num_credits"),
