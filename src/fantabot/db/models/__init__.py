@@ -6,6 +6,12 @@ its table.
 """
 
 from fantabot.db.base import Base, TimestampMixin
+from fantabot.db.models.aste import (
+    ASTA_TYPES,
+    Asta,
+    AstaAssignment,
+    AstaEvent,
+)
 from fantabot.db.models.league import (
     LeaguePlayerPool,
     LeagueSnapshot,
@@ -28,12 +34,16 @@ from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
 from fantabot.db.models.tokens import LeagueToken
 
 __all__ = [
+    "ASTA_TYPES",
     "BID_OUTCOMES",
     "COACH_ROLE",
     "FONTI",
     "LISTONI",
     "MACRO_ROLES",
     "SCORE_COLUMNS",
+    "Asta",
+    "AstaAssignment",
+    "AstaEvent",
     "AuctionBid",
     "Base",
     "BonusMalus",

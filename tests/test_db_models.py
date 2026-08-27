@@ -193,6 +193,13 @@ SCHEMA_TABLES = frozenset(
         "league_team_snapshot",
         "league_player_pool",
         "league_tokens",
+        # Phase 5, the streaming auction harvest. Listed here on purpose rather
+        # than the assertion being loosened: this test exists to make schema
+        # growth a deliberate edit, and it did its job — adding these three
+        # turned the suite red until someone said they belonged.
+        "asta",
+        "asta_event",
+        "asta_assignment",
     }
 )
 

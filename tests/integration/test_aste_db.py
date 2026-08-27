@@ -1,0 +1,152 @@
+"""The auction tables against a real Postgres. Marked ``db``.
+
+What is worth exercising here is not that rows land — it is that writing the
+*same* rows twice changes nothing. The collector was killed eleven times on
+2026-08-26 and each restart re-emitted the current state of every auction it
+watched; a write path that duplicates would show phantom rungs in every ladder
+rebuilt from those rows.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from fantabot.db.models.aste import Asta, AstaAssignment, AstaEvent
+from fantabot.db.repositories.aste import AsteRepository
+
+pytestmark = pytest.mark.db
+
+AUCTION = "11111111-1111-1111-1111-111111111111"
+NOW = datetime(2026, 8, 27, 6, 0, tzinfo=UTC)
+
+
+def _auction(**over: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "id": AUCTION,
+        "db_shard": "4",
+        "asta_type": "classic",
+        "name": "test",
+        "num_teams": 8,
+        "num_credits": 500,
+        "first_seen_at": NOW,
+        "last_seen_at": NOW,
+    }
+    row.update(over)
+    return row
+
+
+def _event(last_update: int | None, **over: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "asta_id": AUCTION,
+        "last_update": last_update,
+        "seen_at": NOW,
+        "update_type": "raise",
+        "payload": {"price": 7, "last_update": last_update},
+    }
+    row.update(over)
+    return row
+
+
+def _count(session: Session, model: type) -> int:
+    return int(session.execute(select(func.count()).select_from(model)).scalar_one())
+
+
+def test_writing_the_same_events_twice_leaves_one_row_each(db_session: Session) -> None:
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    rows = [_event(1000), _event(1001)]
+    repo.upsert_events(rows)
+    repo.upsert_events(rows)
+    db_session.flush()
+    assert _count(db_session, AstaEvent) == 2
+
+
+def test_events_without_a_last_update_are_kept_not_collapsed(db_session: Session) -> None:
+    """They cannot conflict — there is no key on which to call them the same
+    observation — so they must land rather than be silently dropped."""
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    repo.upsert_events([_event(None), _event(None)])
+    db_session.flush()
+    assert _count(db_session, AstaEvent) == 2
+
+
+def test_re_registering_an_auction_does_not_rewrite_when_we_first_met_it(
+    db_session: Session,
+) -> None:
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    later = datetime(2026, 8, 27, 9, 0, tzinfo=UTC)
+    repo.upsert_auctions([_auction(first_seen_at=later, last_seen_at=later, name="renamed")])
+    db_session.flush()
+    stored = db_session.get(Asta, AUCTION)
+    assert stored is not None
+    assert stored.first_seen_at == NOW, "first_seen_at must not move forward"
+    assert stored.last_seen_at == later
+    assert stored.name == "renamed"
+
+
+def test_a_reconstruction_can_be_corrected_by_rerunning_it(db_session: Session) -> None:
+    """Assignments are derived. A fixed reducer must be able to overwrite what a
+    broken one wrote, which is why this path is DO UPDATE and events are not."""
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    base = {
+        "asta_id": AUCTION,
+        "player_uuid": "p-1",
+        "fantacalcio_id": None,
+        "price": 5,
+        "buyer_team_id": "t-1",
+        "closed_at_ms": 1000,
+        "ladder": [{"price": 5, "team_id": "t-1", "at_ms": 999}],
+    }
+    repo.upsert_assignments([base])
+    repo.upsert_assignments([{**base, "price": 42}])
+    db_session.flush()
+    assert _count(db_session, AstaAssignment) == 1
+    stored = db_session.get(AstaAssignment, (AUCTION, "p-1"))
+    assert stored is not None and stored.price == 42
+
+
+def test_an_unknown_player_does_not_cost_us_the_assignment(db_session: Session) -> None:
+    """2 of 407 players auctioned on 2026-08-26 were signings newer than our last
+    scrape. A NOT NULL foreign key would have refused those rows."""
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    repo.upsert_assignments(
+        [
+            {
+                "asta_id": AUCTION,
+                "player_uuid": "unknown",
+                "fantacalcio_id": None,
+                "price": 62,
+                "buyer_team_id": None,
+                "closed_at_ms": None,
+                "ladder": [],
+            }
+        ]
+    )
+    db_session.flush()
+    assert _count(db_session, AstaAssignment) == 1
+
+
+def test_counting_can_filter_by_format(db_session: Session) -> None:
+    repo = AsteRepository(db_session)
+    other = "22222222-2222-2222-2222-222222222222"
+    repo.upsert_auctions([_auction(), _auction(id=other, asta_type="mantra")])
+    repo.upsert_assignments(
+        [
+            {"asta_id": AUCTION, "player_uuid": "a", "fantacalcio_id": None, "price": 1,
+             "buyer_team_id": None, "closed_at_ms": None, "ladder": []},
+            {"asta_id": other, "player_uuid": "b", "fantacalcio_id": None, "price": 2,
+             "buyer_team_id": None, "closed_at_ms": None, "ladder": []},
+        ]
+    )
+    db_session.flush()
+    assert repo.count_assignments() == 2
+    assert repo.count_assignments("classic") == 1
+    assert repo.count_assignments("mantra") == 1
