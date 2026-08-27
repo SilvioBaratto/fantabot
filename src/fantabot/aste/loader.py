@@ -4,6 +4,18 @@ The database is deliberately not on the collection critical path: the collector
 appends to a file and this reads from it. An outage therefore costs catch-up
 time and never a record — which is the whole reason the split exists.
 
+**Events are incremental; assignments are not, and cannot be.** A checkpointed
+window is right for `asta_event`, which is append-only. It is wrong for
+`asta_assignment`: ``reconstruct`` holds its ladders in locals, so a window
+starting mid-turn rebuilds from nothing, and the upsert is DO UPDATE — the short
+ladder then overwrites the complete one and the checkpoint never returns for the
+rungs it skipped. The sale survives, the price survives, only the ladder is
+quietly truncated, which is the one thing this collector exists to keep.
+
+So assignments are rebuilt from the whole landing zone each pass. It costs a
+re-read — measured at roughly one second for 144,518 records against a ten-second
+interval — and it is the only shape that cannot lose a rung.
+
 **The rule that makes it safe: never consume a line the writer has not
 finished.** The two processes share a file with no lock between them, so a read
 can land mid-append. Taking a partial line and advancing past it would lose that
@@ -17,11 +29,30 @@ a checkpoint that outlived its file — is testable with no database at all.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from fantabot.aste.models import Assignment
+
 #: Where a checkpoint lives: beside its landing zone, so moving one moves both.
 SUFFIX = ".offset"
+
+
+class LandingZoneMissing(FileNotFoundError):
+    """The landing zone does not exist, so nothing is collecting into it.
+
+    Its own type because the remedy is a specific command, and because the
+    alternative — an empty window — is indistinguishable from the two states
+    that are genuinely fine.
+    """
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(
+            f"no landing zone at {path} — nothing is collecting into it.\n"
+            f"Start one with: fantabot aste-collect --seed <seed> --out {path}"
+        )
+        self.path = path
 
 
 class Checkpoint:
@@ -55,10 +86,12 @@ def read_from(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
     """
     try:
         size = path.stat().st_size
-    except OSError:
-        # Collection may not have started yet. That is a normal state, not a
-        # failure, and `--follow` has to survive it.
-        return [], offset if offset == 0 else 0
+    except OSError as exc:
+        # A missing landing zone is not a quiet pass. Returning an empty window
+        # made "the collector was never started" print exactly like "nothing
+        # happened yet" and "everything is already loaded" — and an operator sat
+        # watching that on 2026-08-27, believing the auctions were idle.
+        raise LandingZoneMissing(path) from exc
 
     if offset > size:
         # The landing zone was rotated or replaced and is now shorter than the
@@ -87,3 +120,50 @@ def read_from(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
             # landing reader skips one: losing a record beats refusing the file.
             continue
     return records, offset + len(complete)
+
+
+def assignments_for_pass(
+    landing: Path, new_records: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Assignment rows for a pass that carried ``new_records``.
+
+    Rebuilt from the **whole** landing zone rather than the window, for the
+    reason in the module docstring. Returns nothing when the pass carried
+    nothing, so a quiet pass does not rewrite rows it has no news about.
+
+    Kept here rather than in the CLI so the windowing rule has one home and one
+    test, instead of being an implicit property of the command.
+    """
+    if not new_records:
+        return []
+    from fantabot.aste.reconstruct import reconstruct
+
+    return _rows(reconstruct(read_records(landing)))
+
+
+def read_records(path: Path) -> list[dict[str, Any]]:
+    """Every complete record in ``path``, from the beginning."""
+    records, _offset = read_from(path, 0)
+    return records
+
+
+def _rows(assignments: Iterable[Assignment]) -> list[dict[str, Any]]:
+    """Assignment value types as the rows the repository writes.
+
+    The listone bridge is applied by the caller, which holds it; this only
+    reshapes, so the two halves stay independently testable.
+    """
+    return [
+        {
+            "asta_id": a.auction_id,
+            "player_uuid": a.player_id,
+            "fantacalcio_id": None,
+            "price": a.price,
+            "buyer_team_id": a.buyer_team_id,
+            "closed_at_ms": a.closed_at_ms,
+            "ladder": [
+                {"price": b.price, "team_id": b.team_id, "at_ms": b.at_ms} for b in a.ladder
+            ],
+        }
+        for a in assignments
+    ]

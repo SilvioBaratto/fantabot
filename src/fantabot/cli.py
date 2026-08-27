@@ -337,8 +337,13 @@ def aste_load(
     import json
     import time
 
-    from fantabot.aste.backfill import build
-    from fantabot.aste.loader import Checkpoint, read_from
+    from fantabot.aste.backfill import auction_rows, event_rows
+    from fantabot.aste.loader import (
+        Checkpoint,
+        LandingZoneMissing,
+        assignments_for_pass,
+        read_from,
+    )
     from fantabot.db.models.aste import ASTA_TYPES
 
     if asta_type not in ASTA_TYPES:
@@ -367,11 +372,24 @@ def aste_load(
             with database_manager.get_session() as session:
                 known_players = AsteRepository(session).known_player_ids()
 
-        # The same build() the backfill uses. A loader that grew its own would
-        # leave one of the two untested.
-        auctions, events, assignments, unlinked = build(
-            records, seed_rows, bridge, asta_type, known_players
-        )
+        auctions = auction_rows(seed_rows, asta_type)
+        known = {row["id"] for row in auctions}
+        # Events from the window: they are append-only, so re-reading would
+        # re-upload the whole evening every pass.
+        events = event_rows(records, known)
+        # Assignments from the WHOLE landing zone. A window that starts mid-turn
+        # rebuilds a ladder from nothing, and the upsert is DO UPDATE — the short
+        # ladder would overwrite the complete one and the checkpoint would never
+        # come back for the rungs it skipped.
+        assignments = [r for r in assignments_for_pass(landing, records) if r["asta_id"] in known]
+        unlinked = 0
+        for row in assignments:
+            entry = bridge.get(row["player_uuid"])
+            fid = entry.get("fantacalcio_id") if entry else None
+            if known_players is not None and fid not in known_players:
+                fid = None
+            row["fantacalcio_id"] = fid
+            unlinked += fid is None
         if not dry_run:
             from fantabot.db import database_manager
             from fantabot.db.repositories.aste import AsteRepository
@@ -394,6 +412,11 @@ def aste_load(
     while True:
         try:
             carried, behind = pass_once()
+        except LandingZoneMissing as exc:
+            # Named, with the command that would create it. Silence here reads
+            # as a quiet evening, which is the one thing it must not read as.
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(2) from None
         except SQLAlchemyError as exc:
             # The checkpoint has not moved, so nothing is lost — the next pass
             # re-reads exactly what this one could not write. Said out loud,

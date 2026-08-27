@@ -136,3 +136,40 @@ def test_an_empty_or_single_population_is_handled(count: int) -> None:
 
     report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(count))
     assert report.expected == count
+
+
+def test_a_sink_failure_escapes_instead_of_being_retried() -> None:
+    """`watch_auction` wraps a sink error in `SinkFailed` and re-raises it past
+    its own reconnect loop, and `aste-collect` has an `except SinkFailed` that
+    exits 1. The supervisor sat between them and its `except Exception` caught it
+    first — so the CLI handler was unreachable on every path.
+
+    Consequence measured: on a full disk, every watcher retried its limit, the
+    run printed `crashed 5 · 0 states written`, and the command exited **0**.
+    Cron would have been told the evening succeeded.
+    """
+    from fantabot.aste.stream import SinkFailed
+
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        raise SinkFailed("No space left on device")
+
+    supervisor = Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep)
+    with pytest.raises(SinkFailed, match="No space left"):
+        _run(supervisor, _configs(3))
+
+
+def test_an_ordinary_crash_is_still_survived() -> None:
+    """The broad catch exists for a reason — a JSONDecodeError from a gateway
+    page must not end the run. Narrowing it for SinkFailed must not narrow it
+    for everything."""
+    attempts: dict[str, int] = {}
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        n = attempts.get(config.auction_id, 0) + 1
+        attempts[config.auction_id] = n
+        if n == 1:
+            raise ValueError("Expecting value: line 1 column 1")
+        return Outcome.ENDED
+
+    report = _run(Supervisor(watch=watch, on_state=_noop, sleep=_no_sleep), _configs(1))
+    assert report.ended == 1 and report.crashed == 1

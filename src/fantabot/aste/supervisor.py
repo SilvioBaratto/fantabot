@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fantabot.aste.registry import AuctionConfig
-from fantabot.aste.stream import Outcome
+from fantabot.aste.stream import Outcome, SinkFailed
 
 #: Above a whole live population, because S1 found no server-side cap at 207.
 DEFAULT_POOL = 250
@@ -100,6 +100,15 @@ class Supervisor:
                     try:
                         outcome = await self._watch(config, on_state=self._on_state)
                     except asyncio.CancelledError:
+                        raise
+                    except SinkFailed:
+                        # Not a crash to survive. A failing sink means writes are
+                        # not landing, so retrying turns a full disk into a loop
+                        # that reconnects for ever and stores nothing — which is
+                        # what stream.py raises this type to prevent. Without
+                        # this line the CLI's own `except SinkFailed` was
+                        # unreachable and the command exited 0 having written
+                        # no states at all.
                         raise
                     except Exception:
                         report.crashed += 1

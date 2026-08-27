@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from fantabot.aste.loader import Checkpoint, read_from
 
 
@@ -73,8 +75,27 @@ def test_nothing_new_reads_as_nothing(tmp_path: Path) -> None:
     assert read_from(path, offset) == ([], offset)
 
 
-def test_a_missing_file_is_not_an_error_before_collection_starts(tmp_path: Path) -> None:
-    assert read_from(tmp_path / "absent.jsonl", 0) == ([], 0)
+def test_a_missing_file_is_an_error_because_it_means_nothing_is_collecting(
+    tmp_path: Path,
+) -> None:
+    """This test previously asserted the opposite, and the belief was the bug.
+
+    "A missing landing zone is not an error, collection may not have started
+    yet" sounds reasonable and produced a loader that printed `carried 0` for
+    ever while nothing was running. Present-but-empty is the state that means
+    "just started"; absent means "nothing is collecting into it", and only one
+    of those has a remedy the operator needs telling.
+    """
+    from fantabot.aste.loader import LandingZoneMissing
+
+    with pytest.raises(LandingZoneMissing, match="aste-collect"):
+        read_from(tmp_path / "absent.jsonl", 0)
+
+
+def test_an_empty_file_is_genuinely_quiet(tmp_path: Path) -> None:
+    empty = tmp_path / "live.jsonl"
+    empty.touch()
+    assert read_from(empty, 0) == ([], 0)
 
 
 def test_a_checkpoint_survives_a_restart(tmp_path: Path) -> None:
@@ -128,3 +149,52 @@ def test_a_dry_run_reports_progress_without_a_database(tmp_path: Path) -> None:
     plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "carried 2" in plain
     assert "0 bytes behind" in plain
+
+
+def test_a_missing_landing_zone_is_named_not_reported_as_quiet(tmp_path: Path) -> None:
+    """`carried 0 · 0 bytes behind` printed identically for a file that does not
+    exist, one that is empty, and one already fully loaded.
+
+    Observed 2026-08-27: the operator ran scan and load, skipped `aste-collect`,
+    and watched a healthy-looking loader report zero indefinitely. It is the
+    failure shape this phase guards against everywhere else — a 401 and a quiet
+    night must not read the same — left standing in our own loader.
+    """
+    import re
+
+    from typer.testing import CliRunner
+
+    from fantabot.cli import app
+
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps([["a-1", "4", 8, 500, 25, 25, "random", "free", 8, 8, "x"]]))
+    absent = tmp_path / "never-created.jsonl"
+
+    result = CliRunner().invoke(
+        app, ["aste-load", str(absent), "--seed", str(seed), "--dry-run"]
+    )
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "never-created.jsonl" in plain, "the missing file must be named"
+    assert "aste-collect" in plain, "and so must the command that would create it"
+    assert "carried 0" not in plain, "a missing file is not a quiet pass"
+
+
+def test_an_empty_landing_zone_reads_differently_from_a_missing_one(tmp_path: Path) -> None:
+    """Present-but-empty is the collector having just started. That is genuinely
+    quiet, and must not be reported as an error."""
+    import re
+
+    from typer.testing import CliRunner
+
+    from fantabot.cli import app
+
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps([["a-1", "4", 8, 500, 25, 25, "random", "free", 8, 8, "x"]]))
+    empty = tmp_path / "live.jsonl"
+    empty.touch()
+
+    result = CliRunner().invoke(
+        app, ["aste-load", str(empty), "--seed", str(seed), "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert "carried 0" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
