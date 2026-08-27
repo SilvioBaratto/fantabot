@@ -200,6 +200,9 @@ SCHEMA_TABLES = frozenset(
         "asta",
         "asta_event",
         "asta_assignment",
+        # Phase 5 also stores a FantaLab session, keyed by that platform's uuid
+        # rather than a lega id: a different service with a different shape.
+        "fantalab_session",
     }
 )
 

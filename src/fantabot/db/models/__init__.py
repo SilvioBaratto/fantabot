@@ -31,7 +31,7 @@ from fantabot.db.models.reference import (
 )
 from fantabot.db.models.runtime import BID_OUTCOMES, AuctionBid, BotState
 from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
-from fantabot.db.models.tokens import LeagueToken
+from fantabot.db.models.tokens import FantalabSession, LeagueToken
 
 __all__ = [
     "ASTA_TYPES",
@@ -48,6 +48,7 @@ __all__ = [
     "Base",
     "BonusMalus",
     "BotState",
+    "FantalabSession",
     "LeaguePlayerPool",
     "LeagueSnapshot",
     "LeagueTeamSnapshot",

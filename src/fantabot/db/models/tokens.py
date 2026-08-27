@@ -75,3 +75,45 @@ class LeagueToken(Base, TimestampMixin):
         # No ciphertext, no fingerprint. A repr ends up in tracebacks, in pytest
         # failure output, and in cron logs.
         return f"<LeagueToken lega={self.league_id} expires={self.expires_at:%Y-%m-%d}>"
+
+
+class FantalabSession(Base, TimestampMixin):
+    """The encrypted FantaLab session for one account.
+
+    A separate table from ``league_tokens`` rather than a wider one. They are
+    credentials for two different services with two different shapes: a lega
+    token is a JWT with claims we read (``exp``, ``l_id``, ``t_id``), while this
+    is three opaque strings from ``localStorage`` whose only structure is that
+    ``refresh_token`` outlives the other two. Sharing a table would mean a row
+    where half the columns are always NULL and a reader has to know which half.
+
+    One ciphertext, not three columns. A partial write cannot then leave two of
+    the three stored, and rotating the key rewrites a single value.
+    """
+
+    __tablename__ = "fantalab_session"
+
+    # The account's own uuid, from localStorage. Text rather than the bigint
+    # league_tokens uses: FantaLab identifies everything by uuid.
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+
+    # bytea for the same reason league_tokens uses it: a Fernet token is ASCII
+    # base64 and would sit in `text` looking exactly like something paste-able.
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+
+    # sha256(key)[:8] — of the *key*, never the plaintext. Turns InvalidToken
+    # into a sentence naming both keys.
+    key_fingerprint: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # NULL means never used against the live API, which is different from
+    # "used once and then it stopped working".
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        # No ciphertext, no fingerprint of anything but the key.
+        return f"<FantalabSession user_id={self.user_id} key={self.key_fingerprint}>"

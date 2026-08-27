@@ -45,7 +45,16 @@ JWT_LITERAL = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.")
 # `store.load_plaintext`, so `apileague.py` is expected to stay empty of
 # `decrypt(` — but it is allowed here so that a later change there fails
 # deliberately, at review, rather than by surprise.
-DECRYPT_ALLOWED = {"tokens/crypto.py", "tokens/store.py", "apileague.py"}
+DECRYPT_ALLOWED = {
+    "tokens/crypto.py",
+    "tokens/store.py",
+    "apileague.py",
+    # Phase 5. A second service, so a second store — a lega token is a JWT whose
+    # claims we read, a FantaLab session is three opaque strings. Listed here
+    # rather than the assertion being widened to `tokens/*`: this test exists to
+    # make each new decryption site a deliberate entry, and it did its job.
+    "tokens/fantalab_store.py",
+}
 
 # argv is visible in `ps` and persists in shell history. SPEC's Never list.
 FORBIDDEN_OPTIONS = ("--key", "--encryption-key", "--fernet-key", "--secret", "--token")

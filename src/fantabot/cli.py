@@ -227,6 +227,30 @@ def mantra_grid(
 
 
 @app.command()
+def fantalab_login(
+    force: bool = typer.Option(False, "--force", help="Re-authenticate even if a session exists."),
+) -> None:
+    """Sign in to FantaLab once; store the session encrypted in Postgres.
+
+    Opens a real browser and waits. **This program types nothing and clicks
+    nothing** — a scripted sign-in is what gets accounts flagged, and FantaLab
+    offers Google and Apple besides its own form, so there is no single flow to
+    automate even if that were wanted.
+
+    No `storage_state.json` is written. That file would hold three credentials
+    in the clear; they go from browser memory through Fernet into Postgres.
+    """
+    from fantabot.fantalab_login import LoginAborted
+    from fantabot.fantalab_login import run as run_login
+
+    try:
+        run_login(force=force)
+    except LoginAborted as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(exc.code) from None
+
+
+@app.command()
 def aste_load(
     landing: Path = typer.Argument(..., help="Landing-zone JSONL the collector appends to."),
     seed: Path = typer.Option(..., help="The scan seed describing each auction."),
