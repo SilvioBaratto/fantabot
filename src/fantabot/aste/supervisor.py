@@ -1,10 +1,20 @@
 """Many auctions at once: starting watchers, restarting them, and saying so.
 
 **The pool bound is ours, not theirs.** Spike S1 opened 207 concurrent SSE
-streams — the entire live population on 2026-08-27, across 20 shards — and
-Firebase refused none of them, dropped none, and delivered 1,053 frames in 20
-seconds. So the default is set above a whole live population: throttling for a
-limit nobody imposed would cost coverage for nothing.
+streams and Firebase refused none of them, dropped none, and delivered 1,053
+frames in 20 seconds. Throttling for a limit nobody imposes costs coverage for
+nothing.
+
+**And a pool below the population is silent starvation.** S1's 207 was read as
+"a whole live population" and the default set to 250 above it. On the evening of
+2026-08-27 the population was 649, and a live run put exactly 250 distinct
+auctions in the landing zone: the other 145 waited on the semaphore, and since a
+watcher on a live evening does not finish, no permit was ever freed. They never
+connected. The run said `following 395 auction(s)` and then nothing for hours.
+The default is now above the largest population measured, and — because that
+number will be wrong again — `run` reports `live / expected` on every cycle, so
+the shortfall is a line in the log rather than something to infer from a row
+count the next morning.
 
 Two outcomes are treated differently, and conflating them is what cost the
 poller data twice:
@@ -31,8 +41,10 @@ from dataclasses import dataclass
 from fantabot.aste.registry import AuctionConfig
 from fantabot.aste.stream import Outcome, SinkFailed
 
-#: Above a whole live population, because S1 found no server-side cap at 207.
-DEFAULT_POOL = 250
+#: Above the largest population measured: 649 auctions live at 21:57 on
+#: 2026-08-27. Not a law — next season will exceed it — which is why a run that
+#: hits the bound says so instead of quietly following the first N.
+DEFAULT_POOL = 1000
 
 #: How many times an *unreachable* auction is retried before its slot is freed.
 DEFAULT_MAX_RESTARTS = 5
@@ -45,6 +57,10 @@ Watch = Callable[[AuctionConfig], Awaitable[Outcome]]
 
 #: Re-reads the population. Raising is survivable; see `run`.
 Reload = Callable[[], list[AuctionConfig]]
+
+#: Called with the running report each reload cycle. The only thing that speaks
+#: during a run that has no end.
+Heartbeat = Callable[["Report"], None]
 
 
 @dataclass
@@ -100,6 +116,7 @@ class Supervisor:
         reload: Reload | None = None,
         reload_every: float = 60.0,
         reloads: int | None = None,
+        heartbeat: Heartbeat | None = None,
     ) -> Report:
         """Follow every auction until each ends or gives up.
 
@@ -112,6 +129,11 @@ class Supervisor:
 
         ``reloads`` bounds the number of cycles. ``None`` means until the
         process is interrupted, which is how an evening is collected.
+
+        ``heartbeat`` is handed the report each cycle. Without it a reloading
+        run says nothing between "following N auctions" and the summary it only
+        prints if it ever stops — which is how 145 starved watchers went
+        unnoticed for an evening.
         """
         report = Report()
         semaphore = asyncio.Semaphore(self._pool)
@@ -192,6 +214,8 @@ class Supervisor:
         while reloads is None or cycles < reloads:
             cycles += 1
             await self._sleep(reload_every)
+            if heartbeat is not None:
+                heartbeat(report)
             reap()
             try:
                 batch = reload()

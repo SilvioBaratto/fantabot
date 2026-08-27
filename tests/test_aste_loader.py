@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from fantabot.aste.loader import CachedPlayerIds, Checkpoint, read_from
+from fantabot.aste.loader import CachedPlayerIds, Checkpoint, SeedRows, read_from
 
 
 def _write(path: Path, *records: dict) -> None:
@@ -248,3 +248,60 @@ class TestCachedPlayerIds:
             cache.get(now=0.0)
         cache._fetch = lambda: frozenset({7})  # type: ignore[method-assign]
         assert cache.get(now=0.1) == frozenset({7})
+
+
+class TestTheSeedIsRereadWhileFollowing:
+    """`aste-load --follow` read the seed once, and dropped what it missed.
+
+    Measured 2026-08-27 22:07. The collector re-reads its seed and adopts
+    auctions that opened since; the loader did not, so every adopted auction's
+    events were foreign to it. It printed `595 record(s) dropped — unknown
+    auction 595` and advanced its checkpoint past them: not a delay, a loss.
+
+    The drop counter added an hour earlier is the only reason this was a line
+    in the log rather than a hole in the table.
+    """
+
+    def test_a_seed_that_grew_is_picked_up_on_the_next_pass(self, tmp_path: Path) -> None:
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps([["a-0", "17"]]), encoding="utf-8")
+        source = SeedRows(seed)
+        assert [row[0] for row in source.read()] == ["a-0"]
+
+        seed.write_text(json.dumps([["a-0", "17"], ["a-1", "18"]]), encoding="utf-8")
+        assert [row[0] for row in source.read()] == ["a-0", "a-1"]
+
+    def test_a_half_written_seed_keeps_the_last_good_one(self, tmp_path: Path) -> None:
+        """`aste-scan` rewrites the file this reads. Catching it mid-write must
+        cost one pass, not turn every auction into an unknown one — which is
+        the very loss this re-read exists to stop."""
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps([["a-0", "17"]]), encoding="utf-8")
+        source = SeedRows(seed)
+        source.read()
+
+        seed.write_text('[["a-0", "17"], ["a-1"', encoding="utf-8")
+        assert [row[0] for row in source.read()] == ["a-0"]
+        assert source.failures == 1
+
+        seed.write_text(json.dumps([["a-0", "17"], ["a-1", "18"]]), encoding="utf-8")
+        assert len(source.read()) == 2
+        assert source.failures == 1, "a recovered read must not keep counting"
+
+    def test_a_file_that_parses_but_is_not_a_seed_is_refused(self, tmp_path: Path) -> None:
+        """Valid JSON is not the bar; a list of rows is."""
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps([["a-0", "17"]]), encoding="utf-8")
+        source = SeedRows(seed)
+        source.read()
+        seed.write_text('{"auctions": []}', encoding="utf-8")
+        assert [row[0] for row in source.read()] == ["a-0"]
+        assert source.failures == 1
+
+    def test_a_seed_deleted_under_us_is_not_fatal(self, tmp_path: Path) -> None:
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps([["a-0", "17"]]), encoding="utf-8")
+        source = SeedRows(seed)
+        source.read()
+        seed.unlink()
+        assert [row[0] for row in source.read()] == ["a-0"]

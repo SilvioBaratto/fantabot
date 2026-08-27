@@ -304,3 +304,56 @@ def test_a_failing_sink_stops_a_reloading_run_too() -> None:
             )
         )
     assert len(started) < 50, "the run must stop, not adopt another fifty auctions"
+
+
+class TestTheShortfallIsVisible:
+    """A pool smaller than the population is silent, and that cost an evening.
+
+    Measured 2026-08-27 21:57: 395 auctions in the seed, `DEFAULT_POOL` at 250,
+    and exactly 250 distinct auction ids in the landing zone. The other 145 sat
+    behind the semaphore, and because a watcher on a live evening does not
+    finish, no permit was ever freed — they never connected at all. The run
+    printed `following 395 auction(s)` and then nothing for the rest of the
+    night. Restarting with `--pool 800` took the landing zone to 649 distinct
+    auctions inside a minute.
+
+    It also made the seed reload inert: an adopted auction joined the back of a
+    queue that never moves.
+    """
+
+    def test_the_default_pool_is_above_the_population_that_has_been_seen(self) -> None:
+        """649 live at once on 2026-08-27. A default under that starves by design."""
+        assert DEFAULT_POOL >= 649
+
+    def test_live_against_expected_is_reported_every_cycle(self) -> None:
+        """`Report.summary()` was printed once, at the end — and with a reload
+        there is no end. The one number that would have shown 250/395 was never
+        reached."""
+        beats: list[str] = []
+        held = asyncio.Event()
+
+        async def watch(config: AuctionConfig) -> Outcome:
+            await held.wait()
+            return Outcome.ENDED
+
+        async def scenario() -> None:
+            supervisor = Supervisor(watch=watch, sleep=_no_sleep, pool=2)
+            task = asyncio.create_task(
+                supervisor.run(
+                    _configs(5),
+                    reload=lambda: _configs(5),
+                    reload_every=0.0,
+                    reloads=3,
+                    heartbeat=lambda report: beats.append(report.summary()),
+                )
+            )
+            for _ in range(20):
+                await asyncio.sleep(0)
+            held.set()
+            await task
+
+        asyncio.run(scenario())
+        assert beats, "a run that never ends must report while it runs"
+        assert "2/5 live" in beats[0], (
+            f"the shortfall has to be in the line itself, not inferred: {beats[0]}"
+        )

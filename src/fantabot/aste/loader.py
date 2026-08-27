@@ -87,6 +87,46 @@ class CachedPlayerIds:
         return self._value
 
 
+class SeedRows:
+    """The seed, re-read each pass, with the last good one as the fallback.
+
+    `aste-load --follow` read it once at startup. The collector re-reads its own
+    and adopts auctions that opened since, so within an hour the loader was
+    seeing events for auctions it had never heard of — and dropping them, then
+    advancing its checkpoint past them. Not a delay: a loss. Measured 2026-08-27
+    at 22:07, `595 record(s) dropped — unknown auction 595`.
+
+    Re-reading is cheap enough to do every pass — a 90 kB JSON parse against a
+    ten-second interval — which is why it is here rather than behind a TTL like
+    `CachedPlayerIds`. The database query needed the window; this does not.
+
+    `aste-scan` rewrites this file while the loader reads it, so a half-written
+    or briefly missing seed keeps the previous rows and costs one pass. Turning
+    every auction into an unknown one for a cycle is the exact loss the re-read
+    exists to stop.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._rows: list[Any] = []
+        self.failures = 0
+
+    def read(self) -> list[Any]:
+        try:
+            rows = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.failures += 1
+            return self._rows
+        if not isinstance(rows, list):
+            # A seed is a list of rows. Anything else is a file that is not this
+            # file, and feeding it forward would turn every auction unknown just
+            # as surely as a parse error does.
+            self.failures += 1
+            return self._rows
+        self._rows = rows
+        return rows
+
+
 class Checkpoint:
     """How far into a landing zone the loader has already read.
 

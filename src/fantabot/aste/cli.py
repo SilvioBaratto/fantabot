@@ -158,6 +158,7 @@ def aste_load(
         CachedPlayerIds,
         Checkpoint,
         LandingZoneMissing,
+        SeedRows,
         assignments_for_pass,
         read_from,
     )
@@ -170,14 +171,14 @@ def aste_load(
         console.print(f"[red]seed file not found: {seed}[/red]")
         raise typer.Exit(2)
 
-    seed_rows = json.loads(seed.read_text(encoding="utf-8"))
     bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
     checkpoint = Checkpoint(landing)
-    # Both are constant for the run: the seed is read once above, and `players`
-    # only moves when someone runs `db-import`. Rebuilding them inside the pass
-    # body meant a session and 1,492 ids across the wire six times a minute.
-    auctions = auction_rows(seed_rows, asta_type)
-    known = {row["id"] for row in auctions}
+    # Re-read every pass, not once: the collector adopts auctions that open
+    # after it started, and a loader holding the startup seed calls their events
+    # unknown and advances its checkpoint past them.
+    seed_source = SeedRows(seed)
+    # `players`, by contrast, only moves when someone runs `db-import`, and
+    # reading it is a session and 1,492 ids across the wire.
 
     def fetch_known_players() -> frozenset[int]:
         from fantabot.db import database_manager
@@ -196,6 +197,8 @@ def aste_load(
             return 0, 0
 
         known_players = None if dry_run else player_cache.get(now=time.monotonic())
+        auctions = auction_rows(seed_source.read(), asta_type)
+        known = {row["id"] for row in auctions}
 
         # Events from the window: they are append-only, so re-reading would
         # re-upload the whole evening every pass.
@@ -286,7 +289,7 @@ def aste_collect(
     from fantabot.aste.landing import LandingZone
     from fantabot.aste.registry import AuctionConfig, from_seed_row
     from fantabot.aste.stream import Outcome, SinkFailed, watch_auction
-    from fantabot.aste.supervisor import DEFAULT_POOL, Supervisor
+    from fantabot.aste.supervisor import DEFAULT_POOL, Report, Supervisor
     from fantabot.aste.transport import open_stream
 
     if seed is None and not (auction and shard):
@@ -310,7 +313,16 @@ def aste_collect(
     reload = read_seed if seed is not None and reload_seed > 0 else None
 
     zone = LandingZone(out)
+    limit = pool or DEFAULT_POOL
     console.print(f"following {len(configs)} auction(s) -> {out}")
+    if len(configs) > limit:
+        # The bound is ours, and on a live evening it is permanent: a watcher
+        # does not finish, so a queued auction never gets a permit and never
+        # connects at all. Silence here cost 145 of 395 auctions on 2026-08-27.
+        console.print(
+            f"[red]--pool is {limit}: {len(configs) - limit} auction(s) will wait for a "
+            "slot that a live evening never frees. Raise it.[/red]"
+        )
     if reload is not None:
         console.print(
             f"re-reading {seed} every {reload_seed:g}s for new auctions — "
@@ -326,15 +338,21 @@ def aste_collect(
             sleep=asyncio.sleep,
         )
 
-    supervisor = Supervisor(
-        watch=watch,
-        sleep=asyncio.sleep,
-        pool=pool or DEFAULT_POOL,
-    )
+    supervisor = Supervisor(watch=watch, sleep=asyncio.sleep, pool=limit)
+
+    def heartbeat(report: Report) -> None:
+        """The only thing that speaks during a run with no end.
+
+        `live / expected` is the number that would have shown 250 of 395
+        following, hours before a row count did.
+        """
+        console.print(f"{report.summary()} · {zone.written} states written")
 
     try:
         report = asyncio.run(
-            supervisor.run(configs, reload=reload, reload_every=reload_seed)
+            supervisor.run(
+                configs, reload=reload, reload_every=reload_seed, heartbeat=heartbeat
+            )
         )
     except SinkFailed as exc:
         # Not a transport problem, and not survivable by reconnecting: if the
