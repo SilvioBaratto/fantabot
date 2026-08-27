@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from fantabot.aste.registry import AuctionConfig
-from fantabot.aste.stream import Outcome
+from fantabot.aste.stream import Outcome, SinkFailed
 from fantabot.aste.supervisor import DEFAULT_POOL, Report, Supervisor
 
 
@@ -281,3 +281,26 @@ def _run_reloading(watch: Any, batches: list[list[AuctionConfig]]) -> Any:
             batches[0], reload=reload, reload_every=0.0, reloads=len(batches) - 1
         )
     )
+
+
+def test_a_failing_sink_stops_a_reloading_run_too() -> None:
+    """Watchers became tasks so new ones could join mid-run; that hid failures.
+
+    With a single `gather`, a `SinkFailed` came out at once. A completed task
+    holds its exception until someone asks, and the reload loop is meant to run
+    all evening — so a full disk would have gone unnoticed for exactly as long
+    as it matters, with the collector reconnecting and storing nothing.
+    """
+    started: list[str] = []
+
+    async def watch(config: AuctionConfig) -> Outcome:
+        started.append(config.auction_id)
+        raise SinkFailed("no space left on device")
+
+    with pytest.raises(SinkFailed):
+        asyncio.run(
+            Supervisor(watch=watch, sleep=_no_sleep).run(
+                _configs(3), reload=lambda: _configs(50), reload_every=0.0, reloads=100
+            )
+        )
+    assert len(started) < 50, "the run must stop, not adopt another fifty auctions"

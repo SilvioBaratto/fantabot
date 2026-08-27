@@ -169,12 +169,19 @@ class Supervisor:
             loop ended — and the loop is meant to run all evening, so a full
             disk would go unnoticed for exactly as long as it matters.
             """
+            failure: BaseException | None = None
             for task in [one for one in tasks if one.done()]:
                 tasks.discard(task)
-                if (failure := task.exception()) is not None:
-                    for other in tasks:
-                        other.cancel()
-                    raise failure
+                # Every finished task is asked, not just up to the first bad
+                # one: an exception nobody retrieves is logged by asyncio at
+                # collection time, and a burst of those buries the one line
+                # that says why the run stopped.
+                if (raised := task.exception()) is not None and failure is None:
+                    failure = raised
+            if failure is not None:
+                for other in tasks:
+                    other.cancel()
+                raise failure
 
         adopt(configs)
         if reload is None:
