@@ -20,6 +20,7 @@ import httpx
 
 FETCH_PATH = "/fantaleague/fetch"
 LIVE_PATH = "/fantaleagues/live"
+JOIN_PATH = "/fantaleague/join"
 DEFAULT_TIMEOUT = 10.0
 
 
@@ -175,4 +176,31 @@ def live_leagues(
     return [parse_league(row) for row in rows if isinstance(row, Mapping)]
 
 
-__all__ = ["RoomConfig", "Seat", "fetch_league", "live_leagues", "parse_league", "shard_of"]
+def join_team(
+    fantateam_id: str,
+    user_id: str,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> bool:
+    """``POST /fantaleague/join`` — claim a seat. Returns ``True`` on success.
+
+    The body is exactly ``{fantateam_id, user_id}``: ``invitation_id`` is **not** required when
+    the seat's id is already known (``docs/fantalab/06-asta-write-path.md`` §3, observed). A
+    participant claims a free seat (``user_id is None``) this way; no auth header is needed.
+    """
+    with httpx.Client(base_url=_base_url(), timeout=timeout, transport=transport) as client:
+        response = client.post(JOIN_PATH, json={"fantateam_id": fantateam_id, "user_id": user_id})
+    response.raise_for_status()
+    return True
+
+
+__all__ = [
+    "RoomConfig",
+    "Seat",
+    "fetch_league",
+    "join_team",
+    "live_leagues",
+    "parse_league",
+    "shard_of",
+]

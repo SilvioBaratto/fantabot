@@ -7,6 +7,9 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import typer
 from rich.console import Console
 
@@ -23,7 +26,7 @@ from .report import (
     parse_ids,
     parse_replay_lines,
 )
-from .reservation import rolling_advisory
+from .reservation import apply_event, reservations, rolling_advisory
 from .state import AstaState
 
 console = Console()
@@ -153,7 +156,74 @@ def asta_live(
     console.print(format_opponents(opponents, names={}, total_budget=int(budget)))
 
 
-COMMANDS = (asta_optimize, asta_legality, asta_live)
+def asta_bid(
+    league: str = typer.Option(..., help="Fantaleague id of the live room."),
+    team: str = typer.Option(..., help="Our fantateam id — the seat we bid from."),
+    user: str = typer.Option(..., help="Our user id — rides on every bid."),
+    budget: float = typer.Option(500.0, help="Our starting credits."),
+    lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
+    poll: float = typer.Option(2.0, help="Seconds between polls."),
+) -> None:
+    """Chase the advisory's targets in a live room, bidding each up to its walk-away.
+
+    Read → decide → write, **gated by FANTABOT_AUTO_ACT** — off (the default) logs the intended
+    bid and sends nothing. Participant only: it bids, it never settles a lot (that is the admin's
+    close/confirm). The walk-aways re-plan each cycle off the live ``purchases/`` ledger, so they
+    already account for what has been spent. Ctrl-C to stop.
+    """
+    import time
+
+    from fantabot.asta_engine.bid import Seat
+    from fantabot.db import database_manager
+    from fantabot.db.repositories.reference import ReferenceRepository
+    from fantabot.fantalab import feed, room, rtdb
+    from fantabot.fantalab import rest as fl_rest
+
+    cfg = fl_rest.fetch_league(league)
+
+    with database_manager.get_session() as session:
+        quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
+        prices = expected_prices(session)
+    pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
+    teams = {pid: row.squadra for pid, row in quotazioni.items()}
+    value = build_value({pid: row.fvm for pid, row in quotazioni.items()}, priced_ids=set(prices))
+    legality = build_legality(load_compat())
+    seat = Seat(fantateam_id=team, user_id=user)
+
+    def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
+        player_id = snapshot.get("player_id")
+        if not isinstance(player_id, str):
+            return None
+        state = AstaState(total_budget=budget)
+        for event in feed.ledger_events(cfg.db, league):
+            state = apply_event(state, event, our_team_id=team)
+        _, walkaways = reservations(
+            state, pool, value=value, prices=prices, teams=teams, legality=legality, lam=lam
+        )
+        walk_away = walkaways.get(player_id)
+        return (player_id, int(walk_away)) if walk_away is not None else None
+
+    report = room.run_bid_loop(
+        seat=seat,
+        fantaleague_id=league,
+        remaining_budget=int(budget),
+        target_of=target_of,
+        read=lambda: rtdb.read_snapshot(cfg.db, f"auction/{league}"),
+        write=lambda payload: rtdb.place_raise(cfg.db, league, payload),
+        now=lambda: int(time.time() * 1000),
+        sleep=time.sleep,
+        keep_going=lambda _cycle: True,
+        heartbeat=console.print,
+        poll_seconds=poll,
+    )
+    console.print(
+        f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
+        f"refused {report.refused}[/dim]"
+    )
+
+
+COMMANDS = (asta_optimize, asta_legality, asta_live, asta_bid)
 
 
 def register(app: typer.Typer) -> None:

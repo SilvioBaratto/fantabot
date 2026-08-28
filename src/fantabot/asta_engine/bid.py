@@ -38,6 +38,48 @@ class Seat:
     user_id: str
 
 
+def _refusal(
+    snapshot: Mapping[str, Any],
+    seat: Seat,
+    *,
+    target: str,
+    walk_away: int,
+    remaining_budget: int,
+    now_ms: int,
+    step: int,
+) -> tuple[str | None, int]:
+    """The guard that refuses a raise (a stable name), or ``None`` if one can be placed.
+
+    Evaluated once and shared by ``decide_bid`` (which builds the payload when it returns
+    ``None``) and ``pass_reason`` (which surfaces the name for the loop's per-guard counters), so
+    the guard order lives in exactly one place. Also returns the next price, computed here.
+    """
+    player_id = snapshot.get("player_id")
+    if not isinstance(player_id, str) or player_id != target:
+        return ("not_target", 0)  # no lot, or not the player we're chasing
+    if snapshot.get("asta_state") == "closed":
+        return ("closed", 0)  # lot frozen; a raise would be rejected
+    if snapshot.get("user_id") == seat.user_id:
+        return ("already_high", 0)  # we hold the high bid — don't bid against ourselves
+
+    last_bid_time = snapshot.get("last_bid_time")
+    if (
+        isinstance(last_bid_time, int)
+        and not isinstance(last_bid_time, bool)
+        and now_ms - last_bid_time <= FLOOR_MS
+    ):
+        return ("floor", 0)  # inside the 500 ms floor the room enforces
+
+    current = snapshot.get("price")
+    current_price = current if isinstance(current, int) and not isinstance(current, bool) else 0
+    next_price = current_price + step
+    if next_price > walk_away:
+        return ("walk_away", next_price)  # crossing our ceiling
+    if next_price > remaining_budget:
+        return ("budget", next_price)  # over budget
+    return (None, next_price)
+
+
 def decide_bid(
     snapshot: Mapping[str, Any],
     seat: Seat,
@@ -56,36 +98,23 @@ def decide_bid(
     floor and ``last_update``). Returns a payload matching ``06 §5`` exactly, or ``None`` if any
     guard trips.
     """
-    player_id = snapshot.get("player_id")
-    if not isinstance(player_id, str) or player_id != target:
-        return None  # no lot, or not the player we're chasing
-    if snapshot.get("asta_state") == "closed":
-        return None  # lot frozen; a raise would be rejected
-    if snapshot.get("user_id") == seat.user_id:
-        return None  # we already hold the high bid — don't bid against ourselves
-
-    last_bid_time = snapshot.get("last_bid_time")
-    if (
-        isinstance(last_bid_time, int)
-        and not isinstance(last_bid_time, bool)
-        and now_ms - last_bid_time <= FLOOR_MS
-    ):
-        return None  # inside the 500 ms floor the room enforces
-
-    current = snapshot.get("price")
-    current_price = current if isinstance(current, int) and not isinstance(current, bool) else 0
-    next_price = current_price + step
-    if next_price > walk_away:
-        return None  # crossing our walk-away
-    if next_price > remaining_budget:
-        return None  # over budget
-
+    reason, next_price = _refusal(
+        snapshot,
+        seat,
+        target=target,
+        walk_away=walk_away,
+        remaining_budget=remaining_budget,
+        now_ms=now_ms,
+        step=step,
+    )
+    if reason is not None:
+        return None
     return {
         "price": next_price,
         "fantaleague_id": fantaleague_id,
         "user_id": seat.user_id,
         "fantateam_id": seat.fantateam_id,
-        "player_id": player_id,
+        "player_id": target,
         "is_first": False,
         "update_type": "raise",
         "last_bid_time": SERVER_TIMESTAMP,
@@ -93,4 +122,26 @@ def decide_bid(
     }
 
 
-__all__ = ["FLOOR_MS", "SERVER_TIMESTAMP", "Seat", "decide_bid"]
+def pass_reason(
+    snapshot: Mapping[str, Any],
+    seat: Seat,
+    *,
+    target: str,
+    walk_away: int,
+    remaining_budget: int,
+    now_ms: int,
+    step: int = 1,
+) -> str | None:
+    """The name of the guard that would refuse a raise, or ``None`` if one can be placed. Pure."""
+    return _refusal(
+        snapshot,
+        seat,
+        target=target,
+        walk_away=walk_away,
+        remaining_budget=remaining_budget,
+        now_ms=now_ms,
+        step=step,
+    )[0]
+
+
+__all__ = ["FLOOR_MS", "SERVER_TIMESTAMP", "Seat", "decide_bid", "pass_reason"]

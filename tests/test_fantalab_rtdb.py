@@ -20,7 +20,7 @@ import pytest
 from fantabot.fantalab import rtdb
 
 PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "fantalab"
-CAPTURE = ("rest.py", "rtdb.py", "feed.py")
+CAPTURE = ("rest.py", "rtdb.py", "feed.py", "room.py")
 
 
 def _imports(path: Path) -> set[str]:

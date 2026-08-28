@@ -11,7 +11,7 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from fantabot.asta_engine.bid import SERVER_TIMESTAMP, Seat, decide_bid
+from fantabot.asta_engine.bid import SERVER_TIMESTAMP, Seat, decide_bid, pass_reason
 
 SEAT = Seat(fantateam_id="seat2", user_id="me")
 NOW = 1_000_000
@@ -86,6 +86,23 @@ def test_pass_when_over_budget() -> None:
 
 def test_a_fresh_lot_with_no_price_bids_one() -> None:
     assert _bid(_lot(price=None, user_id=None))["price"] == 1
+
+
+def test_pass_reason_names_the_guard_that_refuses() -> None:
+    def reason(snapshot: dict[str, Any], **kw: Any) -> str | None:
+        opts: dict[str, Any] = {
+            "target": "kean", "walk_away": 30, "remaining_budget": 100, "now_ms": NOW,
+        }
+        opts.update(kw)
+        return pass_reason(snapshot, SEAT, **opts)
+
+    assert reason(_lot(price=5)) is None  # a bid can be placed
+    assert reason(_lot(player_id="x")) == "not_target"
+    assert reason(_lot(asta_state="closed")) == "closed"
+    assert reason(_lot(user_id="me")) == "already_high"
+    assert reason(_lot(last_bid_time=NOW - 100)) == "floor"
+    assert reason(_lot(price=30), walk_away=30) == "walk_away"
+    assert reason(_lot(price=40), walk_away=100, remaining_budget=40) == "budget"
 
 
 def test_bid_module_imports_no_io() -> None:
