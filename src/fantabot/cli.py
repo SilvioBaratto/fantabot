@@ -9,8 +9,8 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from fantabot.aste.cli import register as register_aste_commands
 from fantabot.asta_engine.cli import register as register_asta_engine_commands
+from fantabot.aste.cli import register as register_aste_commands
 
 if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     from datetime import datetime
