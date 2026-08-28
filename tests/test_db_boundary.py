@@ -15,15 +15,31 @@ Two separate guarantees, easy to conflate:
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from fantabot.db.engine import DatabaseManager
 
 PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot"
 FORBIDDEN = "create_engine"
+
+#: The asta engine's decision layer. These modules hold every rule that decides what a
+#: player is worth and which XI is legal, and they are testable precisely because none of
+#: them can reach a database — the I/O lives in ``asta_engine/cli.py`` alone.
+PURE_ASTA_MODULES = (
+    "sentiment.py",
+    "value.py",
+    "optimizer.py",
+    "legality.py",
+    "roles.py",
+    "state.py",
+    "reservation.py",
+)
 
 
 def test_no_engine_is_constructed_outside_the_db_package() -> None:
@@ -136,3 +152,29 @@ def test_an_injected_factory_means_no_engine_is_ever_built() -> None:
         pass
 
     assert manager.engine is None
+
+
+def _imports(path: Path) -> set[str]:
+    """Every module named by an import statement. Matches ``tests/test_aste_outage.py``."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found.add(node.module)
+    return found
+
+
+@pytest.mark.parametrize("module", PURE_ASTA_MODULES)
+def test_the_asta_decision_layer_cannot_reach_the_database(module: str) -> None:
+    """Not "does not today" — cannot.
+
+    Structural, for the same reason the collector's rule is: an assertion about the current
+    text of these files holds for every future edit, where running the suite once with the
+    stack down would only have proved it for one afternoon. It is also what keeps the
+    default tier socket-free, since the whole value layer is reachable from ``fantabot.cli``.
+    """
+    names = _imports(PACKAGE / "asta_engine" / module)
+    offenders = {n for n in names if n.startswith(("fantabot.db", "sqlalchemy"))}
+
+    assert offenders == set(), f"{module} can reach the database via {offenders}"
