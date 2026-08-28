@@ -142,6 +142,7 @@ def aste_load(
     asta_type: str = typer.Option("mantra", help="Format the seed was collected for."),
     follow: bool = typer.Option(False, "--follow", help="Keep reading as the file grows."),
     interval: float = typer.Option(10.0, help="Seconds between passes when following."),
+    window: int = typer.Option(0, help="Bytes one pass carries. 0 = the default window."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Read and report, write nothing."),
 ) -> None:
     """Carry the landing zone into Postgres, resuming where the last pass stopped.
@@ -155,11 +156,13 @@ def aste_load(
 
     from fantabot.aste.backfill import auction_rows, event_rows
     from fantabot.aste.loader import (
+        DEFAULT_WINDOW_BYTES,
         CachedPlayerIds,
         Checkpoint,
         LandingZoneMissing,
         SeedRows,
         assignments_for_pass,
+        catching_up,
         read_from,
     )
     from fantabot.db.models.aste import ASTA_TYPES
@@ -172,6 +175,10 @@ def aste_load(
         raise typer.Exit(2)
 
     bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    # One pass holds its window several times over. Uncapped, the cost of a pass
+    # grows with how far behind the loader is — so the further it falls, the less
+    # able it is to start, and a 1.14 GB backlog could not be loaded at all.
+    pass_window = window or DEFAULT_WINDOW_BYTES
     checkpoint = Checkpoint(landing)
     # Re-read every pass, not once: the collector adopts auctions that open
     # after it started, and a loader holding the startup seed calls their events
@@ -192,7 +199,7 @@ def aste_load(
     def pass_once() -> tuple[int, int]:
         """Records carried, and bytes still behind the writer."""
         offset = checkpoint.read()
-        records, new_offset = read_from(landing, offset)
+        records, new_offset = read_from(landing, offset, max_bytes=pass_window)
         if not records:
             return 0, 0
 
@@ -263,6 +270,12 @@ def aste_load(
         console.print(f"carried {carried} · {behind} bytes behind{suffix}")
         if not follow:
             return
+        if not dry_run and catching_up(behind, window=pass_window):
+            # A backlog is not a quiet pass. One interval per window turns a
+            # thirty-six-pass catch-up into six minutes of sleeping. Excluded
+            # for a dry run, whose checkpoint never moves: the same test there
+            # would spin over the same window for ever.
+            continue
         time.sleep(interval)
 
 

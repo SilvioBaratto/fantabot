@@ -4,6 +4,16 @@ The database is deliberately not on the collection critical path: the collector
 appends to a file and this reads from it. An outage therefore costs catch-up
 time and never a record — which is the whole reason the split exists.
 
+**Catch-up is bounded per pass, or it is not catch-up.** The window used to run
+to the end of the file, which costs nothing while the loader is following and
+grows with the gap once it is not: the further behind it falls, the more a pass
+must hold to start closing it. On 2026-08-28 that put a 1.14 GB backlog — the
+loader stopped at 22:27 while the collector ran all night — out of reach of a
+16 GB machine, so the one command that would have carried the evening was the
+one that could not be started. `read_from` takes at most `DEFAULT_WINDOW_BYTES`,
+and `catching_up` tells `--follow` not to sleep an interval between passes while
+a full window is still owed.
+
 **Events are incremental; assignments are not, and cannot be.** A checkpointed
 window is right for `asta_event`, which is append-only. It is wrong for
 `asta_assignment`: ``reconstruct`` holds its ladders in locals, so a window
@@ -37,6 +47,22 @@ from fantabot.aste.models import Assignment
 
 #: Where a checkpoint lives: beside its landing zone, so moving one moves both.
 SUFFIX = ".offset"
+
+#: The most bytes one pass carries out of the landing zone.
+#:
+#: A pass holds its window several times over — the raw bytes, the slice up to
+#: the last newline, the decoded string, the split lines and the parsed dicts —
+#: measured at roughly seventeen times the window on 2026-08-27, when 92 MB put
+#: the loader at 1.6 GB resident. Uncapped that is a function of how far behind
+#: the loader is, which is exactly the quantity a catch-up is trying to reduce:
+#: the further behind it falls, the less able it is to start. A 1.14 GB backlog
+#: on a 16 GB machine (2026-08-28 08:17, 2,242,083 records) could not be loaded
+#: at all.
+#:
+#: 32 MB is about 65,000 records of the shape the collector writes, and holds a
+#: pass to a few hundred megabytes. Catching up is then a bounded number of
+#: bounded passes rather than one that cannot be attempted.
+DEFAULT_WINDOW_BYTES = 32 * 1024 * 1024
 
 
 class LandingZoneMissing(FileNotFoundError):
@@ -150,11 +176,18 @@ class Checkpoint:
         self.path.write_text(str(offset), encoding="utf-8")
 
 
-def read_from(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
-    """Complete records after ``offset``, and where to resume.
+def read_from(
+    path: Path, offset: int, max_bytes: int = DEFAULT_WINDOW_BYTES
+) -> tuple[list[dict[str, Any]], int]:
+    """Complete records in the ``max_bytes`` after ``offset``, and where to resume.
 
     Returns the offset unchanged when there is nothing new, so a caller can
     treat "no progress" as a plain equality rather than a sentinel.
+
+    **The window is capped, so catching up is many passes.** It used to read to
+    EOF, which costs the same as being caught up while the loader is following
+    and is unpayable once it is not — see ``DEFAULT_WINDOW_BYTES``. The caller
+    is told how far behind it still is and comes straight back for the rest.
     """
     try:
         size = path.stat().st_size
@@ -173,7 +206,14 @@ def read_from(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
 
     with path.open("rb") as handle:
         handle.seek(offset)
-        chunk = handle.read()
+        chunk = handle.read(max_bytes)
+        if chunk.rfind(b"\n") == -1:
+            # No record boundary inside the window. Either the collector has not
+            # finished the first line yet, or one record is wider than the
+            # window — and refusing the second would stop the loader for ever on
+            # one fat line while reporting the quiet pass this package has twice
+            # had to stop reporting. Read on to the boundary.
+            chunk += handle.readline()
 
     tail = chunk.rfind(b"\n")
     if tail == -1:
@@ -192,6 +232,22 @@ def read_from(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
             # landing reader skips one: losing a record beats refusing the file.
             continue
     return records, offset + len(complete)
+
+
+def catching_up(behind: int, *, window: int = DEFAULT_WINDOW_BYTES) -> bool:
+    """Whether a full further window is still owed after a pass.
+
+    ``aste-load --follow`` sleeps ``--interval`` between passes, which is right
+    while it is keeping up — the collector had appended about 150 kB by the time
+    the last pass finished — and wrong while it is not: a 1.14 GB backlog at a
+    32 MB window is thirty-six passes, and ten seconds between them adds six
+    minutes to a catch-up that is otherwise disk-bound.
+
+    The threshold is a whole window rather than "anything at all" on purpose. A
+    following loader is always a little behind, and treating that as catch-up
+    would turn ``--follow`` into a busy loop over the whole file.
+    """
+    return behind >= window
 
 
 def assignments_for_pass(
