@@ -150,6 +150,11 @@ def aste_load(
     The database is deliberately not on the collection critical path: the
     collector writes to the file and this reads from it. An outage costs
     catch-up time, never a record.
+
+    A pass reads at most ``--window`` bytes, so carrying a backlog is several
+    passes; the command makes them all before returning. ``--follow`` adds only
+    watching the file after that. A dry run makes one pass and stops, because
+    its checkpoint never moves and looping would re-read one window for ever.
     """
     import json
     import time
@@ -196,12 +201,37 @@ def aste_load(
 
     player_cache = CachedPlayerIds(fetch_known_players)
 
-    def pass_once() -> tuple[int, int]:
-        """Records carried, and bytes still behind the writer."""
+    # What a one-shot run is carrying: the landing zone as it stood when the
+    # command started. Bounded rather than "until nothing is behind", because
+    # the collector is still appending — an unbounded one-shot run against a
+    # live evening would never return. `--follow` has no target; it stops
+    # hurrying once less than a window is owed and sleeps instead.
+    target = None if follow else (landing.stat().st_size if landing.exists() else 0)
+
+    def pass_once() -> tuple[int, int, bool]:
+        """Records carried, bytes still behind the writer, and whether the
+        ladder rebuild was deferred — which is also the answer to *is another
+        pass coming*, and the only thing the loop below needs to know."""
         offset = checkpoint.read()
         records, new_offset = read_from(landing, offset, max_bytes=pass_window)
+        size = landing.stat().st_size if landing.exists() else new_offset
+        behind = max(0, size - new_offset)
         if not records:
-            return 0, 0
+            # The real lag, not zero. A window that parsed nothing is not a
+            # caught-up loader, and reporting it as one is the mistake this
+            # command already had to stop making about a missing landing zone.
+            return 0, behind, False
+
+        # "Another pass is coming" — the one value the loop's `continue` tests
+        # and the one that decides whether the ladders can wait. Two conditions
+        # would drift, and the drift would leave the ladders behind the events.
+        # A dry run never has one: its checkpoint does not move, so a second
+        # pass would re-read the same window for ever.
+        deferring = not dry_run and (
+            new_offset < target
+            if target is not None
+            else catching_up(behind, window=pass_window)
+        )
 
         known_players = None if dry_run else player_cache.get(now=time.monotonic())
         auctions = auction_rows(seed_source.read(), asta_type)
@@ -214,7 +244,19 @@ def aste_load(
         # rebuilds a ladder from nothing, and the upsert is DO UPDATE — the short
         # ladder would overwrite the complete one and the checkpoint would never
         # come back for the rungs it skipped.
-        assignments = [r for r in assignments_for_pass(landing, records) if r["asta_id"] in known]
+        #
+        # Which is exactly why a pass in the middle of a catch-up need not do it:
+        # the pass that lands rebuilds from the whole file anyway, including
+        # every record the deferred passes carried. Measured on the 2026-08-28
+        # backlog, paying it per window cost 9.4 s and ~880 MB thirty-four times
+        # over, plus ~160,000 rows re-upserted each time, for a result thrown
+        # away by the next pass. Events stay incremental — they are append-only,
+        # so re-reading them would re-upload the evening.
+        assignments = (
+            []
+            if deferring
+            else [r for r in assignments_for_pass(landing, records) if r["asta_id"] in known]
+        )
         unlinked = 0
         for row in assignments:
             entry = bridge.get(row["player_uuid"])
@@ -235,17 +277,16 @@ def aste_load(
                 session.commit()
             checkpoint.write(new_offset)
 
-        size = landing.stat().st_size if landing.exists() else new_offset
         if unlinked:
             console.print(f"[yellow]{unlinked} assignment(s) carry no player link[/yellow]")
         _report_dropped(dropped)
-        return len(records), size - new_offset
+        return len(records), max(0, size - new_offset), deferring
 
     from sqlalchemy.exc import SQLAlchemyError
 
     while True:
         try:
-            carried, behind = pass_once()
+            carried, behind, deferred = pass_once()
         except LandingZoneMissing as exc:
             # Named, with the command that would create it. Silence here reads
             # as a quiet evening, which is the one thing it must not read as.
@@ -265,17 +306,20 @@ def aste_load(
             continue
 
         suffix = " (dry run — nothing written)" if dry_run else ""
+        # Work skipped without a word is work nobody counts.
+        note = " · ladders deferred" if deferred else ""
         # Lag is reported every pass, not only when it is large: a loader that
         # only speaks up when it is already behind gives no warning it is losing.
-        console.print(f"carried {carried} · {behind} bytes behind{suffix}")
+        console.print(f"carried {carried} · {behind} bytes behind{note}{suffix}")
+        if deferred:
+            # A backlog is not a quiet pass, in either mode. One interval per
+            # window turned a thirty-six-pass catch-up into six minutes of
+            # sleeping; returning here instead turned a one-shot load into a
+            # 32 MB one that still exited 0. `--follow` means keep watching
+            # after catching up, never "the only mode that catches up".
+            continue
         if not follow:
             return
-        if not dry_run and catching_up(behind, window=pass_window):
-            # A backlog is not a quiet pass. One interval per window turns a
-            # thirty-six-pass catch-up into six minutes of sleeping. Excluded
-            # for a dry run, whose checkpoint never moves: the same test there
-            # would spin over the same window for ever.
-            continue
         time.sleep(interval)
 
 

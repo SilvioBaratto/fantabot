@@ -331,3 +331,217 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
 
         assert isinstance(result.exception, self._Stop), result.output
         assert sleeps == [10.0]
+
+
+class _FakeDatabase:
+    """The repository, recording what each pass asked it to write."""
+
+    def __init__(self) -> None:
+        self.assignment_batches: list[int] = []
+        self.event_batches: list[int] = []
+
+    def install(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        import contextlib
+
+        from fantabot.db import database_manager
+        from fantabot.db.repositories import aste as aste_repo
+
+        record = self
+
+        class _Session:
+            def commit(self) -> None:
+                return None
+
+        @contextlib.contextmanager
+        def _session():  # type: ignore[no-untyped-def]
+            yield _Session()
+
+        class _Repo:
+            def __init__(self, _session: object) -> None:
+                pass
+
+            def upsert_auctions(self, rows: object) -> int:
+                return 0
+
+            def upsert_events(self, rows: list) -> int:  # type: ignore[type-arg]
+                record.event_batches.append(len(rows))
+                return len(rows)
+
+            def upsert_assignments(self, rows: list) -> int:  # type: ignore[type-arg]
+                record.assignment_batches.append(len(rows))
+                return len(rows)
+
+            def known_player_ids(self) -> frozenset[int]:
+                return frozenset()
+
+        monkeypatch.setattr(database_manager, "get_session", _session)
+        monkeypatch.setattr(aste_repo, "AsteRepository", _Repo)
+
+
+def _seed_file(path: Path) -> Path:
+    """A seed naming every auction `_zone` writes, so nothing is dropped."""
+    seed = path / "seed.json"
+    seed.write_text(
+        json.dumps(
+            [
+                [f"a-{i}", "4", 8, 500, 25, 25, "random", "free", 8, 8, "L", "mantra"]
+                for i in range(50)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return seed
+
+
+def _load(landing: Path, seed: Path, tmp_path: Path, *extra: str) -> object:
+    from typer.testing import CliRunner
+
+    from fantabot.cli import app
+
+    return CliRunner().invoke(
+        app,
+        [
+            "aste-load",
+            str(landing),
+            "--seed",
+            str(seed),
+            "--listone",
+            str(tmp_path / "no-listone.json"),
+            *extra,
+        ],
+    )
+
+
+def _carried(output: str) -> list[int]:
+    import re
+
+    return [int(n) for n in re.findall(r"carried (\d+)", re.sub(r"\x1b\[[0-9;]*m", "", output))]
+
+
+class TestAOneShotLoadCarriesTheWholeBacklog:
+    """`aste-load` without `--follow` promises, in its own docstring, to *carry
+    the landing zone*. Capping the window quietly turned that into "carry 32 MB
+    and exit 0" — a partial load reported as a complete one, which is the shape
+    this repo keeps having to name. `--follow` should mean only *keep watching
+    after catching up*, never *the only mode that catches up*.
+    """
+
+    def test_it_keeps_going_until_the_backlog_is_carried(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 400)
+        assert landing.stat().st_size > 8 * 20_000, "the backlog must span several windows"
+        _FakeDatabase().install(monkeypatch)
+
+        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        assert result.exit_code == 0, result.output
+        carried = _carried(result.output)
+        assert len(carried) >= 8, f"stopped after {len(carried)} window(s) with a backlog left"
+        assert sum(carried) == 400, f"{sum(carried)} of 400 records were carried"
+
+    def test_a_zone_already_carried_makes_exactly_one_pass(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 5)
+        _FakeDatabase().install(monkeypatch)
+
+        result = _load(landing, _seed_file(tmp_path), tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert _carried(result.output) == [5]
+
+    def test_a_pass_that_reads_nothing_does_not_spin(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Looping on lack of progress is worse than stopping short of it."""
+        landing = tmp_path / "live.jsonl"
+        landing.write_text("", encoding="utf-8")
+        _FakeDatabase().install(monkeypatch)
+
+        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        assert result.exit_code == 0, result.output
+        assert _carried(result.output) == [0]
+
+
+class TestTheLadderRebuildIsNotPaidOncePerWindow:
+    """Assignments are rebuilt from the *whole* landing zone every pass — the
+    only shape that cannot truncate a ladder. That was one rebuild per interval;
+    removing the interval made it one per window.
+
+    Measured on the 2026-08-28 backlog: 9.4 s and ~880 MB for 2,242,083 records,
+    and ~160,000 rows re-upserted, thirty-four times back to back — for a result
+    that the pass which lands rebuilds in full anyway.
+
+    Deferring is only safe while another pass is *certain*, so the condition that
+    defers is the same value the loop uses to continue. One value, one place, no
+    path that defers and then returns.
+    """
+
+    def _count_rebuilds(self, monkeypatch) -> list[int]:  # type: ignore[no-untyped-def]
+        from fantabot.aste import loader
+
+        calls: list[int] = []
+        real = loader.assignments_for_pass
+
+        def counting(landing: Path, records: object) -> object:
+            calls.append(1)
+            return real(landing, records)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(loader, "assignments_for_pass", counting)
+        return calls
+
+    def test_a_multi_window_catch_up_rebuilds_once(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 400)
+        _FakeDatabase().install(monkeypatch)
+        rebuilds = self._count_rebuilds(monkeypatch)
+
+        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        assert result.exit_code == 0, result.output
+        assert len(_carried(result.output)) >= 8, "the fixture did not span several windows"
+        assert len(rebuilds) == 1, f"the whole-file rebuild ran {len(rebuilds)} times"
+
+    def test_a_single_pass_still_rebuilds(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Nothing is deferred when no further pass is coming."""
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 5)
+        _FakeDatabase().install(monkeypatch)
+        rebuilds = self._count_rebuilds(monkeypatch)
+
+        _load(landing, _seed_file(tmp_path), tmp_path)
+
+        assert len(rebuilds) == 1
+
+    def test_the_deferral_is_reported_rather_than_silent(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 400)
+        _FakeDatabase().install(monkeypatch)
+
+        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        assert "deferred" in result.output, "work skipped without a word is work nobody counts"
+
+    def test_the_pass_that_lands_writes_the_assignments_and_the_others_do_not(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Events stay incremental on every pass; only the ladders wait."""
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 400)
+        database = _FakeDatabase()
+        database.install(monkeypatch)
+
+        _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        assert len(database.event_batches) >= 8, "events must not be deferred with the ladders"
+        assert sum(1 for n in database.assignment_batches if n) <= 1
