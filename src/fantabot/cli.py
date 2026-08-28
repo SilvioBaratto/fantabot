@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
@@ -123,6 +123,7 @@ def news_fetch(
     no_run: bool = typer.Option(False, "--no-run", help="Build everything, query nothing."),
 ) -> None:
     """Fetch weekly news sentiment for the season's quotati players."""
+    import signal
     import time
 
     from fantabot.agentkit.env import strip_dangerous_env
@@ -268,6 +269,34 @@ def news_fetch(
             f"conf {row['confidenza']} · {row['n_fonti']} fonti{note} · ~{left / 60:.0f}m left"
         )
 
+    # Ctrl-C was ignored: two SIGINTs thirty seconds apart did nothing, and the
+    # SIGTERM that followed skipped the drain below — the path written for
+    # exactly this — taking four fetched readings with it. The fix is not to
+    # cancel: a query that has already spent its web searches should finish and
+    # be stored. What must stop is asking for more, which is what the fan-out's
+    # own `should_stop` does. A second Ctrl-C restores the default and hurts.
+    stop_requested: list[bool] = []
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    installed = False
+
+    def _request_stop(_signum: int, _frame: Any) -> None:
+        if stop_requested:
+            signal.signal(signal.SIGINT, previous_sigint)
+            raise KeyboardInterrupt
+        stop_requested.append(True)
+        console.print(
+            "[yellow]interrupt — finishing the queries in flight, then storing them. "
+            "Ctrl-C again to stop now.[/yellow]"
+        )
+
+    try:
+        signal.signal(signal.SIGINT, _request_stop)
+        installed = True
+    except ValueError:
+        # Not the main thread. The run is fine; only the graceful stop is not
+        # available, and saying nothing beats refusing to collect.
+        pass
+
     try:
         result = asyncio.run(
             fetch_all(
@@ -279,6 +308,8 @@ def news_fetch(
                 stagione=season,
                 on_start=on_start,
                 on_result=on_result,
+                max_consecutive_failures=max_consecutive_failures,
+                should_stop=lambda: bool(stop_requested),
             )
         )
     except BaseException:
@@ -289,6 +320,9 @@ def news_fetch(
             saved = sink.drain()
             console.print(f"[yellow]interrupted — {saved} row(s) saved on the way out[/yellow]")
         raise
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, previous_sigint)
 
     for name, reason in result.failures:
         console.print(f"[yellow]failed[/yellow] {escape(name)}: {escape(reason)}")

@@ -108,6 +108,7 @@ async def fetch_all(
     on_start: StartHook | None = None,
     on_result: ResultHook | None = None,
     max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    should_stop: Callable[[], bool] | None = None,
 ) -> FetchResult:
     semaphore = asyncio.Semaphore(concurrency)
     total = len(players)
@@ -128,6 +129,12 @@ async def fetch_all(
     async def one(player: PoolPlayer) -> PlayerOutcome:
         nonlocal done, consecutive, stopped
         async with semaphore:
+            if stopped is None and should_stop is not None and should_stop():
+                # An interrupt stops the run the same way an unanswering backend
+                # does: by not asking anyone else. Cancelling a query already in
+                # flight would throw away web searches that have been paid for,
+                # so what is running finishes and is returned to be stored.
+                stopped = "interrupted — no further player was queried"
             if stopped is not None:
                 # Queued behind the wall. Return without querying and without a
                 # progress line: the run has already said why it ended, and 458

@@ -518,3 +518,90 @@ def test_a_malformed_day_is_refused_rather_than_falling_back_to_today(
     assert result.exit_code == 2
     assert "27-08-2026" in result.output
     assert called == []
+
+
+def test_an_interrupt_stops_the_run_and_stores_what_it_had(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """Ctrl-C was ignored on 2026-08-28 — twice, thirty seconds apart. The
+    escalation to SIGTERM skipped the drain written for interrupts, and four
+    fetched readings queued in the sink went with it.
+
+    The handler is called directly rather than raised at the process: that is
+    exactly what Ctrl-C delivers, and a test that signals its own runner is a
+    test that can kill the suite.
+    """
+    import signal
+
+    from fantabot.news import pipeline
+
+    row = _row(canary_player, "salvata dall'interrupt")
+    seen: dict[str, object] = {}
+
+    async def interrupting(players: object, **kwargs: Any) -> FetchResult:
+        handler = signal.getsignal(signal.SIGINT)
+        seen["installed"] = handler not in (signal.SIG_DFL, signal.default_int_handler)
+        assert callable(handler), "no handler to exercise"
+        should_stop = kwargs["should_stop"]
+        seen["before"] = should_stop()
+        handler(signal.SIGINT, None)
+        seen["after"] = should_stop()
+        return FetchResult(
+            rows=[row],
+            stopped_early="interrupted — no further player was queried",
+            skipped=5,
+        )
+
+    before = signal.getsignal(signal.SIGINT)
+    monkeypatch.setattr(pipeline, "fetch_all", interrupting)
+    result = runner.invoke(
+        app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"]
+    )
+
+    assert seen["installed"] is True, "the command never installed an interrupt handler"
+    assert seen["before"] is False
+    assert seen["after"] is True, "Ctrl-C did not reach the fan-out"
+    assert signal.getsignal(signal.SIGINT) is before, "the handler was left installed"
+    assert _stored(canary_player) == ["salvata dall'interrupt"], (
+        "the interrupt discarded a reading that had already been fetched"
+    )
+    assert result.exit_code == 1
+    assert "interrupted" in result.output
+
+
+def test_the_command_forwards_its_options_to_the_fan_out(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """An option the command accepts and never passes on is worse than no option.
+
+    `--max-consecutive-failures` shipped that way: the edit that was meant to add
+    it to the `fetch_all` call matched nothing and said nothing, and the test for
+    the breaker faked `fetch_all` to *return* a stopped run, so it never
+    exercised the wiring. The breaker still worked at its default, which is why
+    nothing looked wrong — the flag was simply inert, and `0` could not turn it
+    off.
+    """
+    from fantabot.news import pipeline
+
+    seen: dict[str, Any] = {}
+
+    async def capturing(players: object, **kwargs: Any) -> FetchResult:
+        seen.update(kwargs)
+        return FetchResult()
+
+    monkeypatch.setattr(pipeline, "fetch_all", capturing)
+    result = runner.invoke(
+        app,
+        [
+            "news-fetch", "--write", "--limit", "1",
+            "--concurrency", "3",
+            "--max-consecutive-failures", "7",
+            "--lookback-days", "21",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen["concurrency"] == 3
+    assert seen["max_consecutive_failures"] == 7, "the flag never reached the fan-out"
+    assert seen["lookback_days"] == 21
+    assert callable(seen["should_stop"])

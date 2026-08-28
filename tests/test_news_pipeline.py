@@ -450,3 +450,69 @@ class TestASystemicFailureStopsTheRun:
 
         assert result.stopped_early is not None
         assert result.skipped > 0
+
+
+class TestAnInterruptStopsItPromptly:
+    """Ctrl-C did not stop this command.
+
+    Measured 2026-08-28: two SIGINTs, thirty seconds apart, both ignored. The
+    escalation to SIGTERM skipped the `except BaseException` drain — the exact
+    path written to protect an interrupt — and four fetched readings queued in
+    the sink went with it.
+
+    Cancelling mid-query is not the answer: a query that has already spent its
+    web searches should be allowed to finish and be stored. What has to stop is
+    *starting new ones*, which is the same thing the failure breaker already
+    does. So an interrupt reuses it: nothing new is asked, what is in flight
+    completes, and the readings are returned to be stored.
+    """
+
+    def test_no_further_player_is_queried_once_a_stop_is_asked_for(self) -> None:
+        asked: list[str] = []
+        stop = {"now": False}
+
+        async def runner(request: AgentRequest, schema: type[Any]) -> Outcome[Any]:
+            asked.append(request.label)
+            if len(asked) == 3:
+                stop["now"] = True
+            return Outcome(value=_sentiment(), failure=None)
+
+        result = _run(
+            _players(50), runner, concurrency=1, should_stop=lambda: stop["now"]
+        )
+
+        assert asked == ["P0", "P1", "P2"]
+        assert result.skipped == 47
+
+    def test_what_was_already_running_is_still_returned(self) -> None:
+        """The queries are the expensive half; throwing away a finished one to
+        exit a second sooner is the wrong trade."""
+        stop = {"now": False}
+
+        async def runner(request: AgentRequest, schema: type[Any]) -> Outcome[Any]:
+            stop["now"] = True
+            return Outcome(value=_sentiment(), failure=None)
+
+        result = _run(_players(20), runner, concurrency=1, should_stop=lambda: stop["now"])
+
+        assert [row["id"] for row in result.rows] == ["0"]
+
+    def test_it_says_it_was_interrupted_rather_than_naming_a_failure(self) -> None:
+        result = _run(_players(20), _ok_runner(), concurrency=1, should_stop=lambda: True)
+
+        assert result.stopped_early is not None
+        assert "interrupt" in result.stopped_early.lower()
+        assert result.failures == [], "an interrupt is not a failure of any player"
+
+    def test_the_unasked_players_are_skipped_so_a_resume_offers_them_again(self) -> None:
+        result = _run(_players(30), _ok_runner(), concurrency=1, should_stop=lambda: True)
+
+        assert result.skipped == 30
+        assert result.rows == []
+
+    def test_without_the_hook_nothing_changes(self) -> None:
+        result = _run(_players(5), _ok_runner(), concurrency=1)
+
+        assert result.stopped_early is None
+        assert result.skipped == 0
+        assert len(result.rows) == 5
