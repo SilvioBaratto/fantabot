@@ -187,7 +187,7 @@ def news_fetch(
     started = time.monotonic()
 
     def on_start(player: PoolPlayer) -> None:
-        console.print(f"[dim]-> {player.nome}[/dim]")
+        console.print(f"[dim]-> {escape(player.nome)}[/dim]")
 
     def on_result(progress: Progress) -> None:
         """One line per finished player. No square brackets: Rich reads them as

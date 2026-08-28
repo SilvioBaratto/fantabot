@@ -210,3 +210,92 @@ def test_a_failure_full_of_brackets_does_not_take_the_run_with_it(
     assert _stored(canary_player) == ["sopravvissuta"]
     assert "serie-a/news" in result.output, "the diagnostic was swallowed by the markup parser"
     assert "float_parsing" in result.output
+
+
+def test_the_run_names_the_player_it_is_querying(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """`on_start` fires inside the semaphore slot, so the name appears when the
+    query actually begins. Two hours of silence was the whole complaint."""
+    from fantabot.news import pipeline
+
+    async def announcing(players: object, **kwargs: Any) -> FetchResult:
+        kwargs["on_start"](_player(canary_player))
+        return FetchResult()
+
+    monkeypatch.setattr(pipeline, "fetch_all", announcing)
+    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1"])
+
+    assert result.exit_code == 0, result.output
+    assert "-> Canary" in result.output
+
+
+def test_a_finished_player_reports_its_scores_and_the_running_stored_count(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """The counter must move on the line itself. `player_sentiment` staying at
+    zero for the whole run was indistinguishable from a stalled one."""
+    from fantabot.news import pipeline
+
+    row = _row(canary_player, "vista")
+
+    async def reporting(players: object, **kwargs: Any) -> FetchResult:
+        kwargs["on_result"](_progress(canary_player, row, None))
+        return FetchResult(rows=[row])
+
+    monkeypatch.setattr(pipeline, "fetch_all", reporting)
+    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"])
+
+    assert result.exit_code == 0, result.output
+    plain = result.output
+    assert "1/1" in plain, "the position in the run is missing"
+    assert "Canary" in plain
+    assert "sentiment 0.10" in plain
+    assert "1 stored" in plain, "the running count is what makes a stall visible"
+
+
+def test_a_second_run_says_what_it_is_resuming_from(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """Recovery is re-running. The resume filter has always existed and, until
+    readings were stored as they landed, never had anything to skip."""
+    from fantabot.news import pipeline
+
+    monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "prima")]))
+    assert runner.invoke(app, ["news-fetch", "--write", "--limit", "1"]).exit_code == 0
+
+    monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([]))
+    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1"])
+
+    assert "resuming" in result.output
+    assert "already stored" in result.output
+
+
+def test_a_database_that_fails_mid_run_is_named_and_the_run_exits_non_zero(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """`aste-load` names an unreachable database the pass it happens. Here the
+    only other signal is the stored count quietly ceasing to advance while the
+    counter, the scores and the ETA all go on looking healthy — and a run that
+    stored nothing must not exit 0 and report the week as collected."""
+    from fantabot.db.repositories.sentiment import SentimentRepository
+    from fantabot.news import pipeline
+
+    row = _row(canary_player, "mai scritta")
+
+    def refusing(self: object, rows: object, *, force: bool = False) -> int:
+        raise RuntimeError("connection refused")
+
+    async def reporting(players: object, **kwargs: Any) -> FetchResult:
+        kwargs["on_result"](_progress(canary_player, row, None))
+        return FetchResult(rows=[row])
+
+    monkeypatch.setattr(pipeline, "fetch_all", reporting)
+    monkeypatch.setattr(SentimentRepository, "upsert_rows", refusing)
+    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"])
+
+    assert result.exit_code == 1, result.output
+    assert "storing failed" in result.output
+    assert "RuntimeError" in result.output
+    assert "could not be stored" in result.output
+    assert _stored(canary_player) == []
