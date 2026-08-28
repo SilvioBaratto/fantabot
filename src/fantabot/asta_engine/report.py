@@ -9,9 +9,13 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import date
 from typing import Any
 
+from fantabot.data_sources.models import SentimentRow
+
 from .roles import MantraPlayer, normalize_roles
+from .sentiment import SentimentWeights, effect_by_id
 from .state import Roster
 from .value import NaiveValueModel
 
@@ -52,6 +56,9 @@ def build_value(
     fvm_by_id: Mapping[str, float],
     priced_ids: set[str],
     *,
+    sentiment: Mapping[str, SentimentRow] | None = None,
+    as_of: date | None = None,
+    weights: SentimentWeights = SentimentWeights(),
     prior_mean: float = 1.0,
     base_variance: float = 4.0,
     no_history_variance: float = 16.0,
@@ -60,8 +67,25 @@ def build_value(
 
     A player with an ``fvm`` but no sale in the loaded aste (``priced_ids``) is treated as
     no-history — same mean, a wider band — since the market has not settled a price on him.
+
+    ``sentiment`` is optional and **defaults to off**, which is not politeness: omitting it
+    has to reproduce the pre-sentiment model exactly, field for field, or ``--no-sentiment``
+    is not an ablation control. When supplied, each ``fvm`` is scaled by that player's
+    pool-normalized effect (see ``sentiment.py`` for why the pool mean is pinned at 1.0).
+
+    ``as_of`` is required alongside it and has no default. Defaulting it to today would put
+    a clock read inside a pure function, and make the age decay depend on when the suite
+    happened to run.
     """
+    if sentiment is not None and as_of is None:
+        raise ValueError("as_of is required when sentiment is supplied")
+
     signals = {player_id: float(value) for player_id, value in fvm_by_id.items()}
+    if sentiment is not None and as_of is not None:
+        effects = effect_by_id(sentiment, signals, as_of=as_of, weights=weights)
+        signals = {
+            player_id: value * effects[player_id] for player_id, value in signals.items()
+        }
     no_history = frozenset(player_id for player_id in fvm_by_id if player_id not in priced_ids)
     return NaiveValueModel(
         signals=signals,

@@ -165,7 +165,7 @@ class SentimentReadRepository(RepositoryBase):
         ).scalar_one_or_none()
         return None if record is None else _to_row(record)
 
-    def all_latest(self) -> dict[str, SentimentRow]:
+    def all_latest(self, *, data_run: date | None = None) -> dict[str, SentimentRow]:
         """Every player's most recent reading, keyed by id. One statement.
 
         ``DISTINCT ON`` takes each player's newest ``data_run``, the same shape
@@ -178,11 +178,18 @@ class SentimentReadRepository(RepositoryBase):
         data point. Nothing is averaged here, and the value layer needs to see
         the silence: "no coverage was found" and "this player was never queried"
         are different facts, and both must stay reachable by the caller.
+
+        ``data_run`` pins the read to one run instead of taking each player's newest. An
+        unknown run yields an empty mapping rather than falling back to the latest, so the
+        caller can refuse loudly instead of quietly valuing on no adjustment at all.
         """
+        statement = select(PlayerSentiment)
+        if data_run is not None:
+            statement = statement.where(PlayerSentiment.data_run == data_run)
         records = self.session.execute(
-            select(PlayerSentiment)
-            .distinct(PlayerSentiment.player_id)
-            .order_by(PlayerSentiment.player_id, desc(PlayerSentiment.data_run))
+            statement.distinct(PlayerSentiment.player_id).order_by(
+                PlayerSentiment.player_id, desc(PlayerSentiment.data_run)
+            )
         ).scalars().all()
         return {str(record.player_id): _to_row(record) for record in records}
 

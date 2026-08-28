@@ -8,10 +8,14 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from datetime import date
+from typing import TYPE_CHECKING, Any, Protocol
 
 import typer
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from fantabot.data_sources.models import SentimentRow
 
 from .legality import build_legality, fieldable_schemi, load_compat
 from .live import normalize
@@ -34,25 +38,86 @@ console = Console()
 _SEASON = "2026/27"
 
 
+class _SentimentSource(Protocol):
+    """What the CLI asks of the sentiment feed. A Protocol so tests need no database."""
+
+    def all_latest(
+        self, *, data_run: date | None = ...
+    ) -> dict[str, SentimentRow]: ...
+
+
+def parse_run_date(run: str) -> date | None:
+    """``--sentiment-run`` as a date; empty means "each player's newest". Pure."""
+    if not run:
+        return None
+    try:
+        return date.fromisoformat(run)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            f"--sentiment-run must be YYYY-MM-DD, got {run!r}"
+        ) from exc
+
+
+def sentiment_rows(
+    source: _SentimentSource, *, enabled: bool, run: str
+) -> dict[str, SentimentRow] | None:
+    """Fetch the readings, or ``None`` when the operator asked for the ablation.
+
+    An empty result is refused rather than passed through. Valuing on "no rows" is
+    numerically identical to ``--no-sentiment`` but means something entirely different, and
+    a run that silently plans on plain ``fvm`` because a date was mistyped is exactly the
+    failure this check exists to prevent.
+    """
+    if not enabled:
+        return None
+
+    pinned = parse_run_date(run)
+    rows = source.all_latest(data_run=pinned)
+    if not rows:
+        where = f"for data_run {run}" if run else "in the database"
+        raise typer.BadParameter(
+            f"sentiment is on but there are no rows {where}. "
+            "Run `fantabot news-fetch --write`, or pass --no-sentiment."
+        )
+    return rows
+
+
 def asta_optimize(
     owned: str = typer.Option("", help="Player ids already owned, comma/space separated."),
     budget: float = typer.Option(500.0, help="Remaining credits to spend."),
     lam: float = typer.Option(0.0, "--lam", help="Risk aversion; higher diversifies across clubs."),
     fallbacks: int = typer.Option(3, help="How many next-best plans to show."),
     season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
+    sentiment: bool = typer.Option(
+        True,
+        "--sentiment/--no-sentiment",
+        help="Adjust values by the news feed. --no-sentiment is the fvm-only ablation.",
+    ),
+    sentiment_run: str = typer.Option(
+        "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
+    ),
 ) -> None:
     """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
+    from fantabot.data_sources.news_sentiment import NewsSentimentSource
     from fantabot.db import database_manager
     from fantabot.db.repositories.reference import ReferenceRepository
 
     with database_manager.get_session() as session:
         quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
         prices = expected_prices(session)
+        rows = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
 
     pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
     teams = {pid: row.squadra for pid, row in quotazioni.items()}
     names = {pid: row.nome for pid, row in quotazioni.items()}
-    value = build_value({pid: row.fvm for pid, row in quotazioni.items()}, priced_ids=set(prices))
+    value = build_value(
+        {pid: row.fvm for pid, row in quotazioni.items()},
+        priced_ids=set(prices),
+        sentiment=rows,
+        as_of=date.today() if rows else None,
+    )
     legality = build_legality(load_compat())
     state = AstaState(owned=parse_ids(owned), total_budget=budget)
 

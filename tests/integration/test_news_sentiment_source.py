@@ -14,6 +14,8 @@ Marked ``db``: the contracts are about ordering, windowing and NULL handling,
 which is exactly what a fake session cannot settle.
 """
 
+from datetime import date
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -322,3 +324,25 @@ def test_all_latest_issues_a_single_statement(db_session: Session) -> None:
         event.remove(engine, "before_cursor_execute", record)
 
     assert len(statements) == 1, statements
+
+
+def test_all_latest_can_be_pinned_to_one_run(db_session: Session) -> None:
+    source = _source(
+        db_session,
+        [
+            _row("2026-09-02", player_id="632", sentiment="0.10"),
+            _row("2026-10-07", player_id="632", sentiment="0.70"),
+        ],
+    )
+
+    pinned = source.all_latest(data_run=date(2026, 9, 2))
+
+    assert pinned["632"].sentiment == 0.10
+    assert pinned["632"].data_run == "2026-09-02"
+
+
+def test_pinning_to_a_run_that_does_not_exist_is_empty(db_session: Session) -> None:
+    """Empty, so the caller can refuse rather than silently apply no adjustment."""
+    source = _source(db_session, [_row("2026-10-07", player_id="632")])
+
+    assert source.all_latest(data_run=date(1999, 1, 1)) == {}

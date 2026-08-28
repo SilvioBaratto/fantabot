@@ -24,6 +24,8 @@ would let a lineup be picked on silence that was never measured.
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session
 
 from fantabot.data_sources.models import (
@@ -53,9 +55,12 @@ class NewsSentimentSource:
         """His most recent reading, or ``None`` if he has never been queried."""
         return self._repo.latest(player_id)
 
-    def all_latest(self) -> dict[str, SentimentRow]:
-        """Every player's most recent reading, in one query. Silent rows included."""
-        return self._repo.all_latest()
+    def all_latest(self, *, data_run: date | None = None) -> dict[str, SentimentRow]:
+        """Every player's most recent reading, in one query. Silent rows included.
+
+        ``data_run`` pins the read to one run; an unknown one is empty, never a fallback.
+        """
+        return self._repo.all_latest(data_run=data_run)
 
     def trailing(self, player_id: str, weeks: int = 4) -> TrailingSentiment | None:
         """Mean of each score over the last ``weeks`` runs, silent rows excluded."""
