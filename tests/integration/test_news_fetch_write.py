@@ -26,6 +26,11 @@ pytestmark = pytest.mark.db
 runner = CliRunner()
 TODAY = date.today().isoformat()
 
+#: A player id far outside the real range, so nothing the weekly run collects
+#: can ever share a key with this file's writes.
+CANARY_ID = 9_000_000_001
+CANARY_NAME = "CANARY — test fixture, not a real player"
+
 
 def _row(player_id: str, riassunto: str) -> dict[str, str]:
     return {
@@ -56,21 +61,37 @@ def _row(player_id: str, riassunto: str) -> dict[str, str]:
 
 @pytest.fixture
 def canary_player() -> Any:
-    """A real player id, with any leftover reading for today removed first."""
+    """A synthetic player, created for the test and removed after it.
+
+    This file drives the real CLI, so its writes go through
+    ``database_manager.get_session()``, which **commits** — unlike the
+    ``db_session`` fixture, whose savepoint rolls back. Every row it writes and
+    every row it deletes is real.
+
+    It used to borrow ``SELECT id FROM players ORDER BY id LIMIT 1``: player 3,
+    Radunovic, who has eight ``quotazioni`` rows and is therefore in the weekly
+    pool. So ``pytest -m db`` deleted that week's reading for a real player,
+    twice per test, and CLAUDE.md's rule is that a past Wednesday cannot be
+    regenerated. Running the suite was quietly regenerating one.
+
+    A synthetic id has no ``quotazioni`` row, so ``load_pool`` never returns it
+    and no real reading can share its key. The deletes are therefore keyed on
+    the player alone — every row for that id belongs to this file.
+    """
     with database_manager.get_session() as session:
-        player_id = str(
-            session.execute(text("SELECT id FROM players ORDER BY id LIMIT 1")).scalar()
+        session.execute(
+            text("INSERT INTO players (id, nome) VALUES (:i, :n) ON CONFLICT (id) DO NOTHING"),
+            {"i": CANARY_ID, "n": CANARY_NAME},
         )
         session.execute(
-            text("DELETE FROM player_sentiment WHERE data_run = :d AND player_id = :p"),
-            {"d": TODAY, "p": int(player_id)},
+            text("DELETE FROM player_sentiment WHERE player_id = :p"), {"p": CANARY_ID}
         )
-    yield player_id
+    yield str(CANARY_ID)
     with database_manager.get_session() as session:
         session.execute(
-            text("DELETE FROM player_sentiment WHERE data_run = :d AND player_id = :p"),
-            {"d": TODAY, "p": int(player_id)},
+            text("DELETE FROM player_sentiment WHERE player_id = :p"), {"p": CANARY_ID}
         )
+        session.execute(text("DELETE FROM players WHERE id = :p"), {"p": CANARY_ID})
 
 
 def _fake_fetch(rows: list[dict[str, str]]) -> Any:
@@ -299,3 +320,81 @@ def test_a_database_that_fails_mid_run_is_named_and_the_run_exits_non_zero(
     assert "RuntimeError" in result.output
     assert "could not be stored" in result.output
     assert _stored(canary_player) == []
+
+
+
+def test_the_canary_is_not_a_player_the_weekly_run_collects(canary_player: str) -> None:
+    """This file drives the real CLI, so everything it writes and deletes is real.
+
+    Unlike `db_session`, whose savepoint rolls back, these tests go through
+    `database_manager.get_session()`, which commits. The canary fixture DELETEs
+    `(today, canary)` at setup *and* teardown — so whoever the canary is, every
+    `pytest -m db` erases that player's reading for the current week.
+
+    It used to be `SELECT id FROM players ORDER BY id LIMIT 1`: player 3,
+    Radunovic, who has eight `quotazioni` rows and is therefore in the weekly
+    pool. CLAUDE.md's rule is that a past Wednesday cannot be regenerated, and
+    running the suite was quietly regenerating one.
+
+    A synthetic id has no `quotazioni` row, so `load_pool` never returns it and
+    no real reading can ever share its key.
+    """
+    from sqlalchemy import text
+
+    from fantabot.db import database_manager
+
+    with database_manager.get_session() as session:
+        in_pool = session.execute(
+            text("SELECT count(*) FROM quotazioni WHERE player_id = :p"),
+            {"p": int(canary_player)},
+        ).scalar()
+        nome = session.execute(
+            text("SELECT nome FROM players WHERE id = :p"), {"p": int(canary_player)}
+        ).scalar()
+
+    assert in_pool == 0, (
+        f"player {canary_player} has {in_pool} quotazioni row(s), so the weekly run collects "
+        "them — and this file deletes their reading for today, twice per test"
+    )
+    assert nome == CANARY_NAME, "the canary must be recognisable as a fixture, not borrowed"
+
+
+def test_the_fixture_does_not_borrow_a_real_player() -> None:
+    """A tripwire on the exact shape of the regression, in the style of
+    `test_db_boundary` and `test_token_secrecy`: the canary was picked by
+    querying the real table, which is what made it a real player.
+
+    Docstrings are excluded, or this test would fail on the paragraph above
+    explaining what it forbids — a guard that cannot describe itself is a guard
+    someone deletes.
+    """
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+
+    documentation: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            first = node.body[0] if node.body else None
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                documentation.add(id(first.value))
+
+    executed = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in documentation
+    ]
+    # Split, so the needle is not itself one of the strings it is looking for.
+    needle = "FROM players " + "ORDER BY"
+    offenders = [sql for sql in executed if needle in sql]
+
+    assert offenders == [], (
+        f"the canary is being borrowed from the real players table again: {offenders}"
+    )
