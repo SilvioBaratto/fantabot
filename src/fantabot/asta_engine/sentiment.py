@@ -81,6 +81,10 @@ class SentimentWeights:
     #: them is fitted — there is one ``data_run`` — so they are declared priors and
     #: ``k = 0`` is an exact revert to the gate alone, pinned by a test.
     k: float = 0.25
+    #: How much a stale Mantra role tag widens the band. Role-risk is uncertainty about
+    #: where a player's points come from, not a claim that there will be fewer of them —
+    #: so it moves the variance and never the mean.
+    drift_widening: float = 0.5
     w_sentiment: float = 0.40
     w_forma: float = 0.20
     w_mercato: float = 0.20
@@ -135,17 +139,25 @@ def variance_by_id(
     reading with no evidence behind it tells us exactly as little as never having been
     priced. Saying so by interpolation means there is no magic multiplier to justify, and
     the relationship survives any future change to either endpoint.
+
+    A stale Mantra role tag widens the band further. The platform freezes role tags in late
+    July and enforces its own at lineup submission, so a player tagged ``A`` who is actually
+    played as ``W`` will still be *fielded* as an ``A`` — but his output profile is a
+    winger's, not a centre-forward's. That is uncertainty about where his points come from,
+    which is variance. It is emphatically **not** permission to field him as a ``W``; see
+    ``legality.py``, which reads ``quotazioni`` and only ``quotazioni``.
     """
-    return {
-        player_id: base
-        + (widest - base)
-        * (
-            1.0 - aged_confidence(rows[player_id], as_of=as_of, weights=weights)
-            if player_id in rows
-            else 1.0
+    bands: dict[str, float] = {}
+    for player_id in pool_ids:
+        row = rows.get(player_id)
+        if row is None:
+            bands[player_id] = widest
+            continue
+        ignorance = 1.0 - aged_confidence(row, as_of=as_of, weights=weights)
+        bands[player_id] = (base + (widest - base) * ignorance) * (
+            1.0 + weights.drift_widening * row.deriva_ruolo
         )
-        for player_id in pool_ids
-    }
+    return bands
 
 
 def raw_effect(

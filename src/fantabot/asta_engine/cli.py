@@ -143,7 +143,7 @@ def asta_optimize(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
-    console.print(format_roster(result.optimal, names, prices))
+    console.print(format_roster(result.optimal, names, prices, sentiment=rows))
     for index, fallback in enumerate(result.fallbacks, start=1):
         console.print(
             f"[dim]fallback {index}: cost {fallback.total_cost:.0f} | obj {fallback.objective:.1f}[/dim]"

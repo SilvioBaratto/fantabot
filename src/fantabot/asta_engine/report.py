@@ -111,13 +111,32 @@ def build_value(
     )
 
 
-def format_roster(roster: Roster, names: Mapping[str, str], prices: Mapping[str, float]) -> str:
-    """One header line plus a line per player (name and expected price)."""
+def format_roster(
+    roster: Roster,
+    names: Mapping[str, str],
+    prices: Mapping[str, float],
+    *,
+    sentiment: Mapping[str, SentimentRow] | None = None,
+) -> str:
+    """One header line plus a line per player (name, expected price, and any role drift).
+
+    The drift annotation is a **warning, not a permission**. The platform freezes Mantra
+    role tags in late July and enforces its own at submission, so a player tagged ``A`` who
+    is being played as ``W`` is still fielded as an ``A``. Printing it here is the whole of
+    what the engine does with drift, besides widening his band: surfaced for the operator to
+    weigh, never fed back into legality.
+    """
     lines = [
         f"roster: {len(roster)} players | cost {roster.total_cost:.0f} | obj {roster.objective:.1f}"
     ]
     for player_id in roster.player_ids:
-        lines.append(f"  {names.get(player_id, player_id):<24} {prices.get(player_id, 0.0):>5.0f}")
+        row = (sentiment or {}).get(player_id)
+        drift = ""
+        if row is not None and row.deriva_ruolo > 0:
+            drift = f"  ⚠ tagged {row.ruoli_mantra} / played {row.ruolo_campo}"
+        lines.append(
+            f"  {names.get(player_id, player_id):<24} {prices.get(player_id, 0.0):>5.0f}{drift}"
+        )
     return "\n".join(lines)
 
 

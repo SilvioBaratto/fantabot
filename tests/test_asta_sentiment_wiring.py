@@ -8,17 +8,19 @@ not approximately.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 import pytest
 import typer
 
 from fantabot.asta_engine.cli import parse_run_date, sentiment_rows
-from fantabot.asta_engine.legality import SchemaLegality, SlotRule
+from fantabot.asta_engine.legality import SchemaLegality, SlotRule, fieldable_schemi
 from fantabot.asta_engine.optimizer import optimize_roster
-from fantabot.asta_engine.report import build_value
+from fantabot.asta_engine.report import build_pool, build_value, format_roster
 from fantabot.asta_engine.roles import MantraPlayer, normalize_roles
-from fantabot.asta_engine.state import AstaState, RosterRules
+from fantabot.asta_engine.state import AstaState, Roster, RosterRules
 from fantabot.asta_engine.value import NaiveValueModel
 from fantabot.data_sources.models import SentimentRow
 
@@ -220,3 +222,123 @@ def test_sentiment_on_with_no_rows_is_refused_rather_than_silently_skipped() -> 
     """
     with pytest.raises(typer.BadParameter, match="no rows"):
         sentiment_rows(_FakeSource({}), enabled=True, run="2026-01-01")
+
+
+# --- drift: fail-closed ------------------------------------------------------------
+#
+# rules/sistema-mantra.md:34 — roles are assigned in late July and "are not revisited for
+# the rest of the year". The platform enforces its own frozen tag at lineup submission, so
+# a pool widened by observed roles produces rosters that satisfy our legality matrix and
+# that the platform then rejects. Drift is variance and a warning; never a permission.
+
+
+def _drifted(pid: str, tagged: str, observed: str) -> SentimentRow:
+    """``drift()`` returns the model's own confidenza when the tag is stale, so they match."""
+    return replace(
+        _row(pid, confidenza=0.9),
+        ruoli_mantra=tagged,
+        ruolo_campo=observed,
+        deriva_ruolo=0.9,
+    )
+
+
+def test_drift_never_widens_the_pool() -> None:
+    """The load-bearing negative. Yildiz is tagged A and played as T; he stays an A."""
+    roles = {"star": ["A"]}
+
+    pool = build_pool(roles)
+
+    assert pool[0].roles == frozenset({"A"})
+
+
+def test_drift_leaves_the_fieldable_schemi_untouched() -> None:
+    """Byte-identical with and without sentiment: legality reads quotazioni, only ever."""
+    roles = {p.id: ["A"] for p in POOL if p.id != "gk"} | {"gk": ["POR"]}
+
+    plain = fieldable_schemi(build_pool(roles), MINI)
+    with_drift = fieldable_schemi(build_pool(roles), MINI)
+
+    assert plain == with_drift
+
+
+def test_a_drifted_player_carries_a_wider_band() -> None:
+    tagged_only = {"star": _row("star", confidenza=0.9)}
+    drifted = {"star": _drifted("star", "A", "W")}
+
+    plain = build_value(FVM, priced_ids=set(PRICES), sentiment=tagged_only, as_of=AS_OF)
+    moved = build_value(FVM, priced_ids=set(PRICES), sentiment=drifted, as_of=AS_OF)
+
+    assert moved.value("star").variance > plain.value("star").variance
+
+
+def test_drift_does_not_move_the_mean() -> None:
+    """Role-risk is uncertainty about where his points come from, not fewer points."""
+    tagged_only = {"star": _row("star", confidenza=0.9)}
+    drifted = {"star": _drifted("star", "A", "W")}
+
+    plain = build_value(FVM, priced_ids=set(PRICES), sentiment=tagged_only, as_of=AS_OF)
+    moved = build_value(FVM, priced_ids=set(PRICES), sentiment=drifted, as_of=AS_OF)
+
+    assert moved.value("star").mean == pytest.approx(plain.value("star").mean)
+
+
+# --- the report column -------------------------------------------------------------
+
+
+def test_a_drifted_player_is_flagged_in_the_roster() -> None:
+    roster = Roster(("star",), 10.0, 1.0)
+    rendered = format_roster(
+        roster, {"star": "Yildiz"}, PRICES, sentiment={"star": _drifted("star", "A", "T")}
+    )
+
+    assert "A" in rendered and "T" in rendered
+    assert "Yildiz" in rendered
+
+
+def test_an_undrifted_player_gets_no_annotation() -> None:
+    roster = Roster(("star",), 10.0, 1.0)
+    rendered = format_roster(
+        roster, {"star": "Malen"}, PRICES, sentiment={"star": _row("star")}
+    )
+
+    assert "/" not in rendered
+
+
+def test_the_roster_renders_without_sentiment_at_all() -> None:
+    """The ablation still prints."""
+    roster = Roster(("star",), 10.0, 1.0)
+
+    assert "Malen" in format_roster(roster, {"star": "Malen"}, PRICES)
+
+
+def test_the_observed_role_never_reaches_a_decision_module() -> None:
+    """The fail-closed rule, structurally rather than behaviourally.
+
+    ``ruolo_campo`` is what the sources say a player is *actually* being played as. It may
+    be read to warn and to widen a band; it may never reach anything that decides whether a
+    lineup is legal, because the platform enforces its own frozen tag and a pool widened by
+    observed roles builds XIs the platform rejects.
+
+    Checked as text over the whole package so it holds for edits nobody thought to test.
+    """
+    engine = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "asta_engine"
+    allowed = {"report.py", "sentiment.py"}
+
+    offenders = sorted(
+        path.name
+        for path in engine.glob("*.py")
+        if path.name not in allowed and "ruolo_campo" in path.read_text(encoding="utf-8")
+    )
+
+    assert offenders == [], f"observed roles leaked into: {offenders}"
+
+
+def test_legality_cannot_see_the_sentiment_feed_at_all() -> None:
+    """Not "does not use it" — cannot. L1 reads quotazioni, and only quotazioni."""
+    legality = (
+        Path(__file__).resolve().parent.parent
+        / "src" / "fantabot" / "asta_engine" / "legality.py"
+    ).read_text(encoding="utf-8")
+
+    assert "sentiment" not in legality
+    assert "deriva_ruolo" not in legality
