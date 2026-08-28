@@ -57,6 +57,7 @@ class ReferenceRepository(RepositoryBase):
             )
             .join(Player, Player.id == Quotazione.player_id)
             .where(Quotazione.stagione == stagione, Quotazione.listone == listone)
+            .order_by(Quotazione.player_id)  # stable order: downstream tie-breaks depend on it
         ).all()
 
         return {

@@ -72,6 +72,14 @@ def test_reservation_is_higher_for_an_essential_player() -> None:
     assert 0 < walkaways["a1"] < state.remaining_budget
 
 
+def test_walkaways_are_never_negative() -> None:
+    # The greedy builder is a heuristic, so base - alt can go negative on real pools; a
+    # walk-away must never be below zero.
+    state = AstaState(total_budget=100.0)
+    _, walkaways = reservations(state, POOL, **_kw())  # type: ignore[arg-type]
+    assert all(walkaway >= 0 for walkaway in walkaways.values())
+
+
 def test_rolling_replans_when_a_target_is_taken_by_a_rival() -> None:
     state = AstaState(total_budget=100.0)
     events = [AssignmentEvent("a1", 10, "rival")]  # a rival buys a1

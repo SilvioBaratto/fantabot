@@ -266,6 +266,9 @@ def optimize_roster(
     knob: 0 maximizes raw points, higher diversifies across clubs.
     """
     by_id = {p.id: p for p in pool}
+    missing = [pid for pid in state.owned if pid not in by_id]
+    if missing:
+        raise InfeasibleRoster(f"owned players are not in the pool: {missing}")
     owned = set(state.owned)
     available = [p for p in pool if p.id not in state.taken and p.id not in owned]
 

@@ -88,3 +88,10 @@ def test_the_optimizer_is_deterministic() -> None:
 def test_reservations_with_no_targets_is_empty() -> None:
     _, walkaways = reservations(AstaState(total_budget=100.0), POOL, n_targets=0, **_kw())  # type: ignore[arg-type]
     assert walkaways == {}
+
+
+def test_an_unknown_owned_id_is_a_clean_refusal_not_a_crash() -> None:
+    # A typo in --owned must not raise a bare KeyError.
+    state = AstaState(owned=("does-not-exist",), total_budget=100.0)
+    with pytest.raises(InfeasibleRoster):
+        optimize_roster(state, POOL, **_kw())  # type: ignore[arg-type]

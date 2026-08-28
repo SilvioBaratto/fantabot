@@ -53,9 +53,11 @@ def reservations(
     the remaining budget. A target whose removal makes the roster infeasible is essential and
     reserves the whole budget.
     """
+    # n_fallbacks=0: this call's fallbacks are unused — the walk-aways below replace them,
+    # so computing them would waste one optimizer build per target on every sale.
     result = optimize_roster(
         state, pool, value=value, prices=prices, teams=teams, legality=legality,
-        rules=rules, lam=lam, rho=rho, n_fallbacks=n_targets,
+        rules=rules, lam=lam, rho=rho, n_fallbacks=0,
     )
     base = result.optimal.objective
     owned = set(state.owned)
@@ -73,7 +75,10 @@ def reservations(
                 without, pool, value=value, prices=prices, teams=teams, legality=legality,
                 rules=rules, lam=lam, rho=rho, n_fallbacks=0,
             ).optimal.objective
-            walkaways[target] = min(state.remaining_budget, base - alt)
+            # Clamp to >= 0: the greedy builder is a heuristic, so a roster without the target
+            # can occasionally score higher (base - alt < 0). A negative walk-away is meaningless
+            # — it just means the target is freely replaceable, i.e. worth nothing extra to chase.
+            walkaways[target] = max(0.0, min(state.remaining_budget, base - alt))
         except InfeasibleRoster:
             walkaways[target] = state.remaining_budget
     return result, walkaways

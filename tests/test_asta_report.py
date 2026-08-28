@@ -12,6 +12,7 @@ from fantabot.asta_engine.report import (
     format_legality,
     format_roster,
     parse_ids,
+    parse_replay_lines,
 )
 from fantabot.asta_engine.state import Roster
 
@@ -47,3 +48,9 @@ def test_format_roster_shows_cost_and_names() -> None:
 def test_format_legality_reports_fieldable_and_none() -> None:
     assert "3-4-3" in format_legality(frozenset({"3-4-3", "4-3-3"}))
     assert "no legal xi" in format_legality(frozenset()).lower()
+
+
+def test_parse_replay_lines_skips_malformed_lines() -> None:
+    lines = ['{"a": 1}', "not json", "", '{"b": 2}']
+    assert parse_replay_lines(lines) == [{"a": 1}, {"b": 2}]
+

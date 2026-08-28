@@ -6,8 +6,10 @@ Kept out of ``cli.py`` so the parsing, the naive-value assembly and the renderin
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 from .roles import MantraPlayer, normalize_roles
 from .state import Roster
@@ -17,6 +19,25 @@ from .value import NaiveValueModel
 def parse_ids(raw: str) -> tuple[str, ...]:
     """Split a ``--owned``/``--rosa`` string on commas and whitespace, dropping blanks."""
     return tuple(token for token in re.split(r"[,\s]+", raw.strip()) if token)
+
+
+def parse_replay_lines(lines: Iterable[str]) -> list[dict[str, Any]]:
+    """JSON-decode replay lines, skipping blanks and anything malformed.
+
+    A live capture is not guaranteed clean — one garbled line must not abort the replay.
+    """
+    out: list[dict[str, Any]] = []
+    for line in lines:
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, dict):
+            out.append(decoded)
+    return out
 
 
 def build_pool(roles_by_id: Mapping[str, Sequence[str]]) -> list[MantraPlayer]:

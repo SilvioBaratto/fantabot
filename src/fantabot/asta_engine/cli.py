@@ -15,7 +15,14 @@ from .live import normalize
 from .opponents import format_advisory, format_opponents, track_opponents
 from .optimizer import InfeasibleRoster, optimize_roster
 from .prices import expected_prices
-from .report import build_pool, build_value, format_legality, format_roster, parse_ids
+from .report import (
+    build_pool,
+    build_value,
+    format_legality,
+    format_roster,
+    parse_ids,
+    parse_replay_lines,
+)
 from .reservation import rolling_advisory
 from .state import AstaState
 
@@ -97,17 +104,12 @@ def asta_live(
     A stand-in for the live socket (the own-room feed is still an open question): it drives the
     exact same engine off ``AssignmentEvent`` as a live room would, from a captured file.
     """
-    import json
     from pathlib import Path
 
     from fantabot.db import database_manager
     from fantabot.db.repositories.reference import ReferenceRepository
 
-    rows = [
-        json.loads(line)
-        for line in Path(replay).read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
     events = normalize(row.get("state", row) for row in rows)
 
     with database_manager.get_session() as session:
