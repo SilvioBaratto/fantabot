@@ -186,6 +186,37 @@ alembic check                # models and migrations agree?
    of 2026-08-27 put numbers on that: same 23 rooms, 105 shared sales, and **224
    rungs the poller could not see.** Use `aste-collect`.
 
+15. **`asta_engine/sentiment.py`** — the news feed as a multiplier on `fvm`. Pure:
+   no I/O, and **no clock** — `as_of` is a parameter, because a pure module that
+   reads the clock has tests that are a coin flip. Four layers: a **gate**
+   (`disponibilita`, `titolarita`, each through its own floor), a **tilt**
+   (`sentiment`/`forma`/`mercato`/`rigorista`/`piazzati`, scaled by `--tilt-k`),
+   a **confidence shrink** decayed on a 7-day half-life — one missed weekly
+   `news-fetch` — and a **normalization** pinning the pool mean at exactly 1.0.
+   That last one is load-bearing, not cosmetic: the objective is
+   `sum(mu) - lam*Var` and `Var` does not scale with `mu`, so rescaling every mean
+   would silently re-tune the operator's `lam`.
+   Two constants, set differently on purpose. `TIT_FLOOR = 0.40` is **measured** —
+   `fvm` and `titolarita` share R² approx 0.37–0.43 of their rank variance, so
+   roughly 40% of what the gate would "discover" is already priced, and the gate
+   refuses to strip that fraction away. `DISP_FLOOR = 0.50` fixes a **horizon**
+   mismatch instead: `disponibilita` asks "available *now*" and an asta buys a
+   season. Without it, `disponibilita == 0` drove the mean to exactly 0 and the
+   player out of the pool **at any price** — a veto wearing a soft weight's
+   clothes, which on the 2026-08-28 run put Yildiz (metatarsal fracture, three
+   sources) at x0.07. A test pins `min(effect) > 0` over the whole input space.
+   **Role drift is fail-closed and this is not negotiable.** `rules/sistema-mantra.md:34`:
+   roles are assigned in late July and *are not revisited*, and the platform
+   enforces its own tag at submission. So `deriva_ruolo` widens a band and prints
+   a warning, and `ruolo_campo` **never** reaches a decision module. A text check
+   over the package proves it appears only in `report.py` and `sentiment.py`;
+   `legality.py` reads `quotazioni` and only `quotazioni`. Widening the pool by
+   observed roles builds XIs that pass our matrix and that the platform rejects.
+   `--no-sentiment` is the **ablation control**, not a courtesy: it reproduces the
+   pre-sentiment `NaiveValueModel` field for field, asserted, because a change to
+   a value model is only honest if you can build the same roster without it.
+   Spec: `docs/spec-asta-sentiment.md`.
+
 
 ## Known unknowns — resolve before flipping `FANTABOT_AUTO_ACT=true`
 
