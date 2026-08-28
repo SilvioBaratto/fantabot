@@ -10,7 +10,8 @@ updates in place rather than appending a second row that the reader would keep.
 
 from __future__ import annotations
 
-from datetime import date
+from contextlib import contextmanager
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -24,7 +25,20 @@ from fantabot.news.pipeline import FetchResult
 pytestmark = pytest.mark.db
 
 runner = CliRunner()
-TODAY = date.today().isoformat()
+#: The run day these tests write and read. A year back, and deliberately **not** today.
+#:
+#: `news-fetch` has a resume filter — it skips any player who already has a row for the run
+#: day — and the `db` tier runs against the development database. The moment a real
+#: `news-fetch` had written today's listone, every one of these tests got "Nothing to do —
+#: every player already has a row for today", the fake fetch never ran, and eleven of them
+#: failed. Nothing was wrong with the production code; the tests were asserting against a
+#: shared table's live state.
+#:
+#: Relative rather than a fixed literal so it stays in the past whatever the clock says —
+#: `--date` refuses a day that has not happened yet — and far enough back that no real run
+#: can occupy it.
+RUN_DAY = (date.today() - timedelta(days=365)).isoformat()
+TODAY = RUN_DAY
 
 #: A player id far outside the real range, so nothing the weekly run collects
 #: can ever share a key with this file's writes.
@@ -94,6 +108,42 @@ def canary_player() -> Any:
         session.execute(text("DELETE FROM players WHERE id = :p"), {"p": CANARY_ID})
 
 
+def _news_fetch(*args: str) -> Any:
+    """Invoke `news-fetch` pinned to RUN_DAY, so the resume filter sees only our own rows.
+
+    A test that passes its own `--date` keeps it — one of them is specifically about how a
+    given day is validated.
+    """
+    argv = ["news-fetch", *args]
+    if "--date" not in argv:
+        argv += ["--date", RUN_DAY]
+    return runner.invoke(app, argv)
+
+
+@contextmanager
+def _already_stored_pool_player() -> Any:
+    """Store a reading for the first player `load_pool` returns, then remove it.
+
+    Committed, not rolled back: this file drives the real CLI through
+    `database_manager.get_session()`. RUN_DAY is a year in the past, so the row cannot
+    collide with a real reading, and the `finally` removes it either way.
+    """
+    from fantabot.db.repositories.sentiment import SentimentRepository
+    from fantabot.news.pool import load_pool
+
+    with database_manager.get_session() as session:
+        player_id = str(load_pool(session, "2026/27")[0].id)
+        SentimentRepository(session).upsert_rows([_row(player_id, "già stored")], force=True)
+    try:
+        yield player_id
+    finally:
+        with database_manager.get_session() as session:
+            session.execute(
+                text("DELETE FROM player_sentiment WHERE data_run = :d AND player_id = :p"),
+                {"d": RUN_DAY, "p": int(player_id)},
+            )
+
+
 def _fake_fetch(rows: list[dict[str, str]]) -> Any:
     async def fetch_all(*args: object, **kwargs: object) -> FetchResult:
         return FetchResult(rows=rows)
@@ -120,10 +170,10 @@ def test_the_same_day_twice_stores_one_row(
     from fantabot.news import pipeline
 
     monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "prima")]))
-    assert runner.invoke(app, ["news-fetch", "--write", "--limit", "1"]).exit_code == 0
+    assert _news_fetch("--write", "--limit", "1").exit_code == 0
 
     monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "seconda")]))
-    assert runner.invoke(app, ["news-fetch", "--write", "--limit", "1"]).exit_code == 0
+    assert _news_fetch("--write", "--limit", "1").exit_code == 0
 
     assert _stored(canary_player) == ["prima"]
 
@@ -136,10 +186,10 @@ def test_force_updates_in_place_rather_than_appending(
     from fantabot.news import pipeline
 
     monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "prima")]))
-    runner.invoke(app, ["news-fetch", "--write", "--limit", "1"])
+    _news_fetch("--write", "--limit", "1")
 
     monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "corretta")]))
-    result = runner.invoke(app, ["news-fetch", "--write", "--force", "--limit", "1"])
+    result = _news_fetch("--write", "--force", "--limit", "1")
 
     assert result.exit_code == 0
     assert _stored(canary_player) == ["corretta"]
@@ -148,17 +198,37 @@ def test_force_updates_in_place_rather_than_appending(
 def test_scope_pool_builds_the_pool_from_postgres() -> None:
     """Moved from the default tier: the pool is a query now, so news-fetch
     needs the stack up even for --no-run."""
-    result = runner.invoke(app, ["news-fetch", "--scope", "pool", "--limit", "1", "--no-run"])
+    result = _news_fetch("--scope", "pool", "--limit", "1", "--no-run")
 
     assert result.exit_code == 0
 
 
-def test_print_prompt_with_no_run_spends_nothing() -> None:
-    result = runner.invoke(app, ["news-fetch", "--limit", "1", "--print-prompt", "--no-run"])
+def test_print_prompt_with_no_run_spends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The heading assertion was stale: `57a4428` renamed "Fonti preferite" to `FONTI` when
+    it curated the source list, and this test kept asserting the old wording. It went
+    unnoticed because the test was already failing for an unrelated reason — a stale
+    assertion behind a failing test is invisible twice over.
+
+    The fan-out is faked and asserted uncalled, because "spends nothing" was the test's name
+    and not one of its assertions. `_refuses` below makes the same point: the check ran
+    unfaked once and queried a live model until it was killed.
+    """
+    from fantabot.news import pipeline
+
+    called: list[object] = []
+
+    async def must_not_run(players: object, **kwargs: Any) -> FetchResult:
+        called.append(players)
+        return FetchResult()
+
+    monkeypatch.setattr(pipeline, "fetch_all", must_not_run)
+    result = _news_fetch("--limit", "1", "--print-prompt", "--no-run")
 
     assert result.exit_code == 0
     assert "GIOCATORE" in result.output
-    assert "Fonti preferite" in result.output
+    assert "FONTI" in result.output
+    assert "fantacalcio.it" in result.output, "the curated source list never reached the prompt"
+    assert called == [], "--no-run queried the backend anyway"
 
 
 def _player(player_id: str) -> Any:
@@ -199,9 +269,7 @@ def test_a_crash_mid_run_still_stores_what_had_been_fetched(
         raise RuntimeError("the run died before its summary")
 
     monkeypatch.setattr(pipeline, "fetch_all", crashing)
-    result = runner.invoke(
-        app, ["news-fetch", "--write", "--limit", "2", "--flush-every", "50"]
-    )
+    result = _news_fetch("--write", "--limit", "2", "--flush-every", "50")
 
     assert result.exit_code != 0
     assert _stored(canary_player) == ["salvata"], "the fetched reading was discarded"
@@ -225,7 +293,7 @@ def test_a_failure_full_of_brackets_does_not_take_the_run_with_it(
         return FetchResult(rows=[row], failures=[("Canary", hostile)])
 
     monkeypatch.setattr(pipeline, "fetch_all", with_hostile_text)
-    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "2"])
+    result = _news_fetch("--write", "--limit", "2")
 
     assert result.exit_code == 0, result.output
     assert _stored(canary_player) == ["sopravvissuta"]
@@ -245,7 +313,7 @@ def test_the_run_names_the_player_it_is_querying(
         return FetchResult()
 
     monkeypatch.setattr(pipeline, "fetch_all", announcing)
-    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1"])
+    result = _news_fetch("--write", "--limit", "1")
 
     assert result.exit_code == 0, result.output
     assert "-> Canary" in result.output
@@ -265,7 +333,7 @@ def test_a_finished_player_reports_its_scores_and_the_running_stored_count(
         return FetchResult(rows=[row])
 
     monkeypatch.setattr(pipeline, "fetch_all", reporting)
-    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"])
+    result = _news_fetch("--write", "--limit", "1", "--flush-every", "1")
 
     assert result.exit_code == 0, result.output
     plain = result.output
@@ -279,16 +347,21 @@ def test_a_second_run_says_what_it_is_resuming_from(
     monkeypatch: pytest.MonkeyPatch, canary_player: str
 ) -> None:
     """Recovery is re-running. The resume filter has always existed and, until
-    readings were stored as they landed, never had anything to skip."""
+    readings were stored as they landed, never had anything to skip.
+
+    It has to be a **pool** player that is already stored. This test used to write the
+    canary and run again — but the canary is deliberately outside `load_pool`, so the filter
+    never had it to skip and `resumed` was always 0. It passed anyway, because the shared
+    database happened to hold real readings for today and those were what got skipped. The
+    assertion was real; the thing satisfying it was not the test's own doing.
+    """
     from fantabot.news import pipeline
 
-    monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "prima")]))
-    assert runner.invoke(app, ["news-fetch", "--write", "--limit", "1"]).exit_code == 0
+    with _already_stored_pool_player():
+        monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([]))
+        result = _news_fetch("--write", "--limit", "1")
 
-    monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([]))
-    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1"])
-
-    assert "resuming" in result.output
+    assert "resuming" in result.output, result.output
     assert "already stored" in result.output
 
 
@@ -313,7 +386,7 @@ def test_a_database_that_fails_mid_run_is_named_and_the_run_exits_non_zero(
 
     monkeypatch.setattr(pipeline, "fetch_all", reporting)
     monkeypatch.setattr(SentimentRepository, "upsert_rows", refusing)
-    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"])
+    result = _news_fetch("--write", "--limit", "1", "--flush-every", "1")
 
     assert result.exit_code == 1, result.output
     assert "storing failed" in result.output
@@ -429,9 +502,7 @@ def test_a_backend_failing_everything_stops_the_run_and_exits_non_zero(
         )
 
     monkeypatch.setattr(pipeline, "fetch_all", walled)
-    result = runner.invoke(
-        app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"]
-    )
+    result = _news_fetch("--write", "--limit", "1", "--flush-every", "1")
 
     assert result.exit_code == 1, result.output
     assert "10 consecutive failures" in result.output
@@ -466,9 +537,7 @@ def test_the_run_day_can_be_pinned_so_a_resume_lands_on_the_same_week(
         return FetchResult()
 
     monkeypatch.setattr(pipeline, "fetch_all", capturing)
-    result = runner.invoke(
-        app, ["news-fetch", "--write", "--limit", "1", "--date", "2026-08-27"]
-    )
+    result = _news_fetch("--write", "--limit", "1", "--date", "2026-08-27")
 
     assert result.exit_code == 0, result.output
     assert seen["today"] == date(2026, 8, 27), "the pinned day never reached the fan-out"
@@ -492,7 +561,7 @@ def _refuses(monkeypatch: pytest.MonkeyPatch, day: str) -> Any:
         return FetchResult()
 
     monkeypatch.setattr(pipeline, "fetch_all", must_not_run)
-    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1", "--date", day])
+    result = _news_fetch("--write", "--limit", "1", "--date", day)
     return result, called
 
 
@@ -554,9 +623,7 @@ def test_an_interrupt_stops_the_run_and_stores_what_it_had(
 
     before = signal.getsignal(signal.SIGINT)
     monkeypatch.setattr(pipeline, "fetch_all", interrupting)
-    result = runner.invoke(
-        app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"]
-    )
+    result = _news_fetch("--write", "--limit", "1", "--flush-every", "1")
 
     assert seen["installed"] is True, "the command never installed an interrupt handler"
     assert seen["before"] is False
@@ -590,15 +657,7 @@ def test_the_command_forwards_its_options_to_the_fan_out(
         return FetchResult()
 
     monkeypatch.setattr(pipeline, "fetch_all", capturing)
-    result = runner.invoke(
-        app,
-        [
-            "news-fetch", "--write", "--limit", "1",
-            "--concurrency", "3",
-            "--max-consecutive-failures", "7",
-            "--lookback-days", "21",
-        ],
-    )
+    result = _news_fetch("--write", "--limit", "1", "--concurrency", "3", "--max-consecutive-failures", "7", "--lookback-days", "21")
 
     assert result.exit_code == 0, result.output
     assert seen["concurrency"] == 3

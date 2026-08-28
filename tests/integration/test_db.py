@@ -14,6 +14,23 @@ from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.db
 
+
+#: Ids far above any real `players.id`, with no `quotazioni` row — so `load_pool` never
+#: returns one and no real reading can share its `(data_run, player_id)` key. Created
+#: inside the rolled-back transaction, so they never outlive the test.
+SYNTHETIC_BASE = 9_100_000_000
+
+
+def _synthetic(db_session: Session, count: int) -> list[int]:
+    """`count` player ids that belong to this test and nothing else."""
+    ids = [SYNTHETIC_BASE + offset for offset in range(count)]
+    for player_id in ids:
+        db_session.execute(
+            text("INSERT INTO players (id, nome) VALUES (:i, :n) ON CONFLICT (id) DO NOTHING"),
+            {"i": player_id, "n": f"synthetic-{player_id}"},
+        )
+    return ids
+
 CANARY_TABLE = "players"
 CANARY_ID = 999_999_999
 
@@ -463,7 +480,14 @@ class TestSentimentWriteAgainstALiveTable:
 
     @staticmethod
     def _a_real_player(db_session: Session) -> int:
-        return int(db_session.execute(text("SELECT id FROM players ORDER BY id LIMIT 1")).scalar())
+        """Synthetic, despite the name — kept so the call sites read unchanged.
+
+        Borrowing a real id made these assertions depend on whatever `news-fetch` last
+        wrote: a real player already has a reading, so an upsert keyed on
+        `(data_run, player_id)` hits an existing row and the round-trip reads back prose
+        this file never stored.
+        """
+        return _synthetic(db_session, 1)[0]
 
     def test_the_same_key_twice_inserts_once(self, db_session: Session) -> None:
         from fantabot.db.repositories.sentiment import SentimentRepository
@@ -568,12 +592,7 @@ class TestSentimentReadPath:
 
     @staticmethod
     def _players(db_session: Session, n: int) -> list[int]:
-        return [
-            int(v)
-            for v in db_session.execute(
-                text("SELECT id FROM players ORDER BY id LIMIT :n"), {"n": n}
-            ).scalars()
-        ]
+        return _synthetic(db_session, n)
 
     def test_latest_is_the_most_recent_run_not_an_arbitrary_row(self, db_session: Session) -> None:
         from fantabot.db.repositories.sentiment import SentimentReadRepository
@@ -794,12 +813,7 @@ class TestAuctionBudget:
             )
 
     def _players(self, db_session: Session, n: int) -> list[int]:
-        return [
-            int(v)
-            for v in db_session.execute(
-                text("SELECT id FROM players ORDER BY id LIMIT :n"), {"n": n}
-            ).scalars()
-        ]
+        return _synthetic(db_session, n)
 
     def _remaining(self, db_session: Session) -> dict[str, int]:
         from fantabot.db.repositories.runtime import AuctionRepository

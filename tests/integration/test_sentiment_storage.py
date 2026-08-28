@@ -9,6 +9,7 @@ rather than ported. What is preserved is what each one was actually protecting.
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -49,14 +50,15 @@ def _row(player_id: str, data_run: str = "2026-10-07", **overrides: str) -> dict
 
 
 @pytest.fixture
-def two_players(db_session: Session) -> list[str]:
-    ids = [
-        str(v)
-        for v in db_session.execute(
-            text("SELECT id FROM players ORDER BY id LIMIT 2")
-        ).scalars()
-    ]
-    return ids
+def two_players(synthetic_players: Any) -> list[str]:
+    """Synthetic, not borrowed.
+
+    This used to be ``SELECT id FROM players ORDER BY id LIMIT 2`` — real players, with real
+    readings. Once the table held a full listone those readings collided with the fixture's
+    own on ``(data_run, player_id)``, and the round-trip assertions started reading back
+    somebody else's prose.
+    """
+    return synthetic_players(2)
 
 
 def test_a_second_write_preserves_the_first(

@@ -138,3 +138,38 @@ def db_session(db_connection: Connection) -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+#: Synthetic player ids for the `db` tier. Far above any real `players.id`, and with no
+#: `quotazioni` row — so `load_pool` never returns one, no real reading can share its
+#: `(data_run, player_id)` key, and a test that writes here cannot collide with production.
+#:
+#: The alternative, `SELECT id FROM players ORDER BY id LIMIT n`, borrows real players.
+#: That is not hypothetical: it is how `pytest -m db` came to be deleting a real player's
+#: weekly reading (see `canary_player` in test_news_fetch_write.py), and how a shared
+#: database made these tests depend on whatever `news-fetch` last wrote.
+SYNTHETIC_PLAYER_BASE = 9_100_000_000
+
+
+@pytest.fixture
+def synthetic_players(db_session: Session) -> Any:
+    """Make N synthetic players inside the rolled-back transaction.
+
+    Returns a factory rather than a fixed list so a test asks for exactly what it needs.
+    No teardown: `db_session` rolls the whole transaction back, so these rows never exist
+    as far as any other test — or the real database — is concerned.
+    """
+
+    def make(count: int = 2) -> list[str]:
+        ids = [str(SYNTHETIC_PLAYER_BASE + offset) for offset in range(count)]
+        for player_id in ids:
+            db_session.execute(
+                text(
+                    "INSERT INTO players (id, nome) VALUES (:i, :n) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {"i": int(player_id), "n": f"synthetic-{player_id}"},
+            )
+        return ids
+
+    return make

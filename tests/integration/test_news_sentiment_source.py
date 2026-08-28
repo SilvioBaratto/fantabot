@@ -26,6 +26,15 @@ from fantabot.db.repositories.sentiment import SentimentRepository
 
 pytestmark = pytest.mark.db
 
+#: Synthetic ids, far above any real `players.id` and with no `quotazioni` row. These were
+#: 632/633/634 — real players — which was fine while `player_sentiment` was nearly empty and
+#: wrong the moment it held a full listone: a fixture row and a production row share the
+#: `(data_run, player_id)` key, so `latest` and `trailing` started answering from data this
+#: file never wrote. `_source` creates whatever ids the fixtures name, so only the numbers
+#: had to change.
+PLAYER = "9100000000"
+OTHER = "9100000001"
+
 HEADER_ROW = {
     "stagione": "2026/27",
     "nome": "Zaccagni",
@@ -46,7 +55,7 @@ HEADER_ROW = {
 }
 
 
-def _row(data_run: str, player_id: str = "632", **overrides: str) -> dict[str, str]:
+def _row(data_run: str, player_id: str = PLAYER, **overrides: str) -> dict[str, str]:
     row = {
         **HEADER_ROW,
         "data_run": data_run,
@@ -85,7 +94,7 @@ def test_latest_returns_the_most_recent_row(db_session: Session) -> None:
         [_row("2026-09-02", sentiment="0.10"), _row("2026-10-07", sentiment="0.70")],
     )
 
-    latest = source.latest("632")
+    latest = source.latest(PLAYER)
 
     assert latest is not None
     assert latest.data_run == "2026-10-07"
@@ -98,7 +107,7 @@ def test_latest_does_not_depend_on_file_order(db_session: Session) -> None:
         [_row("2026-10-07", sentiment="0.70"), _row("2026-09-02", sentiment="0.10")],
     )
 
-    latest = source.latest("632")
+    latest = source.latest(PLAYER)
     assert latest is not None
     assert latest.data_run == "2026-10-07"
 
@@ -110,8 +119,8 @@ def test_latest_for_an_unknown_player_is_none(db_session: Session) -> None:
 def test_an_empty_table_is_empty_rather_than_an_error(db_session: Session) -> None:
     source = NewsSentimentSource(db_session)
 
-    assert source.latest("632") is None
-    assert source.trailing("632") is None
+    assert source.latest(PLAYER) is None
+    assert source.trailing(PLAYER) is None
 
 
 def test_trailing_averages_the_window(db_session: Session) -> None:
@@ -123,7 +132,7 @@ def test_trailing_averages_the_window(db_session: Session) -> None:
         ],
     )
 
-    trailing = source.trailing("632", weeks=4)
+    trailing = source.trailing(PLAYER, weeks=4)
 
     assert trailing is not None
     assert trailing.sentiment == pytest.approx(0.30)
@@ -141,7 +150,7 @@ def test_a_silent_row_does_not_move_the_mean(db_session: Session) -> None:
         ],
     )
 
-    trailing = source.trailing("632", weeks=4)
+    trailing = source.trailing(PLAYER, weeks=4)
 
     assert trailing is not None
     assert trailing.sentiment == pytest.approx(0.30)
@@ -151,7 +160,7 @@ def test_a_silent_row_does_not_move_the_mean(db_session: Session) -> None:
 def test_trailing_is_none_when_every_row_is_silent(db_session: Session) -> None:
     source = _source(db_session, [_row("2026-09-30", sentiment="0.00", confidenza="0.00")])
 
-    assert source.trailing("632") is None
+    assert source.trailing(PLAYER) is None
 
 
 def test_trailing_only_counts_the_requested_window(db_session: Session) -> None:
@@ -166,7 +175,7 @@ def test_trailing_only_counts_the_requested_window(db_session: Session) -> None:
         ],
     )
 
-    trailing = source.trailing("632", weeks=4)
+    trailing = source.trailing(PLAYER, weeks=4)
 
     assert trailing is not None
     assert trailing.rows_used == 4
@@ -179,7 +188,7 @@ def test_drift_surfaces_a_stale_tag(db_session: Session) -> None:
         [_row("2026-10-07", ruolo_campo="T", deriva_ruolo="0.85")],
     )
 
-    drift = source.drift("632")
+    drift = source.drift(PLAYER)
 
     assert drift is not None
     assert drift.deriva_ruolo == 0.85
@@ -190,7 +199,7 @@ def test_drift_surfaces_a_stale_tag(db_session: Session) -> None:
 def test_drift_is_none_when_nothing_was_observed(db_session: Session) -> None:
     source = _source(db_session, [_row("2026-10-07", ruolo_campo="", deriva_ruolo="0.00")])
 
-    assert source.drift("632") is None
+    assert source.drift(PLAYER) is None
 
 
 def test_players_with_a_stale_tag_can_be_listed(db_session: Session) -> None:
@@ -227,7 +236,7 @@ def test_an_unreachable_database_raises_rather_than_reading_as_empty(
             raise OperationalError("SELECT 1", {}, Exception("connection refused"))
 
     with pytest.raises(OperationalError):
-        NewsSentimentSource(_Dead()).latest("632")  # type: ignore[arg-type]
+        NewsSentimentSource(_Dead()).latest(PLAYER)  # type: ignore[arg-type]
 
 
 def test_a_row_written_after_construction_is_visible(db_session: Session) -> None:
@@ -235,11 +244,11 @@ def test_a_row_written_after_construction_is_visible(db_session: Session) -> Non
     that snapshot forever. auction.py's watch_and_bid polls for hours, so it
     would have held a frozen reading for the whole duration of an asta."""
     source = _source(db_session, [_row("2026-09-02")])
-    assert source.latest("632") is not None
+    assert source.latest(PLAYER) is not None
 
     SentimentRepository(db_session).upsert_rows([_row("2026-10-07")], force=True)
 
-    latest = source.latest("632")
+    latest = source.latest(PLAYER)
     assert latest is not None
     assert latest.data_run == "2026-10-07"
 
@@ -253,30 +262,30 @@ def test_a_row_written_after_construction_is_visible(db_session: Session) -> Non
 def test_all_latest_keys_every_player_by_id(db_session: Session) -> None:
     source = _source(
         db_session,
-        [_row("2026-10-07", player_id="632"), _row("2026-10-07", player_id="633")],
+        [_row("2026-10-07", player_id=PLAYER), _row("2026-10-07", player_id=OTHER)],
     )
 
     rows = source.all_latest()
 
-    assert {"632", "633"} <= set(rows)
-    assert rows["632"].data_run == "2026-10-07"
+    assert {PLAYER, OTHER} <= set(rows)
+    assert rows[PLAYER].data_run == "2026-10-07"
 
 
 def test_all_latest_takes_only_the_newest_run_per_player(db_session: Session) -> None:
     source = _source(
         db_session,
         [
-            _row("2026-09-02", player_id="632", sentiment="0.10"),
-            _row("2026-10-07", player_id="632", sentiment="0.70"),
-            _row("2026-09-02", player_id="633", sentiment="0.20"),
+            _row("2026-09-02", player_id=PLAYER, sentiment="0.10"),
+            _row("2026-10-07", player_id=PLAYER, sentiment="0.70"),
+            _row("2026-09-02", player_id=OTHER, sentiment="0.20"),
         ],
     )
 
     rows = source.all_latest()
 
-    assert rows["632"].sentiment == 0.70
-    assert rows["632"].data_run == "2026-10-07"
-    assert rows["633"].sentiment == 0.20
+    assert rows[PLAYER].sentiment == 0.70
+    assert rows[PLAYER].data_run == "2026-10-07"
+    assert rows[OTHER].sentiment == 0.20
 
 
 def test_all_latest_returns_silent_rows_rather_than_dropping_them(
@@ -288,17 +297,17 @@ def test_all_latest_returns_silent_rows_rather_than_dropping_them(
     does not average — the value layer needs to *see* the silence to apply its
     identity, and filtering here would make "silent" and "absent" the same fact.
     """
-    source = _source(db_session, [_row("2026-10-07", player_id="632", confidenza="0.00")])
+    source = _source(db_session, [_row("2026-10-07", player_id=PLAYER, confidenza="0.00")])
 
     rows = source.all_latest()
 
-    assert "632" in rows
-    assert rows["632"].confidenza == 0.0
+    assert PLAYER in rows
+    assert rows[PLAYER].confidenza == 0.0
 
 
 def test_all_latest_omits_a_player_who_was_never_queried(db_session: Session) -> None:
     """Absent from the mapping, not present with a fabricated neutral row."""
-    rows = _source(db_session, [_row("2026-10-07", player_id="632")]).all_latest()
+    rows = _source(db_session, [_row("2026-10-07", player_id=PLAYER)]).all_latest()
 
     assert "99999" not in rows
 
@@ -314,7 +323,7 @@ def test_all_latest_issues_a_single_statement(db_session: Session) -> None:
 
     source = _source(
         db_session,
-        [_row("2026-10-07", player_id=str(pid)) for pid in (632, 633, 634)],
+        [_row("2026-10-07", player_id=str(pid)) for pid in (int(PLAYER), int(OTHER), int(OTHER) + 1)],
     )
     engine = db_session.get_bind()
     event.listen(engine, "before_cursor_execute", record)
@@ -330,19 +339,19 @@ def test_all_latest_can_be_pinned_to_one_run(db_session: Session) -> None:
     source = _source(
         db_session,
         [
-            _row("2026-09-02", player_id="632", sentiment="0.10"),
-            _row("2026-10-07", player_id="632", sentiment="0.70"),
+            _row("2026-09-02", player_id=PLAYER, sentiment="0.10"),
+            _row("2026-10-07", player_id=PLAYER, sentiment="0.70"),
         ],
     )
 
     pinned = source.all_latest(data_run=date(2026, 9, 2))
 
-    assert pinned["632"].sentiment == 0.10
-    assert pinned["632"].data_run == "2026-09-02"
+    assert pinned[PLAYER].sentiment == 0.10
+    assert pinned[PLAYER].data_run == "2026-09-02"
 
 
 def test_pinning_to_a_run_that_does_not_exist_is_empty(db_session: Session) -> None:
     """Empty, so the caller can refuse rather than silently apply no adjustment."""
-    source = _source(db_session, [_row("2026-10-07", player_id="632")])
+    source = _source(db_session, [_row("2026-10-07", player_id=PLAYER)])
 
     assert source.all_latest(data_run=date(1999, 1, 1)) == {}
