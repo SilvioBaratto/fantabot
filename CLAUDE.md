@@ -261,6 +261,15 @@ alembic check                # models and migrations agree?
   and nothing reads them any more; the scrapers and `news-fetch` write to
   Postgres. Row counts in `data/README.md` are floors, not fixtures — the
   scrapers read a live site and it moves.
+- **Archive `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
+  `tasks/archive/<phase>-plan.md` and `-todo.md`, and repoint that phase's spec
+  at the archived path in the same commit. Those two filenames are reused by
+  every phase, so an inbound link to them silently starts describing different
+  work — four references had rotted this way by 2026-08-28, in
+  `tokens/status.py`, `test_token_secrecy.py` and two older specs. A spec is a
+  record and is not amended to rewrite history; a link that no longer resolves
+  is a different thing, and is repaired.
+
 - Every importer and repository write is an **upsert**. A killed run is
   restarted, never repaired.
 

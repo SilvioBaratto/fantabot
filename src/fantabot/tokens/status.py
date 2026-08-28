@@ -6,7 +6,7 @@ repository is what makes them testable with no database and no key at all. Same
 pure/shell split CLAUDE.md already mandates.
 
 **A sixth module under `tokens/` where SPEC's Project Structure lists five** —
-recorded as a departure in `tasks/plan.md`.
+recorded as a departure in `tasks/archive/token-store-plan.md`.
 
 `TokenStatus` is defined here, and it is the input type of both `orphaned()` and
 `render_state()`. `db/repositories/tokens.py` imports it and constructs the
