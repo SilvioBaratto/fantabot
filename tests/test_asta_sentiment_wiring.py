@@ -242,23 +242,55 @@ def _drifted(pid: str, tagged: str, observed: str) -> SentimentRow:
     )
 
 
-def test_drift_never_widens_the_pool() -> None:
-    """The load-bearing negative. Yildiz is tagged A and played as T; he stays an A."""
-    roles = {"star": ["A"]}
-
-    pool = build_pool(roles)
-
-    assert pool[0].roles == frozenset({"A"})
+#: The tag the platform froze in July, and what the sources say he is actually played as.
+#: `MINI` needs Por + A + A, so a pool that believed the observation could not field it —
+#: which is what gives the assertions below any content.
+TAGGED_ROLES = {"star": ["A"], "solid": ["A"], "gk": ["POR"]}
+OBSERVED_ROLES = {**TAGGED_ROLES, "star": ["W"]}
 
 
-def test_drift_leaves_the_fieldable_schemi_untouched() -> None:
-    """Byte-identical with and without sentiment: legality reads quotazioni, only ever."""
-    roles = {p.id: ["A"] for p in POOL if p.id != "gk"} | {"gk": ["POR"]}
+def test_the_fixture_can_tell_the_frozen_tag_from_the_observation() -> None:
+    """A guard on the guard.
 
-    plain = fieldable_schemi(build_pool(roles), MINI)
-    with_drift = fieldable_schemi(build_pool(roles), MINI)
+    The two tests this replaced were tautologies — one asserted `build_pool({"star": ["A"]})`
+    yields `{A}`, the other computed `fieldable_schemi(build_pool(roles), MINI)` twice and
+    asserted the results matched. Both passed regardless of the rule they claimed to pin.
+    Establishing that the two pools genuinely differ is what stops the next test being
+    vacuous in the same way.
+    """
+    assert fieldable_schemi(build_pool(TAGGED_ROLES), MINI) == frozenset({"por-a-a"})
+    assert fieldable_schemi(build_pool(OBSERVED_ROLES), MINI) == frozenset()
 
-    assert plain == with_drift
+
+def test_a_drifted_player_is_still_fielded_on_his_frozen_tag() -> None:
+    """The fail-closed rule, with the drift actually present.
+
+    `star` is tagged A and observed as a W, with `deriva_ruolo` set. If the observation
+    reached the pool, the roster would hold one A instead of two and could field nothing —
+    the previous test proves exactly that. It still fields `por-a-a`, so legality used the
+    tag.
+    """
+    drifted = {"star": _drifted("star", "A", "W")}
+
+    build_value(FVM, priced_ids=set(PRICES), sentiment=drifted, as_of=AS_OF)
+    schemi = fieldable_schemi(build_pool(TAGGED_ROLES), MINI)
+
+    assert schemi == frozenset({"por-a-a"})
+
+
+def test_the_optimizer_picks_the_same_roster_whether_or_not_the_tag_drifted() -> None:
+    """Drift moves the band, never the plan's legality.
+
+    Both value models see the same playing-time signal; only `deriva_ruolo` differs. A
+    difference in the chosen roster could only come from drift leaking past the variance.
+    """
+    steady = {"star": _row("star", confidenza=0.9)}
+    drifted = {"star": _drifted("star", "A", "W")}
+
+    plain = _optimize(build_value(FVM, priced_ids=set(PRICES), sentiment=steady, as_of=AS_OF))
+    moved = _optimize(build_value(FVM, priced_ids=set(PRICES), sentiment=drifted, as_of=AS_OF))
+
+    assert plain.optimal.player_ids == moved.optimal.player_ids
 
 
 def test_a_drifted_player_carries_a_wider_band() -> None:

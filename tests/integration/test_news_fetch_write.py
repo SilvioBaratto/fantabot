@@ -11,7 +11,7 @@ updates in place rather than appending a second row that the reader would keep.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import pytest
@@ -34,10 +34,16 @@ runner = CliRunner()
 #: failed. Nothing was wrong with the production code; the tests were asserting against a
 #: shared table's live state.
 #:
-#: Relative rather than a fixed literal so it stays in the past whatever the clock says —
-#: `--date` refuses a day that has not happened yet — and far enough back that no real run
-#: can occupy it.
-RUN_DAY = (date.today() - timedelta(days=365)).isoformat()
+#: A fixed sentinel, not an offset from today. `--date` refuses only days in the *future*
+#: (src/fantabot/cli.py:174), so a date before the project existed is both accepted and
+#: permanently collision-free.
+#:
+#: This was `date.today() - 365 days`, which is a sliding window: once the weekly feed has a
+#: year of history behind it, that window lands on a real run day, and
+#: `_already_stored_pool_player` below force-overwrites and then DELETEs a real player's real
+#: reading. CLAUDE.md's rule is that a past Wednesday cannot be regenerated, so the suite
+#: must not be able to reach one — a fixed sentinel cannot drift into range.
+RUN_DAY = "1900-01-01"
 TODAY = RUN_DAY
 
 #: A player id far outside the real range, so nothing the weekly run collects
@@ -125,8 +131,8 @@ def _already_stored_pool_player() -> Any:
     """Store a reading for the first player `load_pool` returns, then remove it.
 
     Committed, not rolled back: this file drives the real CLI through
-    `database_manager.get_session()`. RUN_DAY is a year in the past, so the row cannot
-    collide with a real reading, and the `finally` removes it either way.
+    `database_manager.get_session()`. It writes with `force=True` and then hard-DELETEs, so
+    the run day it lands on must be one no real run can ever occupy — see RUN_DAY.
     """
     from fantabot.db.repositories.sentiment import SentimentRepository
     from fantabot.news.pool import load_pool
@@ -526,7 +532,6 @@ def test_the_run_day_can_be_pinned_so_a_resume_lands_on_the_same_week(
     Observed on 2026-08-28, when an exhausted quota stopped a run at player 90
     with 70 stored and the obvious recovery was to wait for the reset.
     """
-    from datetime import date
 
     from fantabot.news import pipeline
 
