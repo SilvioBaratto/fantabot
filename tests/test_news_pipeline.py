@@ -340,3 +340,113 @@ class TestBuildingARowIsAlsoARoutineFailure:
         )
 
         assert sorted(seen) == [("P0", False), ("P1", True)]
+
+
+class TestASystemicFailureStopsTheRun:
+    """A failing player is routine. Every player failing is not.
+
+    On 2026-08-28 the Ollama shim behind `FANTABOT_AGENT_BASE_URL` returned
+    HTTP 429 — `you have reached your session usage limit` — for every query
+    from player 76 onward. None of that reached fantabot: the CLI turned each
+    429 into a result with `subtype == "success"` and no structured output, so
+    it arrived as the ordinary reason `agent returned no structured output`,
+    the same string a single confused player produces.
+
+    `RateLimitEvent` never fired, so the 30-second backoff never fired either,
+    and this module's rule — *nothing here lets one player end the run* —
+    dutifully carried the run through 15 straight failures. Left alone it would
+    have spent 458 more queries against an exhausted quota and finished
+    reporting a successful collection of a third of the pool.
+
+    The reason text cannot distinguish the two cases; the shape of the failures
+    can. A run of consecutive failures with no success between them is not a
+    player problem, and the only useful thing to do with it is stop and say so.
+    """
+
+    def _always_failing(self, reason: str = "agent returned no structured output") -> Any:
+        async def runner(request: AgentRequest, schema: type[Any]) -> Outcome[Any]:
+            return Outcome(value=None, failure=reason)
+
+        return runner
+
+    def test_it_stops_once_the_failures_run_unbroken(self) -> None:
+        attempted: list[str] = []
+
+        async def counting(request: AgentRequest, schema: type[Any]) -> Outcome[Any]:
+            attempted.append(request.label)
+            return Outcome(value=None, failure="agent returned no structured output")
+
+        result = _run(_players(100), counting, concurrency=1, max_consecutive_failures=5)
+
+        assert len(attempted) < 100, "the whole pool was queried against a dead backend"
+        assert len(result.failures) == 5
+
+    def test_it_says_why_it_stopped(self) -> None:
+        result = _run(_players(40), self._always_failing(), concurrency=1,
+                      max_consecutive_failures=5)
+
+        assert result.stopped_early is not None
+        assert "5" in result.stopped_early
+        assert "agent returned no structured output" in result.stopped_early, (
+            "the operator needs the reason, not just the count"
+        )
+
+    def test_players_it_never_attempted_are_not_counted_as_failures(self) -> None:
+        """Reporting 95 failures for 5 attempts would misdescribe the outage and
+        make the resume filter look like it had nothing left to do."""
+        result = _run(_players(100), self._always_failing(), concurrency=1,
+                      max_consecutive_failures=5)
+
+        assert len(result.failures) == 5
+        assert result.skipped == 95
+        assert len(result.failures) + result.skipped == 100
+
+    def test_a_success_resets_the_run(self) -> None:
+        """Scattered failures are the normal weekly shape and must not trip it."""
+
+        async def every_other(request: AgentRequest, schema: type[Any]) -> Outcome[Any]:
+            index = int(request.label[1:])
+            if index % 2:
+                return Outcome(value=None, failure="schema rejected")
+            return Outcome(value=_sentiment(), failure=None)
+
+        result = _run(_players(40), every_other, concurrency=1, max_consecutive_failures=5)
+
+        assert result.stopped_early is None
+        assert len(result.rows) == 20
+        assert len(result.failures) == 20
+
+    def test_the_readings_gathered_before_the_wall_are_still_returned(self) -> None:
+        """The 74 successes of 2026-08-28 had to survive the stop."""
+
+        async def wall_at_ten(request: AgentRequest, schema: type[Any]) -> Outcome[Any]:
+            if int(request.label[1:]) < 10:
+                return Outcome(value=_sentiment(), failure=None)
+            return Outcome(value=None, failure="agent returned no structured output")
+
+        result = _run(_players(60), wall_at_ten, concurrency=1, max_consecutive_failures=5)
+
+        assert [row["id"] for row in result.rows] == [str(i) for i in range(10)]
+        assert result.stopped_early is not None
+
+    def test_it_can_be_turned_off(self) -> None:
+        result = _run(_players(30), self._always_failing(), concurrency=1,
+                      max_consecutive_failures=0)
+
+        assert result.stopped_early is None
+        assert len(result.failures) == 30
+        assert result.skipped == 0
+
+    def test_a_pool_smaller_than_the_threshold_still_finishes(self) -> None:
+        result = _run(_players(3), self._always_failing(), concurrency=1,
+                      max_consecutive_failures=10)
+
+        assert result.stopped_early is None
+        assert len(result.failures) == 3
+
+    def test_the_default_is_on(self) -> None:
+        """A run left to cron must not need a flag to stop being useless."""
+        result = _run(_players(200), self._always_failing(), concurrency=1)
+
+        assert result.stopped_early is not None
+        assert result.skipped > 0

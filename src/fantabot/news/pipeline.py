@@ -45,6 +45,16 @@ ALLOWED_TOOLS: tuple[str, ...] = ("WebSearch", "WebFetch")
 MAX_TURNS = 12
 DEFAULT_BACKOFF_SECONDS = 30.0
 
+#: Consecutive failures, with no success between them, that end a run.
+#:
+#: A failing player is routine and must not stop anything. Every player
+#: failing is not a player problem at all, and the reason text cannot tell
+#: the two apart — on 2026-08-28 an exhausted Ollama quota returned HTTP 429
+#: for every query from player 76 on, and each one arrived as the ordinary
+#: ``agent returned no structured output``. Only the *shape* distinguishes
+#: them, and ten in a row is not a shape any weekly pool produces.
+DEFAULT_MAX_CONSECUTIVE_FAILURES = 10
+
 
 @dataclass(frozen=True)
 class PlayerOutcome:
@@ -54,6 +64,10 @@ class PlayerOutcome:
     row: dict[str, str] | None
     failure: str | None
     rate_limited: bool
+    #: Never queried, because the run had already stopped. Not a failure: the
+    #: resume filter must offer this player again, and a report that called
+    #: 458 unasked players "failed" would describe the outage as a rout.
+    skipped: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,6 +84,10 @@ class FetchResult:
     rows: list[dict[str, str]] = field(default_factory=list)
     failures: list[tuple[str, str]] = field(default_factory=list)
     rate_limited: bool = False
+    #: Why the run ended early, or None if it ran to the end of the pool.
+    stopped_early: str | None = None
+    #: Players never queried because it stopped.
+    skipped: int = 0
 
 
 StartHook = Callable[[PoolPlayer], None]
@@ -89,10 +107,13 @@ async def fetch_all(
     backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
     on_start: StartHook | None = None,
     on_result: ResultHook | None = None,
+    max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
 ) -> FetchResult:
     semaphore = asyncio.Semaphore(concurrency)
     total = len(players)
     done = 0
+    consecutive = 0
+    stopped: str | None = None
 
     def _row(player: PoolPlayer, value: PlayerSentiment) -> dict[str, str]:
         return build_row(
@@ -105,8 +126,13 @@ async def fetch_all(
         )
 
     async def one(player: PoolPlayer) -> PlayerOutcome:
-        nonlocal done
+        nonlocal done, consecutive, stopped
         async with semaphore:
+            if stopped is not None:
+                # Queued behind the wall. Return without querying and without a
+                # progress line: the run has already said why it ended, and 458
+                # more lines would bury it.
+                return PlayerOutcome(player, None, None, False, skipped=True)
             if on_start is not None:
                 # Inside the slot, so the announcement marks the query actually
                 # starting rather than 548 names printed at once.
@@ -145,6 +171,18 @@ async def fetch_all(
             done += 1
             if on_result is not None:
                 on_result(Progress(done=done, total=total, outcome=result))
+
+            if result.row is None:
+                consecutive += 1
+                if max_consecutive_failures and consecutive >= max_consecutive_failures:
+                    stopped = (
+                        f"stopped after {consecutive} consecutive failures with no success "
+                        f"between them, the last: {result.failure}"
+                    )
+            else:
+                # Any success means the backend is alive and the failures were
+                # about the players, which is what the run is built to absorb.
+                consecutive = 0
             return result
 
     # gather preserves input order regardless of completion order — diffs, logs and
@@ -155,8 +193,12 @@ async def fetch_all(
     rows: list[dict[str, str]] = []
     failures: list[tuple[str, str]] = []
     rate_limited = False
+    skipped = 0
     for outcome in outcomes:
         rate_limited = rate_limited or outcome.rate_limited
+        if outcome.skipped:
+            skipped += 1
+            continue
         if outcome.row is None:
             failures.append(
                 (outcome.player.nome, outcome.failure or "no value and no reason given")
@@ -164,4 +206,10 @@ async def fetch_all(
             continue
         rows.append(outcome.row)
 
-    return FetchResult(rows=rows, failures=failures, rate_limited=rate_limited)
+    return FetchResult(
+        rows=rows,
+        failures=failures,
+        rate_limited=rate_limited,
+        stopped_early=stopped,
+        skipped=skipped,
+    )

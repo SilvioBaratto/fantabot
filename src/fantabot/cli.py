@@ -16,6 +16,7 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
 
     import httpx
 
+    from fantabot.news.pipeline import FetchResult
     from fantabot.tokens.store import TokenStore
 
 app = typer.Typer(no_args_is_help=True)
@@ -72,6 +73,28 @@ def lineup_submit(
     raise typer.Exit(code=1)
 
 
+def _report_stop(result: FetchResult) -> None:
+    """Say that the run ended early, and exit non-zero so cron hears it.
+
+    Reported after the readings are stored, never instead of storing them: the
+    queries that did succeed are the expensive part and must land first.
+
+    The message names the count and the last reason because the reason alone is
+    useless — `agent returned no structured output` is what a single confused
+    player produces *and* what an exhausted quota produces, and only the count
+    tells them apart. Measured 2026-08-28: fifteen of those in a row were an
+    Ollama 429, and the run was on course to spend 458 more queries on it.
+    """
+    if not result.stopped_early:
+        return
+    console.print(f"[red]{result.stopped_early}[/red]")
+    console.print(
+        f"{result.skipped} player(s) were not queried. This is a backend problem, not a "
+        "player one — check it, then re-run: the readings already stored are skipped."
+    )
+    raise typer.Exit(code=1)
+
+
 @app.command()
 def news_fetch(
     scope: str = typer.Option("pool", help="Only 'pool' is implemented — see below."),
@@ -86,6 +109,9 @@ def news_fetch(
     concurrency: int = typer.Option(4, help="Parallel agent queries."),
     flush_every: int = typer.Option(
         5, help="Store readings every N completions, so a crash costs at most N."
+    ),
+    max_consecutive_failures: int = typer.Option(
+        10, help="Stop after N failures in a row with no success between. 0 = never stop."
     ),
     model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
     season: str = typer.Option("2026/27", help="Which stagione to fetch."),
@@ -265,6 +291,7 @@ def news_fetch(
                 "Fix the database and re-run — the rest is already saved.[/red]"
             )
             raise typer.Exit(code=1)
+        _report_stop(result)
     else:
         for row in result.rows:
             console.print(row)
@@ -272,6 +299,7 @@ def news_fetch(
             f"[dim]{len(result.rows)} rows discarded (--write not given), "
             f"{len(result.failures)} failures.[/dim]"
         )
+        _report_stop(result)
 
 
 @app.command()

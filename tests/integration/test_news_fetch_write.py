@@ -398,3 +398,45 @@ def test_the_fixture_does_not_borrow_a_real_player() -> None:
     assert offenders == [], (
         f"the canary is being borrowed from the real players table again: {offenders}"
     )
+
+
+def test_a_backend_failing_everything_stops_the_run_and_exits_non_zero(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """The 2026-08-28 shape: an exhausted Ollama quota returned HTTP 429 for every
+    query from player 76 on, each arriving as the ordinary reason a single
+    confused player produces. The run absorbed all of them and was on course to
+    spend 458 more.
+
+    The order matters as much as the exit code: the readings that did succeed
+    are the expensive part, and they must be stored before the command gives up.
+    """
+    from fantabot.news import pipeline
+
+    row = _row(canary_player, "prima del muro")
+    reason = "agent returned no structured output"
+
+    async def walled(players: object, **kwargs: Any) -> FetchResult:
+        kwargs["on_result"](_progress(canary_player, row, None))
+        return FetchResult(
+            rows=[row],
+            failures=[(f"P{i}", reason) for i in range(10)],
+            stopped_early=(
+                f"stopped after 10 consecutive failures with no success between them, "
+                f"the last: {reason}"
+            ),
+            skipped=458,
+        )
+
+    monkeypatch.setattr(pipeline, "fetch_all", walled)
+    result = runner.invoke(
+        app, ["news-fetch", "--write", "--limit", "1", "--flush-every", "1"]
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "10 consecutive failures" in result.output
+    assert "458 player(s)" in result.output
+    assert "backend problem" in result.output, "it must not read as 458 bad players"
+    assert _stored(canary_player) == ["prima del muro"], (
+        "the run gave up before storing what it had already paid for"
+    )
