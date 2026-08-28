@@ -12,6 +12,8 @@ an outage must cost catch-up time, never a bid. ``test_fantalab_rtdb`` proves it
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -56,4 +58,64 @@ def read_snapshot(
     return body if isinstance(body, dict) else None
 
 
-__all__ = ["DEFAULT", "REGIONAL", "node_url", "read_snapshot", "shard_url"]
+@dataclass(frozen=True)
+class BidOutcome:
+    """The result of an attempted bid. Deliberately carries no URL and no token — nothing to leak.
+
+    ``dry_run`` means ``FANTABOT_AUTO_ACT`` was off and nothing was sent; ``sent`` means a PATCH
+    went out, with its HTTP ``status`` (a ``401`` is a validation/lost-race, not an error).
+    """
+
+    price: int
+    node: str
+    dry_run: bool
+    sent: bool
+    status: int | None
+
+
+def place_raise(
+    db: int | None,
+    fantaleague_id: str,
+    payload: Mapping[str, Any],
+    *,
+    node: str = "auction",
+    token: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> BidOutcome:
+    """PATCH a raise onto ``<node>/<fl>``, gated by ``FANTABOT_AUTO_ACT``.
+
+    Off — the default — nothing is sent: a dry run, so a misconfigured bot never bids. On: the
+    payload is PATCHed once and its status returned; a ``401`` (a lost race or a rule refusal) is
+    reported, not raised, so the caller can count it. ``node`` is ``"auction"`` or ``"assign"``.
+
+    Participant bids need no ``token``; when one is given it rides only in the query string of the
+    live request and is **never** stored, returned, or logged — the ``BidOutcome`` holds neither
+    the token nor the URL that carried it.
+    """
+    from fantabot.config import settings
+
+    price = payload.get("price")
+    price_int = price if isinstance(price, int) and not isinstance(price, bool) else 0
+
+    if not settings.fantabot_auto_act:
+        return BidOutcome(price=price_int, node=node, dry_run=True, sent=False, status=None)
+
+    url = node_url(db, f"{node}/{fantaleague_id}")
+    params = {"auth": token} if token else None
+    with httpx.Client(timeout=timeout, transport=transport) as client:
+        response = client.patch(url, params=params, json=dict(payload))
+    return BidOutcome(
+        price=price_int, node=node, dry_run=False, sent=True, status=response.status_code
+    )
+
+
+__all__ = [
+    "DEFAULT",
+    "REGIONAL",
+    "BidOutcome",
+    "node_url",
+    "place_raise",
+    "read_snapshot",
+    "shard_url",
+]
