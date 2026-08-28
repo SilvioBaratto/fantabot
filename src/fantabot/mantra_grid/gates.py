@@ -14,14 +14,25 @@ silently rejects or penalises, every week, for a season.
 from __future__ import annotations
 
 from ..news.mantra import MANTRA_CODES
-from .models import CompatMatrix, MantraSchema, SchemaGrid
+from .models import (
+    CELL_VALUES,
+    ROLE_ORDER,
+    CompatMatrix,
+    FormationCompat,
+    MantraSchema,
+    SchemaGrid,
+)
+
+_ROLE_INDEX = {code.upper(): i for i, code in enumerate(ROLE_ORDER)}
 
 EXPECTED_SCHEMI = 11
 OUTFIELD_SLOTS = 10
-# rules/sistema-mantra.md: "Where a schema slot lists two roles, they're
-# interchangeable alternatives." Two is the ceiling; a third is the collector
-# going beyond its source.
-MAX_ROLES_PER_SLOT = 2
+# rules/sistema-mantra.md speaks of slots listing "two roles", and this gate
+# turned that phrasing into a ceiling of two. It is not one: the published table
+# gives 4-3-1-2 a slot of three, `T/A/Pc`, and the cap silently truncated it to
+# `A/Pc` in the artefact L1 depends on. Four would be beyond anything observed;
+# three is what the source actually prints.
+MAX_ROLES_PER_SLOT = 3
 
 # rules/sistema-mantra.md: every schema fields exactly five of each profile.
 DEFENSIVE_PROFILE: frozenset[str] = frozenset({"DD", "DS", "DC", "B", "E", "M"})
@@ -59,7 +70,18 @@ def check_schemi(grid: SchemaGrid) -> list[str]:
 
 
 def check_compat(matrix: CompatMatrix, grid: SchemaGrid) -> list[str]:
-    """Every problem with the compatibility matrix, judged against the grid."""
+    """Every problem with the compatibility matrix, judged against the grid.
+
+    These gates exist because the previous ones could not tell a collected table
+    from an echo. The only substantive check was that 4-1-4-1 carried the W/T
+    exception — a fact the prompt itself supplied — so a run that found nothing
+    and handed the example back passed everything, and the file that shipped held
+    one entry and ten empty lists for a year.
+
+    What a real table cannot fake: a row per slot of every schema, twelve cells
+    per row, each cell one of four values, a slot accepting its own role without
+    malus, and a keeper column no outfield slot will take.
+    """
     problems: list[str] = []
 
     covered = {entry.schema_nome for entry in matrix.formazioni}
@@ -70,14 +92,15 @@ def check_compat(matrix: CompatMatrix, grid: SchemaGrid) -> list[str]:
     for unknown in sorted(covered - expected):
         problems.append(f"compatibility matrix names schema {unknown!r}, which the grid lacks")
 
+    if [code.upper() for code in matrix.ruoli] != [code.upper() for code in ROLE_ORDER]:
+        problems.append(
+            f"compatibility matrix columns are {matrix.ruoli!r}; every row is "
+            f"positional, so the order must be exactly {list(ROLE_ORDER)!r}"
+        )
+
+    by_name = {schema.nome: schema for schema in grid.schemi}
     for entry in matrix.formazioni:
-        for pair in entry.vietati:
-            if len(pair) != 2:
-                problems.append(f"{entry.schema_nome}: blocked pair {pair!r} is not [from, to]")
-                continue
-            for code in pair:
-                if code.upper() not in MANTRA_CODES:
-                    problems.append(f"{entry.schema_nome}: {code!r} is not a Mantra role code")
+        problems.extend(_check_formation(entry, by_name.get(entry.schema_nome)))
 
     if not matrix.fonti:
         problems.append(
@@ -88,6 +111,73 @@ def check_compat(matrix: CompatMatrix, grid: SchemaGrid) -> list[str]:
 
     problems.extend(_check_named_exception(matrix))
     return problems
+
+
+def _check_formation(entry: FormationCompat, schema: MantraSchema | None) -> list[str]:
+    """One schema's rows, against the slots the grid says it has."""
+    problems: list[str] = []
+    name = entry.schema_nome
+
+    if not entry.slots:
+        problems.append(
+            f"{name}: no rows. An entry naming a schema and describing none of its "
+            f"slots is the shape the old `vietati`-only matrix had, and it cannot "
+            f"answer whether a rosa can field the schema"
+        )
+        return problems
+
+    for row in entry.slots:
+        if len(row.compat) != len(ROLE_ORDER):
+            problems.append(
+                f"{name}: slot {row.slot!r} has {len(row.compat)} cells, "
+                f"expected {len(ROLE_ORDER)}"
+            )
+            continue
+        for code, value in zip(ROLE_ORDER, row.compat, strict=True):
+            if value not in CELL_VALUES:
+                problems.append(
+                    f"{name}: slot {row.slot!r} column {code} is {value!r}, "
+                    f"not one of {sorted(CELL_VALUES)}"
+                )
+        # A slot must take the role it is named for, at no cost. This is the
+        # cheapest check that a row is a transcription rather than a guess.
+        for own in _slot_codes(row.slot):
+            if own not in MANTRA_CODES:
+                problems.append(f"{name}: slot {row.slot!r} names {own!r}, not a Mantra code")
+                continue
+            value = row.compat[_ROLE_INDEX[own]]
+            if value != "ok":
+                problems.append(
+                    f"{name}: slot {row.slot!r} does not accept its own role "
+                    f"{own} without malus ({value!r})"
+                )
+
+    labels = [row.slot for row in entry.slots]
+    if not labels or _slot_codes(labels[0]) != {"POR"}:
+        problems.append(f"{name}: first row is {labels[:1]!r}; the keeper's row comes first")
+
+    for row in entry.slots[1:]:
+        if len(row.compat) == len(ROLE_ORDER) and row.compat[_ROLE_INDEX["POR"]] != "no":
+            problems.append(
+                f"{name}: outfield slot {row.slot!r} accepts a Por "
+                f"({row.compat[_ROLE_INDEX['POR']]!r}); the keeper is never an outfielder"
+            )
+
+    if schema is not None:
+        want = ["/".join(slot).upper() for slot in schema.slots]
+        got = [row.slot.upper() for row in entry.slots[1:]]
+        if want != got:
+            problems.append(
+                f"{name}: rows do not match the grid's slots\n"
+                f"    grid:   {want}\n"
+                f"    matrix: {got}"
+            )
+    return problems
+
+
+def _slot_codes(label: str) -> set[str]:
+    """``'T/A/Pc'`` -> ``{'T', 'A', 'PC'}``."""
+    return {part.strip().upper() for part in label.split("/") if part.strip()}
 
 
 def _check_one(schema: MantraSchema) -> list[str]:
@@ -153,12 +243,27 @@ def _check_named_exception(matrix: CompatMatrix) -> list[str]:
     if entry is None:
         return []  # already reported as a missing schema
 
-    pairs = {tuple(code.upper() for code in pair) for pair in entry.vietati if len(pair) == 2}
-    if NAMED_EXCEPTION_PAIR not in pairs and NAMED_EXCEPTION_PAIR[::-1] not in pairs:
+    # In the full matrix the exception is not a pair in a list, it is cells: a
+    # slot named for T must refuse a W outright, and vice versa. Reading it from
+    # the grid rather than from a declaration means the check cannot be satisfied
+    # by echoing the prompt — the surrounding 143 cells have to be there too.
+    blocked = []
+    for row in entry.slots:
+        if len(row.compat) != len(ROLE_ORDER):
+            continue
+        codes = _slot_codes(row.slot)
+        if "T" in codes and "W" not in codes:
+            blocked.append(("T-slot", "W", row.compat[_ROLE_INDEX["W"]]))
+        if "W" in codes and "T" not in codes:
+            blocked.append(("W-slot", "T", row.compat[_ROLE_INDEX["T"]]))
+
+    wrong = [one for one in blocked if one[2] != "no"]
+    if not blocked or wrong:
         return [
-            f"{NAMED_EXCEPTION_SCHEMA}: the W/T exception is missing. "
-            f"rules/sistema-mantra.md names it explicitly — W and T are normally "
-            f"interchangeable with a -1 malus, but never in this schema, not even "
-            f"with one. Losing it silently permits an illegal substitution."
+            f"{NAMED_EXCEPTION_SCHEMA}: the W/T exception is missing or wrong "
+            f"({wrong or 'no T or W slot found at all'}). rules/sistema-mantra.md "
+            f"names it explicitly — W and T are normally interchangeable with a -1 "
+            f"malus, but never in this schema, not even with one. Losing it "
+            f"silently permits an illegal substitution."
         ]
     return []

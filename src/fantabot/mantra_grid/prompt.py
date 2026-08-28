@@ -8,9 +8,14 @@ recoverable, a plausible fabrication is not.
 
 from __future__ import annotations
 
+from .models import ROLE_ORDER
+
 RULES_URL = "https://www.fantacalcio.it/regolamenti/sistema-mantra"
 
 _CODES = "Por, Dc, B, Dd, Ds, E, M, C, T, W, A, Pc"
+#: Column order of every compat row. Positional, so it is stated to the
+#: collector rather than assumed.
+_ROLE_ORDER = ", ".join(ROLE_ORDER)
 
 SCHEMI_PROMPT = f"""Cerca e leggi la pagina ufficiale del sistema Mantra di fantacalcio.it: {RULES_URL}
 
@@ -34,25 +39,33 @@ letto davvero. Non completare la lista a memoria e non inventare uno slot per fa
 conti: una griglia incompleta viene rifiutata e rifatta, una inventata no.
 """
 
-COMPAT_PROMPT = f"""Cerca la tabella di compatibilità per-modulo del sistema Mantra di fantacalcio.it.
-Parti da {RULES_URL}: la pagina cita una tabella scaricabile a parte con le compatibilità
-complete fra ruoli per ciascun modulo. Trova quel documento e leggilo.
+COMPAT_PROMPT = f"""Trascrivi la tabella di compatibilità per-modulo del sistema Mantra di
+fantacalcio.it. Parti da {RULES_URL}: la pagina cita una tabella scaricabile a parte con le
+compatibilità complete fra ruoli per ciascun modulo. Trova quel PDF e leggilo per intero.
 
-Per ciascuno degli 11 moduli riporta:
+Serve la tabella COMPLETA, non le eccezioni. Per ciascuno degli 11 moduli riporta:
 - `schema_nome`: il nome del modulo.
-- `vietati`: le coppie [da, a] di ruoli il cui scambio è IMPOSSIBILE in quel modulo, cioè
-  non ammesso nemmeno accettando il malus di -1. Lista vuota se non ce ne sono.
+- `slots`: una riga per ogni slot del modulo, il portiere per primo e poi i 10 di movimento
+  nell'ordine in cui la tabella li stampa. Ogni riga ha `slot` (l'etichetta come appare, es.
+  `Dc/B` o `T/A/Pc`) e `compat`: 12 valori, uno per ruolo nell'ordine {_ROLE_ORDER}.
 
-Riferimento noto dal regolamento: W e T sono normalmente intercambiabili con malus -1,
-tranne nel modulo 4-1-4-1, dove lo scambio non è mai ammesso. Quella coppia deve comparire
-fra i `vietati` del 4-1-4-1.
+Ogni cella è esattamente uno di:
+- `ok`   schierabile senza malus;
+- `-1`   schierabile con malus -1, sia in formazione sia in sostituzione;
+- `-1*`  NON schierabile in fase di inserimento formazione, ammesso con malus solo nel
+         calcolo finale dopo sostituzioni obbligate — nel PDF è la cella evidenziata in
+         giallo, ed è la distinzione che conta di più: non confonderla con `-1`;
+- `no`   mai ammesso, nemmeno con malus.
 
-Non confondere i divieti generali di schieramento iniziale (B/Dd/Ds come Dc, Dd come Ds,
-E come M, M come E, W come T) con i divieti per-modulo in sostituzione: qui servono questi
-ultimi. Se per un modulo non trovi divieti specifici, metti `vietati` vuoto — non dedurli.
+Attenzione alla legenda del PDF: dice "in colonna i ruoli previsti dallo schema, nella riga
+i potenziali sostituti", ma la disposizione reale è l'opposto — le RIGHE sono gli slot del
+modulo, le COLONNE i 12 codici ruolo. Fidati della disposizione, non della didascalia.
 
-In `fonti` elenca gli URL che hai letto davvero per compilare la tabella. Se non sei
-riuscito a trovare il documento con le compatibilità complete, dillo lasciando `fonti`
-vuoto: una tabella dichiarata incompleta si rifà, una che si limita a restituire l'esempio
-del 4-1-4-1 già citato qui sopra sembra completa e non lo è.
+Controlli che la trascrizione deve superare: ogni slot accetta `ok` il proprio ruolo; la
+riga del portiere è `ok` solo sotto Por; nessuno slot di movimento accetta un Por; nel
+4-1-4-1 lo scambio W/T è `no` (in tutti gli altri moduli è `-1` o `-1*`).
+
+In `fonti` elenca gli URL che hai letto davvero. Se non sei riuscito ad aprire il PDF,
+dillo lasciando `fonti` vuoto: una tabella dichiarata incompleta si rifà, una ricostruita a
+memoria dalle regole generali sembra completa e non lo è.
 """

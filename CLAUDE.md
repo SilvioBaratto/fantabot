@@ -225,9 +225,20 @@ alembic check                # models and migrations agree?
   `strategy.pick_starting_lineup` cannot field a Mantra XI at all — Mantra has 12
   role codes across 11 schemas on four lines. `data/mantra_schemi.json` is now on
   disk as that engine's input; the engine itself is a separate spec.
-- **`mantra_compat.json` is thin**: it lists blocked pairs only for 4-1-4-1, from
-  a 2024-25 season PDF. Plausible — "illegal even with the malus" is rare — but
-  unverified in detail. Confirm before a Mantra lineup depends on it.
+- ~~**`mantra_compat.json` is thin**~~ **Resolved 2026-08-28.** It held one entry
+  and ten empty lists; it is now the whole table — 11 schemas × 11 slots × 12
+  roles = 1,452 cells — transcribed from the published PDF, which is kept at
+  `docs/sources/`. The single entry it did have was *correct*; the file was
+  simply answering a much narrower question than L1 asks. The load-bearing value
+  is **`-1*`**: not schierabile at lineup submission, allowed with a malus only
+  after a forced substitution. Collapsing it into `-1` reads as "allowed" and
+  builds lineups the platform rejects.
+  Two things the transcription caught. `mantra_schemi.json` had **4-3-1-2's
+  `T/A/Pc` slot truncated to `A/Pc`**, because a gate asserted a ceiling of two
+  roles per slot that the source does not have — the first collection got it
+  right and the gate rejected it. And the gates only ever ran against fixtures,
+  never against the shipped file, so a one-entry matrix passed for a week; a test
+  now judges the artefact itself.
 
 ## Working rules
 

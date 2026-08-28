@@ -29,7 +29,7 @@ fantabot db-check             # health, row counts, sizes
 | path | why it stays |
 |---|---|
 | `mantra_schemi.json` | the Mantra engine's input; no table models an 11-schema grid |
-| `mantra_compat.json` | the out-of-position matrix; same reason |
+| `mantra_compat.json` | the full out-of-position matrix, 1,452 cells; same reason |
 | `aste_live/` | the auction landing zone — **the durable record**, and Postgres is derived from it |
 
 ## Tables
