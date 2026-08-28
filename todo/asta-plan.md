@@ -8,7 +8,62 @@ Source documents: [`docs/fantalab/00-asta-e-requisiti-cli.md`](../docs/fantalab/
 
 ---
 
-## Status — 2026-08-28
+## Status — 2026-08-28 (session 2 — refreshed)
+
+Measured by a read-only audit of the live repo + DB. Several session-1 "missing" claims are now stale:
+
+| session-1 claim | reality now |
+|---|---|
+| "Nothing is in Postgres" | **False.** DB holds the Mantra harvest: `asta` 1,357 (1,187 classic + 170 mantra), `asta_event` 355,310, `asta_assignment` 30,888, **226,433 ladder rungs, 89.4% naming a bidder**, 1,389 distinct bidders. From a restored dump. |
+| "player_sentiment has 2 rows / never run" | **False.** A real `news-fetch --write` run is populating it live (130+ and climbing) for `data_run` 2026-08-28. |
+| landing zone = the durable 1.19 GB file | **Gone from disk.** Only the Mantra slice is in PG (~13% of rungs, **0 classic fact rows**). |
+
+**Layer state — inputs vs. CODE (the code column is the real gap):**
+
+| layer | inputs | code |
+|---|---|---|
+| L1 legality | complete + verified (11 schemi, 1,452 cells, 120 `-1*`, 548 Mantra players 49% multi-ruolo) | **none — 0 lines** |
+| L2 value | 4 seasons in DB (`voti`/`bonus_malus` 50,634 each) | research scripts only; no estimator |
+| L3 credits | derived from L1+L2 | none; `strategy.py` still ships the hand-tuned 5/15/35/45 |
+| L4 opponents | Mantra slice in DB (partial) | **none** — no sim, no opponent model |
+| L5 decision | follows | `decide_bid` = naive current+1; `auction.py` = 4 `NotImplementedError` stubs |
+| Part 2 precompute | — | **built + running** (`news-fetch`); `asta-brief` + live layer not built |
+
+**Two data gaps remain:** (1) `E[presenze]` has no denominator (`voti` = graded apps only, ~20.4/38 avg) — skfolio's NaN-aware `active_mask` helps; (2) the 1.19 GB landing file is missing — re-harvest during the upcoming real aste.
+
+Nothing blocks starting the advisory MVP below: L1 is pure with complete inputs, and the value/risk layer runs on data already in the DB.
+
+## Refined target — advisory Copilota (2026-08-28, session 2)
+
+The concrete goal, pinned with the user this session. **A live-connected advisory tool that always holds the optimal completable roster and re-plans as the asta unfolds.** Not a season predictor, not (yet) an auto-bidder.
+
+**Decisions taken:**
+- **Objective:** maximize expected **30-man season fantapoints** of the whole roster, s.t. budget (500), Mantra roster rules (lega 4103937: 30-man, `minrl=[2,28]`), and **must field a legal XI across the 11 schemi** — that constraint *is* L1.
+- **Rolling greedy re-optimization:** on each live assignment, re-solve for the best roster reachable with remaining budget + remaining pool; when a target is lost, fall to the next-best. Deterministic MVP; Monte-Carlo pacing for the top ~40 is a later upgrade.
+- **Live connection:** READ the room now (extend the `aste/` harvester to the user's own room). **Auto-bid is a later gated phase** — the user wants the LLM to eventually *suggest and execute*, but execution needs the undocumented bid-POST endpoint + `FANTABOT_AUTO_ACT`. MVP = suggest, human clicks.
+- **Real-time opponent tracking:** from the buyer-named feed, reconstruct each rival's roster / spend / remaining budget / role concentration live.
+- **Group dynamics (safe drain):** the LLM decides *when* a player is one we don't want and conditions suit pushing rivals to overpay, and proposes a **capped** push — cap strictly below the price at which we'd risk owning him (never a misfire). Suggest now; execute in the auto-bid phase.
+
+**L2/L3 = portfolio optimization via skfolio (Black-Litterman)** — validated this session against the diversification hypothesis and the finance literature:
+- The roster IS a portfolio; teammate fantapoints are **positively correlated**, so concentration raises variance — good for a comeback/ceiling, bad for a season title. Diversification is therefore **format-dependent**, not an absolute rule ([DFS stacking](https://www.pff.com/news/fantasy-football-utilizing-position-correlations-for-dfs-lineup-construction) raises the ceiling; [season-long](https://forums.footballguys.com/threads/season-long-ff-stacking-players-fact-or-fiction.809581/) favours diversifying).
+- Model as **mean − λ·variance** with a **same-team covariance** term; λ is the risk knob (season title → high λ / diversify; comeback → low λ / controlled stack). The user's two intuitions split cleanly: "high-scoring team/coach" is a **mean** effect (value), "different teams" is the **covariance** lever (risk).
+- **skfolio owns the estimation layer only:** `BlackLitterman(prior = quotazioni-implied value, views = player_sentiment weighted by its `confidenza` → Ω)`; covariance via `LedoitWolf`/`OAS` shrinkage (N > T/4) or a team/role `CharacteristicsFactorModel` (team as `OneHotCategoricalFactors` — encodes the team-strength mean AND same-team covariance structurally). Posterior mean + Σ feed the optimizer. Add `skfolio>=1.0` as a dependency.
+- **skfolio does NOT do selection or the auction:** the 30-man pick is an integer program (two units — value in points, budget in credits — plus the non-linear legal-XI constraint), and prices are set by a live adversarial auction. Those stay a custom ILP (selection) + L4/L5 (auction). skfolio's efficient frontier is a free λ-calibration artifact.
+
+**MVP build order (advisory):**
+1. **L1 legality matcher** — pure, inputs ready, blocks the legal-XI constraint.
+2. **Value+risk snapshot v1 (skfolio)** — points matrix from `voti`/`bonus_malus`; BL posterior + shrinkage/factor covariance; expected clearing price per player from the 170 loaded Mantra ladders.
+3. **Roster optimizer (ILP/greedy)** — max Σμ − λ·wᵀΣw s.t. budget + role counts + L1; current optimal 30-man + ranked fallbacks.
+4. **Live room read** — confirm the user's own-room feed; emit assignment events.
+5. **Rolling greedy re-opt + reservation price** on each event.
+6. **Advisory surface** — optimal roster, next targets, walk-away number, "lost him → new plan"; + live opponent tracker.
+7. **LLM helpers** — state-entry parser (independent, buildable now) + safe-drain suggester.
+
+Deferred: L4 Monte-Carlo sim, μ-pacing rigor, auto-bid (endpoint capture), landing-zone reload.
+
+---
+
+## Status — 2026-08-28 (session 1 — superseded above, kept as record)
 
 **Every input this design was blocked on now exists.** Two things landed since the brainstorm.
 
@@ -564,10 +619,11 @@ search is off there because the precomputed brief already carries the facts.
 Steps 1–3 are pure code with no ML, and deliver most of the edge. ML enters only at step 6, and
 only once step 5 has given it something to eat.
 
-0. ✅ **Load the evening into Postgres.** `fantabot aste-load` over the landing zone. Every
-   figure in L3 and L4 above was computed by streaming the file; fitting wants SQL. Cheap, and
-   nothing else needs it first. *Pending as of 2026-08-28 — the landing zone is 1.19 GB on disk
-   and is the durable record; Postgres is derived from it.*
+0. ⚠️ **Load the landing zone into Postgres — PARTIAL (session 2).** The restored dump put the
+   **Mantra slice** in PG (`asta_event` 355,310, `asta_assignment` 30,888, 226,433 rungs) but
+   **0 classic fact rows**, and the 1.19 GB landing file is **no longer on disk**. Enough to
+   start the advisory MVP's expected-prices; full L4 calibration + the classic role-split need it
+   re-harvested during the upcoming real aste.
 1. **L1 legality matcher.** Deterministic, testable, blocking for everything else.
    **Unblocked 2026-08-28** — all three inputs are complete and verified for the first time.
    Must carry `-1*` through as its own state, not fold it into `-1`.
@@ -602,6 +658,18 @@ The `asta-brief` precompute pass can be built in parallel with any of these — 
 
 ## Open questions
 
+- **skfolio dependency + covariance choice (session 2).** Adopt `skfolio>=1.0` for L2/L3. Open:
+  start with `LedoitWolf`/`OAS` shrinkage, or go straight to a team/role `CharacteristicsFactorModel`?
+  And BL Ω from `player_sentiment.confidenza` — a linear map, or calibrated?
+- **λ (risk aversion) calibration (session 2).** For mean − λ·variance: which λ for the season-title
+  regime vs a comeback? Use skfolio's efficient frontier to pick it; confirm the objective the user
+  actually optimizes (total-points title vs weekly H2H).
+- **Own-room live read (session 2).** The harvester streams public spectator rooms; confirm the
+  user's OWN asta room exposes the same Firebase node, or use the authed API.
+- **Auto-bid endpoint (session 2).** "LLM suggests AND executes" needs the undocumented bid-POST —
+  capture it via a live Network trace during one real bid before enabling `FANTABOT_AUTO_ACT`.
+- **The 1.19 GB landing file is missing (session 2).** Re-obtain or re-harvest; blocks full L4 +
+  the classic role-split until then.
 - **League settings still undecided** (§7): rosa min/max, and chiamata libera vs random. §13's
   sensitivity sweep is the answer — run the simulator across the plausible range and report which
   unknowns actually move the result. Do not block on Thursday's conversation.
