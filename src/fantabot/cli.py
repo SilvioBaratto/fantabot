@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from fantabot.aste.cli import register as register_aste_commands
+from fantabot.asta_engine.cli import register as register_asta_engine_commands
 
 if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     from datetime import datetime
@@ -744,6 +745,7 @@ def token_forget(
 # under the guard would give `python cli.py` a shorter menu than `fantabot` —
 # which is the split test_cli_entrypoints.py exists to refuse.
 register_aste_commands(app)
+register_asta_engine_commands(app)
 
 
 if __name__ == "__main__":

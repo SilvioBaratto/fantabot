@@ -30,6 +30,9 @@ class QuotazioneRow:
     squadra: str
     ruoli_codice: tuple[str, ...]
     ruoli: tuple[str, ...]
+    #: Fantavalore di mercato — the market's value estimate. Defaulted so older callers
+    #: that build this row without it keep working.
+    fvm: int = 0
 
 
 class ReferenceRepository(RepositoryBase):
@@ -50,6 +53,7 @@ class ReferenceRepository(RepositoryBase):
                 Quotazione.squadra,
                 Quotazione.ruoli_codice,
                 Quotazione.ruoli,
+                Quotazione.fvm,
             )
             .join(Player, Player.id == Quotazione.player_id)
             .where(Quotazione.stagione == stagione, Quotazione.listone == listone)
@@ -62,6 +66,7 @@ class ReferenceRepository(RepositoryBase):
                 squadra=row.squadra,
                 ruoli_codice=tuple(row.ruoli_codice),
                 ruoli=tuple(row.ruoli),
+                fvm=int(row.fvm),
             )
             for row in rows
         }
