@@ -32,8 +32,12 @@ class AssignmentEvent:
 
 
 def parse_assignment(state: Mapping[str, Any]) -> AssignmentEvent | None:
-    """One raw room state -> an assignment event, or ``None`` if it is not a sale."""
-    if state.get("update_type") != CLOSE:
+    """One raw room state -> an assignment event, or ``None`` if it is not a sale.
+
+    A garbled record (not a mapping) is ignored, not fatal: a live evening must not die on
+    one malformed line.
+    """
+    if not isinstance(state, Mapping) or state.get("update_type") != CLOSE:
         return None
     player_id = state.get("player_id")
     price = state.get("price")
