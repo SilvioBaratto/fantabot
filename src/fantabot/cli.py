@@ -128,7 +128,7 @@ def news_fetch(
 
     from fantabot.agentkit.env import strip_dangerous_env
     from fantabot.config import settings
-    from fantabot.news.pipeline import Progress, fetch_all
+    from fantabot.news.pipeline import Progress, fetch_all, format_cost_line
     from fantabot.news.pool import PoolPlayer, load_pool
     from fantabot.news.prompt import build_prompt
     from fantabot.news.sink import SentimentSink
@@ -328,6 +328,11 @@ def news_fetch(
         console.print(f"[yellow]failed[/yellow] {escape(name)}: {escape(reason)}")
     if result.rate_limited:
         console.print("[yellow]rate limits were hit; the run backed off and continued[/yellow]")
+
+    # Token spend and cache reuse for the whole run. No brackets in the line, so it
+    # is Rich-markup-safe without escaping. The cache-read % is what the caching work
+    # is meant to move; the dollar figure is hedged (0 on a custom model id).
+    console.print(f"[dim]{format_cost_line(result.usage)}[/dim]")
 
     if sink is not None:
         # The end-of-run pass stays, and is normally a no-op: the sink skips keys

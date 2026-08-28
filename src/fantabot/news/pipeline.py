@@ -24,12 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
 from ..agentkit.options import AgentRequest
-from ..agentkit.runner import Outcome
+from ..agentkit.runner import Outcome, Usage
 from ..agentkit.runner import run as sdk_run
 from .models import PlayerSentiment
 from .pool import PoolPlayer
@@ -68,6 +68,9 @@ class PlayerOutcome:
     #: resume filter must offer this player again, and a report that called
     #: 458 unasked players "failed" would describe the outage as a rout.
     skipped: bool = False
+    #: What this query spent. Present even on a failure — a player can burn web
+    #: searches before its answer is rejected — and empty for a skipped one.
+    usage: Usage = field(default_factory=Usage)
 
 
 @dataclass(frozen=True)
@@ -88,10 +91,43 @@ class FetchResult:
     stopped_early: str | None = None
     #: Players never queried because it stopped.
     skipped: int = 0
+    #: Token spend for the whole run, folded from every player's usage.
+    usage: Usage = field(default_factory=Usage)
 
 
 StartHook = Callable[[PoolPlayer], None]
 ResultHook = Callable[[Progress], None]
+
+
+def total_usage(outcomes: Iterable[PlayerOutcome]) -> Usage:
+    """Fold every finished player's usage into one figure.
+
+    Failed and skipped players are included: a player can spend web searches before
+    its answer is rejected, and that token cost is still part of the run's cost.
+    """
+    total = Usage()
+    for outcome in outcomes:
+        total = total + outcome.usage
+    return total
+
+
+def format_cost_line(usage: Usage) -> str:
+    """The one stdout line ``news-fetch`` prints at the end of a run.
+
+    The cache-read fraction is the reused share of all cacheable input (uncached
+    input + cache writes + cache reads); a higher fraction is a cheaper run and the
+    number Tasks 2-3 are trying to move. The dollar figure is hedged because the
+    SDK's price table can report 0 for a custom Foundry model id, so the tokens and
+    the fraction are the load-bearing numbers, not the estimate.
+    """
+    cacheable = usage.input_tokens + usage.cache_creation_tokens + usage.cache_read_tokens
+    read_pct = round(100 * usage.cache_read_tokens / cacheable) if cacheable else 0
+    cost = f"${usage.cost_usd:.4f}" if usage.cost_usd else "$0"
+    return (
+        f"tokens: {usage.input_tokens:,} in · {usage.output_tokens:,} out · "
+        f"cache {read_pct}% read ({usage.cache_read_tokens:,}/{cacheable:,}) · "
+        f"est ~{cost} (approx, may be 0 on a custom model)"
+    )
 
 
 async def fetch_all(
@@ -167,6 +203,7 @@ async def fetch_all(
                     row=None if outcome.value is None else _row(player, outcome.value),
                     failure=outcome.failure,
                     rate_limited=outcome.rate_limited,
+                    usage=outcome.usage,
                 )
             except Exception as exc:
                 log.warning("%s: query raised: %s", player.nome, exc)
@@ -219,4 +256,5 @@ async def fetch_all(
         rate_limited=rate_limited,
         stopped_early=stopped,
         skipped=skipped,
+        usage=total_usage(outcomes),
     )

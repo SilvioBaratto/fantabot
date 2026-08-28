@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Protocol, TypeVar, cast
 
 from claude_agent_sdk import RateLimitEvent, query
@@ -30,6 +30,83 @@ log = logging.getLogger(__name__)
 M = TypeVar("M", bound=BaseModel)
 
 
+def _cost_add(a: float | None, b: float | None) -> float | None:
+    """Sum two optional dollar estimates. None is 'no estimate', not zero, so a
+    real number on either side survives and two Nones stay None."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return a + b
+
+
+@dataclass(frozen=True)
+class Usage:
+    """Token counts (and an optional dollar estimate) for one or many queries.
+
+    The dollar figure is the SDK's client-side estimate and can be None or 0 for a
+    model its bundled price table does not recognise — likely for a custom Foundry
+    id — so the load-bearing fields are the token counts. Adds field-by-field so a
+    run can fold every query's usage into one figure.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cost_usd: float | None = None
+
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.cache_read_tokens + other.cache_read_tokens,
+            self.cache_creation_tokens + other.cache_creation_tokens,
+            _cost_add(self.cost_usd, other.cost_usd),
+        )
+
+
+def extract_usage(message: Any) -> Usage:
+    """Read token usage off an SDK result message. Never raises on a missing field.
+
+    Prefers ``model_usage`` — the whole-tree, per-model breakdown (camelCase keys on
+    a ``ModelUsage`` TypedDict) — because ``usage`` alone undercounts once subagents
+    run. Cost comes from ``total_cost_usd`` (authoritative) when present, else the
+    sum of per-model ``costUSD``. Falls back to the snake_case ``usage`` dict when no
+    ``model_usage`` is reported.
+    """
+    total_cost = getattr(message, "total_cost_usd", None)
+    model_usage = getattr(message, "model_usage", None)
+    if model_usage:
+        acc = Usage()
+        per_model_cost: float | None = None
+        for per in model_usage.values():
+            acc = acc + Usage(
+                input_tokens=int(per.get("inputTokens", 0) or 0),
+                output_tokens=int(per.get("outputTokens", 0) or 0),
+                cache_read_tokens=int(per.get("cacheReadInputTokens", 0) or 0),
+                cache_creation_tokens=int(per.get("cacheCreationInputTokens", 0) or 0),
+            )
+            cost = per.get("costUSD")
+            if cost is not None:
+                per_model_cost = (per_model_cost or 0.0) + float(cost)
+        return Usage(
+            acc.input_tokens,
+            acc.output_tokens,
+            acc.cache_read_tokens,
+            acc.cache_creation_tokens,
+            total_cost if total_cost is not None else per_model_cost,
+        )
+    usage = getattr(message, "usage", None) or {}
+    return Usage(
+        input_tokens=int(usage.get("input_tokens", 0) or 0),
+        output_tokens=int(usage.get("output_tokens", 0) or 0),
+        cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+        cache_creation_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+        cost_usd=total_cost,
+    )
+
+
 @dataclass(frozen=True)
 class Outcome(Generic[M]):
     """The result of one agent query: a value, or a reason there isn't one."""
@@ -37,6 +114,7 @@ class Outcome(Generic[M]):
     value: M | None
     failure: str | None
     rate_limited: bool = False
+    usage: Usage = field(default_factory=Usage)
 
     def __bool__(self) -> bool:
         return self.failure is None and self.value is not None
@@ -107,7 +185,12 @@ async def consume(stream: AsyncIterator[Any], schema: type[M], label: str) -> Ou
 
             if hasattr(message, "subtype") and hasattr(message, "structured_output"):
                 value, failure = classify_result(cast(ResultLike, message), schema)
-                return Outcome(value=value, failure=failure, rate_limited=rate_limited)
+                return Outcome(
+                    value=value,
+                    failure=failure,
+                    rate_limited=rate_limited,
+                    usage=extract_usage(message),
+                )
 
     return Outcome(value=None, failure="stream ended without a result", rate_limited=rate_limited)
 
