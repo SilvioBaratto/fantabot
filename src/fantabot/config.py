@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # prints — the name must also be in cli.py's exclude set, and a test pins it.
     fantabot_encryption_key: str = Field(default="", repr=False)
     fantabot_apileague_base_url: str = "https://apileague.fantacalcio.it"
+    # The own-room FantaLab API. Reads (league record, live list) and participant
+    # bids are unauthenticated — see docs/fantalab/06-asta-write-path.md §10.
+    fantabot_fantalab_base_url: str = "https://api.fantalab.it"
 
     stats_source_base_url: str = ""
     stats_source_api_key: str = Field(default="", repr=False)
