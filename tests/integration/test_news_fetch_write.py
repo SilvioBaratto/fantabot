@@ -440,3 +440,81 @@ def test_a_backend_failing_everything_stops_the_run_and_exits_non_zero(
     assert _stored(canary_player) == ["prima del muro"], (
         "the run gave up before storing what it had already paid for"
     )
+
+
+def test_the_run_day_can_be_pinned_so_a_resume_lands_on_the_same_week(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """`date.today()` is re-evaluated per invocation and feeds both halves of
+    resume: the filter `existing_keys(today)` and the stored key `data_run`.
+
+    A run of this command takes hours — measured at 1-2 players a minute over a
+    548-player pool — so an evening start crosses midnight, and so does waiting
+    out a backend outage. Today that silently begins a new week: the readings
+    already collected stop being skipped, and 548 queries are spent again.
+    Observed on 2026-08-28, when an exhausted quota stopped a run at player 90
+    with 70 stored and the obvious recovery was to wait for the reset.
+    """
+    from datetime import date
+
+    from fantabot.news import pipeline
+
+    seen: dict[str, object] = {}
+
+    async def capturing(players: object, **kwargs: Any) -> FetchResult:
+        seen["today"] = kwargs["today"]
+        return FetchResult()
+
+    monkeypatch.setattr(pipeline, "fetch_all", capturing)
+    result = runner.invoke(
+        app, ["news-fetch", "--write", "--limit", "1", "--date", "2026-08-27"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen["today"] == date(2026, 8, 27), "the pinned day never reached the fan-out"
+
+
+def _refuses(monkeypatch: pytest.MonkeyPatch, day: str) -> Any:
+    """Invoke with a bad --date, having made the fan-out unspendable.
+
+    The fake is not decoration. Without it these two tests assert only the exit
+    code, and the first regression of the guard sends them at the real backend:
+    the check ran unfaked once during a mutation and queried a live model until
+    it was killed. CLAUDE.md's rule is that the suite spends nothing, and a test
+    that holds only while the code is correct does not keep it.
+    """
+    from fantabot.news import pipeline
+
+    called: list[object] = []
+
+    async def must_not_run(players: object, **kwargs: Any) -> FetchResult:
+        called.append(players)
+        return FetchResult()
+
+    monkeypatch.setattr(pipeline, "fetch_all", must_not_run)
+    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "1", "--date", day])
+    return result, called
+
+
+def test_a_day_that_has_not_happened_is_refused(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """A typo in the year would write a phantom week that nothing collected,
+    and the reader takes the most recent row per player."""
+    result, called = _refuses(monkeypatch, "2027-08-28")
+
+    assert result.exit_code == 2
+    assert "2027-08-28" in result.output
+    assert called == [], "refused, but only after the queries were spent"
+
+
+def test_a_malformed_day_is_refused_rather_than_falling_back_to_today(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """Falling back would spend the queries under a key the operator did not ask
+    for, which is the whole failure this option exists to prevent."""
+    result, called = _refuses(monkeypatch, "27-08-2026")
+
+    assert result.exit_code == 2
+    assert "27-08-2026" in result.output
+    assert called == []

@@ -115,6 +115,9 @@ def news_fetch(
     ),
     model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
     season: str = typer.Option("2026/27", help="Which stagione to fetch."),
+    run_day: str = typer.Option(
+        "", "--date", help="Run day, YYYY-MM-DD. Empty = today. Pin it to resume a run."
+    ),
     lookback_days: int = typer.Option(14, help="Days of news each query should cover."),
     print_prompt: bool = typer.Option(False, "--print-prompt", help="Show the built prompt."),
     no_run: bool = typer.Option(False, "--no-run", help="Build everything, query nothing."),
@@ -151,7 +154,29 @@ def news_fetch(
     from fantabot.db import database_manager
     from fantabot.db.repositories.sentiment import SentimentRepository
 
+    # Checked before anything is spent, the way `login` checks everything it can
+    # before opening a browser. This one value keys both halves of resume — the
+    # filter `existing_keys(today)` and the stored `data_run` — so getting it
+    # from the clock means a run that crosses midnight silently starts a new
+    # week and re-queries the pool it had already half collected.
     today = date.today()
+    if run_day:
+        try:
+            today = date.fromisoformat(run_day)
+        except ValueError:
+            console.print(
+                f"[red]{escape(run_day)!r} is not a date.[/red] Use YYYY-MM-DD. "
+                "Falling back to today would spend the queries under a key you did not ask for."
+            )
+            raise typer.Exit(code=2) from None
+        if today > date.today():
+            # A typo in the year would write a week nothing collected, and the
+            # reader takes the most recent row per player.
+            console.print(
+                f"[red]{escape(run_day)} has not happened yet.[/red] "
+                "A reading is dated by the day it describes."
+            )
+            raise typer.Exit(code=2)
 
     # One session for both reads: the pool and the resume filter are the same
     # question asked twice — what is this run going to query?
