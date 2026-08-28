@@ -165,6 +165,27 @@ class SentimentReadRepository(RepositoryBase):
         ).scalar_one_or_none()
         return None if record is None else _to_row(record)
 
+    def all_latest(self) -> dict[str, SentimentRow]:
+        """Every player's most recent reading, keyed by id. One statement.
+
+        ``DISTINCT ON`` takes each player's newest ``data_run``, the same shape
+        ``drifted`` uses. Calling ``latest`` per player would be one round trip
+        each — 548 of them for a single listone — which is the only reason this
+        exists alongside it.
+
+        **Silent rows are returned, not filtered.** ``trailing`` drops
+        ``confidenza == 0`` because it averages, and a silent 0.0 would invent a
+        data point. Nothing is averaged here, and the value layer needs to see
+        the silence: "no coverage was found" and "this player was never queried"
+        are different facts, and both must stay reachable by the caller.
+        """
+        records = self.session.execute(
+            select(PlayerSentiment)
+            .distinct(PlayerSentiment.player_id)
+            .order_by(PlayerSentiment.player_id, desc(PlayerSentiment.data_run))
+        ).scalars().all()
+        return {str(record.player_id): _to_row(record) for record in records}
+
     def trailing(self, player_id: str, weeks: int = 4) -> TrailingSentiment | None:
         """Mean of each score over the last ``weeks`` runs, silent rows excluded."""
         records = self.session.execute(

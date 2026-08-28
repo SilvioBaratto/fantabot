@@ -240,3 +240,85 @@ def test_a_row_written_after_construction_is_visible(db_session: Session) -> Non
     latest = source.latest("632")
     assert latest is not None
     assert latest.data_run == "2026-10-07"
+
+
+# These assert on the fixture's own ids rather than on the whole mapping. The db
+# tier runs against the development database, which carries a real listone — a
+# bulk read sees those rows too, and pinning an exact key set would make the
+# suite depend on whatever news-fetch last wrote.
+
+
+def test_all_latest_keys_every_player_by_id(db_session: Session) -> None:
+    source = _source(
+        db_session,
+        [_row("2026-10-07", player_id="632"), _row("2026-10-07", player_id="633")],
+    )
+
+    rows = source.all_latest()
+
+    assert {"632", "633"} <= set(rows)
+    assert rows["632"].data_run == "2026-10-07"
+
+
+def test_all_latest_takes_only_the_newest_run_per_player(db_session: Session) -> None:
+    source = _source(
+        db_session,
+        [
+            _row("2026-09-02", player_id="632", sentiment="0.10"),
+            _row("2026-10-07", player_id="632", sentiment="0.70"),
+            _row("2026-09-02", player_id="633", sentiment="0.20"),
+        ],
+    )
+
+    rows = source.all_latest()
+
+    assert rows["632"].sentiment == 0.70
+    assert rows["632"].data_run == "2026-10-07"
+    assert rows["633"].sentiment == 0.20
+
+
+def test_all_latest_returns_silent_rows_rather_than_dropping_them(
+    db_session: Session,
+) -> None:
+    """A silent row is not a missing row.
+
+    ``trailing`` excludes ``confidenza == 0`` because it averages. ``all_latest``
+    does not average — the value layer needs to *see* the silence to apply its
+    identity, and filtering here would make "silent" and "absent" the same fact.
+    """
+    source = _source(db_session, [_row("2026-10-07", player_id="632", confidenza="0.00")])
+
+    rows = source.all_latest()
+
+    assert "632" in rows
+    assert rows["632"].confidenza == 0.0
+
+
+def test_all_latest_omits_a_player_who_was_never_queried(db_session: Session) -> None:
+    """Absent from the mapping, not present with a fabricated neutral row."""
+    rows = _source(db_session, [_row("2026-10-07", player_id="632")]).all_latest()
+
+    assert "99999" not in rows
+
+
+def test_all_latest_issues_a_single_statement(db_session: Session) -> None:
+    """The reason this method exists: per-player ``latest()`` would be 548 round trips."""
+    from sqlalchemy import event
+
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):  # type: ignore[no-untyped-def]
+        statements.append(statement)
+
+    source = _source(
+        db_session,
+        [_row("2026-10-07", player_id=str(pid)) for pid in (632, 633, 634)],
+    )
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        source.all_latest()
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert len(statements) == 1, statements

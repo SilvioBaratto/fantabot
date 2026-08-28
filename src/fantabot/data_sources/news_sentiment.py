@@ -53,6 +53,10 @@ class NewsSentimentSource:
         """His most recent reading, or ``None`` if he has never been queried."""
         return self._repo.latest(player_id)
 
+    def all_latest(self) -> dict[str, SentimentRow]:
+        """Every player's most recent reading, in one query. Silent rows included."""
+        return self._repo.all_latest()
+
     def trailing(self, player_id: str, weeks: int = 4) -> TrailingSentiment | None:
         """Mean of each score over the last ``weeks`` runs, silent rows excluded."""
         return self._repo.trailing(player_id, weeks)
