@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.db.base import Base
@@ -51,6 +52,27 @@ def _chunks(
 
 class AsteRepository(RepositoryBase):
     """Reads and writes for `asta`, `asta_event` and `asta_assignment`."""
+
+    def mantra_clearing_sales(
+        self, *, budget: int = 500, num_teams: int = 8
+    ) -> list[tuple[str, int]]:
+        """`(player_id, price)` for every Mantra sale in auctions of a given shape.
+
+        Restricted to `asta_type = 'mantra'` and the league shape (credits, team count)
+        so the prices are directly comparable to ours without budget normalization; sales
+        with no linked player (`fantacalcio_id IS NULL`) are dropped. Read-only.
+        """
+        rows = self.session.execute(
+            select(AstaAssignment.fantacalcio_id, AstaAssignment.price)
+            .join(Asta, Asta.id == AstaAssignment.asta_id)
+            .where(
+                Asta.asta_type == "mantra",
+                Asta.num_credits == budget,
+                Asta.num_teams == num_teams,
+                AstaAssignment.fantacalcio_id.is_not(None),
+            )
+        ).all()
+        return [(str(fantacalcio_id), price) for fantacalcio_id, price in rows]
 
     def upsert_auctions(self, rows: Sequence[dict[str, Any]]) -> int:
         """Register or refresh auction rooms.
