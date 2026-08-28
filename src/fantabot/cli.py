@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from fantabot.aste.cli import register as register_aste_commands
 
@@ -83,6 +84,9 @@ def news_fetch(
     limit: int = typer.Option(0, help="Stop after N players (0 = no limit)."),
     only: str = typer.Option("", help="One player by name, substring match."),
     concurrency: int = typer.Option(4, help="Parallel agent queries."),
+    flush_every: int = typer.Option(
+        5, help="Store readings every N completions, so a crash costs at most N."
+    ),
     model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
     season: str = typer.Option("2026/27", help="Which stagione to fetch."),
     lookback_days: int = typer.Option(14, help="Days of news each query should cover."),
@@ -90,11 +94,14 @@ def news_fetch(
     no_run: bool = typer.Option(False, "--no-run", help="Build everything, query nothing."),
 ) -> None:
     """Fetch weekly news sentiment for the season's quotati players."""
+    import time
+
     from fantabot.agentkit.env import strip_dangerous_env
     from fantabot.config import settings
-    from fantabot.news.pipeline import fetch_all
-    from fantabot.news.pool import load_pool
+    from fantabot.news.pipeline import Progress, fetch_all
+    from fantabot.news.pool import PoolPlayer, load_pool
     from fantabot.news.prompt import build_prompt
+    from fantabot.news.sink import SentimentSink
 
     if scope != "pool":
         # Not deferred-and-half-built: reading a roster needs the league API
@@ -128,8 +135,13 @@ def news_fetch(
 
     if only:
         players = [p for p in players if only.lower() in p.nome.lower()]
+    candidates = len(players)
     if not force:
         players = [p for p in players if (today.isoformat(), p.id) not in seen]
+    # Said out loud below. The resume filter has always existed; until readings
+    # were stored as they landed there was never anything for it to skip, so it
+    # had no visible effect and no way to be trusted after a crash.
+    resumed = candidates - len(players)
     if limit:
         players = players[:limit]
 
@@ -146,29 +158,113 @@ def news_fetch(
         return
 
     strip_dangerous_env()
-    console.print(f"Querying {len(players)} players at concurrency {concurrency}...")
-    result = asyncio.run(
-        fetch_all(
-            players,
-            concurrency=concurrency,
-            lookback_days=lookback_days,
-            today=today,
-            model=model,
-            stagione=season,
+    if resumed:
+        console.print(
+            f"[dim]resuming: {resumed} of {candidates} already stored for {today}[/dim]"
         )
-    )
+    console.print(f"Querying {len(players)} players at concurrency {concurrency}...")
+
+    # Storing as they land, not all at the end. 548 players at two a minute is
+    # nearly two hours, and a single upsert after the last one made every minute
+    # of that all-or-nothing — with the resume filter unable to help, because
+    # nothing had been stored for it to resume from.
+    sink: SentimentSink | None = None
+    if write:
+
+        def flush(rows: list[dict[str, str]]) -> int:
+            with database_manager.get_session() as session:
+                return SentimentRepository(session).upsert_rows(rows, force=force)
+
+        def on_flush_error(exc: Exception) -> None:
+            console.print(
+                f"[red]storing failed: {type(exc).__name__}: {escape(str(exc))}[/red]\n"
+                "The readings are held and retried on the next completion; "
+                "collection is unaffected."
+            )
+
+        sink = SentimentSink(flush, every=flush_every, on_error=on_flush_error)
+
+    started = time.monotonic()
+
+    def on_start(player: PoolPlayer) -> None:
+        console.print(f"[dim]-> {player.nome}[/dim]")
+
+    def on_result(progress: Progress) -> None:
+        """One line per finished player. No square brackets: Rich reads them as
+        markup, and `12/548` is not a style."""
+        elapsed = time.monotonic() - started
+        rate = progress.done / elapsed if elapsed > 0 else 0.0
+        left = (progress.total - progress.done) / rate if rate > 0 else 0.0
+        head = f"{progress.done:>4}/{progress.total}"
+        outcome = progress.outcome
+        if outcome.row is None:
+            # Escaped: the reason is agent-written text. Rich reads `[type=...,
+            # input_value=...]` — the tail of every pydantic rejection — as a
+            # style and deletes it, and raises MarkupError on a `[/...]`, which
+            # inside a gathered coroutine ends the whole run.
+            console.print(
+                f"[yellow]{head} {escape(outcome.player.nome)}: "
+                f"{escape(outcome.failure or '')}[/yellow]"
+            )
+            return
+        row = outcome.row
+        note = ""
+        if sink is not None:
+            sink.add(row)
+            note = f" · {sink.stored} stored"
+        console.print(
+            f"{head} {escape(outcome.player.nome)} · sentiment {row['sentiment']} "
+            f"conf {row['confidenza']} · {row['n_fonti']} fonti{note} · ~{left / 60:.0f}m left"
+        )
+
+    try:
+        result = asyncio.run(
+            fetch_all(
+                players,
+                concurrency=concurrency,
+                lookback_days=lookback_days,
+                today=today,
+                model=model,
+                stagione=season,
+                on_start=on_start,
+                on_result=on_result,
+            )
+        )
+    except BaseException:
+        # Ctrl-C, or anything that escaped a coroutine. Everything below is
+        # skipped on this path, the final drain included — so readings already
+        # fetched and queued would be discarded at the moment they cost most.
+        if sink is not None and sink.pending:
+            saved = sink.drain()
+            console.print(f"[yellow]interrupted — {saved} row(s) saved on the way out[/yellow]")
+        raise
 
     for name, reason in result.failures:
-        console.print(f"[yellow]failed[/yellow] {name}: {reason}")
+        console.print(f"[yellow]failed[/yellow] {escape(name)}: {escape(reason)}")
     if result.rate_limited:
         console.print("[yellow]rate limits were hit; the run backed off and continued[/yellow]")
 
-    if write:
-        with database_manager.get_session() as session:
-            # force means both "re-query him" and "overwrite what is stored":
-            # without it a same-day re-run is a no-op rather than a duplicate.
-            stored = SentimentRepository(session).upsert_rows(result.rows, force=force)
-        console.print(f"[green]{stored} rows -> player_sentiment[/green]")
+    if sink is not None:
+        # The end-of-run pass stays, and is normally a no-op: the sink skips keys
+        # it has already taken. It is the guarantee of completeness, so that a
+        # bug in the incremental path cannot lose a run — belt as well as braces.
+        # force means both "re-query him" and "overwrite what is stored": without
+        # it a same-day re-run is a no-op rather than a duplicate.
+        sink.extend(result.rows)
+        sink.drain()
+        console.print(f"[green]{sink.stored} rows -> player_sentiment[/green]")
+        if sink.flush_failures:
+            console.print(
+                f"[yellow]{sink.flush_failures} flush(es) failed and were retried[/yellow]"
+            )
+        if sink.pending:
+            # Non-zero exit: the queries are spent and these readings are not on
+            # disk. Silence here would report the week as collected.
+            console.print(
+                f"[red]{sink.pending} row(s) could not be stored. "
+                "Fix the database and re-run — the rest is already saved.[/red]"
+            )
+            raise typer.Exit(code=1)
     else:
         for row in result.rows:
             console.print(row)

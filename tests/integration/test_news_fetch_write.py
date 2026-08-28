@@ -138,3 +138,75 @@ def test_print_prompt_with_no_run_spends_nothing() -> None:
     assert result.exit_code == 0
     assert "GIOCATORE" in result.output
     assert "Fonti preferite" in result.output
+
+
+def _player(player_id: str) -> Any:
+    from fantabot.news.pool import PoolPlayer
+
+    return PoolPlayer(
+        id=player_id, nome="Canary", squadra="ATA", ruolo="Difensore", ruoli_mantra="B;DS"
+    )
+
+
+def _progress(player_id: str, row: dict[str, str] | None, failure: str | None) -> Any:
+    from fantabot.news.pipeline import PlayerOutcome, Progress
+
+    return Progress(
+        done=1,
+        total=1,
+        outcome=PlayerOutcome(
+            player=_player(player_id), row=row, failure=failure, rate_limited=False
+        ),
+    )
+
+
+def test_a_crash_mid_run_still_stores_what_had_been_fetched(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """The whole point of storing as it goes.
+
+    ``--flush-every 50`` keeps the reading in the sink's pending list, so only
+    the drain on the way out can save it. Everything after ``asyncio.run`` — the
+    final extend, the drain, the report — is skipped when a coroutine raises.
+    """
+    from fantabot.news import pipeline
+
+    row = _row(canary_player, "salvata")
+
+    async def crashing(players: object, **kwargs: Any) -> None:
+        kwargs["on_result"](_progress(canary_player, row, None))
+        raise RuntimeError("the run died before its summary")
+
+    monkeypatch.setattr(pipeline, "fetch_all", crashing)
+    result = runner.invoke(
+        app, ["news-fetch", "--write", "--limit", "2", "--flush-every", "50"]
+    )
+
+    assert result.exit_code != 0
+    assert _stored(canary_player) == ["salvata"], "the fetched reading was discarded"
+
+
+def test_a_failure_full_of_brackets_does_not_take_the_run_with_it(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """`outcome.failure` is agent-written text. Rich reads `[/serie-a/news]` as a
+    closing tag and raises MarkupError, which inside the gathered coroutine ends
+    a run that may be hours old — and it eats the `[type=..., input_value=...]`
+    tail of every pydantic rejection, which is the whole diagnostic."""
+    from fantabot.news import pipeline
+
+    row = _row(canary_player, "sopravvissuta")
+    hostile = "structured output failed the schema: [/serie-a/news] [type=float_parsing]"
+
+    async def with_hostile_text(players: object, **kwargs: Any) -> FetchResult:
+        kwargs["on_result"](_progress(canary_player, None, hostile))
+        kwargs["on_result"](_progress(canary_player, row, None))
+        return FetchResult(rows=[row], failures=[("Canary", hostile)])
+
+    monkeypatch.setattr(pipeline, "fetch_all", with_hostile_text)
+    result = runner.invoke(app, ["news-fetch", "--write", "--limit", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert _stored(canary_player) == ["sopravvissuta"]
+    assert "serie-a/news" in result.output, "the diagnostic was swallowed by the markup parser"
+    assert "float_parsing" in result.output
