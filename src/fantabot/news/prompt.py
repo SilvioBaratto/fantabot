@@ -35,17 +35,19 @@ _MANTRA_LEGEND = (
 )
 
 
-def build_prompt(player: PoolPlayer, lookback_days: int, today: date) -> str:
+def build_system_prompt(lookback_days: int, today: date) -> str:
+    """The stable half of the prompt: the analyst brief, the window, the rules.
+
+    It carries no player, so within a run (one ``lookback_days``/``today``) it is one
+    constant string for all 523 queries. The pipeline sends it as the agent's system
+    prompt, where an identical prefix is cached and read back at a reduced rate rather
+    than re-billed as fresh input on every player. The window lives here, not in the
+    per-player message, because it too is constant across a run.
+    """
     since = today - timedelta(days=lookback_days)
     domains = ", ".join(PREFERRED_DOMAINS)
 
-    return f"""Sei un analista di fantacalcio. Raccogli notizie su un singolo calciatore di Serie A e restituisci una valutazione strutturata.
-
-GIOCATORE
-- Nome: {player.nome}
-- Squadra: {player.squadra}
-- Ruolo Classic: {player.ruolo}
-- Ruolo Mantra attualmente assegnato dalla piattaforma: {player.ruoli_mantra}
+    return f"""Sei un analista di fantacalcio. Per ogni calciatore di Serie A che ti viene indicato, raccogli notizie e restituisci una valutazione strutturata.
 
 PERIODO
 Considera solo notizie pubblicate negli ultimi {lookback_days} giorni, cioè dal {since.isoformat()} al {today.isoformat()}.
@@ -62,8 +64,30 @@ COME PESARE LE NOTIZIE
 RUOLO IN CAMPO
 La piattaforma assegna i ruoli Mantra a fine luglio e non li aggiorna più per tutta la stagione. Dimmi in quale ruolo Mantra lo stanno effettivamente schierando nelle ultime partite, secondo probabili formazioni e cronache.
 Codici ammessi: {_MANTRA_LEGEND}.
-Metti i codici osservati in `ruolo_campo`. Se le fonti non parlano della sua posizione in campo, lascia `ruolo_campo` vuoto: non dedurlo dal ruolo assegnato sopra.
+Metti i codici osservati in `ruolo_campo`. Se le fonti non parlano della sua posizione in campo, lascia `ruolo_campo` vuoto: non dedurlo dal ruolo assegnato per il giocatore.
 
 SE NON TROVI NULLA
 Metti `confidenza` a 0, `fonti` vuoto, `ruolo_campo` vuoto e `riassunto` "Nessuna notizia rilevante nel periodo.". È la risposta corretta: non inventare un sentiment per un giocatore di cui nessuno ha scritto.
 """
+
+
+def build_user_prompt(player: PoolPlayer) -> str:
+    """The variable half: just this player, and the instruction to analyse him.
+
+    Everything constant across the run lives in the system prompt; keeping the user
+    message this small is what lets the split pay off — the per-player tokens are only
+    the four identity lines, not the whole brief.
+    """
+    return f"""GIOCATORE
+- Nome: {player.nome}
+- Squadra: {player.squadra}
+- Ruolo Classic: {player.ruolo}
+- Ruolo Mantra attualmente assegnato dalla piattaforma: {player.ruoli_mantra}
+
+Analizza questo giocatore e restituisci la valutazione strutturata richiesta."""
+
+
+def build_prompt(player: PoolPlayer, lookback_days: int, today: date) -> str:
+    """The whole prompt as one string. Kept for ``--print-prompt`` and the tests; the
+    pipeline sends the two halves separately so the system half can cache."""
+    return f"{build_system_prompt(lookback_days, today)}\n\n{build_user_prompt(player)}"

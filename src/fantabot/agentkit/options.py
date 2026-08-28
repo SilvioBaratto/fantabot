@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk.types import SystemPromptPreset
 from pydantic import BaseModel
 
 # Delegation, shell and filesystem access, blocked by name. Two different hazards:
@@ -45,6 +46,11 @@ class AgentRequest:
     model: str
     allowed_tools: tuple[str, ...]
     max_turns: int
+    #: Stable instructions to append to Claude Code's system prompt. Empty leaves the
+    #: default untouched. Non-empty is byte-identical across a run's queries, so it
+    #: caches instead of riding in every per-player message. Defaulted so callers that
+    #: want no custom system prompt (mantra_grid) are unaffected.
+    system_prompt: str = ""
 
 
 def agent_env() -> dict[str, str]:
@@ -68,9 +74,25 @@ def agent_env() -> dict[str, str]:
     }
 
 
+def _system_prompt(append: str) -> SystemPromptPreset | None:
+    """Wrap the stable instructions as a Claude Code preset with an append.
+
+    None means "use Claude Code's own system prompt unchanged" — the subscription
+    default. The preset form keeps that default and *extends* it, so the agent's tool
+    and formatting behaviour is untouched and the appended brief joins the cached
+    system block rather than replacing it.
+    """
+    if not append:
+        return None
+    return SystemPromptPreset(type="preset", preset="claude_code", append=append)
+
+
 def build_options(request: AgentRequest, schema: type[BaseModel]) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=request.model,
+        # The stable brief rides here, in the cached system block, when the caller
+        # supplies one — otherwise None keeps Claude Code's default system prompt.
+        system_prompt=_system_prompt(request.system_prompt),
         # Empty on the subscription path, and checked by assert_auth before any
         # query: the SDK reads ANTHROPIC_API_KEY from options.env as well as
         # os.environ (session_resume.py:356), so leaving this unset is half the

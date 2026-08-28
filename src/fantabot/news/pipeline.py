@@ -33,7 +33,7 @@ from ..agentkit.runner import Outcome, Usage
 from ..agentkit.runner import run as sdk_run
 from .models import PlayerSentiment
 from .pool import PoolPlayer
-from .prompt import build_prompt
+from .prompt import build_system_prompt, build_user_prompt
 from .store import build_row
 
 log = logging.getLogger(__name__)
@@ -152,6 +152,11 @@ async def fetch_all(
     consecutive = 0
     stopped: str | None = None
 
+    # Built once: the same bytes for every player in this run, so the agent's system
+    # block is identical query to query and rides the prompt cache instead of being
+    # re-billed 523 times.
+    system_prompt = build_system_prompt(lookback_days, today)
+
     def _row(player: PoolPlayer, value: PlayerSentiment) -> dict[str, str]:
         return build_row(
             player=player,
@@ -181,11 +186,12 @@ async def fetch_all(
                 # starting rather than 548 names printed at once.
                 on_start(player)
             request = AgentRequest(
-                prompt=build_prompt(player, lookback_days, today),
+                prompt=build_user_prompt(player),
                 label=player.nome,
                 model=model,
                 allowed_tools=ALLOWED_TOOLS,
                 max_turns=MAX_TURNS,
+                system_prompt=system_prompt,
             )
             try:
                 outcome = await runner(request, PlayerSentiment)

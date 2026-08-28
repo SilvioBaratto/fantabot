@@ -8,7 +8,12 @@ can pin the wording without being a time bomb.
 from datetime import date
 
 from fantabot.news.pool import PoolPlayer
-from fantabot.news.prompt import PREFERRED_DOMAINS, build_prompt
+from fantabot.news.prompt import (
+    PREFERRED_DOMAINS,
+    build_prompt,
+    build_system_prompt,
+    build_user_prompt,
+)
 
 ZACCAGNI = PoolPlayer(
     id="4521",
@@ -112,3 +117,48 @@ def test_the_prompt_says_silence_is_a_valid_answer() -> None:
 def test_the_prompt_does_not_ask_for_a_role_verdict() -> None:
     # It must ask what he plays as, never whether our tag is wrong.
     assert "ruolo_campo" in _prompt()
+
+
+# --- T2: the split into a cached system prompt + a per-player user prompt --------------
+# The stable instructions become byte-identical across every player in a run, so they
+# ride the prompt cache instead of being re-billed 523 times. Only the player varies.
+
+
+def test_system_prompt_carries_the_instructions_not_the_player() -> None:
+    system = build_system_prompt(14, RUN_DAY)
+    # The instructional body is here...
+    assert "non esclusiv" in system.lower()
+    assert "nessuna notizia" in system.lower()
+    assert "ruolo_campo" in system
+    for code in ("Por", "Dc", "B", "Dd", "Ds", "E", "M", "C", "T", "W", "A", "Pc"):
+        assert code in system
+    # ...but no player identity, or it could not cache across players.
+    assert "Zaccagni" not in system
+    assert "LAZ" not in system
+    assert "W;T" not in system
+
+
+def test_system_prompt_is_identical_for_any_two_players() -> None:
+    # It takes no player, so within a run (same window/date) it is one constant string.
+    assert build_system_prompt(14, RUN_DAY) == build_system_prompt(14, RUN_DAY)
+    other = PoolPlayer(id="9", nome="Immobile", squadra="BOL", ruolo="Attaccante", ruoli_mantra="Pc")
+    assert other.nome not in build_system_prompt(14, RUN_DAY)
+
+
+def test_user_prompt_carries_only_the_player() -> None:
+    user = build_user_prompt(ZACCAGNI)
+    assert "Zaccagni" in user
+    assert "LAZ" in user
+    assert "Centrocampista" in user
+    assert "W;T" in user
+    # The instructions moved to the system prompt — they must not be duplicated here,
+    # or the per-player message would carry the very tokens the split removed.
+    assert "non esclusiv" not in user.lower()
+    assert "nessuna notizia" not in user.lower()
+
+
+def test_build_prompt_still_contains_both_halves() -> None:
+    # Back-compat: --print-prompt and the assertions above still see one full prompt.
+    combined = _prompt()
+    assert "Zaccagni" in combined
+    assert "non esclusiv" in combined.lower()
