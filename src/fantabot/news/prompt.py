@@ -6,11 +6,12 @@ Two things here are deliberate and easy to undo by accident.
 the wording be pinned by a test, and what makes a resumed run produce the same
 question it would have produced an hour earlier.
 
-**Sources are preferred, not exclusive.** A club's own injury bulletin is
-routinely the primary source, and the low-profile players where news matters most
-are exactly the ones the big aggregators ignore. The ``fonti`` field records what
-was actually read, so source drift shows up in the data instead of being assumed
-away.
+**Search is steered to a limited, high-value set.** ``PREFERRED_DOMAINS`` is a
+handful of fetchable fantacalcio sources (probabili formazioni, injuries, mercato);
+the model searches those first and falls back to a club's own site only when none of
+them cover an obscure player. Narrowing the set is a cost lever — fewer, better
+fetches — and gazzetta.it is out because Anthropic's crawler cannot fetch it. The
+``fonti`` field records what was actually read, so source drift shows up in the data.
 """
 
 from __future__ import annotations
@@ -19,11 +20,18 @@ from datetime import date, timedelta
 
 from .pool import PoolPlayer
 
+# A deliberately small set of high-value, *fetchable* fantacalcio sources: probabili
+# formazioni, injury/suspension lists with recovery times, and mercato. Narrowing the
+# search here is a cost lever — fewer, better fetches per player. gazzetta.it is out:
+# Anthropic's WebFetch crawler cannot read it (HTTP 400), so every visit was a wasted
+# turn. The club's own site stays as a prose escape in the prompt, for the obscure
+# players the aggregators ignore.
 PREFERRED_DOMAINS: tuple[str, ...] = (
     "fantacalcio.it",
-    "gazzetta.it",
+    "fantamaster.it",
+    "fantacalciopedia.com",
     "tuttomercatoweb.com",
-    "il sito ufficiale del club",
+    "sport.sky.it",
 )
 
 # The twelve Mantra codes in the rules doc's own casing, so the model answers in a
@@ -53,8 +61,8 @@ PERIODO
 Considera solo notizie pubblicate negli ultimi {lookback_days} giorni, cioè dal {since.isoformat()} al {today.isoformat()}.
 
 FONTI
-Fonti preferite (non esclusive): {domains}.
-Se queste non dicono nulla, cerca altrove. In `fonti` metti solo gli URL che hai letto davvero: non elencare risultati di ricerca che non hai aperto.
+Cerca PRINCIPALMENTE in questo elenco limitato di fonti ad alto valore: {domains}. Sono le più affidabili per probabili formazioni, infortuni e squalifiche. Vai altrove (per esempio il sito ufficiale del club) SOLO se nessuna di queste copre il giocatore.
+Fai al massimo 2 ricerche e leggi al massimo 4 fonti: non aprire più pagine del necessario. In `fonti` metti solo gli URL che hai letto davvero: non elencare risultati di ricerca che non hai aperto.
 
 COME PESARE LE NOTIZIE
 - Le notizie degli ultimi 3 giorni contano più di quelle di 10 giorni fa.

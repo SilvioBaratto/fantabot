@@ -71,21 +71,38 @@ def test_the_window_is_a_parameter() -> None:
     assert "21" in _prompt(lookback_days=21)
 
 
-def test_the_prompt_names_the_preferred_sources_without_restricting_them() -> None:
-    prompt = _prompt()
+def test_the_prompt_lists_the_curated_domains_and_a_club_escape() -> None:
+    prompt = _prompt().lower()
 
     for domain in PREFERRED_DOMAINS:
         assert domain in prompt
-    assert "non esclusiv" in prompt.lower()
+    # The search is now steered to a limited high-value set, not the open web...
+    assert "principalmente" in prompt
+    # ...with the one escape the obscure-player case needs: the club's own site.
+    assert "ufficiale" in prompt
 
 
-def test_the_preferred_sources_are_the_four_agreed_ones() -> None:
+def test_the_preferred_sources_are_the_curated_high_value_set() -> None:
+    # Deliberately limited to fetchable, high-value fantacalcio sources. gazzetta.it
+    # is gone: Anthropic's crawler cannot fetch it, so every visit was a wasted turn.
     assert PREFERRED_DOMAINS == (
         "fantacalcio.it",
-        "gazzetta.it",
+        "fantamaster.it",
+        "fantacalciopedia.com",
         "tuttomercatoweb.com",
-        "il sito ufficiale del club",
+        "sport.sky.it",
     )
+
+
+def test_the_prompt_drops_the_unfetchable_domain() -> None:
+    assert "gazzetta.it" not in _prompt().lower()
+
+
+def test_the_prompt_caps_searches_and_sources() -> None:
+    # Bounding the fetch loop is the dominant cost lever: later turns re-send every
+    # page already fetched, so a source ceiling caps the input the run re-bills.
+    prompt = _prompt().lower()
+    assert "al massimo" in prompt
 
 
 def test_the_prompt_states_the_recency_rule() -> None:
@@ -127,7 +144,7 @@ def test_the_prompt_does_not_ask_for_a_role_verdict() -> None:
 def test_system_prompt_carries_the_instructions_not_the_player() -> None:
     system = build_system_prompt(14, RUN_DAY)
     # The instructional body is here...
-    assert "non esclusiv" in system.lower()
+    assert "principalmente" in system.lower()
     assert "nessuna notizia" in system.lower()
     assert "ruolo_campo" in system
     for code in ("Por", "Dc", "B", "Dd", "Ds", "E", "M", "C", "T", "W", "A", "Pc"):
@@ -153,7 +170,7 @@ def test_user_prompt_carries_only_the_player() -> None:
     assert "W;T" in user
     # The instructions moved to the system prompt — they must not be duplicated here,
     # or the per-player message would carry the very tokens the split removed.
-    assert "non esclusiv" not in user.lower()
+    assert "principalmente" not in user.lower()
     assert "nessuna notizia" not in user.lower()
 
 
@@ -161,4 +178,4 @@ def test_build_prompt_still_contains_both_halves() -> None:
     # Back-compat: --print-prompt and the assertions above still see one full prompt.
     combined = _prompt()
     assert "Zaccagni" in combined
-    assert "non esclusiv" in combined.lower()
+    assert "principalmente" in combined.lower()

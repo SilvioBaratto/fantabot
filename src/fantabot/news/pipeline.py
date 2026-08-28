@@ -42,7 +42,10 @@ Runner = Callable[[AgentRequest, type[PlayerSentiment]], Awaitable[Outcome[Playe
 Sleeper = Callable[[float], Awaitable[None]]
 
 ALLOWED_TOOLS: tuple[str, ...] = ("WebSearch", "WebFetch")
-MAX_TURNS = 12
+# Backstop on turns per player, not a target. Each turn re-sends every page already
+# fetched as input, so this bounds the run's dominant cost. 8 matches the prompt's own
+# ceiling (~2 searches + ~4 source reads + reasoning + answer); was 12.
+MAX_TURNS = 8
 DEFAULT_BACKOFF_SECONDS = 30.0
 
 #: Consecutive failures, with no success between them, that end a run.
