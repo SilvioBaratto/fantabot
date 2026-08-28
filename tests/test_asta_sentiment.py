@@ -21,7 +21,13 @@ from datetime import date
 
 import pytest
 
-from fantabot.asta_engine.sentiment import NEUTRAL, SentimentWeights, effect_by_id, raw_effect
+from fantabot.asta_engine.sentiment import (
+    NEUTRAL,
+    SentimentWeights,
+    effect_by_id,
+    raw_effect,
+    variance_by_id,
+)
 from fantabot.data_sources.models import SentimentRow
 
 AS_OF = date(2026, 8, 28)
@@ -281,3 +287,54 @@ def test_the_gate_still_dominates_the_tilt() -> None:
     starter_but_dull = row("2", titolarita=1.0, sentiment=0.0, forma=0.0, rigorista=0.0)
 
     assert raw_effect(benched_but_loved, as_of=AS_OF) < raw_effect(starter_but_dull, as_of=AS_OF)
+
+
+# --- confidence as a band ----------------------------------------------------------
+
+
+def test_full_confidence_gets_the_base_band() -> None:
+    bands = variance_by_id(
+        {"1": row("1", confidenza=1.0)}, ["1"], as_of=AS_OF, base=4.0, widest=16.0
+    )
+
+    assert bands["1"] == pytest.approx(4.0)
+
+
+def test_no_confidence_is_as_uninformative_as_never_having_been_priced() -> None:
+    """The endpoint is chosen, not arbitrary.
+
+    A reading with no evidence behind it tells us exactly as little as a player the market
+    never priced — so it lands on the same band, and no magic multiplier is needed to say so.
+    """
+    bands = variance_by_id(
+        {"1": row("1", confidenza=0.0)}, ["1"], as_of=AS_OF, base=4.0, widest=16.0
+    )
+
+    assert bands["1"] == pytest.approx(16.0)
+
+
+def test_a_player_absent_from_the_feed_gets_the_widest_band() -> None:
+    bands = variance_by_id({}, ["1"], as_of=AS_OF, base=4.0, widest=16.0)
+
+    assert bands["1"] == pytest.approx(16.0)
+
+
+def test_the_band_widens_as_confidence_falls() -> None:
+    rows = {str(i): row(str(i), confidenza=c) for i, c in enumerate((1.0, 0.75, 0.5, 0.0))}
+
+    bands = variance_by_id(rows, list(rows), as_of=AS_OF, base=4.0, widest=16.0)
+    ordered = [bands[str(i)] for i in range(4)]
+
+    assert ordered == sorted(ordered)
+
+
+def test_a_stale_reading_widens_the_band_too() -> None:
+    """Staleness costs trust in the variance exactly as it does in the mean."""
+    fresh = variance_by_id(
+        {"1": row("1", run="2026-08-28")}, ["1"], as_of=AS_OF, base=4.0, widest=16.0
+    )
+    stale = variance_by_id(
+        {"1": row("1", run="2026-07-28")}, ["1"], as_of=AS_OF, base=4.0, widest=16.0
+    )
+
+    assert stale["1"] > fresh["1"]

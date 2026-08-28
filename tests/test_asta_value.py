@@ -45,3 +45,46 @@ def test_an_unknown_player_shrinks_to_the_prior_with_the_widest_band() -> None:
 
 def test_the_model_is_deterministic() -> None:
     assert _model().value("1") == _model().value("1")
+
+
+# --- per-player variance -----------------------------------------------------------
+#
+# Variance was flat: every player carried the same band, so `lam` was nearly inert and the
+# mean-variance objective degenerated to maximizing the mean. `confidenza` is the honest
+# per-player uncertainty, and feeding it here is what gives the risk knob something to act
+# on.
+
+
+def test_variance_defaults_to_the_flat_band() -> None:
+    """No per-player map supplied — the pre-change behaviour, unchanged."""
+    model = _model()
+
+    assert model.value("1").variance == 4.0
+
+
+def test_a_supplied_variance_overrides_the_base_band() -> None:
+    model = _model(variances={"1": 9.0})
+
+    assert model.value("1").variance == 9.0
+
+
+def test_a_wider_band_does_not_move_the_mean() -> None:
+    """Thin coverage means we know less about him, not that he is worth less."""
+    flat = _model()
+    wide = _model(variances={"1": 16.0})
+
+    assert wide.value("1").mean == flat.value("1").mean
+    assert wide.value("1").variance > flat.value("1").variance
+
+
+def test_no_history_still_dominates_a_supplied_variance() -> None:
+    """The market never priced him: that is the wider ignorance, and it wins."""
+    model = _model(variances={"2": 5.0})
+
+    assert model.value("2").variance == 25.0
+
+
+def test_an_unknown_player_is_unaffected_by_the_variance_map() -> None:
+    model = _model(variances={"1": 9.0})
+
+    assert model.value("999") == PlayerValue(3.0, 25.0)

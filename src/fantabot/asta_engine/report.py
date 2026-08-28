@@ -15,7 +15,7 @@ from typing import Any
 from fantabot.data_sources.models import SentimentRow
 
 from .roles import MantraPlayer, normalize_roles
-from .sentiment import SentimentWeights, effect_by_id
+from .sentiment import SentimentWeights, effect_by_id, variance_by_id
 from .state import Roster
 from .value import NaiveValueModel
 
@@ -73,6 +73,11 @@ def build_value(
     is not an ablation control. When supplied, each ``fvm`` is scaled by that player's
     pool-normalized effect (see ``sentiment.py`` for why the pool mean is pinned at 1.0).
 
+    Supplying it also gives every player his own variance, interpolated from
+    ``base_variance`` at full confidence to ``no_history_variance`` at none — which is what
+    makes ``lam`` do anything at all, since an identical band on every candidate cannot
+    change which candidate wins.
+
     ``as_of`` is required alongside it and has no default. Defaulting it to today would put
     a clock read inside a pure function, and make the age decay depend on when the suite
     happened to run.
@@ -81,8 +86,17 @@ def build_value(
         raise ValueError("as_of is required when sentiment is supplied")
 
     signals = {player_id: float(value) for player_id, value in fvm_by_id.items()}
+    variances: dict[str, float] = {}
     if sentiment is not None and as_of is not None:
         effects = effect_by_id(sentiment, signals, as_of=as_of, weights=weights)
+        variances = variance_by_id(
+            sentiment,
+            signals,
+            as_of=as_of,
+            base=base_variance,
+            widest=no_history_variance,
+            weights=weights,
+        )
         signals = {
             player_id: value * effects[player_id] for player_id, value in signals.items()
         }
@@ -93,6 +107,7 @@ def build_value(
         base_variance=base_variance,
         no_history_variance=no_history_variance,
         no_history=no_history,
+        variances=variances,
     )
 
 

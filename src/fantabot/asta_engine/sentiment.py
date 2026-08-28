@@ -98,6 +98,56 @@ def _age_days(data_run: str, as_of: date) -> float:
     return float(max(0, (as_of - date.fromisoformat(data_run)).days))
 
 
+def aged_confidence(
+    row: SentimentRow,
+    *,
+    as_of: date,
+    weights: SentimentWeights = SentimentWeights(),
+) -> float:
+    """How much this reading is worth trusting: the model's own confidence, decayed by age.
+
+    Shared by the mean and the variance on purpose. A stale reading is less informative in
+    both directions, and letting the two disagree about how much they trust the same row
+    would be a bug nobody would notice until an auction.
+    """
+    decay: float = 0.5 ** (_age_days(row.data_run, as_of) / weights.half_life_days)
+    return row.confidenza * decay
+
+
+def variance_by_id(
+    rows: Mapping[str, SentimentRow],
+    pool_ids: Iterable[str],
+    *,
+    as_of: date,
+    base: float,
+    widest: float,
+    weights: SentimentWeights = SentimentWeights(),
+) -> dict[str, float]:
+    """Per-player band, interpolated from ``base`` at full trust to ``widest`` at none.
+
+    Variance used to be flat, which made ``lam`` nearly inert: a risk penalty identical for
+    every candidate cannot change which candidate wins, so the objective quietly degenerated
+    to maximizing the mean. ``confidenza`` is the honest per-player uncertainty and this is
+    where it belongs.
+
+    The endpoints are chosen rather than tuned. ``widest`` is the caller's
+    ``no_history_variance`` — the band for a player the market never priced — because a
+    reading with no evidence behind it tells us exactly as little as never having been
+    priced. Saying so by interpolation means there is no magic multiplier to justify, and
+    the relationship survives any future change to either endpoint.
+    """
+    return {
+        player_id: base
+        + (widest - base)
+        * (
+            1.0 - aged_confidence(rows[player_id], as_of=as_of, weights=weights)
+            if player_id in rows
+            else 1.0
+        )
+        for player_id in pool_ids
+    }
+
+
 def raw_effect(
     row: SentimentRow,
     *,
@@ -124,8 +174,7 @@ def raw_effect(
     )
     quality = 1.0 + weights.k * tilt
 
-    decay: float = 0.5 ** (_age_days(row.data_run, as_of) / weights.half_life_days)
-    confidence = row.confidenza * decay
+    confidence = aged_confidence(row, as_of=as_of, weights=weights)
 
     return NEUTRAL + confidence * (gate * quality - NEUTRAL)
 

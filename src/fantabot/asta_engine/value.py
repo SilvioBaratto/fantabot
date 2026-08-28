@@ -17,7 +17,7 @@ optimizer be built and trusted before that lands.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 
@@ -44,6 +44,13 @@ class NaiveValueModel:
     ``no_history`` is the subset priced by the market but absent from the point history —
     same mean, wider band. A player missing from ``signals`` shrinks to ``prior_mean`` with
     ``no_history_variance``, the widest band, rather than being assigned a fabricated value.
+
+    ``variances`` is the per-player band, defaulting to ``base_variance`` for anyone absent.
+    Without it every player carried the same variance, which made ``lam`` nearly inert — a
+    risk penalty that is identical for every candidate cannot change which candidate wins,
+    so the mean-variance objective quietly degenerated to maximizing the mean. ``no_history``
+    still dominates whatever is supplied here: never having been priced is the wider
+    ignorance, and the model must not claim to know more about him than that.
     """
 
     signals: Mapping[str, float]
@@ -51,11 +58,12 @@ class NaiveValueModel:
     base_variance: float
     no_history_variance: float
     no_history: frozenset[str] = frozenset()
+    variances: Mapping[str, float] = field(default_factory=dict)
 
     def value(self, player_id: str) -> PlayerValue:
         if player_id not in self.signals:
             return PlayerValue(self.prior_mean, self.no_history_variance)
-        variance = (
-            self.no_history_variance if player_id in self.no_history else self.base_variance
-        )
+        if player_id in self.no_history:
+            return PlayerValue(self.signals[player_id], self.no_history_variance)
+        variance = self.variances.get(player_id, self.base_variance)
         return PlayerValue(self.signals[player_id], variance)
