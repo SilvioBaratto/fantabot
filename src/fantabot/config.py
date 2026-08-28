@@ -53,8 +53,11 @@ class Settings(BaseSettings):
     # Ollama ignores the value but the CLI refuses a custom base URL without one.
     fantabot_agent_auth_token: str = Field(default="ollama", repr=False)
     # Must match the backend — see resolve_agent_model for why that is checked
-    # rather than trusted.
-    fantabot_agent_model: str = "claude-sonnet-5"
+    # rather than trusted. The subscription here is Foundry-routed, so the default
+    # is the custom Sonnet id that login exposes, not the public "claude-sonnet-5"
+    # alias. Still claude-* prefixed, so resolve_agent_model treats it as the
+    # subscription path.
+    fantabot_agent_model: str = "claude-sonnet-4-6-eaq-gf08h1"
 
     def resolve_agent_model(self, override: str = "") -> str:
         """The model id for one agent run, checked against the configured backend.

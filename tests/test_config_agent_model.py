@@ -69,4 +69,4 @@ def test_the_override_is_checked_too_not_just_the_setting() -> None:
 def test_the_subscription_default_is_coherent_on_its_own() -> None:
     # Defaults must not need a .env to be valid: no base URL, claude-* model.
     settings = _settings()
-    assert settings.resolve_agent_model() == "claude-sonnet-5"
+    assert settings.resolve_agent_model() == "claude-sonnet-4-6-eaq-gf08h1"
