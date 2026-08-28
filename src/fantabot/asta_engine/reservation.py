@@ -10,7 +10,7 @@ task will add.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
 
 from .legality import SchemaLegality
@@ -90,7 +90,7 @@ def rolling_advisory(
     events: Iterable[AssignmentEvent],
     *,
     our_team_id: str,
-    value: ValueModel,
+    value_of: Callable[[], ValueModel],
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
@@ -98,11 +98,19 @@ def rolling_advisory(
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
 ) -> Iterator[tuple[AstaState, AssignmentEvent, OptimizationResult, dict[str, float]]]:
-    """Re-plan after every sale: yield ``(state, event, plan, walkaways)`` per event."""
+    """Re-plan after every sale: yield ``(state, event, plan, walkaways)`` per event.
+
+    ``value_of`` is a factory, called once per event, rather than a fixed model. An asta
+    runs for hours and the sentiment feed is a live table, so a player ruled out at 21:00
+    must stop being a target at 21:01 — a snapshot taken when the room opened would still
+    be recommending him. ``news_sentiment`` holds a session and never a cached table for
+    exactly this reason; taking a ``ValueModel`` here would have thrown that away one layer
+    further up. A replay passes a constant factory and pays nothing for it.
+    """
     for event in events:
         state = apply_event(state, event, our_team_id=our_team_id)
         result, walkaways = reservations(
-            state, pool, value=value, prices=prices, teams=teams, legality=legality,
+            state, pool, value=value_of(), prices=prices, teams=teams, legality=legality,
             rules=rules, lam=lam, rho=rho,
         )
         yield state, event, result, walkaways

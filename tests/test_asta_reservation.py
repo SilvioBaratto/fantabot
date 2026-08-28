@@ -47,6 +47,11 @@ def _kw() -> dict[str, object]:
     return dict(value=VALUE, prices=PRICES, teams=TEAMS, legality=MINI, rules=RULES, lam=0.0)
 
 
+def _rolling_kw() -> dict[str, object]:
+    """``rolling_advisory`` takes a value *factory*; the constant one is the replay case."""
+    return {**{k: v for k, v in _kw().items() if k != "value"}, "value_of": lambda: VALUE}
+
+
 def test_apply_event_folds_our_purchase_into_owned_and_spent() -> None:
     state = AstaState(total_budget=100.0)
     after = apply_event(state, AssignmentEvent("a1", 12, "me"), our_team_id="me")
@@ -83,7 +88,50 @@ def test_walkaways_are_never_negative() -> None:
 def test_rolling_replans_when_a_target_is_taken_by_a_rival() -> None:
     state = AstaState(total_budget=100.0)
     events = [AssignmentEvent("a1", 10, "rival")]  # a rival buys a1
-    steps = list(rolling_advisory(state, POOL, events, our_team_id="me", **_kw()))  # type: ignore[arg-type]
+    steps = list(rolling_advisory(state, POOL, events, our_team_id="me", **_rolling_kw()))  # type: ignore[arg-type]
     assert len(steps) == 1
     _, _, result, _ = steps[0]
     assert "a1" not in result.optimal.player_ids  # a1 is gone, the plan moved on
+
+
+def test_the_advisory_re_reads_the_value_each_cycle() -> None:
+    """A row written mid-asta must reach the next walk-away, not the next restart.
+
+    ``news_sentiment`` holds a session and never a cached table for exactly this reason: an
+    asta runs for hours, and a player ruled out at 21:00 should stop being a target at
+    21:01. That guarantee is worth nothing if the advisory snapshots its value model once.
+    """
+    # A wider bench than POOL: two rivals buy, and the roster must still be completable.
+    pool = [*POOL, MantraPlayer("a4", normalize_roles(["A"])), MantraPlayer("a5", normalize_roles(["A"]))]
+    prices = {**PRICES, "a4": 10.0, "a5": 10.0}
+    teams = {**TEAMS, "a4": "P", "a5": "Q"}
+
+    def _model(a5_worth: float) -> NaiveValueModel:
+        return NaiveValueModel(
+            signals={"a1": 10.0, "a2": 10.0, "a3": 9.5, "a4": 9.0, "a5": a5_worth, "gk": 3.0},
+            prior_mean=1.0,
+            base_variance=4.0,
+            no_history_variance=4.0,
+        )
+
+    # Between the first sale and the second, a5's reading improves — as a mid-asta
+    # news-fetch would do. A snapshotted model would never see it.
+    models = [_model(0.1), _model(99.0)]
+    calls: list[int] = []
+
+    def value_of() -> NaiveValueModel:
+        calls.append(len(calls))
+        return models[min(len(calls) - 1, 1)]
+
+    events = [AssignmentEvent("a1", 10, "rival"), AssignmentEvent("a2", 10, "rival")]
+    steps = list(
+        rolling_advisory(
+            AstaState(total_budget=100.0), pool, events,
+            our_team_id="me", value_of=value_of,
+            prices=prices, teams=teams, legality=MINI, rules=RULES, lam=0.0,
+        )
+    )
+
+    assert len(calls) == 2, "the value model was snapshotted instead of re-read"
+    assert "a5" not in steps[0][2].optimal.player_ids
+    assert "a5" in steps[1][2].optimal.player_ids

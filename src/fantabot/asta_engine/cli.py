@@ -33,6 +33,7 @@ from .report import (
 from .reservation import apply_event, reservations, rolling_advisory
 from .sentiment import SentimentWeights
 from .state import AstaState
+from .value import ValueModel
 
 console = Console()
 
@@ -177,6 +178,17 @@ def asta_live(
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
+    sentiment: bool = typer.Option(
+        True,
+        "--sentiment/--no-sentiment",
+        help="Adjust values by the news feed. On by default, matching asta-optimize.",
+    ),
+    sentiment_run: str = typer.Option(
+        "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
+    ),
+    tilt_k: float = typer.Option(
+        SentimentWeights().k, "--tilt-k", help="Strength of the quality tilt. 0 = gate only."
+    ),
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
     ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
@@ -205,6 +217,8 @@ def asta_live(
         rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
         events = normalize(row.get("state", row) for row in rows)
 
+    from fantabot.data_sources.news_sentiment import NewsSentimentSource
+
     with database_manager.get_session() as session:
         quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
         prices = expected_prices(session)
@@ -213,13 +227,35 @@ def asta_live(
     teams = {pid: row.squadra for pid, row in quotazioni.items()}
     names = {pid: row.nome for pid, row in quotazioni.items()}
     roles = {pid: row.ruoli_codice for pid, row in quotazioni.items()}
-    value = build_value({pid: row.fvm for pid, row in quotazioni.items()}, priced_ids=set(prices))
+    fvm = {pid: row.fvm for pid, row in quotazioni.items()}
+    weights = SentimentWeights(k=tilt_k)
     legality = build_legality(load_compat())
+
+    def read_value() -> ValueModel:
+        with database_manager.get_session() as fresh:
+            rows = sentiment_rows(
+                NewsSentimentSource(fresh), enabled=sentiment, run=sentiment_run
+            )
+        return build_value(
+            fvm,
+            priced_ids=set(prices),
+            sentiment=rows,
+            as_of=date.today() if rows else None,
+            weights=weights,
+        )
+
+    # A replay is a recording: it values on one reading, because letting a captured room
+    # drift as the live table changes underneath it would mix two clocks. A live room
+    # re-reads, so a player ruled out mid-asta stops being a target on the next sale rather
+    # than on the next restart. Each read opens its own short session — sales are minutes
+    # apart, and an hours-long idle transaction is the worse trade.
+    value_of = read_value if league else (lambda snapshot=read_value(): snapshot)
 
     last = None
     for step in rolling_advisory(
         AstaState(total_budget=budget), pool, events,
-        our_team_id=team, value=value, prices=prices, teams=teams, legality=legality, lam=lam,
+        our_team_id=team, value_of=value_of, prices=prices, teams=teams, legality=legality,
+        lam=lam,
     ):
         last = step
     if last is None:
