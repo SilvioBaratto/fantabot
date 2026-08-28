@@ -93,24 +93,38 @@ def asta_legality(
 
 
 def asta_live(
-    replay: str = typer.Option(..., help="Path to a JSONL of raw room states (a captured room)."),
+    replay: str = typer.Option("", help="Path to a JSONL of raw room states (a captured room)."),
+    league: str = typer.Option(
+        "", help="Fantaleague id of a live room — reads its sale ledger (alternative to --replay)."
+    ),
     team: str = typer.Option(..., help="Our team id in the room."),
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
 ) -> None:
-    """Replay a captured room and render the rolling advisory. Read-only.
+    """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
+    ledger (``--league``). Read-only either way — the advisory advises, the human bids.
 
-    A stand-in for the live socket (the own-room feed is still an open question): it drives the
-    exact same engine off ``AssignmentEvent`` as a live room would, from a captured file.
+    The live path keys off the ``purchases/<fl>`` ledger (docs/fantalab/06 §10), not
+    ``close_auction``, and drives the exact same engine off ``AssignmentEvent`` as a replay does.
     """
     from pathlib import Path
 
     from fantabot.db import database_manager
     from fantabot.db.repositories.reference import ReferenceRepository
 
-    rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
-    events = normalize(row.get("state", row) for row in rows)
+    if bool(league) == bool(replay):
+        console.print("[red]Pass exactly one of --league or --replay.[/red]")
+        raise typer.Exit(1)
+
+    if league:
+        from fantabot.fantalab import feed, rest
+
+        room = rest.fetch_league(league)
+        events = feed.ledger_events(room.db, league)
+    else:
+        rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
+        events = normalize(row.get("state", row) for row in rows)
 
     with database_manager.get_session() as session:
         quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
