@@ -2,13 +2,21 @@
 
 The value the optimizer prices is ``fvm`` — the market's fantavalore. It is a price, not a
 projection, and it prices a nailed-on starter and a talented bench player far closer
-together than their fantasy output lands. This module is the correction, in three layers:
+together than their fantasy output lands. This module is the correction, in four layers:
 
 1. **The gate** — will he be on the pitch? ``disponibilita`` and ``titolarita``, each
    through its own floor.
-2. **The confidence shrink** — how much does the model actually know? A reading with no
+2. **The tilt** — how well will he do when he is? ``sentiment``, ``forma``, ``mercato``,
+   ``rigorista``, ``piazzati``, as a small multiplicative correction on the gate.
+3. **The confidence shrink** — how much does the model actually know? A reading with no
    evidence behind it must not move anything.
-3. **The normalization** — the effect is renormalized so its pool mean is exactly 1.0.
+4. **The normalization** — the effect is renormalized so its pool mean is exactly 1.0.
+
+Gate and tilt are kept separate rather than blended into one weighted sum because the
+fields mean different things: availability is a *probability*, and forma/mercato/rigorista
+are *quality* adjustments. ``k`` is small on purpose — the tilt corrects the gate, it does
+not overrule it, and a benched player with a glowing write-up must not outrank a starter
+with a dull one.
 
 Both floors matter, and for different reasons.
 
@@ -69,6 +77,16 @@ class SentimentWeights:
     disp_floor: float = 0.50
     half_life_days: float = 7.0
 
+    #: The tilt. Five weights summing to 1.0, and ``k`` scaling the whole term. None of
+    #: them is fitted — there is one ``data_run`` — so they are declared priors and
+    #: ``k = 0`` is an exact revert to the gate alone, pinned by a test.
+    k: float = 0.25
+    w_sentiment: float = 0.40
+    w_forma: float = 0.20
+    w_mercato: float = 0.20
+    w_rigorista: float = 0.15
+    w_piazzati: float = 0.05
+
 
 def _age_days(data_run: str, as_of: date) -> float:
     """Whole days between a reading and the day we are valuing on; never negative.
@@ -97,10 +115,19 @@ def raw_effect(
     start = weights.tit_floor + (1.0 - weights.tit_floor) * row.titolarita
     gate = avail * start
 
+    tilt = (
+        weights.w_sentiment * row.sentiment
+        + weights.w_forma * row.forma
+        + weights.w_mercato * row.mercato
+        + weights.w_rigorista * row.rigorista
+        + weights.w_piazzati * row.piazzati
+    )
+    quality = 1.0 + weights.k * tilt
+
     decay: float = 0.5 ** (_age_days(row.data_run, as_of) / weights.half_life_days)
     confidence = row.confidenza * decay
 
-    return NEUTRAL + confidence * (gate - NEUTRAL)
+    return NEUTRAL + confidence * (gate * quality - NEUTRAL)
 
 
 def effect_by_id(

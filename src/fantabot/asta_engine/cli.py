@@ -31,6 +31,7 @@ from .report import (
     parse_replay_lines,
 )
 from .reservation import apply_event, reservations, rolling_advisory
+from .sentiment import SentimentWeights
 from .state import AstaState
 
 console = Console()
@@ -96,6 +97,11 @@ def asta_optimize(
     sentiment_run: str = typer.Option(
         "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
     ),
+    tilt_k: float = typer.Option(
+        SentimentWeights().k,
+        "--tilt-k",
+        help="Strength of the quality tilt. 0 uses the playing-time gate alone.",
+    ),
 ) -> None:
     """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
@@ -117,6 +123,7 @@ def asta_optimize(
         priced_ids=set(prices),
         sentiment=rows,
         as_of=date.today() if rows else None,
+        weights=SentimentWeights(k=tilt_k),
     )
     legality = build_legality(load_compat())
     state = AstaState(owned=parse_ids(owned), total_budget=budget)

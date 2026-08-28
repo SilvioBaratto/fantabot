@@ -202,3 +202,82 @@ def test_rows_outside_the_pool_do_not_affect_it() -> None:
 def test_the_weights_are_frozen() -> None:
     with pytest.raises(FrozenInstanceError):
         SentimentWeights().tit_floor = 0.9  # type: ignore[misc]
+
+
+# --- the tilt ----------------------------------------------------------------------
+#
+# The gate answers "will he be on the pitch". The tilt answers "how well will he do when
+# he is". They are kept separate because the fields mean different things: availability is
+# a probability, forma/mercato/rigorista are quality adjustments, and blending all of them
+# into one weighted sum would treat a probability as a score.
+
+
+def test_tilt_k_zero_reproduces_the_gate_exactly() -> None:
+    """The escape hatch, pinned. Five unfitted weights are safe only if this holds."""
+    off = SentimentWeights(k=0.0)
+    opinionated = row("1", sentiment=1.0, forma=1.0, mercato=1.0, rigorista=1.0, piazzati=1.0)
+    neutral = row("1")
+
+    assert raw_effect(opinionated, as_of=AS_OF, weights=off) == pytest.approx(
+        raw_effect(neutral, as_of=AS_OF, weights=off)
+    )
+
+
+def test_a_designated_penalty_taker_is_worth_more() -> None:
+    taker = row("1", rigorista=0.9)
+    nobody = row("2", rigorista=0.0)
+
+    assert raw_effect(taker, as_of=AS_OF) > raw_effect(nobody, as_of=AS_OF)
+
+
+def test_a_negative_outlook_lowers_the_value() -> None:
+    grim = row("1", sentiment=-0.8, forma=-0.6)
+
+    assert raw_effect(grim, as_of=AS_OF) < raw_effect(row("2"), as_of=AS_OF)
+
+
+def test_the_tilt_is_still_shrunk_by_confidence() -> None:
+    """An unevidenced opinion must not move the value, however strong the opinion."""
+    loud_but_unevidenced = row("1", sentiment=1.0, rigorista=1.0, confidenza=0.0)
+
+    assert raw_effect(loud_but_unevidenced, as_of=AS_OF) == pytest.approx(NEUTRAL)
+
+
+def test_the_tilt_cannot_drive_the_effect_to_zero() -> None:
+    """Task 1's rule survives the tilt: worst case in the whole space is still positive."""
+    worst = row(
+        "1",
+        titolarita=0.0,
+        disponibilita=0.0,
+        sentiment=-1.0,
+        forma=-1.0,
+        mercato=-1.0,
+        rigorista=0.0,
+        piazzati=0.0,
+        confidenza=1.0,
+    )
+
+    assert raw_effect(worst, as_of=AS_OF) > 0.0
+
+
+def test_the_pool_mean_still_holds_with_the_tilt_live() -> None:
+    rows = {
+        str(i): row(str(i), titolarita=t, sentiment=s, rigorista=r)
+        for i, (t, s, r) in enumerate(
+            itertools.product((0.0, 1.0), (-1.0, 0.0, 1.0), (0.0, 1.0))
+        )
+    }
+    effects = effect_by_id(rows, list(rows), as_of=AS_OF)
+
+    assert sum(effects.values()) / len(effects) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_the_gate_still_dominates_the_tilt() -> None:
+    """k is small on purpose: the tilt corrects the gate, it does not overrule it.
+
+    A benched player with a glowing write-up must not outrank a starter with a dull one.
+    """
+    benched_but_loved = row("1", titolarita=0.0, sentiment=1.0, forma=1.0, rigorista=1.0)
+    starter_but_dull = row("2", titolarita=1.0, sentiment=0.0, forma=0.0, rigorista=0.0)
+
+    assert raw_effect(benched_but_loved, as_of=AS_OF) < raw_effect(starter_but_dull, as_of=AS_OF)
