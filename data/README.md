@@ -1,21 +1,36 @@
 # data/
 
-**The database is the source of truth.** These files are the one-time seed it
-was built from, plus the two Mantra reference files that are still read from
-disk. Nothing reads the scraped CSVs any more: the scrapers write to Postgres,
-the analysis scripts query it, and `fantabot news-fetch` stores its readings
-there.
+**The database is the source of truth, and now the only copy.** The ten scraped
+CSVs that seeded it were removed on 2026-08-28, once each one was verified row
+for row against the table it had filled. What remains here is the two Mantra
+reference files, which have no table and are still read from disk, and
+`aste_live/`, the auction landing zone.
 
-They are kept because a seed you cannot replay is not a seed, and because they
-are the only record of what the site said on the day they were captured — see
-"What the migration found" below, which is a live example of why that matters.
+Every CSV was checked two ways before deletion — a row count against its table,
+and **key-level containment**: every `(stagione, player_id, listone)` in the file
+present in the database. `voti.csv` and `bonus_malus.csv` needed a third look,
+because a key check on `player_id` reported 3,039 rows missing. Those are coach
+rows, which carry no player id and are stored with `player_id` NULL; both tables
+hold 50,634 rows, exactly the file totals. Nothing was dropped.
+
+`fantabot db-import` still works and still refuses to guess: with the sources
+gone it reports `missing <file> — skipped` per importer and writes nothing. To
+re-seed from scratch, re-run the scrapers in `scripts/` — they read the live
+site, so the counts below are floors from the capture day, not fixtures.
 
 ```bash
 docker compose up -d          # Postgres on 54321, Adminer on 18082
 alembic upgrade head
-fantabot db-import --all      # seed from these files, once
 fantabot db-check             # health, row counts, sizes
 ```
+
+## What is still on disk
+
+| path | why it stays |
+|---|---|
+| `mantra_schemi.json` | the Mantra engine's input; no table models an 11-schema grid |
+| `mantra_compat.json` | the out-of-position matrix; same reason |
+| `aste_live/` | the auction landing zone — **the durable record**, and Postgres is derived from it |
 
 ## Tables
 

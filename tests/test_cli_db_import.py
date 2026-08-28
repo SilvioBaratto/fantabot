@@ -32,13 +32,28 @@ def _fake(name: str, source: str, rows: int) -> Importer:
     return Importer(name=name, sources=(source,), load=load, expected_rows=rows)
 
 
+SOURCE = "quotazioni_classic.csv"
+
+
 @pytest.fixture
-def registry(monkeypatch: pytest.MonkeyPatch) -> tuple[Importer, ...]:
-    """Dimensions first, then a fact table that points at them."""
+def registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Importer, ...]:
+    """Dimensions first, then a fact table that points at them.
+
+    The registry was already faked; the *data directory* was not, so the dry-run
+    test still asked the real `data/` whether `quotazioni_classic.csv` was there.
+    That file is a gitignored one-time seed — it is absent on a fresh clone, and
+    it went for good once the CSVs were removed in favour of the database. The
+    test read `players: missing quotazioni_classic.csv — skipped` and failed on
+    a row count, having measured the developer's disk rather than the command.
+    """
+    from fantabot.config import settings
+
+    (tmp_path / SOURCE).write_text("stagione,id\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "fantabot_data_dir", tmp_path)
     fake = (
-        _fake("players", "quotazioni_classic.csv", 1474),
-        _fake("teams", "quotazioni_classic.csv", 100),
-        _fake("quotazioni", "quotazioni_classic.csv", 6402),
+        _fake("players", SOURCE, 1474),
+        _fake("teams", SOURCE, 100),
+        _fake("quotazioni", SOURCE, 6402),
     )
     monkeypatch.setattr(importers, "REGISTRY", fake)
     return fake
