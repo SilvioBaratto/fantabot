@@ -205,22 +205,37 @@ def effect_by_id(
     folded into the mean — the normalization is over the players actually being chosen
     between.
 
-    A player missing from ``rows``, or carrying ``confidenza == 0``, is ``NEUTRAL`` before
-    normalization. That is not a special case: ``confidenza == 0`` makes the shrink term
-    vanish on its own, which is precisely the invariant ``news_sentiment`` exists to hold —
-    "no coverage was found" is not "this player is average".
+    A player missing from ``rows``, or carrying ``confidenza == 0``, comes out at exactly
+    ``NEUTRAL`` — "no coverage was found" is not "this player is average", and it must not
+    move his value in either direction.
+
+    **He is held out of the mean, not merely set to 1.0 before it.** That was the original
+    bug and it inverted the feature. Covered players' raw values average well below 1.0,
+    because most of a listone is not nailed-on starters; folding neutrals into that mean and
+    then dividing them by it multiplied them *up*. On the real 2026-08-28 pool the one
+    silent row came out at x1.368 — a 37% premium for having no evidence, and the same
+    premium for any listone id the feed had not reached yet. The suite could not see it:
+    every test guarding the identity used a pool whose raw values already averaged 1.0,
+    which makes the division a no-op.
+
+    Holding them out keeps **both** invariants at once. The covered subset is centred on
+    1.0, and since each held-out player contributes exactly 1.0, the mean over the whole
+    pool is still exactly 1.0 — so ``lam`` is protected as before.
     """
     ids = list(pool_ids)
     if not ids:
         return {}
 
-    raw = {
-        player_id: (
-            raw_effect(rows[player_id], as_of=as_of, weights=weights)
-            if player_id in rows
-            else NEUTRAL
-        )
+    covered = {
+        player_id: raw_effect(rows[player_id], as_of=as_of, weights=weights)
+        for player_id in ids
+        if player_id in rows and rows[player_id].confidenza > 0
+    }
+    if not covered:
+        return {player_id: NEUTRAL for player_id in ids}
+
+    mean = sum(covered.values()) / len(covered)
+    return {
+        player_id: covered[player_id] / mean if player_id in covered else NEUTRAL
         for player_id in ids
     }
-    mean = sum(raw.values()) / len(raw)
-    return {player_id: value / mean for player_id, value in raw.items()}

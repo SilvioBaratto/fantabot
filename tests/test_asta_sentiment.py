@@ -137,8 +137,18 @@ def test_an_injured_player_is_marked_down_but_stays_buyable() -> None:
 
 @pytest.mark.parametrize("field", ["titolarita", "disponibilita"])
 def test_the_gate_is_monotone_in_each_playing_time_field(field: str) -> None:
+    """Measured against a fixed covered rival, because the effect is *relative*.
+
+    This used to vary one player against an uncovered filler. That filler is now held out
+    of the mean, which leaves a single covered player who is by definition the pool average
+    — so the assertion would have read 1.0 five times. The old form was quietly measuring
+    the normalization rather than the gate.
+    """
+    reference = row("ref", titolarita=0.5, disponibilita=0.5)
     effects = [
-        effect_by_id({"1": row("1", **{field: v})}, ["1", "2"], as_of=AS_OF)["1"]
+        effect_by_id(
+            {"1": row("1", **{field: v}), "ref": reference}, ["1", "ref"], as_of=AS_OF
+        )["1"]
         for v in (0.0, 0.25, 0.5, 0.75, 1.0)
     ]
 
@@ -338,3 +348,61 @@ def test_a_stale_reading_widens_the_band_too() -> None:
     )
 
     assert stale["1"] > fresh["1"]
+
+
+# --- the silent-row identity, in a pool that can actually violate it ----------------
+#
+# Every guard above uses a pool whose raw values average to 1.0, which makes the
+# normalization a no-op and the identity impossible to break. These use a pool of covered
+# players whose gate is genuinely below 1.0 — the shape of the real listone — so the
+# divisor is < 1 and an unadjusted 1.0 gets multiplied *up* unless it is held out.
+
+
+def _mixed_pool(silent_id: str = "silent") -> dict[str, SentimentRow]:
+    """Covered players who will not all start, plus one the sources said nothing about."""
+    covered = {
+        str(i): row(str(i), titolarita=t, disponibilita=d, confidenza=0.9)
+        for i, (t, d) in enumerate([(0.1, 1.0), (0.3, 1.0), (0.5, 0.8), (0.9, 1.0)])
+    }
+    return {**covered, silent_id: row(silent_id, confidenza=0.0)}
+
+
+def test_a_silent_row_is_untouched_even_when_the_pool_pulls_the_mean_down() -> None:
+    """`confidenza == 0` means "no coverage was found". It must not become a buy signal.
+
+    Reproduces the real 548-player shape: Sagrado, the one silent row in the 2026-08-28
+    feed, came out at x1.368 — a 37% premium for having no evidence, ranked 47th of 548.
+    """
+    rows = _mixed_pool()
+
+    effects = effect_by_id(rows, list(rows), as_of=AS_OF)
+
+    assert effects["silent"] == pytest.approx(NEUTRAL)
+
+
+def test_a_player_absent_from_the_feed_is_untouched_in_such_a_pool_too() -> None:
+    """The same premium hit any listone id added since the last news-fetch run."""
+    rows = _mixed_pool()
+
+    effects = effect_by_id(rows, [*rows, "never-queried"], as_of=AS_OF)
+
+    assert effects["never-queried"] == pytest.approx(NEUTRAL)
+
+
+def test_the_pool_mean_is_still_one_when_uncovered_players_are_held_out() -> None:
+    """Both invariants at once: the identity above, and the `lam` protection."""
+    rows = _mixed_pool()
+    ids = [*rows, "never-queried"]
+
+    effects = effect_by_id(rows, ids, as_of=AS_OF)
+
+    assert sum(effects.values()) / len(effects) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_a_pool_with_no_coverage_at_all_leaves_every_player_alone() -> None:
+    """Nothing to normalize against — and no division by an empty mean."""
+    rows = {str(i): row(str(i), confidenza=0.0) for i in range(3)}
+
+    effects = effect_by_id(rows, [*rows, "absent"], as_of=AS_OF)
+
+    assert all(value == pytest.approx(NEUTRAL) for value in effects.values())
