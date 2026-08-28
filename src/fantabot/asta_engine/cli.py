@@ -100,16 +100,18 @@ def asta_live(
     league: str = typer.Option(
         "", help="Fantaleague id of a live room — reads its sale ledger (alternative to --replay)."
     ),
+    db: int = typer.Option(-1, help="The room's RTDB shard (its `db` field) — required with --league."),
     team: str = typer.Option(..., help="Our team id in the room."),
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
-    ledger (``--league``). Read-only either way — the advisory advises, the human bids.
+    ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
 
     The live path keys off the ``purchases/<fl>`` ledger (docs/fantalab/06 §10), not
-    ``close_auction``, and drives the exact same engine off ``AssignmentEvent`` as a replay does.
+    ``close_auction``, over the unauthenticated RTDB, and drives the exact same engine off
+    ``AssignmentEvent`` as a replay does. It needs no token — only the shard.
     """
     from pathlib import Path
 
@@ -121,10 +123,12 @@ def asta_live(
         raise typer.Exit(1)
 
     if league:
-        from fantabot.fantalab import feed, rest
+        if db < 0:
+            console.print("[red]--league needs --db (the room's RTDB shard).[/red]")
+            raise typer.Exit(1)
+        from fantabot.fantalab import feed
 
-        room = rest.fetch_league(league)
-        events = feed.ledger_events(room.db, league)
+        events = feed.ledger_events(db, league)
     else:
         rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
         events = normalize(row.get("state", row) for row in rows)
@@ -158,6 +162,7 @@ def asta_live(
 
 def asta_bid(
     league: str = typer.Option(..., help="Fantaleague id of the live room."),
+    db: int = typer.Option(..., help="The room's RTDB shard index (its `db` field; see docs/fantalab/06)."),
     team: str = typer.Option(..., help="Our fantateam id — the seat we bid from."),
     user: str = typer.Option(..., help="Our user id — rides on every bid."),
     budget: float = typer.Option(500.0, help="Our starting credits."),
@@ -171,6 +176,10 @@ def asta_bid(
     bid and sends nothing. Participant only: it bids, it never settles a lot (that is the admin's
     close/confirm). The walk-aways re-plan each cycle off the live ``purchases/`` ledger, so they
     already account for what has been spent. Ctrl-C to stop.
+
+    Fully unauthenticated: the shard (``--db``), seat (``--team``) and uid (``--user``) are given,
+    and the live RTDB read + bid need no token (docs/fantalab/06 §10). The seat is claimed once,
+    interactively; this command never touches the auth'd REST API.
     """
     import time
 
@@ -178,9 +187,6 @@ def asta_bid(
     from fantabot.db import database_manager
     from fantabot.db.repositories.reference import ReferenceRepository
     from fantabot.fantalab import feed, room, rtdb
-    from fantabot.fantalab import rest as fl_rest
-
-    cfg = fl_rest.fetch_league(league)
 
     with database_manager.get_session() as session:
         quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
@@ -196,7 +202,7 @@ def asta_bid(
         if not isinstance(player_id, str):
             return None
         state = AstaState(total_budget=budget)
-        for event in feed.ledger_events(cfg.db, league):
+        for event in feed.ledger_events(db, league):
             state = apply_event(state, event, our_team_id=team)
         _, walkaways = reservations(
             state, pool, value=value, prices=prices, teams=teams, legality=legality, lam=lam
@@ -209,8 +215,8 @@ def asta_bid(
         fantaleague_id=league,
         remaining_budget=int(budget),
         target_of=target_of,
-        read=lambda: rtdb.read_snapshot(cfg.db, f"auction/{league}"),
-        write=lambda payload: rtdb.place_raise(cfg.db, league, payload),
+        read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
+        write=lambda payload: rtdb.place_raise(db, league, payload),
         now=lambda: int(time.time() * 1000),
         sleep=time.sleep,
         keep_going=lambda _cycle: True,

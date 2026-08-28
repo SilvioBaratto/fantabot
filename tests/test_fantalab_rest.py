@@ -97,6 +97,20 @@ def test_live_leagues_parses_a_bare_array() -> None:
     assert [r.db for r in rooms] == [9, None]
 
 
+def test_a_token_is_sent_as_a_bearer_and_omitted_without_one() -> None:
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json=FETCH_BODY)
+
+    rest.fetch_league("L", token="tok-123", transport=httpx.MockTransport(handler))
+    assert seen["auth"] == "Bearer tok-123"
+
+    rest.fetch_league("L", transport=httpx.MockTransport(handler))
+    assert seen["auth"] is None  # no token -> no Authorization header
+
+
 def test_join_team_posts_only_seat_and_user() -> None:
     seen: dict[str, Any] = {}
 

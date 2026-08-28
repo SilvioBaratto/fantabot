@@ -1,13 +1,19 @@
-"""Own-room reads over `api.fantalab.it` — unauthenticated.
+"""Own-room reads over `api.fantalab.it`.
 
-`docs/fantalab/06-asta-write-path.md` §1: one league record and the public live list answer
-`200` with no token (2026-08-28). This module wraps the two reads the live advisory needs —
-``fetch_league`` (a room's config, seats and RTDB shard) and ``live_leagues`` (the public list).
+`docs/fantalab/06-asta-write-path.md` §3: ``POST /fantaleague/fetch`` and ``GET /fantaleagues/live``
+**require a Bearer** (measured `401` unauthenticated, 2026-08-28) — only the RTDB nodes and the
+player CDN are public. This module wraps the reads the live advisory uses to *discover* a room —
+``fetch_league`` (config, seats, RTDB shard) and ``live_leagues`` — plus ``join_team``. Each takes
+an optional ``token``; without one the call is unauthenticated and will `401`.
+
+A **participant bot needs none of these**: told its shard, seat and uid, it reads the live lot and
+bids entirely over the unauthenticated RTDB (``rtdb``). These calls matter only when discovering a
+room or acting as admin, which is where a ``token`` comes from.
+
 The parse is pure (``parse_league``); the HTTP call is a thin shell with an **injectable
-transport** so the suite never builds a real one — the socket-free default tier.
-
-No auth header is sent. If FantaLab ever gates these, a ``Bearer`` goes here — never on argv,
-never logged, per the token rules the rest of the repo lives under.
+transport** so the suite never builds a real one — the socket-free default tier. A ``token``, when
+given, rides in the ``Authorization`` header and is never logged; a tokened caller must mask its
+own errors (an httpx traceback renders request headers) — deferred to the admin-auth task.
 """
 
 from __future__ import annotations
@@ -137,18 +143,26 @@ def _base_url() -> str:
     return settings.fantabot_fantalab_base_url
 
 
+def _headers(token: str | None) -> dict[str, str]:
+    """The ``Authorization`` header when a token is given, else nothing. Never logged."""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def fetch_league(
     fantaleague_id: str,
     *,
+    token: str | None = None,
     transport: httpx.BaseTransport | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> RoomConfig:
-    """``POST /fantaleague/fetch`` → the room config. Unauthenticated.
+    """``POST /fantaleague/fetch`` → the room config. **Needs a Bearer** (`401` without one).
 
     ``transport`` is injectable so tests never construct a real one — what keeps this in the
-    socket-free tier.
+    socket-free tier. A participant bot does not call this; it is given the shard and seat.
     """
-    with httpx.Client(base_url=_base_url(), timeout=timeout, transport=transport) as client:
+    with httpx.Client(
+        base_url=_base_url(), headers=_headers(token), timeout=timeout, transport=transport
+    ) as client:
         response = client.post(
             FETCH_PATH, json={"fantaleague_id": fantaleague_id, "type": "fantaleague"}
         )
@@ -159,11 +173,14 @@ def fetch_league(
 
 def live_leagues(
     *,
+    token: str | None = None,
     transport: httpx.BaseTransport | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[RoomConfig]:
-    """``GET /fantaleagues/live`` → the public list of running auctions. Unauthenticated."""
-    with httpx.Client(base_url=_base_url(), timeout=timeout, transport=transport) as client:
+    """``GET /fantaleagues/live`` → the list of running auctions. **Needs a Bearer** (`401` without)."""
+    with httpx.Client(
+        base_url=_base_url(), headers=_headers(token), timeout=timeout, transport=transport
+    ) as client:
         response = client.get(LIVE_PATH)
     response.raise_for_status()
     body = response.json()
@@ -180,16 +197,20 @@ def join_team(
     fantateam_id: str,
     user_id: str,
     *,
+    token: str | None = None,
     transport: httpx.BaseTransport | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> bool:
-    """``POST /fantaleague/join`` — claim a seat. Returns ``True`` on success.
+    """``POST /fantaleague/join`` — claim a seat. Returns ``True`` on success. **Needs a Bearer.**
 
     The body is exactly ``{fantateam_id, user_id}``: ``invitation_id`` is **not** required when
-    the seat's id is already known (``docs/fantalab/06-asta-write-path.md`` §3, observed). A
-    participant claims a free seat (``user_id is None``) this way; no auth header is needed.
+    the seat's id is already known (``docs/fantalab/06-asta-write-path.md`` §3, observed). A seat
+    is claimed once (interactively, with a token); the bot then bids on it over the unauthenticated
+    RTDB, so a headless participant never calls this itself.
     """
-    with httpx.Client(base_url=_base_url(), timeout=timeout, transport=transport) as client:
+    with httpx.Client(
+        base_url=_base_url(), headers=_headers(token), timeout=timeout, transport=transport
+    ) as client:
         response = client.post(JOIN_PATH, json={"fantateam_id": fantateam_id, "user_id": user_id})
     response.raise_for_status()
     return True
