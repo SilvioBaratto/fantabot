@@ -88,3 +88,23 @@ def test_an_unknown_player_is_unaffected_by_the_variance_map() -> None:
     model = _model(variances={"1": 9.0})
 
     assert model.value("999") == PlayerValue(3.0, 25.0)
+
+
+def test_no_history_is_a_floor_on_the_band_not_a_replacement() -> None:
+    """Never having been priced is the *minimum* ignorance, not the maximum.
+
+    `variance_by_id` can exceed `no_history_variance` — drift widening multiplies past it —
+    so short-circuiting here narrowed the band for a drifted no-history player. That is the
+    fail-open direction on a rule CLAUDE.md states explicitly: role drift may widen a
+    variance. It also gave every no-history player the identical flat band, which is the
+    degenerate `lam` case per-player variance exists to remove.
+    """
+    model = _model(variances={"2": 40.0})
+
+    assert model.value("2").variance == 40.0
+
+
+def test_a_narrower_supplied_band_still_loses_to_no_history() -> None:
+    model = _model(variances={"2": 5.0})
+
+    assert model.value("2").variance == 25.0

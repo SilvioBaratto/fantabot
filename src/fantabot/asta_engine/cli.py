@@ -101,6 +101,8 @@ def asta_optimize(
     tilt_k: float = typer.Option(
         SentimentWeights().k,
         "--tilt-k",
+        min=0.0,
+        max=1.0,
         help="Strength of the quality tilt. 0 uses the playing-time gate alone.",
     ),
 ) -> None:
@@ -187,7 +189,11 @@ def asta_live(
         "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
     ),
     tilt_k: float = typer.Option(
-        SentimentWeights().k, "--tilt-k", help="Strength of the quality tilt. 0 = gate only."
+        SentimentWeights().k,
+        "--tilt-k",
+        min=0.0,
+        max=1.0,
+        help="Strength of the quality tilt. 0 = gate only.",
     ),
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale

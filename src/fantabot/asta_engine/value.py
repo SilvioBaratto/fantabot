@@ -48,9 +48,15 @@ class NaiveValueModel:
     ``variances`` is the per-player band, defaulting to ``base_variance`` for anyone absent.
     Without it every player carried the same variance, which made ``lam`` nearly inert — a
     risk penalty that is identical for every candidate cannot change which candidate wins,
-    so the mean-variance objective quietly degenerated to maximizing the mean. ``no_history``
-    still dominates whatever is supplied here: never having been priced is the wider
-    ignorance, and the model must not claim to know more about him than that.
+    so the mean-variance objective quietly degenerated to maximizing the mean.
+
+    ``no_history`` is a **floor** on that band, not a replacement for it. Never having been
+    priced is the *minimum* ignorance about a player, so the model takes whichever of the
+    two is wider. Letting it short-circuit instead narrowed the band for anyone the
+    sentiment layer had already widened past it — a drifted player, say — which is the
+    fail-open direction on a rule that may only ever widen. It also handed every
+    no-history player the identical flat band, the degenerate ``lam`` case that per-player
+    variance exists to remove.
     """
 
     signals: Mapping[str, float]
@@ -63,7 +69,7 @@ class NaiveValueModel:
     def value(self, player_id: str) -> PlayerValue:
         if player_id not in self.signals:
             return PlayerValue(self.prior_mean, self.no_history_variance)
-        if player_id in self.no_history:
-            return PlayerValue(self.signals[player_id], self.no_history_variance)
         variance = self.variances.get(player_id, self.base_variance)
+        if player_id in self.no_history:
+            variance = max(self.no_history_variance, variance)
         return PlayerValue(self.signals[player_id], variance)

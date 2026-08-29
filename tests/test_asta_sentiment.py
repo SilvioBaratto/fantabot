@@ -406,3 +406,80 @@ def test_a_pool_with_no_coverage_at_all_leaves_every_player_alone() -> None:
     effects = effect_by_id(rows, [*rows, "absent"], as_of=AS_OF)
 
     assert all(value == pytest.approx(NEUTRAL) for value in effects.values())
+
+
+# --- the weights have to be usable ------------------------------------------------
+#
+# `--tilt-k` is an operator knob and nothing validated it. `quality = 1 + k*tilt` goes
+# non-positive once k * |worst tilt| >= 1, which reinstates the exact hard veto DISP_FLOOR
+# exists to remove — and past that point a *lower* gate yields a *higher* value, because a
+# negative quality flips the product's ordering.
+
+
+@pytest.mark.parametrize("k", [0.0, 0.1, 0.25, 0.5, 1.0])
+def test_the_effect_stays_positive_across_every_admissible_k(k: float) -> None:
+    """The invariant was pinned at the default k only, which is where it cannot fail."""
+    weights = SentimentWeights(k=k)
+    worst = row(
+        "1",
+        titolarita=0.0,
+        disponibilita=0.0,
+        sentiment=-1.0,
+        forma=-1.0,
+        mercato=-1.0,
+        confidenza=1.0,
+    )
+
+    assert raw_effect(worst, as_of=AS_OF, weights=weights) > 0.0
+
+
+@pytest.mark.parametrize("k", [0.0, 0.25, 1.0])
+def test_the_gate_stays_monotone_across_every_admissible_k(k: float) -> None:
+    weights = SentimentWeights(k=k)
+    effects = [
+        raw_effect(row("1", titolarita=t), as_of=AS_OF, weights=weights)
+        for t in (0.0, 0.5, 1.0)
+    ]
+
+    assert effects == sorted(effects)
+
+
+def test_a_k_that_would_make_the_quality_negative_is_refused() -> None:
+    """Fail at construction, not with a negative fvm at 21:00 during an asta."""
+    with pytest.raises(ValueError, match="k"):
+        SentimentWeights(k=1.5)
+
+
+def test_a_negative_k_is_refused() -> None:
+    """It would invert the tilt: bad news would raise a player's value."""
+    with pytest.raises(ValueError, match="k"):
+        SentimentWeights(k=-0.1)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"tit_floor": 1.5},
+        {"tit_floor": -0.1},
+        {"disp_floor": 1.5},
+        {"half_life_days": 0.0},
+        {"drift_widening": -1.0},
+    ],
+    ids=["tit>1", "tit<0", "disp>1", "half_life=0", "drift<0"],
+)
+def test_weights_outside_their_meaningful_range_are_refused(kwargs: dict) -> None:
+    with pytest.raises(ValueError):
+        SentimentWeights(**kwargs)
+
+
+def test_the_ceiling_is_derived_from_the_weights_not_hard_coded() -> None:
+    """Only sentiment/forma/mercato can go negative, so they alone set the bound.
+
+    A future re-weighting must move the ceiling with them rather than silently invalidating
+    a literal.
+    """
+    lopsided = SentimentWeights(
+        w_sentiment=0.2, w_forma=0.0, w_mercato=0.0, w_rigorista=0.7, w_piazzati=0.1, k=4.0
+    )
+
+    assert raw_effect(row("1", sentiment=-1.0), as_of=AS_OF, weights=lopsided) > 0.0

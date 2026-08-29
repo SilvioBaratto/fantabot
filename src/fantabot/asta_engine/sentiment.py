@@ -91,6 +91,42 @@ class SentimentWeights:
     w_rigorista: float = 0.15
     w_piazzati: float = 0.05
 
+    def __post_init__(self) -> None:
+        """Refuse values that break the algebra, at construction rather than mid-asta.
+
+        ``k`` is the one an operator actually turns, and it is the one that bites. Past
+        ``k * |worst tilt| >= 1`` the quality term goes non-positive, which reinstates the
+        exact hard veto ``disp_floor`` exists to remove — and beyond it a *lower* gate
+        yields a *higher* value, because a negative quality flips the product's ordering.
+        Better a refused flag at startup than a negative valuation at 21:00.
+
+        The ceiling is derived from the weights, not written down: only ``sentiment``,
+        ``forma`` and ``mercato`` range into the negatives (``rigorista`` and ``piazzati``
+        are ``[0, 1]``), so those three alone set how far down the tilt can pull. A future
+        re-weighting moves the bound with them instead of silently invalidating a literal.
+        """
+        for name in ("tit_floor", "disp_floor"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} is a floor on a [0,1] signal; got {value}")
+        if self.half_life_days <= 0:
+            raise ValueError(f"half_life_days must be positive; got {self.half_life_days}")
+        if self.drift_widening < 0:
+            raise ValueError(
+                f"drift_widening may only widen a band; got {self.drift_widening}"
+            )
+        if self.k < 0:
+            raise ValueError(f"a negative k inverts the tilt, so bad news would raise a "
+                             f"player's value; got {self.k}")
+
+        worst_tilt = self.w_sentiment + self.w_forma + self.w_mercato
+        if worst_tilt and self.k * worst_tilt >= 1.0:
+            raise ValueError(
+                f"k={self.k} makes the quality term non-positive at the worst tilt "
+                f"(-{worst_tilt:.2f}), which would let the tilt overrule the gate; "
+                f"k must be below {1.0 / worst_tilt:.2f}"
+            )
+
 
 def _age_days(data_run: str, as_of: date) -> float:
     """Whole days between a reading and the day we are valuing on; never negative.
