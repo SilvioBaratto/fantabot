@@ -122,7 +122,14 @@ def test_the_ablation_reproduces_the_pre_change_model_exactly() -> None:
     assert build_value(FVM, priced_ids=set(PRICES)) == before
 
 
-def test_the_ablation_reproduces_the_pre_change_roster_exactly() -> None:
+def test_sentiment_changes_the_chosen_roster_at_all() -> None:
+    """Named for what it asserts: the two rosters *differ*.
+
+    It read `..._reproduces_the_pre_change_roster_exactly` while asserting an inequality.
+    The exactness claim is pinned one test up, against a hand-built `NaiveValueModel` —
+    which is the stronger form, since `optimize_roster` is a deterministic function of the
+    value model, so an identical model implies an identical roster.
+    """
     plain = _optimize(build_value(FVM, priced_ids=set(PRICES)))
     adjusted = _optimize(
         build_value(FVM, priced_ids=set(PRICES), sentiment=SENTIMENT, as_of=AS_OF)

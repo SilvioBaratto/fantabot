@@ -151,6 +151,27 @@ def db_session(db_connection: Connection) -> Generator[Session, None, None]:
 SYNTHETIC_PLAYER_BASE = 9_100_000_000
 
 
+def make_synthetic_players(session: Session, count: int = 2) -> list[str]:
+    """The canonical maker. Test modules that cannot take a fixture import this directly.
+
+    `tests/` has no `__init__.py`, so pytest puts it on `sys.path` for its own conftest and
+    `from conftest import make_synthetic_players` resolves from `tests/integration/` too.
+    That is worth one line of explanation, because the alternative — a second copy of these
+    five lines and of the base constant — is how the two definitions this replaced came to
+    exist, each free to drift from the other.
+    """
+    ids = [str(SYNTHETIC_PLAYER_BASE + offset) for offset in range(count)]
+    for player_id in ids:
+        session.execute(
+            text(
+                "INSERT INTO players (id, nome) VALUES (:i, :n) "
+                "ON CONFLICT (id) DO NOTHING"
+            ),
+            {"i": int(player_id), "n": f"synthetic-{player_id}"},
+        )
+    return ids
+
+
 @pytest.fixture
 def synthetic_players(db_session: Session) -> Any:
     """Make N synthetic players inside the rolled-back transaction.
@@ -161,15 +182,6 @@ def synthetic_players(db_session: Session) -> Any:
     """
 
     def make(count: int = 2) -> list[str]:
-        ids = [str(SYNTHETIC_PLAYER_BASE + offset) for offset in range(count)]
-        for player_id in ids:
-            db_session.execute(
-                text(
-                    "INSERT INTO players (id, nome) VALUES (:i, :n) "
-                    "ON CONFLICT (id) DO NOTHING"
-                ),
-                {"i": int(player_id), "n": f"synthetic-{player_id}"},
-            )
-        return ids
+        return make_synthetic_players(db_session, count)
 
     return make

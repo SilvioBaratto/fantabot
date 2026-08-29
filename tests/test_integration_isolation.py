@@ -66,6 +66,7 @@ def test_no_integration_test_borrows_a_real_player_id(path: Path) -> None:
 
     assert offenders == [], (
         f"{path.name} borrows real player ids: {offenders}. "
-        "Use a synthetic id (see SYNTHETIC_PLAYER_IDS) — the db tier shares a database "
+        "Use the `synthetic_players` fixture (tests/conftest.py) — the db tier shares a "
+        "database "
         "with real data, and a borrowed row collides with production."
     )

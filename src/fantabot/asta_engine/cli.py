@@ -250,12 +250,23 @@ def asta_live(
             weights=weights,
         )
 
-    # A replay is a recording: it values on one reading, because letting a captured room
-    # drift as the live table changes underneath it would mix two clocks. A live room
-    # re-reads, so a player ruled out mid-asta stops being a target on the next sale rather
-    # than on the next restart. Each read opens its own short session — sales are minutes
-    # apart, and an hours-long idle transaction is the worse trade.
-    value_of = read_value if league else (lambda snapshot=read_value(): snapshot)
+    # One reading per invocation, on both paths.
+    #
+    # The live path used to re-read per event, which bought nothing and cost a session and a
+    # 548-row query each time (~11 ms). `feed.ledger_events` does a single HTTP GET and
+    # returns a fully materialized list *before* the loop starts, so every event is already
+    # known at t=0 — there is no "later" during which a fresher reading could arrive. The
+    # replay path values on one reading for a different reason: a recording drifting as the
+    # live table changes underneath it would mix two clocks.
+    #
+    # `rolling_advisory` still takes a factory rather than a model, and that is deliberate:
+    # it is the seam a genuinely live `asta-live` needs. Re-reading only becomes meaningful
+    # once this command polls the ledger each cycle the way `asta-bid` already does, and at
+    # that point the per-cycle read belongs there.
+    snapshot = read_value()
+
+    def value_of() -> ValueModel:
+        return snapshot
 
     last = None
     for step in rolling_advisory(

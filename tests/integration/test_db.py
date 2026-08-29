@@ -15,21 +15,17 @@ from sqlalchemy.orm import Session
 pytestmark = pytest.mark.db
 
 
-#: Ids far above any real `players.id`, with no `quotazioni` row — so `load_pool` never
-#: returns one and no real reading can share its `(data_run, player_id)` key. Created
-#: inside the rolled-back transaction, so they never outlive the test.
-SYNTHETIC_BASE = 9_100_000_000
-
-
 def _synthetic(db_session: Session, count: int) -> list[int]:
-    """`count` player ids that belong to this test and nothing else."""
-    ids = [SYNTHETIC_BASE + offset for offset in range(count)]
-    for player_id in ids:
-        db_session.execute(
-            text("INSERT INTO players (id, nome) VALUES (:i, :n) ON CONFLICT (id) DO NOTHING"),
-            {"i": player_id, "n": f"synthetic-{player_id}"},
-        )
-    return ids
+    """`count` player ids that belong to this test and nothing else.
+
+    Delegates rather than reimplementing: this file's helpers take a `Session` and are
+    called from ~15 sites, so they cannot take the `synthetic_players` fixture without
+    threading it through every one. One implementation, in `tests/conftest.py`, and one
+    definition of the base id — a second copy of either is free to drift from the other.
+    """
+    from conftest import make_synthetic_players
+
+    return [int(player_id) for player_id in make_synthetic_players(db_session, count)]
 
 CANARY_TABLE = "players"
 CANARY_ID = 999_999_999

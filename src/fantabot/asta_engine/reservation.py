@@ -102,10 +102,16 @@ def rolling_advisory(
 
     ``value_of`` is a factory, called once per event, rather than a fixed model. An asta
     runs for hours and the sentiment feed is a live table, so a player ruled out at 21:00
-    must stop being a target at 21:01 — a snapshot taken when the room opened would still
-    be recommending him. ``news_sentiment`` holds a session and never a cached table for
-    exactly this reason; taking a ``ValueModel`` here would have thrown that away one layer
-    further up. A replay passes a constant factory and pays nothing for it.
+    must stop being a target at 21:01; ``news_sentiment`` holds a session and never a cached
+    table for exactly that reason, and taking a ``ValueModel`` here would throw it away one
+    layer further up.
+
+    **No caller exercises that yet.** Both of today's callers pass a constant factory, and
+    ``asta-live`` is right to: ``feed.ledger_events`` materializes the whole ledger in one
+    GET before the loop begins, so re-reading between events cannot see anything newer. The
+    seam is kept because it is what a polling ``asta-live`` will need — re-reading is only
+    meaningful once the *ledger* is re-read each cycle — and a constant factory costs
+    nothing in the meantime.
     """
     for event in events:
         state = apply_event(state, event, our_team_id=our_team_id)
