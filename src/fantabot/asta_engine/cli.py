@@ -294,6 +294,21 @@ def asta_bid(
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
+    sentiment: bool = typer.Option(
+        True,
+        "--sentiment/--no-sentiment",
+        help="Adjust values by the news feed. On by default, matching asta-optimize.",
+    ),
+    sentiment_run: str = typer.Option(
+        "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
+    ),
+    tilt_k: float = typer.Option(
+        SentimentWeights().k,
+        "--tilt-k",
+        min=0.0,
+        max=1.0,
+        help="Strength of the quality tilt. 0 = gate only.",
+    ),
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
@@ -309,6 +324,7 @@ def asta_bid(
     import time
 
     from fantabot.asta_engine.bid import Seat
+    from fantabot.data_sources.news_sentiment import NewsSentimentSource
     from fantabot.db import database_manager
     from fantabot.db.repositories.reference import ReferenceRepository
     from fantabot.fantalab import feed, room, rtdb
@@ -316,9 +332,22 @@ def asta_bid(
     with database_manager.get_session() as session:
         quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
         prices = expected_prices(session)
+        rows = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
     pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
     teams = {pid: row.squadra for pid, row in quotazioni.items()}
-    value = build_value({pid: row.fvm for pid, row in quotazioni.items()}, priced_ids=set(prices))
+    # The same value model asta-optimize planned with. A walk-away is "what is he worth to
+    # us", and this is the one command where that number becomes money — so it is the last
+    # place the planner and the bidder may disagree. On plain fvm this loop would chase
+    # Yildiz to 62 credits with a metatarsal fracture reported by three sources.
+    value = build_value(
+        {pid: row.fvm for pid, row in quotazioni.items()},
+        priced_ids=set(prices),
+        sentiment=rows,
+        as_of=date.today() if rows else None,
+        weights=SentimentWeights(k=tilt_k),
+    )
     legality = build_legality(load_compat())
     seat = Seat(fantateam_id=team, user_id=user)
 
