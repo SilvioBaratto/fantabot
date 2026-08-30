@@ -20,14 +20,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from rich.console import Console
-
+from fantabot.interface.console import console
 from fantabot.tokens.capture import CapturedToken, parse_storage_state
 from fantabot.tokens.crypto import TokenCipher
 from fantabot.tokens.errors import KeyMissing, NoLeaguesFound, TokenError
 from fantabot.tokens.status import TokenStatus
-
-console = Console()
 
 LOGIN_URL = "https://leghe.fantacalcio.it"
 EXIT_PREFLIGHT = 2

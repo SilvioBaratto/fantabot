@@ -12,10 +12,11 @@ from datetime import date
 from typing import TYPE_CHECKING, Any, Protocol
 
 import typer
-from rich.console import Console
 
 if TYPE_CHECKING:
     from fantabot.data_sources.models import SentimentRow
+
+from fantabot.interface.console import console
 
 from .legality import build_legality, fieldable_schemi, load_compat
 from .live import normalize
@@ -34,8 +35,6 @@ from .reservation import apply_event, reservations, rolling_advisory
 from .sentiment import SentimentWeights
 from .state import AstaState
 from .value import ValueModel
-
-console = Console()
 
 _SEASON = "2026/27"
 

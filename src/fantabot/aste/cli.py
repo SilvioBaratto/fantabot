@@ -23,12 +23,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
-from rich.console import Console
+
+from fantabot.interface.console import console
 
 if TYPE_CHECKING:  # annotations only
     from fantabot.aste.backfill import DroppedEvents
 
-console = Console()
 
 
 def aste_scan(

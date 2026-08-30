@@ -25,13 +25,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from rich.console import Console
-
+from fantabot.interface.console import console
 from fantabot.tokens.crypto import TokenCipher
 from fantabot.tokens.errors import KeyMissing, TokenError
 from fantabot.tokens.fantalab import FantalabSession, parse_fantalab_storage
-
-console = Console()
 
 LOGIN_URL = "https://app.fantalab.it/aste-live"
 EXIT_PREFLIGHT = 2

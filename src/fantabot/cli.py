@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.markup import escape
 
 from fantabot.asta_engine.cli import register as register_asta_engine_commands
 from fantabot.aste.cli import register as register_aste_commands
+from fantabot.interface.console import console
 
 if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     from datetime import datetime
@@ -21,7 +21,6 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     from fantabot.tokens.store import TokenStore
 
 app = typer.Typer(no_args_is_help=True)
-console = Console()
 
 
 @app.command()
