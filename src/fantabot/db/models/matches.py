@@ -14,10 +14,10 @@ covered by exactly one of them, and both were verified duplicate-free across all
 50,634 rows before the constraint was written.
 
 **Why ``squadra`` is called ``squadra_raw``.** The column is corrupt, by a
-scraper bug that is still live and documented at
-``scripts/analyze_qi_bias_by_team.py:8-13``: every row in a match block is
-labelled with the fixture's *home* team, so the column cannot say which side a
-player played for. What survives is the fixture — ``squadra_raw`` and
+scraper bug that is still live: every row in a match block is labelled with the
+fixture's *home* team, so the column cannot say which side a player played for.
+(Measured in 2026 by ``scripts/analyze_qi_bias_by_team.py``, since deleted — the
+finding is stated here rather than cited, so it survives the tool that found it.) What survives is the fixture — ``squadra_raw`` and
 ``avversario_raw`` together identify home and away correctly, and
 ``gol_squadra``/``gol_avversario`` are that fixture's score. A player's real club
 for a season comes from ``quotazioni``, never from here. Nothing keys or joins on

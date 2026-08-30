@@ -11,9 +11,9 @@ Verified against the files on disk: 27 codes, 27 full names, the mapping is a
 bijection with no prefix collisions and nothing unresolved in either direction.
 
 A caveat that matters and is easy to misread: ``voti.squadra`` is corrupt
-per-row — ``scripts/analyze_qi_bias_by_team.py`` documents that the scraper
-labels every row in a match block with the fixture's *home* team, so the column
-cannot say which side a player played for. The *set* of names it contains is
+per-row — the scraper labels every row in a match block with the fixture's *home*
+team, so the column cannot say which side a player played for. The full statement
+of that bug lives on ``db/models/matches.py``. The *set* of names it contains is
 still complete and correct, which is all this importer reads from it.
 """
 

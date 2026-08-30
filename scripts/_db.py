@@ -2,8 +2,9 @@
 
 Replaces three divergent copies of the same loaders. Before this module,
 ``parse_decimal`` was defined in ``target_price.py:145``,
-``analyze_low_minutes_bias.py:53`` and ``join_qi_bias_performance.py:48``, and
-``load_prior_stats`` in the same three files — same intent, drifting details.
+two of the analysis scripts, and ``load_prior_stats`` in the same three files —
+same intent, drifting details. Those analyses were deleted on 2026-08-30; this
+module survives them because ``target_price.py`` reads it too.
 
 **Every query has an explicit ORDER BY.** These scripts used to read files, so
 row order was whatever the file held and was stable by accident. Postgres has no

@@ -115,7 +115,8 @@ PREV_OF_TRAIN = dict(zip(TRAIN_SEASONS, ["2022/23", "2023/24", "2024/25"], stric
 TARGET_SEASON = "2026/27"
 PRIOR_SEASON_FOR_TARGET = "2025/26"
 
-MIN_QI = 2  # floor-effect guard, consistent with analyze_qi_bias_by_team.py / analyze_low_minutes_bias.py
+MIN_QI = 2  # floor-effect guard. Measured 2026 by the qi-bias analyses (since deleted):
+            # below QI 2 the percentage delta is dominated by the divisor, not by the market.
 GOALKEEPER_MACRO = "GK"
 
 # classic: single-letter code, used as-is. mantra: compound code, first component mapped below.

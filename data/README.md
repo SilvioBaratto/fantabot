@@ -44,7 +44,7 @@ column tells them apart.
 | `teams` | one club per season | 100 | derived, gated |
 | `quotazioni` | player × season × listone | 6,402 | `scripts/scrape_quotazioni.py` |
 | `statistiche` | player × season × listone × fonte | 16,068 | `scripts/scrape_statistiche.py` |
-| `qi_bias` | player × season × listone | 5,356 | `scripts/analyze_qi_bias.py` |
+| `qi_bias` | player × season × listone | 5,356 | derived from `quotazioni`; becomes a view |
 | `target_price` | player × season × listone | 1,046 → 1,088 | `scripts/target_price.py` |
 | `voti` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
 | `bonus_malus` | player × matchday | 50,634 | `scripts/scrape_voti.py` |

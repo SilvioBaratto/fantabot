@@ -85,7 +85,6 @@ alembic upgrade head
 python scripts/scrape_quotazioni.py     # ~1 GET/season  -> players, teams, quotazioni
 python scripts/scrape_statistiche.py    # ~3 GETs/season -> statistiche
 python scripts/scrape_voti.py           # ~38 GETs/season, 1s apart -> voti, bonus_malus
-python scripts/analyze_qi_bias.py       # both listoni   -> qi_bias
 python scripts/target_price.py --system classic   # NOTE: one system per run,
 python scripts/target_price.py --system mantra    # --system defaults to classic
 
