@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from fantabot.aste.loader import (
+from fantabot.application.harvest_loader import (
     CachedPlayerIds,
     Checkpoint,
     LandingZoneMissing,
@@ -95,7 +95,7 @@ def test_a_missing_file_is_an_error_because_it_means_nothing_is_collecting(
     "just started"; absent means "nothing is collecting into it", and only one
     of those has a remedy the operator needs telling.
     """
-    from fantabot.aste.loader import LandingZoneMissing
+    from fantabot.application.harvest_loader import LandingZoneMissing
 
     with pytest.raises(LandingZoneMissing, match="harvest collect"):
         read_from(tmp_path / "absent.jsonl", 0)

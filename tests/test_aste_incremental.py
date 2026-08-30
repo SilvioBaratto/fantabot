@@ -16,10 +16,10 @@ from typing import Any, ClassVar
 import pytest
 from _paths import ONE_AUCTION
 
-from fantabot.aste import incremental as I
-from fantabot.aste.compare import equivalent
-from fantabot.aste.models import Bid
-from fantabot.aste.reconstruct import reconstruct
+from fantabot.domain.harvest import incremental as I
+from fantabot.domain.harvest.compare import equivalent
+from fantabot.domain.harvest.models import Bid
+from fantabot.domain.harvest.reconstruct import reconstruct
 
 FIXTURE = ONE_AUCTION
 

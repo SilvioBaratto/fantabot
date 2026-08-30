@@ -11,8 +11,8 @@ import json
 
 from _paths import ONE_AUCTION, SSE_FIXTURES
 
-from fantabot.aste.reducer import apply_frame, fold
-from fantabot.aste.sse import parse
+from fantabot.domain.harvest.reducer import apply_frame, fold
+from fantabot.domain.harvest.sse import parse
 
 SSE = SSE_FIXTURES
 LIVE = (SSE / "live_auction.txt").read_text(encoding="utf-8")
@@ -57,7 +57,7 @@ def test_folding_never_mutates_its_input() -> None:
 def test_the_folded_state_is_what_reconstruct_expects() -> None:
     """The load-bearing claim of the whole live path: frames reduce to the same
     shape the poller wrote, so `reconstruct` needs no second code path."""
-    from fantabot.aste.reconstruct import reconstruct
+    from fantabot.domain.harvest.reconstruct import reconstruct
 
     recorded = json.loads(
         ONE_AUCTION
@@ -95,7 +95,7 @@ def test_a_nested_null_put_is_not_the_room_closing() -> None:
     auction ending, and did so without checking the path — so a child deletion
     dropped the auction for the rest of the evening while the report called it a
     normal ending."""
-    from fantabot.aste.stream import is_auction_gone
+    from fantabot.adapters.http.harvest.stream import is_auction_gone
 
     assert is_auction_gone(parse('event: put\ndata: {"path":"/","data":null}\n\n')[0])
     assert not is_auction_gone(parse(NESTED_NULL)[0])
@@ -104,7 +104,7 @@ def test_a_nested_null_put_is_not_the_room_closing() -> None:
 def test_an_unhandled_path_is_counted_rather_than_silently_dropped() -> None:
     """Refusing is right; refusing in silence is the failure this phase keeps
     finding in itself."""
-    from fantabot.aste.reducer import unsupported_paths
+    from fantabot.domain.harvest.reducer import unsupported_paths
 
     counter = unsupported_paths()
     apply_frame({}, parse(NESTED_PUT)[0], seen=counter)

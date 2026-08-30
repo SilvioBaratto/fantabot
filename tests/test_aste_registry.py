@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.aste.registry import from_card, from_seed_row, merge, to_seed_rows
+from fantabot.domain.harvest.registry import from_card, from_seed_row, merge, to_seed_rows
 
 SEED_ROW = ["a-1", "15", 8, 500, 25, 25, "random", "free", 10, 20, "Lega"]
 

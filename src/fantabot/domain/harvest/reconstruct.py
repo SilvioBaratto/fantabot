@@ -47,7 +47,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from fantabot.aste.models import Assignment, Bid
+from fantabot.domain.harvest.models import Assignment, Bid
 
 CLOSE = "close_auction"
 FIRST_CALL = "first_call"

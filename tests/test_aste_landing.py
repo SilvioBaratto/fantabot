@@ -16,7 +16,7 @@ from pathlib import Path
 
 from _paths import ONE_AUCTION
 
-from fantabot.aste.landing import LandingZone, read_records
+from fantabot.adapters.files.landing import LandingZone, read_records
 
 
 def test_a_record_is_readable_immediately_after_writing(tmp_path: Path) -> None:

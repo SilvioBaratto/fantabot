@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.aste.client import LIVE_URL, AuthExpired, LiveAuctionsClient, ScanEmpty
+from fantabot.adapters.http.harvest.client import (
+    LIVE_URL,
+    AuthExpired,
+    LiveAuctionsClient,
+    ScanEmpty,
+)
 
 
 def _card(auction_id: str, asta_type: str = "mantra") -> dict[str, object]:
@@ -81,7 +86,7 @@ def test_an_empty_list_is_refused_rather_than_returned() -> None:
 
 def test_a_hostile_shard_is_refused_at_the_boundary() -> None:
     """The response is remote content. `db` lands in a hostname."""
-    from fantabot.aste.models import ShardError
+    from fantabot.domain.harvest.models import ShardError
 
     bad = _card("a")
     bad["db"] = "evil.com#"

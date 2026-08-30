@@ -65,8 +65,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from fantabot.aste.models import Assignment, Bid
-from fantabot.aste.reconstruct import BIDDING, CLOSE, FIRST_CALL, _bid
+from fantabot.domain.harvest.models import Assignment, Bid
+from fantabot.domain.harvest.reconstruct import BIDDING, CLOSE, FIRST_CALL, _bid
 
 #: Bumped when the shape of a checkpointed state changes. A file written by an older
 #: version is discarded rather than adapted: the fallback is a full re-fold, which is

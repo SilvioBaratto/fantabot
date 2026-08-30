@@ -27,7 +27,7 @@ import json
 import tracemalloc
 from pathlib import Path
 
-from fantabot.aste.loader import (
+from fantabot.application.harvest_loader import (
     DEFAULT_WINDOW_BYTES,
     catching_up,
     read_from,
@@ -539,7 +539,7 @@ class TestTheLadderIsCarriedRatherThanRebuilt:
         `harvest backfill`, which genuinely reads a finished recording, but the
         follower must never call it.
         """
-        from fantabot.aste import loader
+        from fantabot.application import harvest_loader as loader
 
         landing = tmp_path / "live.jsonl"
         _zone(landing, 400)
@@ -566,10 +566,10 @@ class TestTheLadderIsCarriedRatherThanRebuilt:
         cannot see a truncated ladder and that is the failure the whole-file rebuild
         existed to prevent.
         """
-        from fantabot.aste.compare import equivalent
-        from fantabot.aste.loader import iter_records
-        from fantabot.aste.models import Assignment, Bid
-        from fantabot.aste.reconstruct import reconstruct
+        from fantabot.application.harvest_loader import iter_records
+        from fantabot.domain.harvest.compare import equivalent
+        from fantabot.domain.harvest.models import Assignment, Bid
+        from fantabot.domain.harvest.reconstruct import reconstruct
 
         landing = tmp_path / "live.jsonl"
         _zone(landing, 400)

@@ -38,8 +38,8 @@ import asyncio
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 
-from fantabot.aste.registry import AuctionConfig
-from fantabot.aste.stream import Outcome, SinkFailed
+from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed
+from fantabot.domain.harvest.registry import AuctionConfig
 
 #: Above the largest population measured: 649 auctions live at 21:57 on
 #: 2026-08-27. Not a law — next season will exceed it — which is why a run that

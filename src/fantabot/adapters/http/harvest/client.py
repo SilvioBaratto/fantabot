@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
-from fantabot.aste.registry import AuctionConfig, from_card
+from fantabot.domain.harvest.registry import AuctionConfig, from_card
 
 LIVE_URL = "https://api.fantalab.it/fantaleagues/live"
 

@@ -169,30 +169,36 @@ def move(prefixes: list[str]) -> dict[str, str]:
 
 
 def _rewrite_from_package_import(text: str, renames: dict[str, str]) -> str:
-    """`from fantabot import browser` -> `from fantabot.adapters.browser import capture as browser`.
+    """`from fantabot.aste import incremental` -> `from ...harvest import incremental`.
 
-    This form names the module without spelling it dotted, so the substitution below
-    cannot see it -- and the failure is quiet in the worst way: the import still resolves
-    while the package is mid-move, and only mypy notices that `fantabot` has no attribute
-    `browser`. The local name is preserved with `as`, so every use of it in the body
-    stays correct and this rewrite stays a one-line change.
+    This form names a module without spelling it dotted, so the substitution below cannot
+    see it -- and the failure is quiet in the worst way. `from fantabot import browser`
+    still *resolves* while the package is mid-move, and only mypy notices that `fantabot`
+    has no attribute `browser`.
+
+    Any package, not just the root: `from fantabot.aste import incremental as I` broke the
+    same way one move later, because the first version of this matched `from fantabot
+    import` alone. The local name is preserved with `as`, so every use of it in the body
+    stays correct and this stays a one-line change per import.
     """
 
     def replace(match: re.Match[str]) -> str:
-        indent, names = match.group(1), match.group(2)
+        indent, package, names = match.group(1), match.group(2), match.group(3)
         out = []
         for entry in (n.strip() for n in names.split(",")):
             name, _, alias = entry.partition(" as ")
             name, alias = name.strip(), alias.strip() or name.strip()
-            new = renames.get(f"fantabot.{name}")
+            new = renames.get(f"{package}.{name}")
             if new is None:
-                out.append(f"{indent}from fantabot import {entry}")
+                out.append(f"{indent}from {package} import {entry}")
                 continue
             module, _, leaf = new.rpartition(".")
             out.append(f"{indent}from {module} import {leaf} as {alias}")
         return "\n".join(out)
 
-    return re.sub(r"^([ \t]*)from fantabot import ([^(\n]+)$", replace, text, flags=re.M)
+    return re.sub(
+        r"^([ \t]*)from (fantabot(?:\.[\w.]+)?) import ([^(\n]+)$", replace, text, flags=re.M
+    )
 
 
 def rewrite(renames: dict[str, str], roots: list[Path]) -> int:

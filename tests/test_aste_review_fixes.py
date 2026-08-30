@@ -12,11 +12,11 @@ from urllib.parse import urlparse
 
 import pytest
 
+from fantabot.adapters.http.harvest.stream import stream_url
 from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
 from fantabot.adapters.persistence.repositories.aste import PARAMETER_LIMIT, chunk_size
-from fantabot.aste.models import ShardError, valid_shard
-from fantabot.aste.registry import from_card, from_seed_row
-from fantabot.aste.stream import stream_url
+from fantabot.domain.harvest.models import ShardError, valid_shard
+from fantabot.domain.harvest.registry import from_card, from_seed_row
 
 # --- 1. SSRF: the shard reaches a URL and comes from untrusted content -----
 
@@ -77,7 +77,7 @@ def test_the_backfill_and_the_registry_read_a_seed_identically() -> None:
     """Two independent parsers of one positional format drift silently. The
     backfill used index constants and `entry[-1]`; the registry used a field
     tuple. Same file, two readings."""
-    from fantabot.aste.backfill import auction_rows
+    from fantabot.domain.harvest.backfill import auction_rows
 
     seed = json.loads(
         Path("data/aste_live/seed_2026-08-26.json").read_text(encoding="utf-8")

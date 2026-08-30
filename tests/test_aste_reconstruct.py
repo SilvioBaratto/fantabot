@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from _paths import ONE_AUCTION, REPO
 
-from fantabot.aste.reconstruct import reconstruct
+from fantabot.domain.harvest.reconstruct import reconstruct
 
 FIXTURE = ONE_AUCTION
 EVENING = REPO / "data" / "aste_live" / "events_2026-08-26.jsonl"

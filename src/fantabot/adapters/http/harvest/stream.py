@@ -25,9 +25,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from enum import Enum
 from typing import Any, Protocol
 
-from fantabot.aste.models import valid_shard
-from fantabot.aste.reducer import ROOT, apply_frame
-from fantabot.aste.sse import Frame, FrameBuffer
+from fantabot.domain.harvest.models import valid_shard
+from fantabot.domain.harvest.reducer import ROOT, apply_frame
+from fantabot.domain.harvest.sse import Frame, FrameBuffer
 
 #: Firebase's regional host. The shard is the only part that varies, and it is
 #: not derivable — it comes off the auction's list card.

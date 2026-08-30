@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Iterable
 
 import pytest
 
-from fantabot.aste.stream import Outcome, SinkFailed, watch_auction
+from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed, watch_auction
 
 AUCTION, SHARD = "abc-123", "18"
 

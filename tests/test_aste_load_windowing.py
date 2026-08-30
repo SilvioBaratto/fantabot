@@ -16,8 +16,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fantabot.aste.backfill import build, read_jsonl
-from fantabot.aste.loader import Checkpoint, read_from
+from fantabot.application.harvest_loader import Checkpoint, read_from
+from fantabot.domain.harvest.backfill import build, read_jsonl
 
 SEED = [["a-1", "4", 8, 500, 25, 25, "random", "free", 8, 8, "L", "mantra"]]
 
@@ -57,7 +57,7 @@ def test_two_passes_must_not_shorten_it(tmp_path: Path) -> None:
     """The exact shape `--follow` produces: the collector appends while the
     loader reads, so a turn is split across passes. Whatever the loader stores
     after the last pass must equal what a single whole-file pass stores."""
-    from fantabot.aste.loader import assignments_for_pass
+    from fantabot.application.harvest_loader import assignments_for_pass
 
     landing = tmp_path / "live.jsonl"
     checkpoint = Checkpoint(landing)

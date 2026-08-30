@@ -13,7 +13,7 @@ import json
 
 from _paths import SSE_FIXTURES
 
-from fantabot.aste.sse import FrameBuffer, parse
+from fantabot.domain.harvest.sse import FrameBuffer, parse
 
 SSE = SSE_FIXTURES
 LIVE = (SSE / "live_auction.txt").read_text(encoding="utf-8")

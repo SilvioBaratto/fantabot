@@ -28,7 +28,7 @@ import typer
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:  # annotations only
-    from fantabot.aste.backfill import DroppedEvents
+    from fantabot.domain.harvest.backfill import DroppedEvents
 
 
 
@@ -45,11 +45,11 @@ def aste_scan(
     """
     import json
 
+    from fantabot.adapters.http.harvest.client import AuthExpired, LiveAuctionsClient, ScanEmpty
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.fantalab_store import FantalabStore
-    from fantabot.aste.client import AuthExpired, LiveAuctionsClient, ScanEmpty
-    from fantabot.aste.registry import from_seed_row, merge, to_seed_rows
     from fantabot.config import settings
+    from fantabot.domain.harvest.registry import from_seed_row, merge, to_seed_rows
     from fantabot.domain.tokens.crypto import TokenCipher
 
     cipher = TokenCipher(settings.fantabot_encryption_key)
@@ -161,9 +161,7 @@ def aste_load(
     import time
 
     from fantabot.adapters.persistence.models.aste import ASTA_TYPES
-    from fantabot.aste import incremental
-    from fantabot.aste.backfill import auction_rows, event_rows
-    from fantabot.aste.loader import (
+    from fantabot.application.harvest_loader import (
         DEFAULT_WINDOW_BYTES,
         CachedPlayerIds,
         Checkpoint,
@@ -174,6 +172,8 @@ def aste_load(
         catching_up,
         read_from,
     )
+    from fantabot.domain.harvest import incremental as incremental
+    from fantabot.domain.harvest.backfill import auction_rows, event_rows
 
     if asta_type not in ASTA_TYPES:
         console.print(f"[red]{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}")
@@ -377,11 +377,11 @@ def aste_collect(
     import asyncio
     import json
 
-    from fantabot.aste.landing import LandingZone
-    from fantabot.aste.registry import AuctionConfig, from_seed_row
-    from fantabot.aste.stream import Outcome, SinkFailed, watch_auction
-    from fantabot.aste.supervisor import DEFAULT_POOL, Report, Supervisor
-    from fantabot.aste.transport import open_stream
+    from fantabot.adapters.files.landing import LandingZone
+    from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed, watch_auction
+    from fantabot.adapters.http.harvest.transport import open_stream
+    from fantabot.application.harvest_supervisor import DEFAULT_POOL, Report, Supervisor
+    from fantabot.domain.harvest.registry import AuctionConfig, from_seed_row
 
     if seed is None and not (auction and shard):
         console.print("[red]Give either --seed, or both --one and --shard.[/red]")
@@ -476,7 +476,7 @@ def aste_backfill(
     import json
 
     from fantabot.adapters.persistence.models.aste import ASTA_TYPES
-    from fantabot.aste.backfill import build, read_jsonl
+    from fantabot.domain.harvest.backfill import build, read_jsonl
 
     # Checked before any work: asta_type is NOT NULL and only two values exist,
     # so a typo caught here beats a constraint violation after building 144,518

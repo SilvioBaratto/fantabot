@@ -20,7 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from fantabot.aste.models import valid_shard
+from fantabot.domain.harvest.models import valid_shard
 
 #: Field order of a seed row. Positional because the original file had no keys —
 #: it was written straight from the page's props.

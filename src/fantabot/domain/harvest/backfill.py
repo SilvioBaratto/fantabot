@@ -24,9 +24,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fantabot.aste.models import Assignment
-from fantabot.aste.reconstruct import reconstruct
-from fantabot.aste.registry import from_seed_row
+from fantabot.domain.harvest.models import Assignment
+from fantabot.domain.harvest.reconstruct import reconstruct
+from fantabot.domain.harvest.registry import from_seed_row
 
 
 @dataclass(frozen=True, slots=True)

@@ -43,6 +43,12 @@ OVERRIDE: dict[str, str] = {
     "parsing": "domain/shared/parsing.py",
     "club_names": "domain/shared/club_names.py",
     "resources": "domain/shared/resources.py",
+    # These three carry no re-exports, only a docstring describing the package -- and
+    # each describes a pure half and an I/O half that W6 separates, so the text is
+    # rewritten in the move rather than carried across unchanged.
+    "aste": "domain/harvest/__init__.py",
+    "asta_engine": "domain/asta/__init__.py",
+    "news": "domain/news/__init__.py",
     # A package whose modules split across layers needs its `__init__.py` placed by
     # hand, as an entry here, and the entry is removed once the move is done -- a map
     # naming something that no longer exists moves nothing and says nothing.

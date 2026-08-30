@@ -11,8 +11,8 @@ import json
 
 from _paths import ONE_AUCTION
 
-from fantabot.aste.backfill import assignment_rows, auction_rows, build, event_rows
-from fantabot.aste.reconstruct import reconstruct
+from fantabot.domain.harvest.backfill import assignment_rows, auction_rows, build, event_rows
+from fantabot.domain.harvest.reconstruct import reconstruct
 
 FIXTURE = ONE_AUCTION
 STATES = [json.loads(line) for line in FIXTURE.read_text(encoding="utf-8").splitlines()]

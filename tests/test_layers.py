@@ -47,8 +47,8 @@ LAYERS: dict[str, str] = {
     "fantabot.domain": "domain",
     # -- application: orchestration. May use adapters; may not be a user interface.
     "fantabot.asta_engine.plan": "application",
-    "fantabot.aste.loader": "application",
-    "fantabot.aste.supervisor": "application",
+    "fantabot.application.harvest_loader": "application",
+    "fantabot.application.harvest_supervisor": "application",
     "fantabot.news.pipeline": "application",
     "fantabot.mantra_grid.collect": "application",
     "fantabot.pricing": "application",
@@ -69,13 +69,13 @@ LAYERS: dict[str, str] = {
     # would have made `.env` a dependency of every pure test that touched it.
     "fantabot.adapters.browser.storage_state": "adapters",
     "fantabot.domain.tokens": "domain",
-    "fantabot.aste.stream": "adapters",
-    "fantabot.aste.transport": "adapters",
-    "fantabot.aste.landing": "adapters",
+    "fantabot.adapters.http.harvest.stream": "adapters",
+    "fantabot.adapters.http.harvest.transport": "adapters",
+    "fantabot.adapters.files.landing": "adapters",
     # "The only module here that touches disk", says its own docstring. It was filed
     # under application until the W6 destination map contradicted it.
     "fantabot.mantra_grid.writer": "adapters",
-    "fantabot.aste.client": "adapters",
+    "fantabot.adapters.http.harvest.client": "adapters",
     # `store.py` holds only `build_row`, which is pure — it reached the database
     # solely by importing `PoolPlayer` from a module that did.
     "fantabot.news.read": "adapters",
@@ -211,6 +211,6 @@ class TestTheTableItself:
 
     def test_longest_prefix_wins(self) -> None:
         """`fantabot.aste` is domain and `fantabot.aste.cli` is interface."""
-        assert layer_of("fantabot.aste.reducer") == "domain"
+        assert layer_of("fantabot.domain.harvest.reducer") == "domain"
         assert layer_of("fantabot.aste.cli") == "interface"
-        assert layer_of("fantabot.aste.stream") == "adapters"
+        assert layer_of("fantabot.adapters.http.harvest.stream") == "adapters"

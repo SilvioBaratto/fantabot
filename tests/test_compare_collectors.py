@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.aste.compare import Verdict, compare
-from fantabot.aste.models import Assignment, Bid
+from fantabot.domain.harvest.compare import Verdict, compare
+from fantabot.domain.harvest.models import Assignment, Bid
 
 
 def _assignment(player: str, price: int, rungs: list[int]) -> Assignment:
@@ -141,7 +141,7 @@ def test_the_window_comes_from_when_each_side_was_watching() -> None:
     What bounds a fair comparison is when each side was *watching*, which lives
     in the capture's `seen_at` and not in the assignment at all.
     """
-    from fantabot.aste.compare import observation_window
+    from fantabot.domain.harvest.compare import observation_window
 
     polled = [{"seen_at": "2026-08-27T18:38:26+00:00"},
               {"seen_at": "2026-08-27T18:45:00+00:00"}]
@@ -155,6 +155,6 @@ def test_the_window_comes_from_when_each_side_was_watching() -> None:
 
 
 def test_an_observation_window_needs_both_sides() -> None:
-    from fantabot.aste.compare import observation_window
+    from fantabot.domain.harvest.compare import observation_window
 
     assert observation_window([], [{"seen_at": "2026-08-27T18:00:00+00:00"}]) is None

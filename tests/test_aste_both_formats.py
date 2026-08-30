@@ -14,16 +14,21 @@ from __future__ import annotations
 import ast
 
 import pytest
-from _paths import pkg
+from _paths import module_file
 
-from fantabot.aste.client import LiveAuctionsClient
-from fantabot.aste.registry import from_card
-
-PACKAGE = pkg("aste")
+from fantabot.adapters.http.harvest.client import LiveAuctionsClient
+from fantabot.domain.harvest.registry import from_card
 
 #: Modules that run while collecting. A format comparison in any of them is a
-#: filter, whatever it is called.
-COLLECTING = ("client.py", "registry.py", "stream.py", "supervisor.py", "landing.py")
+#: filter, whatever it is called. Named as modules: W6 split these across three layers,
+#: and a tuple of filenames under one directory silently stops naming anything.
+COLLECTING = (
+    "fantabot.adapters.http.harvest.client",
+    "fantabot.domain.harvest.registry",
+    "fantabot.adapters.http.harvest.stream",
+    "fantabot.application.harvest_supervisor",
+    "fantabot.adapters.files.landing",
+)
 
 
 def _card(auction_id: str, asta_type: str) -> dict[str, object]:
@@ -34,7 +39,7 @@ def _card(auction_id: str, asta_type: str) -> dict[str, object]:
 def test_no_collecting_module_compares_a_format(module: str) -> None:
     """A literal "mantra" or "classic" in the collection path is a filter waiting
     to happen. The strings belong in the schema's allowed set and in queries."""
-    tree = ast.parse((PACKAGE / module).read_text(encoding="utf-8"))
+    tree = ast.parse(module_file(module).read_text(encoding="utf-8"))
     literals = [
         node.value
         for node in ast.walk(tree)
@@ -75,7 +80,7 @@ def test_the_format_survives_the_seed_round_trip() -> None:
     seed with no `asta_type`, and `harvest load --asta-type mantra` then labelled
     185 Classic auctions as Mantra. The coverage goal defeated at the last step.
     """
-    from fantabot.aste.registry import from_seed_row, to_seed_rows
+    from fantabot.domain.harvest.registry import from_seed_row, to_seed_rows
 
     classic = from_card(_card("a", "classic"))
     mantra = from_card(_card("b", "mantra"))
@@ -90,7 +95,7 @@ def test_the_format_survives_the_seed_round_trip() -> None:
 def test_a_legacy_row_still_reads_with_the_fallback() -> None:
     """The 2026-08-26 seed has eleven fields and no format. It predates storing
     one, and must keep loading."""
-    from fantabot.aste.registry import from_seed_row
+    from fantabot.domain.harvest.registry import from_seed_row
 
     legacy = ["a-1", "15", 10, 500, 25, 25, "random", "free", 7, 7, "Lega"]
     assert from_seed_row(legacy, asta_type="mantra").asta_type == "mantra"

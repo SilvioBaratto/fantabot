@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from fantabot.aste.registry import AuctionConfig
-from fantabot.aste.stream import Outcome, SinkFailed
-from fantabot.aste.supervisor import DEFAULT_POOL, Report, Supervisor
+from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed
+from fantabot.application.harvest_supervisor import DEFAULT_POOL, Report, Supervisor
+from fantabot.domain.harvest.registry import AuctionConfig
 
 
 def _configs(n: int) -> list[AuctionConfig]:
@@ -149,7 +149,7 @@ def test_a_sink_failure_escapes_instead_of_being_retried() -> None:
     run printed `crashed 5 · 0 states written`, and the command exited **0**.
     Cron would have been told the evening succeeded.
     """
-    from fantabot.aste.stream import SinkFailed
+    from fantabot.adapters.http.harvest.stream import SinkFailed
 
     async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
         raise SinkFailed("No space left on device")

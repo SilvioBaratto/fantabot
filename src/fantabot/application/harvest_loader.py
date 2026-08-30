@@ -54,8 +54,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from fantabot.aste import incremental
-from fantabot.aste.models import Assignment
+from fantabot.domain.harvest import incremental as incremental
+from fantabot.domain.harvest.models import Assignment
 
 #: Where a checkpoint lives: beside its landing zone, so moving one moves both.
 SUFFIX = ".offset"
@@ -314,7 +314,7 @@ def assignments_for_pass(
     """
     if not new_records:
         return []
-    from fantabot.aste.reconstruct import reconstruct
+    from fantabot.domain.harvest.reconstruct import reconstruct
 
     return assignment_rows(reconstruct(iter_records(landing)))
 

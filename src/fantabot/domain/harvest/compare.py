@@ -27,7 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from fantabot.aste.models import Assignment
+from fantabot.domain.harvest.models import Assignment
 
 Key = tuple[str, str]
 

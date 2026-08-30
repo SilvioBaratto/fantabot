@@ -25,7 +25,7 @@ from collections import Counter
 from collections.abc import Iterable
 from typing import Any
 
-from fantabot.aste.sse import Frame
+from fantabot.domain.harvest.sse import Frame
 
 #: Frames that say nothing about the node. ``keep-alive`` carries ``data: null``,
 #: which is indistinguishable from a total deletion if it is not named here.

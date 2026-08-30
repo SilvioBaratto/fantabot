@@ -14,46 +14,50 @@ was in flight, and the landing zone's guarantee is worth nothing.
 
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 
+import _importgraph as G
 import pytest
-from _paths import pkg
 
-from fantabot.aste.loader import Checkpoint, read_from
+from fantabot.application.harvest_loader import Checkpoint, read_from
 
-PACKAGE = pkg("aste")
-
-#: The capture path: from a socket to a line on disk. Nothing here may import
-#: the database, directly or transitively through a sibling.
-CAPTURE = ("landing.py", "stream.py", "transport.py", "sse.py", "reducer.py")
-
-
-def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            found.add(node.module)
-    return found
+#: The capture path: from a socket to a line on disk. Nothing here may reach the
+#: database, directly or transitively through a sibling.
+#:
+#: Named as modules rather than as filenames under one directory. W6 split them across
+#: three layers -- `landing` to `adapters/files/`, `stream` and `transport` to
+#: `adapters/http/harvest/`, `sse` and `reducer` to `domain/harvest/` -- and a list of
+#: bare filenames cannot survive that, nor say which package it meant afterwards.
+CAPTURE = (
+    "fantabot.adapters.files.landing",
+    "fantabot.adapters.http.harvest.stream",
+    "fantabot.adapters.http.harvest.transport",
+    "fantabot.domain.harvest.sse",
+    "fantabot.domain.harvest.reducer",
+)
 
 
 @pytest.mark.parametrize("module", CAPTURE)
 def test_the_capture_path_cannot_reach_the_database(module: str) -> None:
     """Not "does not today" — cannot. An outage must cost catch-up time and
     never a record, and that only holds if the collector has no way to wait on
-    a database in the first place."""
-    offenders = {name for name in _imports(PACKAGE / module) if name.startswith("fantabot.adapters.persistence")}
-    assert offenders == set(), f"{module} can reach the database via {offenders}"
+    a database in the first place.
+
+    Transitive, which the previous direct-import scan was not: "through a sibling" was
+    the stated claim and the check could not see one hop.
+    """
+    assert not G.reaches(module, "fantabot.adapters.persistence"), (
+        f"{module} can reach the database: "
+        f"{' -> '.join(G.why(module, 'fantabot.adapters.persistence'))}"
+    )
 
 
 @pytest.mark.parametrize("module", CAPTURE)
 def test_the_capture_path_reaches_no_orm(module: str) -> None:
-    offenders = {name for name in _imports(PACKAGE / module) if name.startswith("sqlalchemy")}
-    assert offenders == set(), f"{module} imports SQLAlchemy: {offenders}"
+    assert not G.reaches(module, "sqlalchemy"), (
+        f"{module} reaches SQLAlchemy: {' -> '.join(G.why(module, 'sqlalchemy'))}"
+    )
 
 
 def test_a_checkpoint_that_never_advanced_re_reads_everything(tmp_path: Path) -> None:
