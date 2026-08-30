@@ -58,10 +58,11 @@ alembic check                # models and migrations agree?
    defaults to `false` — the same "safe by default" pattern as mailwise's
    `AUTO_SEND`: every write action (submit lineup, place bid) is gated behind
    it and logs a dry-run message instead when it's off.
-2. **`browser.py`** — two Playwright context managers. `context()` reuses
-   `data/storage_state.json` if one was kept; `interactive_login_context()` is
-   headed, used only by `login.py`, and **writes nothing** — the caller reads
-   `storage_state()` inside the body and decides whether to persist it.
+2. **`browser.py`** — one Playwright context manager. `interactive_login_context()`
+   is headed, used only by the two login commands, and **writes nothing** — the
+   caller reads `storage_state()` inside the body and decides whether to persist it.
+   (A headless `context()` reusing `data/storage_state.json` went with its only two
+   callers on 2026-08-30; it had never run.)
 3. **`login.py`** — `fantabot login`. Opens a real headed Chrome window, waits
    for the human to log in (captcha/2FA included), then reads each lega's token
    out of `localStorage`, encrypts it and writes it to `league_tokens`. **The
@@ -69,31 +70,27 @@ alembic check                # models and migrations agree?
    `leagues[]` carries its own working token, measured 2026-08-26, so there is
    nothing to navigate. Everything checkable is checked *before* the browser
    opens: key present, key valid, database reachable.
-4. **`state.py`** — one function: `storage_state_path()`. Runtime state moved
-   to Postgres (`bot_state`, `auction_bids`), keyed by lega because the account
-   is in two and one flat file could not tell them apart. This module imports
-   nothing from `db/` on purpose — `browser.py` sits on its import chain, and
-   `fantabot --help` has to work before a database exists.
-5. **`models.py`** — frozen dataclasses (`Player`, `RosterSlot`, `Lineup`,
-   `AuctionListing`, `BidDecision`, ...) plus `VALID_FORMATIONS`, the 7 legal
-   classic-mode (D, C, A) splits summing to 10 outfield players.
-6. **`strategy.py`** — **the only module with real, tested decision logic**;
-   pure functions, no I/O, no Playwright. `pick_starting_lineup` picks the
-   formation that fields the most players (attackers break ties) from
-   available+fieldable roster slots by projected score, then picks
-   captain/vice as the top-2 scorers among starters. `allocate_auction_budget`
-   splits total credits by role (default 5/15/35/45 GK/DEF/MID/ATT — a common
-   classic-mode heuristic, not derived from real market data yet).
-   `decide_bid` bids current+1, capped at `min(target_price, role_budget_left)`,
-   returns `None` (pass) once at the cap.
-7. **`data_sources/`** — `StatsSource` `Protocol` (`projected_scores`,
-   `player_pool`, `target_price`), still unimplemented. Alongside it,
-   `models.py` (the frozen value types, and the single definition of the eight
-   `SCORES`) and `news_sentiment.py`, a thin adapter over the sentiment read
-   repository: `latest`, `trailing` (silent rows excluded), `drifted()`. It
-   holds a session, never a cached table — `auction.py` polls for hours and
-   would otherwise hold a frozen reading for a whole asta. Not wired into
-   `strategy.py` yet.
+4. **`state.py`** — one function: `storage_state_path()`, read by `login.py` alone.
+   It imports nothing from `db/` on purpose: `login.py` is on its import chain and
+   `cli.py` on that one, and `fantabot --help` has to work before a database exists.
+   (It used to describe `bot_state` and `auction_bids`; both were dropped on
+   2026-08-30 with their only writers, having never held a row.)
+5. **The Classic cluster is gone.** `models.py`, `strategy.py`, `lineup.py`,
+   `auction.py`, `browser.context()`, `db/repositories/runtime.py` and the
+   `bot_state` / `auction_bids` tables were deleted on 2026-08-30. Every
+   site-touching function in them raised `NotImplementedError` against a DOM
+   nobody mapped, and `strategy.pick_starting_lineup` was Classic-only by
+   construction — it could not field a Mantra XI at all. The Mantra engine that
+   supersedes them is `asta_engine/`; weekly lineup submission, when it is wanted,
+   gets built on the `apileague.fantacalcio.it` JSON endpoints rather than on
+   scraped markup. `git log` has all of it.
+7. **`data_sources/`** — the read-side adapters. `models.py` holds the frozen value
+   types and the single definition of the eight `SCORES`; `news_sentiment.py` is a
+   thin adapter over the sentiment read repository (`latest`, `trailing` with silent
+   rows excluded, `drifted()`). It holds a session, never a cached table — `asta-bid`
+   polls for hours and would otherwise hold a frozen reading for a whole asta.
+   (A `StatsSource` Protocol declared here for the deleted lineup path went with it:
+   an interface with no implementation and no caller is a guess about a shape.)
 
 13. **`db/`** — the persistence shell. `engine.py` builds the Engine lazily on
    first `get_session()`, never at import; `base.py` carries the naming
@@ -139,18 +136,6 @@ alembic check                # models and migrations agree?
    `data/mantra_schemi.json` / `mantra_compat.json`. Six fail-closed gates in
    `gates.py`; a failed gate writes nothing and the output is never
    hand-patched to satisfy a check.
-8. **`lineup.py`** — orchestrates one matchday: scrape deadline/roster →
-   score via `StatsSource` → `strategy.pick_starting_lineup` → submit (or dry
-   run). `scrape_matchday_info` / `scrape_roster` / `submit_lineup` are
-   `NotImplementedError` stubs — DOM not mapped yet.
-9. **`auction.py`** — `watch_and_bid` is a **long-lived polling loop**
-   (5s interval), not a single cron-triggered action: asta iniziale/riparazione
-   on this site are live sessions, so the loop must be started shortly before
-   the scheduled auction and left running for its duration. Session identity
-   (`scrape_session_id`) lets `state.py` dedupe/reset role budgets across
-   restarts. `scrape_session_id` / `scrape_current_listing` / `place_bid` /
-   `is_session_over` are `NotImplementedError` stubs — same reason as above.
-
 14. **`aste/`** — the auction harvester, and the reason `docs/fantalab/05` exists.
    `sse.py`/`reducer.py`/`reconstruct.py`/`registry.py`/`compare.py`/`backfill.py`
    are pure; `stream.py`/`transport.py`/`landing.py`/`loader.py`/`supervisor.py`
@@ -219,30 +204,21 @@ alembic check                # models and migrations agree?
 
 ## Known unknowns — resolve before flipping `FANTABOT_AUTO_ACT=true`
 
-- **Site DOM**: login form, roster/formazione page, asta iniziale room, asta
-  di riparazione room. Map these by running `fantabot login`, then inspecting
-  the live pages (Chrome DevTools MCP or manual devtools) — fill in the
-  `NotImplementedError` bodies in `lineup.py` and `auction.py` with real
-  selectors once mapped. Don't guess selectors from memory of "a typical
-  fantacalcio site" — leghe.fantacalcio.it is a private-league product, not
-  the public fantacalcio.it site, and its markup hasn't been inspected.
-  **Before mapping more selectors, read `docs/leghe-api.md`** — the site
-  actually runs on a separate JSON API (`apileague.fantacalcio.it`) with
-  auth reverse-engineered and several read endpoints (league status, teams,
-  roster settings) confirmed working. The bearer token it needs is now an
-  encrypted row in `league_tokens`, reachable through
-  `apileague.auth_headers(league_id, store=...)`, so read-side DOM scraping in
-  `lineup.py` may be unnecessary — go straight to `httpx` calls for those.
-  Lineup submission and auction bidding are still undocumented POST
-  endpoints (see "Gaps" in that doc) — those two still need either a live
-  Network capture during a real submit/bid, or the DOM path.
-- **Asta mechanics**: whether leghe.fantacalcio.it's asta iniziale/riparazione
-  is a live simultaneous-bidding room (needs the polling loop as built), a
-  turn-based queue, or something else — confirm by watching one before
-  trusting `auction.py`'s polling assumption.
-- **Stats source**: still unchosen for `StatsSource` proper. News sentiment is
-  now covered by `fantabot news-fetch` (see `docs/spec-news-sentiment.md`), which is a different
-  thing: it is opinion and availability, not per-matchday projected scores.
+- **Lineup submission**: not built, and no longer scaffolded. The Classic modules
+  that stood in for it were deleted rather than left raising `NotImplementedError`
+  against markup nobody had inspected. **Start from `docs/leghe-api.md`**, not from
+  the DOM: the site runs a separate JSON API (`apileague.fantacalcio.it`) with auth
+  reverse-engineered and several read endpoints confirmed working, and the bearer
+  token is an encrypted row in `league_tokens` reachable through
+  `apileague.auth_headers(league_id, store=...)`. Only the submit POST is still
+  undocumented (see "Gaps" in that doc) and needs a live Network capture.
+- ~~**Asta mechanics**~~ **Resolved.** Not the leghe.fantacalcio.it room at all —
+  the asta runs on FantaLab, and `asta-bid` drives its unauthenticated RTDB
+  directly. See `docs/fantalab/06-asta-write-path.md`, verified live 2026-08-28.
+- **Stats source**: still unchosen. News sentiment is covered by
+  `fantabot news-fetch` (see `docs/spec-news-sentiment.md`), which is a different
+  thing: it is opinion and availability, not per-matchday projected scores. When one
+  is picked, write the interface against the consumer that exists then.
 - ~~**Bearer token**~~ **Resolved.** Encrypted in Postgres (`league_tokens`),
   written by `fantabot login`, read through `apileague.auth_headers`. Spec:
   [`tasks/archive/token-store-spec.md`](tasks/archive/token-store-spec.md) — recovered from commit
@@ -290,12 +266,13 @@ alembic check                # models and migrations agree?
   under `tokens/`, and `decrypt(` confined to `tokens/crypto.py` and
   `tokens/store.py`. Never pass the encryption key on argv — `ps` shows it and
   the shell keeps it in history.
-- `strategy.py` must stay pure (no Playwright, no network). It is no longer the
-  only tested module — `agentkit/`, `news/`, `mantra_grid/` and
-  `data_sources/news_sentiment.py`, `tokens/`, `apileague.py` and `aste/` all have
-  suites, 716 tests plus 115 in the `db` tier — but the
-  reason it was testable is the reason they are: the decision logic has no I/O.
-  Keep new logic in a pure module and the I/O in a thin shell around it.
+- **Decision logic stays pure — no Playwright, no network, no clock.** `asta_engine/`,
+  `agentkit/`, `news/`, `mantra_grid/`, `tokens/` and `aste/` all follow it, and it is
+  why they are testable: 1,015 tests in the default tier plus 127 in `db`, opening zero
+  sockets and making zero agent calls. Keep new logic in a pure module and the I/O in a
+  thin shell around it. The clock counts as I/O: `asta_engine` reads the calendar in
+  exactly one place (`cli._today`), enforced by `tests/test_asta_clock.py`, because the
+  golden harness has to freeze it.
 - **The test suite makes zero agent calls and opens zero sockets.** Runners and
   sleepers are injected so the fan-out is testable with fakes. Keep it that way;
   a suite that queries is a suite nobody runs.
@@ -320,10 +297,10 @@ alembic check                # models and migrations agree?
 
 ## Future: BAML upgrade path
 
-`strategy.py`'s rules (role budget split, formation tie-break) are hand-tuned
-heuristics, not learned/LLM-driven. Once a real stats source exists and the
-heuristics prove too blunt (e.g. auction target prices need reasoning about
-scarcity/form, not just a static split), consider a BAML function for
-`target_price`/bid reasoning — following the pattern in `optimizer`,
-`dietwise`, `clipcraft`. Don't add BAML now; there's no data to reason over
-yet and it would be build-ahead-of-need.
+`asta_engine`'s tunables — `SentimentWeights`' floors and tilt weights, the role
+composition, `DEFAULT_SAME_TEAM_RHO` — are declared priors and hand-tuned heuristics,
+not learned. Only `tit_floor` is fitted. Once a real stats source exists and they prove
+too blunt (e.g. walk-aways need reasoning about scarcity and form, not a static tilt),
+consider a BAML function for the pricing — following the pattern in `optimizer`,
+`dietwise`, `clipcraft`. Don't add BAML now; there is one `data_run` to reason over and
+it would be build-ahead-of-need.
