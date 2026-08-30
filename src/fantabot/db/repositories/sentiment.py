@@ -71,7 +71,7 @@ def to_record(row: Mapping[str, str]) -> dict[str, Any]:
 
 
 class SentimentRepository(RepositoryBase):
-    """Everything the news pipeline and the strategy layer ask of this table."""
+    """Everything the news pipeline and the asta engine ask of this table."""
 
     def existing_keys(self, data_run: date) -> set[tuple[str, str]]:
         """``(data_run, player_id)`` already stored, as strings.

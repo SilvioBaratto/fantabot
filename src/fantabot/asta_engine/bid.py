@@ -1,6 +1,6 @@
 """Pure bid decision: the live lot in, the raise to place (or ``None``) out.
 
-Mirrors ``strategy.decide_bid`` — no socket, no HTTP, no clock of its own. The transport
+Pure — no socket, no HTTP, no clock of its own. The transport
 (``fantalab.rtdb``, a later task) sends verbatim whatever this returns; a boundary test proves
 this module imports nothing that could reach the network or the database, so the whole decision
 is testable with fakes.

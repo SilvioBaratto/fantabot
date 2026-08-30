@@ -1,7 +1,8 @@
 """The database shell: engine, models, repositories, importers.
 
 Everything in this package is I/O. Decision logic stays in the pure modules —
-``strategy.py``, ``news/models|mantra|prompt|pool``, ``mantra_grid/gates.py`` —
+``asta_engine/optimizer|sentiment|value``, ``news/models|mantra|prompt``,
+``mantra_grid/gates.py`` —
 per CLAUDE.md's working rules.
 
 Importing this package must never construct an Engine or open a socket:
