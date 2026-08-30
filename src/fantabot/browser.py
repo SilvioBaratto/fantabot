@@ -1,8 +1,9 @@
 """Playwright contexts. One of them, now: the headed window the login flows open.
 
 ``context()`` — a headless context that reused a saved ``storage_state.json`` — was
-removed with its only two callers, ``lineup.py`` and ``auction.py``. Both raised
-``NotImplementedError`` on the line after they opened it, so the path had never run.
+removed with its only two callers, ``lineup.py`` and ``auction.py``. Both were
+unimplemented stubs that raised on the line after they opened it, so the path had
+never run.
 The saved-session file it depended on is still written under ``login --save-session``
 and is still read by nothing; that is recorded at ``state.py``.
 """
