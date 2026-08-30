@@ -1,4 +1,4 @@
-"""The database must stay behind ``fantabot.db``, and must not connect at import.
+"""The database must stay behind ``fantabot.adapters.persistence``, and must not connect at import.
 
 Two separate guarantees, easy to conflate:
 
@@ -22,9 +22,9 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from _paths import PACKAGE
+from _paths import PACKAGE, pkg
 
-from fantabot.db.engine import DatabaseManager
+from fantabot.adapters.persistence.engine import DatabaseManager
 
 PACKAGE = PACKAGE
 FORBIDDEN = "create_engine"
@@ -44,13 +44,21 @@ PURE_ASTA_MODULES = (
 
 
 def test_no_engine_is_constructed_outside_the_db_package() -> None:
+    """One module builds the Engine, so there is one place connection settings apply.
+
+    The persistence package is asked for by name rather than spelled as a path segment.
+    It was `parts[0] != "db"`, which stops being true the moment the package moves --
+    and stops *failing* too, since every module then looks like an offender.
+    """
+    persistence = pkg("db")
     offenders = [
         str(path.relative_to(PACKAGE))
         for path in sorted(PACKAGE.rglob("*.py"))
-        if path.relative_to(PACKAGE).parts[0] != "db" and FORBIDDEN in path.read_text()
+        if persistence not in path.parents and FORBIDDEN in path.read_text()
     ]
     assert offenders == [], (
-        f"{FORBIDDEN} belongs in fantabot/db/engine.py only; found in: {offenders}"
+        f"{FORBIDDEN} belongs in {persistence.relative_to(PACKAGE)}/engine.py only; "
+        f"found in: {offenders}"
     )
 
 
@@ -70,7 +78,7 @@ def test_importing_the_cli_opens_no_connection() -> None:
 
         import fantabot.cli
 
-        # Checked here, BEFORE fantabot.db is imported below — otherwise this
+        # Checked here, BEFORE fantabot.adapters.persistence is imported below — otherwise this
         # test would be asserting against its own import.
         #
         # Newly true, and newly worth pinning: until the old auth module was
@@ -79,9 +87,9 @@ def test_importing_the_cli_opens_no_connection() -> None:
         assert "playwright" not in sys.modules, "importing the CLI loaded Playwright"
         assert "sqlalchemy" not in sys.modules, "importing the CLI loaded SQLAlchemy"
 
-        import fantabot.db
+        import fantabot.adapters.persistence
 
-        assert fantabot.db.database_manager.engine is None, "engine built at import"
+        assert fantabot.adapters.persistence.database_manager.engine is None, "engine built at import"
         """
     )
     result = subprocess.run(
@@ -176,6 +184,6 @@ def test_the_asta_decision_layer_cannot_reach_the_database(module: str) -> None:
     default tier socket-free, since the whole value layer is reachable from ``fantabot.cli``.
     """
     names = _imports(PACKAGE / "asta_engine" / module)
-    offenders = {n for n in names if n.startswith(("fantabot.db", "sqlalchemy"))}
+    offenders = {n for n in names if n.startswith(("fantabot.adapters.persistence", "sqlalchemy"))}
 
     assert offenders == set(), f"{module} can reach the database via {offenders}"

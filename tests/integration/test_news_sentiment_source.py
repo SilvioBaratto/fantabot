@@ -21,8 +21,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 from fantabot.data_sources.news_sentiment import NewsSentimentSource
-from fantabot.db.repositories.sentiment import SentimentRepository
 
 pytestmark = pytest.mark.db
 

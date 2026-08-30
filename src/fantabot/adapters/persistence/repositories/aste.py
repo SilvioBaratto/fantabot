@@ -18,9 +18,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from fantabot.db.base import Base
-from fantabot.db.models.aste import Asta, AstaAssignment, AstaEvent
-from fantabot.db.repositories._base import RepositoryBase
+from fantabot.adapters.persistence.base import Base
+from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
+from fantabot.adapters.persistence.repositories._base import RepositoryBase
 
 #: Postgres refuses a statement with more bind parameters than this.
 PARAMETER_LIMIT = 65_535
@@ -213,7 +213,7 @@ class AsteRepository(RepositoryBase):
         """
         from sqlalchemy import select
 
-        from fantabot.db.models.reference import Player
+        from fantabot.adapters.persistence.models.reference import Player
 
         return frozenset(self.session.execute(select(Player.id)).scalars())
 

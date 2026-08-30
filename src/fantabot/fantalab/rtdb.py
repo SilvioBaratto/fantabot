@@ -6,7 +6,7 @@ nodes are readable — and participant bids writable — over plain HTTPS, on a 
 the advisory bootstraps from. The streaming subscription is wired in the feed (reusing ``aste``'s
 socket internals); this module is the addressing + one-shot read.
 
-Reads are unauthenticated (06 §10), and — like ``aste`` — nothing here imports ``fantabot.db``:
+Reads are unauthenticated (06 §10), and — like ``aste`` — nothing here imports ``fantabot.adapters.persistence``:
 an outage must cost catch-up time, never a bid. ``test_fantalab_rtdb`` proves it structurally.
 """
 

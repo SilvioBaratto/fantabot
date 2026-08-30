@@ -32,7 +32,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
-from fantabot.db import scraping as _db
+from fantabot.adapters.persistence import scraping as _db
 
 BASE_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
 USER_AGENT = (

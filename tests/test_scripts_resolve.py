@@ -30,7 +30,7 @@ SCRIPTS = REPO / "scripts"
 #: Modules a script may import as a bare sibling name, and where the real file lives.
 #: Empty since 2026-08-30, and the directory it guards is nearly empty too: the four
 #: scrapers moved into ``fantabot.scrapers`` / ``fantabot.pricing`` and their shared
-#: helper into ``fantabot.db.scraping``, so all of that is now linted by ``ruff`` and
+#: helper into ``fantabot.adapters.persistence.scraping``, so all of that is now linted by ``ruff`` and
 #: typed by ``mypy --strict``. What is left is ``resolve_aste_live.py``, which imports
 #: no sibling.
 #:

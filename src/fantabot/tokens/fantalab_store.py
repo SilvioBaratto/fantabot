@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from fantabot.db.repositories.tokens import FantalabSessionRepository
+from fantabot.adapters.persistence.repositories.tokens import FantalabSessionRepository
 from fantabot.tokens.crypto import TokenCipher
 from fantabot.tokens.fantalab import FantalabSession
 

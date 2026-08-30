@@ -6,7 +6,7 @@ normalization. The query that fetches them lives in `plan.py`'s shell and is cov
 the db tier.
 
 This file used to end with a hand-rolled AST check that `prices.py` imported
-`fantabot.db` and `value.py` did not. It read one file, did not follow imports, and
+`fantabot.adapters.persistence` and `value.py` did not. It read one file, did not follow imports, and
 asserted the *presence* of a database edge — so it turned red when P11-3 removed that
 edge, which is the opposite of what a purity check should do. `tests/test_layers.py` now
 makes the same kind of claim across the whole package, transitively, and ratchets in the

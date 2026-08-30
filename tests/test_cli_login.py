@@ -93,7 +93,7 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
         def __exit__(self, *a: Any) -> None:
             return None
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(database_manager, "get_session", lambda: _Session())
 
@@ -148,7 +148,7 @@ def test_an_unreachable_database_exits_before_the_browser(
     """SC 1's other half, and the reason the preflight exists at all."""
     from sqlalchemy.exc import OperationalError
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     def boom() -> Any:
         raise OperationalError("SELECT 1", {}, Exception("connection refused"))
@@ -171,7 +171,7 @@ def test_the_database_error_never_prints_the_dsn_password(
     from sqlalchemy.exc import OperationalError
 
     from fantabot import config
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(
         config.settings,

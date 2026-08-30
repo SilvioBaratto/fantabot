@@ -26,7 +26,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fantabot.db.base import Base, TimestampMixin
+from fantabot.adapters.persistence.base import Base, TimestampMixin
 
 
 class LeagueToken(Base, TimestampMixin):

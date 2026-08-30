@@ -117,4 +117,4 @@ def test_bid_module_imports_no_io() -> None:
             imported.add(node.module)
     forbidden = {"httpx", "socket", "playwright"}
     assert not (imported & forbidden), f"bid.py must stay pure; found {imported & forbidden}"
-    assert not any(name.startswith("fantabot.db") for name in imported), "bid.py reaches the DB"
+    assert not any(name.startswith("fantabot.adapters.persistence") for name in imported), "bid.py reaches the DB"

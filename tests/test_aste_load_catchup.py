@@ -237,8 +237,8 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
     def _fake_database(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         import contextlib
 
-        from fantabot.db import database_manager
-        from fantabot.db.repositories import aste as aste_repo
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.adapters.persistence.repositories import aste as aste_repo
 
         class _Session:
             def commit(self) -> None:
@@ -367,8 +367,8 @@ class _FakeDatabase:
     def install(self, monkeypatch, keep_rows: bool = False) -> None:  # type: ignore[no-untyped-def]
         import contextlib
 
-        from fantabot.db import database_manager
-        from fantabot.db.repositories import aste as aste_repo
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.adapters.persistence.repositories import aste as aste_repo
 
         record = self
 

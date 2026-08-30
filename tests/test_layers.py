@@ -53,7 +53,7 @@ LAYERS: dict[str, str] = {
     "fantabot.fantalab_login": "application",
     "fantabot.application": "application",
     # -- adapters: everything that talks to the world.
-    "fantabot.db": "adapters",
+    "fantabot.adapters.persistence": "adapters",
     "fantabot.agentkit": "adapters",
     "fantabot.fantalab": "adapters",
     "fantabot.scrapers": "adapters",
@@ -87,8 +87,8 @@ LAYERS: dict[str, str] = {
 
 #: Namespace packages carry no code and belong to no layer.
 UNPLACED = {"fantabot", "fantabot.asta_engine", "fantabot.aste", "fantabot.news",
-            "fantabot.tokens", "fantabot.db", "fantabot.db.models",
-            "fantabot.db.repositories", "fantabot.agentkit", "fantabot.fantalab",
+            "fantabot.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
+            "fantabot.adapters.persistence.repositories", "fantabot.agentkit", "fantabot.fantalab",
             "fantabot.scrapers", "fantabot.mantra_grid", "fantabot.data_sources",
             "fantabot.interface"}
 
@@ -110,7 +110,7 @@ def layer_of(module: str) -> str:
 #: `fantabot.interface` and `fantabot.config`: a pure module that reads settings has
 #: tests that depend on `.env`, and one that prints has tests that depend on a terminal.
 FORBIDDEN_TO_DOMAIN = (
-    "fantabot.db", "fantabot.interface", "fantabot.browser", "fantabot.config",
+    "fantabot.adapters.persistence", "fantabot.interface", "fantabot.browser", "fantabot.config",
     "sqlalchemy", "psycopg2", "playwright", "httpx", "claude_agent_sdk", "typer", "rich",
 )
 

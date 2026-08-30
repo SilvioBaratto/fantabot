@@ -7,7 +7,7 @@ dropped on 2026-08-30 with the Classic lineup and auction code that were their o
 writers. Neither ever held a row.
 
 What is left is one path, read by ``login.py`` alone. It stays a plain function
-over ``settings`` and imports nothing from ``fantabot.db`` on purpose: ``login.py``
+over ``settings`` and imports nothing from ``fantabot.adapters.persistence`` on purpose: ``login.py``
 sits on this import chain and ``cli.py`` sits on that one, so ``fantabot --help``
 has to work before a database exists. ``login.py`` does reach the database —
 deliberately — but only inside its command body, so it can *report* an unreachable

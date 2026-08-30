@@ -265,7 +265,7 @@ def test_the_league_token_repr_leaks_neither_plaintext_nor_ciphertext() -> None:
     import _tokens
     from cryptography.fernet import Fernet
 
-    from fantabot.db.models.tokens import LeagueToken
+    from fantabot.adapters.persistence.models.tokens import LeagueToken
     from fantabot.tokens.crypto import TokenCipher
 
     plaintext = _tokens.make_token(l_id=_tokens.LEGA_MANTRA)
@@ -305,8 +305,8 @@ def test_league_tokens_has_no_text_column_that_could_hold_a_jwt() -> None:
     A real league JWT is ~800 characters, so a bounded `String` cannot hold one
     and the only unbounded column is the display name.
     """
-    import fantabot.db.models  # noqa: F401  -- registers every table
-    from fantabot.db.base import Base
+    import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table
+    from fantabot.adapters.persistence.base import Base
 
     table = Base.metadata.tables["league_tokens"]
     text_columns = {

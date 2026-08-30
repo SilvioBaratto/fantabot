@@ -18,8 +18,8 @@ from cryptography.fernet import Fernet
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from fantabot.db.models.tokens import LeagueToken
-from fantabot.db.repositories.tokens import LeagueTokenRepository
+from fantabot.adapters.persistence.models.tokens import LeagueToken
+from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 from fantabot.tokens.crypto import TokenCipher
 from fantabot.tokens.errors import TokenUndecryptable
 from fantabot.tokens.store import TokenStore

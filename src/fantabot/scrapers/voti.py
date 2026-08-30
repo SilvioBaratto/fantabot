@@ -31,7 +31,7 @@ Upserts, one row per season/giornata/player in each:
     players      — ids seen here that the listone never carried
 
 Both match tables are written in two passes, one per partial unique index,
-because coach rows have no player_id. See fantabot.db.upserts.
+because coach rows have no player_id. See fantabot.adapters.persistence.upserts.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 
-from fantabot.db import scraping as _db
+from fantabot.adapters.persistence import scraping as _db
 from fantabot.parsing import italian_decimal, parse_date, parse_time
 
 BASE_URL = "https://www.fantacalcio.it/voti-fantacalcio-serie-a"

@@ -6,7 +6,7 @@ This module is the thin I/O shell: read the ledger over unauthenticated HTTPS, c
 pure ``purchases_to_events``. The node read is injectable so the suite never opens a socket.
 
 A continuous subscription belongs to the room loop; this is the one-shot ledger read the
-advisory bootstraps from and re-reads each cycle. No ``fantabot.db`` import — the capture path
+advisory bootstraps from and re-reads each cycle. No ``fantabot.adapters.persistence`` import — the capture path
 must survive a database outage.
 """
 

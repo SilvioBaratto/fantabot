@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import select, union
 from sqlalchemy.dialects.postgresql import insert
 
+from fantabot.adapters.persistence.models.matches import MatchGrain
+from fantabot.adapters.persistence.models.reference import Player, Quotazione, Statistica, Team
+from fantabot.adapters.persistence.repositories._base import RepositoryBase
 from fantabot.club_names import build_mapping
 from fantabot.data_sources.models import QuotazioneRow
-from fantabot.db.models.matches import MatchGrain
-from fantabot.db.models.reference import Player, Quotazione, Statistica, Team
-from fantabot.db.repositories._base import RepositoryBase
 
 if TYPE_CHECKING:
     from sqlalchemy import CursorResult

@@ -12,11 +12,11 @@ from urllib.parse import urlparse
 
 import pytest
 
+from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
+from fantabot.adapters.persistence.repositories.aste import PARAMETER_LIMIT, chunk_size
 from fantabot.aste.models import ShardError, valid_shard
 from fantabot.aste.registry import from_card, from_seed_row
 from fantabot.aste.stream import stream_url
-from fantabot.db.models.aste import Asta, AstaAssignment, AstaEvent
-from fantabot.db.repositories.aste import PARAMETER_LIMIT, chunk_size
 
 # --- 1. SSRF: the shard reaches a URL and comes from untrusted content -----
 

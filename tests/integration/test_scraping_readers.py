@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from fantabot.db.scraping import (
+from fantabot.adapters.persistence.scraping import (
     BiasRow,
     PlayerQuote,
     PriorStats,

@@ -14,7 +14,7 @@ import _tokens
 import pytest
 from cryptography.fernet import Fernet
 
-from fantabot.db.models.tokens import LeagueToken
+from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.tokens.capture import CapturedToken
 from fantabot.tokens.claims import decode_claims
 from fantabot.tokens.crypto import TokenCipher

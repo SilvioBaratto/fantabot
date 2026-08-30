@@ -56,7 +56,7 @@ class _Session:
 
 
 def _use_fake_session(monkeypatch: Any) -> None:
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(database_manager, "_session_factory", _Session)
 
@@ -84,7 +84,7 @@ def test_an_unreachable_database_exits_nonzero_with_an_instruction(monkeypatch: 
 
         def close(self) -> None: ...
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(database_manager, "_session_factory", _Dead)
 
@@ -97,7 +97,7 @@ def test_an_unreachable_database_exits_nonzero_with_an_instruction(monkeypatch: 
 
 def test_the_dsn_password_is_not_printed_when_the_database_is_down(monkeypatch: Any) -> None:
     from fantabot import config
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(
         config.settings,

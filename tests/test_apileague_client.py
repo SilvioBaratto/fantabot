@@ -22,7 +22,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from fantabot import apileague
-from fantabot.db.models.tokens import LeagueToken
+from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.tokens.crypto import TokenCipher
 from fantabot.tokens.errors import (
     ApiTimeout,

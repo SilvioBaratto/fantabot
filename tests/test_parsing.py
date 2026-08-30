@@ -116,7 +116,7 @@ def test_the_parsers_do_not_reach_for_a_database() -> None:
     assert module.__file__ is not None
     text = Path(module.__file__).read_text()
     assert "sqlalchemy" not in text
-    assert "fantabot.db" not in text
+    assert "fantabot.adapters.persistence" not in text
 
 
 class TestSplitFlags:

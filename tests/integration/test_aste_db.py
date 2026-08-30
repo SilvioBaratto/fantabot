@@ -15,8 +15,8 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from fantabot.db.models.aste import Asta, AstaAssignment, AstaEvent
-from fantabot.db.repositories.aste import AsteRepository
+from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
+from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
 pytestmark = pytest.mark.db
 

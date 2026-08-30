@@ -19,7 +19,7 @@ from datetime import datetime
 from sqlalchemy import ARRAY, BigInteger, DateTime, Integer, SmallInteger, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fantabot.db.base import Base
+from fantabot.adapters.persistence.base import Base
 
 
 class LeagueSnapshot(Base):

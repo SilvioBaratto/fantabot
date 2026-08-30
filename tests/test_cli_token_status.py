@@ -19,8 +19,8 @@ import pytest
 from cryptography.fernet import Fernet
 from typer.testing import CliRunner
 
+from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.cli import app, token_status_rows
-from fantabot.db.models.tokens import LeagueToken
 from fantabot.tokens.crypto import TokenCipher
 from fantabot.tokens.status import TokenStatus
 from fantabot.tokens.store import TokenStore
@@ -212,7 +212,7 @@ def test_an_empty_table_says_to_log_in(monkeypatch: pytest.MonkeyPatch) -> None:
     broke the test for a reason that had nothing to do with the code.
     """
     from fantabot import config
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(config.settings, "fantabot_league_id", 0)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
@@ -231,7 +231,7 @@ def test_a_configured_league_with_no_row_is_reported_missing(
     saying "nothing stored" and starts naming the lega that is absent.
     """
     from fantabot import config
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(config.settings, "fantabot_league_id", 4103937)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
@@ -244,7 +244,7 @@ def test_a_configured_league_with_no_row_is_reported_missing(
 
 def test_an_unknown_league_is_reported_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """SC 11's MISSING half. A lega is *known* only if you named it."""
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
     result = runner.invoke(app, ["auth", "status", "--league", "9911111"])
@@ -259,7 +259,7 @@ def test_a_dead_database_prints_an_instruction_not_a_traceback(
 ) -> None:
     from sqlalchemy.exc import OperationalError
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     def boom() -> Any:
         raise OperationalError("SELECT 1", {}, Exception("connection refused"))
@@ -274,7 +274,7 @@ def test_a_dead_database_prints_an_instruction_not_a_traceback(
 
 def test_no_output_contains_a_token_or_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from fantabot import config
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     key = Fernet.generate_key().decode()
     monkeypatch.setattr(config.settings, "fantabot_encryption_key", key)
@@ -342,7 +342,7 @@ def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyP
     not by the suite.
     """
     from fantabot import cli
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     seen: dict[str, Any] = {}
 

@@ -139,7 +139,7 @@ class TestTeamsSeed:
         `count(*) WHERE nome_completo = codice` is 0 whether or not a name was
         silently rewritten, so it cannot detect a backfill that churns.
         """
-        from fantabot.db.repositories.reference import ReferenceRepository
+        from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
         digest = "SELECT md5(string_agg(stagione||codice||nome_completo, ',' ORDER BY stagione, codice)) FROM teams"
         before = db_session.execute(text(digest)).scalar()
@@ -156,7 +156,7 @@ class TestTeamsSeed:
         to map from. That is not an error — the placeholder codes stay until
         fixtures arrive. Run inside the rolled-back fixture transaction.
         """
-        from fantabot.db.repositories.reference import ReferenceRepository
+        from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
         db_session.execute(text("DELETE FROM match_grain"))
         db_session.execute(text("DELETE FROM match_grain"))
@@ -165,8 +165,8 @@ class TestTeamsSeed:
 
     def test_a_prefix_collision_refuses_and_writes_nothing(self, db_session: Session) -> None:
         """Fail closed. A partial mapping leaves NULLs that later joins drop."""
+        from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
         from fantabot.club_names import TeamMappingError
-        from fantabot.db.repositories.reference import ReferenceRepository
 
         digest = "SELECT md5(string_agg(stagione||codice||nome_completo, ',' ORDER BY stagione, codice)) FROM teams"
         before = db_session.execute(text(digest)).scalar()
@@ -516,7 +516,7 @@ class TestSentimentWriteAgainstALiveTable:
         return _synthetic(db_session, 1)[0]
 
     def test_the_same_key_twice_inserts_once(self, db_session: Session) -> None:
-        from fantabot.db.repositories.sentiment import SentimentRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 
         player_id = self._a_real_player(db_session)
         repo = SentimentRepository(db_session)
@@ -537,7 +537,7 @@ class TestSentimentWriteAgainstALiveTable:
     def test_force_overwrites_in_place_and_never_adds_a_row(self, db_session: Session) -> None:
         """Today --force merely skips the resume filter and append_rows has no
         dedup, so it writes a duplicate that _load keeps. This is the fix."""
-        from fantabot.db.repositories.sentiment import SentimentRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 
         player_id = self._a_real_player(db_session)
         repo = SentimentRepository(db_session)
@@ -562,7 +562,7 @@ class TestSentimentWriteAgainstALiveTable:
         otherwise slip through and silently disable resume."""
         from datetime import date
 
-        from fantabot.db.repositories.sentiment import SentimentRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 
         player_id = self._a_real_player(db_session)
         repo = SentimentRepository(db_session)
@@ -582,7 +582,7 @@ class TestSentimentReadPath:
     @staticmethod
     def _write(db_session: Session, player_id: int, runs: list[tuple[str, str, str]]) -> None:
         """runs: (data_run, confidenza, deriva_ruolo)."""
-        from fantabot.db.repositories.sentiment import SentimentRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 
         repo = SentimentRepository(db_session)
         for data_run, confidenza, deriva in runs:
@@ -621,7 +621,7 @@ class TestSentimentReadPath:
         return _synthetic(db_session, n)
 
     def test_latest_is_the_most_recent_run_not_an_arbitrary_row(self, db_session: Session) -> None:
-        from fantabot.db.repositories.sentiment import SentimentReadRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 
         (player_id,) = self._players(db_session, 1)
         self._write(
@@ -642,7 +642,7 @@ class TestSentimentReadPath:
     def test_trailing_slices_then_filters(self, db_session: Session) -> None:
         """Five runs, the last four of which include two silent ones. Filtering
         before slicing would reach back to the fifth and widen the window."""
-        from fantabot.db.repositories.sentiment import SentimentReadRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 
         (player_id,) = self._players(db_session, 1)
         self._write(
@@ -664,7 +664,7 @@ class TestSentimentReadPath:
 
     def test_an_all_silent_window_has_no_average_at_all(self, db_session: Session) -> None:
         """confidenza 0 means no coverage was found, not that he is neutral."""
-        from fantabot.db.repositories.sentiment import SentimentReadRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 
         (player_id,) = self._players(db_session, 1)
         self._write(db_session, player_id, [("2026-09-30", "0.0", "0.0")])
@@ -672,7 +672,7 @@ class TestSentimentReadPath:
         assert SentimentReadRepository(db_session).trailing(str(player_id)) is None
 
     def test_scores_come_back_as_floats_not_decimals(self, db_session: Session) -> None:
-        from fantabot.db.repositories.sentiment import SentimentReadRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 
         (player_id,) = self._players(db_session, 1)
         self._write(db_session, player_id, [("2026-09-30", "0.7", "0.5")])
@@ -684,7 +684,7 @@ class TestSentimentReadPath:
         assert isinstance(row.deriva_ruolo, float)
 
     def test_drifted_ranks_worst_first_in_one_statement(self, db_session: Session) -> None:
-        from fantabot.db.repositories.sentiment import SentimentReadRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 
         low, high, none_at_all = self._players(db_session, 3)
         self._write(db_session, low, [("2026-09-30", "0.3", "0.30")])
@@ -700,7 +700,7 @@ class TestSentimentReadPath:
     def test_drifted_uses_only_each_player_s_latest_reading(self, db_session: Session) -> None:
         """A tag that drifted in September and was confirmed in October is not
         drifted. DISTINCT ON takes the newest row, not any row."""
-        from fantabot.db.repositories.sentiment import SentimentReadRepository
+        from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 
         (player_id,) = self._players(db_session, 1)
         self._write(

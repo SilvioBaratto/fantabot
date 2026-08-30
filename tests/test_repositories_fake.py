@@ -17,10 +17,10 @@ import pytest
 from sqlalchemy import BigInteger, Column, MetaData, Table
 from sqlalchemy.dialects import postgresql
 
-import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
-from fantabot.db.base import Base
-from fantabot.db.repositories.admin import AdminRepository, UnknownTableError
-from fantabot.db.repositories.sentiment import (
+import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
+from fantabot.adapters.persistence.base import Base
+from fantabot.adapters.persistence.repositories.admin import AdminRepository, UnknownTableError
+from fantabot.adapters.persistence.repositories.sentiment import (
     SentimentReadRepository,
     SentimentRepository,
     to_record,
@@ -279,7 +279,7 @@ class TestLeagueTokenRepository:
     def _row() -> Any:
         from datetime import UTC, datetime
 
-        from fantabot.db.models.tokens import LeagueToken
+        from fantabot.adapters.persistence.models.tokens import LeagueToken
 
         now = datetime(2026, 8, 26, tzinfo=UTC)
         return LeagueToken(
@@ -298,7 +298,7 @@ class TestLeagueTokenRepository:
 
     def test_upsert_issues_exactly_one_statement(self) -> None:
         session = _session()
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         LeagueTokenRepository(session).upsert(self._row())
 
@@ -310,8 +310,11 @@ class TestLeagueTokenRepository:
 
         A hand-written list is exactly how `key_fingerprint` gets dropped.
         """
-        from fantabot.db.models.tokens import LeagueToken
-        from fantabot.db.repositories.tokens import UPSERT_COLUMNS, LeagueTokenRepository
+        from fantabot.adapters.persistence.models.tokens import LeagueToken
+        from fantabot.adapters.persistence.repositories.tokens import (
+            UPSERT_COLUMNS,
+            LeagueTokenRepository,
+        )
 
         expected = {
             c.name for c in LeagueToken.__table__.columns
@@ -328,7 +331,7 @@ class TestLeagueTokenRepository:
     def test_the_fingerprint_is_overwritten_alongside_the_ciphertext(self) -> None:
         """Named explicitly because this is the trap the derived list prevents."""
         session = _session()
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         LeagueTokenRepository(session).upsert(self._row())
         set_clause = session.statements[0].split("DO UPDATE SET", 1)[1]
@@ -339,7 +342,7 @@ class TestLeagueTokenRepository:
     def test_last_verified_at_is_reset_by_an_upsert(self) -> None:
         """A new credential is not verified because its predecessor was."""
         session = _session()
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         row = self._row()
         from datetime import UTC, datetime
@@ -353,7 +356,7 @@ class TestLeagueTokenRepository:
         session = _session()
         from datetime import UTC, datetime
 
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         LeagueTokenRepository(session).touch_last_seen([], datetime.now(UTC))
 
@@ -364,7 +367,7 @@ class TestLeagueTokenRepository:
         session = _session()
         from datetime import UTC, datetime
 
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         LeagueTokenRepository(session).touch_last_seen([3584692, 4103937], datetime.now(UTC))
 
@@ -374,7 +377,7 @@ class TestLeagueTokenRepository:
     def test_all_rows_orders_explicitly(self) -> None:
         """Postgres has no inherent row order; unordered output would shuffle."""
         session = _session([])
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         LeagueTokenRepository(session).all_rows()
 
@@ -383,7 +386,7 @@ class TestLeagueTokenRepository:
     def test_all_rows_selects_no_ciphertext(self) -> None:
         """Nothing that renders a status needs one, so nothing gets one."""
         session = _session([])
-        from fantabot.db.repositories.tokens import LeagueTokenRepository
+        from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
 
         LeagueTokenRepository(session).all_rows()
 
@@ -391,9 +394,9 @@ class TestLeagueTokenRepository:
 
     def test_the_repository_never_imports_the_cipher(self) -> None:
         """Decryption is the store's job, and the store is the only site."""
-        from pathlib import Path
+        from _paths import pkg
 
-        source = Path("src/fantabot/db/repositories/tokens.py").read_text()
+        source = (pkg("db") / "repositories" / "tokens.py").read_text()
 
         assert "tokens.crypto" not in source
         assert "decrypt(" not in source
@@ -414,7 +417,7 @@ class TestClearingSalesAreReadInAStableOrder:
 
     def test_the_query_orders_by_player_then_price(self) -> None:
         session = _session([])
-        from fantabot.db.repositories.aste import AsteRepository
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
         AsteRepository(session).mantra_clearing_sales()
 
@@ -439,7 +442,7 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
     def test_describe_selects_no_ciphertext(self) -> None:
         """A status command must be writable without a decrypt."""
         session = _session([])
-        from fantabot.db.repositories.tokens import FantalabSessionRepository
+        from fantabot.adapters.persistence.repositories.tokens import FantalabSessionRepository
 
         FantalabSessionRepository(session).describe()
 
@@ -450,7 +453,7 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
     def test_describe_orders_newest_first(self) -> None:
         """`load()` with no user_id promises the most recent row wins."""
         session = _session([])
-        from fantabot.db.repositories.tokens import FantalabSessionRepository
+        from fantabot.adapters.persistence.repositories.tokens import FantalabSessionRepository
 
         FantalabSessionRepository(session).describe()
 
@@ -463,7 +466,7 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
         thing a status table states confidently and wrongly.
         """
         session = _session([])
-        from fantabot.db.repositories.tokens import FantalabSessionRepository
+        from fantabot.adapters.persistence.repositories.tokens import FantalabSessionRepository
 
         FantalabSessionRepository(session).upsert(
             user_id="u1", ciphertext=b"x", fingerprint="fp", at=datetime(2026, 8, 30)
@@ -474,9 +477,9 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
 
     def test_the_repository_never_imports_the_cipher(self) -> None:
         """Decryption is the store's job, and the store is the only site."""
-        from pathlib import Path
+        from _paths import pkg
 
-        source = Path("src/fantabot/db/repositories/tokens.py").read_text()
+        source = (pkg("db") / "repositories" / "tokens.py").read_text()
 
         assert "tokens.crypto" not in source
         assert "decrypt(" not in source

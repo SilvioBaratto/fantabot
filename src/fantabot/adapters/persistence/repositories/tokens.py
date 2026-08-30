@@ -17,8 +17,8 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from fantabot.db.models.tokens import FantalabSession, LeagueToken
-from fantabot.db.repositories._base import RepositoryBase
+from fantabot.adapters.persistence.models.tokens import FantalabSession, LeagueToken
+from fantabot.adapters.persistence.repositories._base import RepositoryBase
 from fantabot.tokens.status import TokenStatus
 
 if TYPE_CHECKING:

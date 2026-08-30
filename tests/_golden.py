@@ -147,9 +147,9 @@ def pinned_world(*, today: date | None = None) -> Iterator[None]:
     try:
         with ExitStack() as stack:
             for target, replacement in (
-                ("fantabot.db.database_manager", _FakeDatabaseManager()),
-                ("fantabot.db.repositories.reference.ReferenceRepository", _FakeReferenceRepository),
-                ("fantabot.db.repositories.aste.AsteRepository", _FakeAsteRepository),
+                ("fantabot.adapters.persistence.database_manager", _FakeDatabaseManager()),
+                ("fantabot.adapters.persistence.repositories.reference.ReferenceRepository", _FakeReferenceRepository),
+                ("fantabot.adapters.persistence.repositories.aste.AsteRepository", _FakeAsteRepository),
                 ("fantabot.data_sources.news_sentiment.NewsSentimentSource", _FakeSentimentSource),
                 ("fantabot.asta_engine.cli._today", lambda: today or PINNED_TODAY),
             ):

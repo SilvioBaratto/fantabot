@@ -104,8 +104,8 @@ def asta_optimize(
     tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
     """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
+    from fantabot.adapters.persistence import database_manager
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
-    from fantabot.db import database_manager
 
     with database_manager.get_session() as session:
         rows = sentiment_rows(
@@ -144,8 +144,8 @@ def asta_legality(
     season: Season = SEASON,
 ) -> None:
     """Print which of the 11 Mantra schemi a rosa can field. Read-only."""
-    from fantabot.db import database_manager
-    from fantabot.db.repositories.reference import ReferenceRepository
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     with database_manager.get_session() as session:
         quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
@@ -179,7 +179,7 @@ def asta_live(
     """
     from pathlib import Path
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     if bool(league) == bool(replay):
         console.print("[red]Pass exactly one of --league or --replay.[/red]")
@@ -278,9 +278,9 @@ def asta_bid(
     """
     import time
 
+    from fantabot.adapters.persistence import database_manager
     from fantabot.asta_engine.bid import Seat
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
-    from fantabot.db import database_manager
     from fantabot.fantalab import feed, room, rtdb
 
     # The same value model asta optimize planned with, by construction now rather than by

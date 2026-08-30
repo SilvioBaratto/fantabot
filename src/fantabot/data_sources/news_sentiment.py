@@ -28,13 +28,13 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
 from fantabot.data_sources.models import (
     SCORES,
     RoleDrift,
     SentimentRow,
     TrailingSentiment,
 )
-from fantabot.db.repositories.sentiment import SentimentReadRepository
 
 __all__ = [
     "SCORES",

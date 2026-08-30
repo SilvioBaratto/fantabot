@@ -9,7 +9,7 @@ boundary.
 
 from __future__ import annotations
 
-from fantabot.db.upserts import chunked
+from fantabot.adapters.persistence.upserts import chunked
 
 
 class TestChunking:

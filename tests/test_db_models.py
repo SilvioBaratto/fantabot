@@ -15,8 +15,8 @@ import textwrap
 import pytest
 from sqlalchemy import Index
 
-import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
-from fantabot.db.base import Base
+import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
+from fantabot.adapters.persistence.base import Base
 
 #: One table since 2026-08-30. Kept as a tuple because the properties below are
 #: about the *shape* the two shared — a surrogate key over disjoint partial
@@ -52,8 +52,8 @@ def test_importing_models_opens_no_socket() -> None:
         socket.socket.connect_ex = boom
         socket.create_connection = boom
 
-        import fantabot.db
-        import fantabot.db.models
+        import fantabot.adapters.persistence
+        import fantabot.adapters.persistence.models
         """
     )
     result = subprocess.run(
@@ -152,7 +152,7 @@ def test_player_sentiment_is_keyed_on_the_resume_index() -> None:
 
 def test_every_score_column_keeps_two_decimal_places() -> None:
     """build_row writes "%.2f". numeric(3,2) preserves it; a float would not."""
-    from fantabot.db.models.sentiment import SCORE_COLUMNS
+    from fantabot.adapters.persistence.models.sentiment import SCORE_COLUMNS
 
     table = Base.metadata.tables["player_sentiment"]
     for name in (*SCORE_COLUMNS, "deriva_ruolo"):
@@ -246,6 +246,6 @@ def test_the_snapshot_tables_ship_empty_and_say_why() -> None:
     already wrote nothing — so the check is now that the docstring still carries
     the reason, which is the half that was ever load-bearing.
     """
-    from fantabot.db.models import league
+    from fantabot.adapters.persistence.models import league
 
     assert "open question 5" in league.__doc__.lower()  # type: ignore[union-attr]

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from fantabot.db.repositories.sentiment import SentimentRepository
+from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 
 pytestmark = pytest.mark.db
 

@@ -4,7 +4,7 @@ The database URL is NOT in alembic.ini. It is read at runtime from
 ``fantabot.config.settings``, so `alembic upgrade head` and the application
 can never disagree about which database they mean, and no DSN is committed.
 
-``target_metadata`` comes from ``fantabot.db.models``, which imports every model
+``target_metadata`` comes from ``fantabot.adapters.persistence.models``, which imports every model
 module. A model that is not re-exported there is invisible to autogenerate,
 which then silently proposes dropping its table.
 """
@@ -15,7 +15,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from fantabot.config import settings
-from fantabot.db.models import Base
+from fantabot.adapters.persistence.models import Base
 
 config = context.config
 

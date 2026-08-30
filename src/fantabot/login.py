@@ -73,8 +73,8 @@ def _preflight_database() -> None:
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import SQLAlchemyError
 
+    from fantabot.adapters.persistence import database_manager
     from fantabot.config import settings
-    from fantabot.db import database_manager
 
     try:
         with database_manager.get_session() as session:
@@ -123,7 +123,7 @@ def run(
     fakes, which is the only reason `tests/test_cli_login.py` does not launch
     Chromium and open a socket.
     """
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
     from fantabot.tokens.store import TokenStore
 
     moment = now or datetime.now(UTC)
@@ -204,7 +204,7 @@ def _capture(
     moment: datetime,
 ) -> LoginResult:
     """The browser step, the parse, and the encrypted write."""
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
     from fantabot.tokens.store import TokenStore
 
     # The site root, deliberately — NOT `settings.lega_url`.
@@ -294,7 +294,7 @@ def _verify(
     import httpx
 
     from fantabot import apileague
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
     from fantabot.tokens.store import TokenStore
 
     console.print("\nVerifying:")

@@ -11,8 +11,8 @@ Importing this package must never construct an Engine or open a socket:
 has to stay socket-free.
 """
 
-from fantabot.db.base import Base, TimestampMixin
-from fantabot.db.engine import DatabaseManager, database_manager, get_session
+from fantabot.adapters.persistence.base import Base, TimestampMixin
+from fantabot.adapters.persistence.engine import DatabaseManager, database_manager, get_session
 
 __all__ = [
     "Base",

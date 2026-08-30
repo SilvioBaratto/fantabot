@@ -6,7 +6,7 @@ one-shot node read the advisory bootstraps from; it must return `None` for an em
 empty dict, so "no lot" is distinguishable from "a lot with no fields yet".
 
 The boundary tests are the load-bearing half: like `aste/`, nothing on the `fantalab/` capture
-path may reach `fantabot.db` — an outage must cost catch-up time, never a bid.
+path may reach `fantabot.adapters.persistence` — an outage must cost catch-up time, never a bid.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def test_read_snapshot_of_an_empty_node_is_none_not_empty_dict() -> None:
 
 @pytest.mark.parametrize("module", CAPTURE)
 def test_fantalab_capture_path_cannot_reach_the_database(module: str) -> None:
-    offenders = {name for name in _imports(PACKAGE / module) if name.startswith("fantabot.db")}
+    offenders = {name for name in _imports(PACKAGE / module) if name.startswith("fantabot.adapters.persistence")}
     assert offenders == set(), f"{module} can reach the database via {offenders}"
 
 

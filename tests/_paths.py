@@ -42,7 +42,7 @@ _PACKAGES: dict[str, Path] = {
     "asta_engine": PACKAGE / "asta_engine",
     "aste": PACKAGE / "aste",
     "data_sources": PACKAGE / "data_sources",
-    "db": PACKAGE / "db",
+    "db": PACKAGE / "adapters" / "persistence",
     "fantalab": PACKAGE / "fantalab",
     "mantra_grid": PACKAGE / "mantra_grid",
     "news": PACKAGE / "news",

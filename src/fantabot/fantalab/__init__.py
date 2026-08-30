@@ -6,6 +6,6 @@ loop (later). The protocol is documented and verified in
 `docs/fantalab/06-asta-write-path.md` — reads and participant bids need no token; only settling
 as admin does.
 
-Like `aste/`, the capture path never imports `fantabot.db`: an outage must cost catch-up time,
+Like `aste/`, the capture path never imports `fantabot.adapters.persistence`: an outage must cost catch-up time,
 never a bid.
 """

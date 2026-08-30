@@ -31,8 +31,8 @@ from decimal import Decimal
 from sqlalchemy import ARRAY, BigInteger, Date, ForeignKey, Index, Numeric, SmallInteger, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from fantabot.adapters.persistence.base import Base, TimestampMixin
 from fantabot.data_sources.models import SCORES
-from fantabot.db.base import Base, TimestampMixin
 
 # The eight model-produced scores, defined once in data_sources.models.
 # Re-exported under the old name so callers here read naturally.

@@ -7,7 +7,7 @@ tier also blocks sockets, so an import-based walker could not run where it matte
 An AST walk answers the question without executing a line.
 
 **Why transitive.** A direct-import check cannot see a re-export shim. `db/importers/
-matches.py` was four lines of `from fantabot.db.upserts import X as X`; anything
+matches.py` was four lines of `from fantabot.adapters.persistence.upserts import X as X`; anything
 importing it reached the whole upsert layer while appearing to import a leaf. The
 repository has had two of those.
 
@@ -112,8 +112,8 @@ def reachable(module: str) -> frozenset[str]:
 def reaches(module: str, target: str) -> bool:
     """Does `module` reach `target`, or anything under it?
 
-    Prefix-aware so a rule can name `fantabot.db` and catch
-    `fantabot.db.repositories.aste` without listing it.
+    Prefix-aware so a rule can name `fantabot.adapters.persistence` and catch
+    `fantabot.adapters.persistence.repositories.aste` without listing it.
     """
     return any(name == target or name.startswith(f"{target}.") for name in reachable(module))
 

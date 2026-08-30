@@ -4,7 +4,7 @@ Everything else under `news/` is pure — the join, the prompt, the row flatteni
 fan-out — and that is not incidental. `pipeline.fetch_all` returns rows rather than
 persisting them so the whole fan-out (concurrency cap, backoff, failure isolation,
 ordering) is testable with fakes and no database, and a test enforces it by refusing to
-let the string `fantabot.db` appear in that module at all.
+let the string `fantabot.adapters.persistence` appear in that module at all.
 
 `load_pool` used to live in `pool.py`, with its repository import inside the function
 body. Two modules import `PoolPlayer` from there for the dataclass alone, so that one
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 def load_pool(session: Session, season: str) -> list[PoolPlayer]:
     """Fetch both listoni for one season and join them."""
-    from fantabot.db.repositories.reference import ReferenceRepository
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     repo = ReferenceRepository(session)
     return build_pool(

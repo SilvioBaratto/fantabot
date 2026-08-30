@@ -107,7 +107,7 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: _FakeContext) -> 
         __import__("sys").modules, "fantabot.tokens.fantalab_store",
         type("m", (), {"FantalabStore": _Store})(),
     )
-    import fantabot.db as db_module
+    import fantabot.adapters.persistence as db_module
 
     monkeypatch.setattr(db_module.database_manager, "get_session", lambda: _Session())
     result = run(browser_factory=lambda: ctx, prompt=lambda _m: "",

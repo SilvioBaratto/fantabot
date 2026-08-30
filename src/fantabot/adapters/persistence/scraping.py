@@ -35,7 +35,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from fantabot.db import database_manager
+from fantabot.adapters.persistence import database_manager
 from fantabot.parsing import split_codes, split_flags
 
 #: The bonus/malus half of a `match_grain` row. NOT NULL every one: zero is a value.
@@ -375,8 +375,8 @@ def upsert_match_grain(
     Returns `(voti_rows, bonus_rows)` still, because the scraper reports both counts
     and they are the two halves it built.
     """
-    from fantabot.db.models.matches import MatchGrain
-    from fantabot.db.upserts import upsert_two_passes
+    from fantabot.adapters.persistence.models.matches import MatchGrain
+    from fantabot.adapters.persistence.upserts import upsert_two_passes
 
     if voti:
         handle.execute(
@@ -425,7 +425,7 @@ def backfill_team_names(handle: Session) -> int:
     Thin pass-through to ReferenceRepository so the scrapers have one name to
     call and do not each grow their own copy.
     """
-    from fantabot.db.repositories.reference import ReferenceRepository
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     return ReferenceRepository(handle).backfill_team_names()
 

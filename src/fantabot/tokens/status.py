@@ -12,7 +12,7 @@ recorded as a departure in `tasks/archive/token-store-plan.md`.
 `render_state()`. `db/repositories/tokens.py` imports it and constructs the
 values, so the dependency points **`db` → `tokens.status` and never back**: under
 `mypy --strict` these parameters need real annotations, and a type owned by the
-repository would drag a `fantabot.db` import into the module whose whole purpose
+repository would drag a `fantabot.adapters.persistence` import into the module whose whole purpose
 is to have none.
 """
 

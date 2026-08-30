@@ -105,7 +105,7 @@ class TestResolution:
         assert G.reaches("pkg.sub.here", "sqlalchemy")
 
     def test_a_package_import_is_prefix_matched(self, tree) -> None:  # type: ignore[no-untyped-def]
-        """A rule names `fantabot.db`; the edge is to `fantabot.db.repositories.aste`."""
+        """A rule names `fantabot.adapters.persistence`; the edge is to `fantabot.adapters.persistence.repositories.aste`."""
         tree(**{"caller": "from pkg.deep.inner import thing", "deep.inner": ""})
         assert G.reaches("pkg.caller", "pkg.deep")
         assert not G.reaches("pkg.caller", "pkg.deeper")
@@ -150,7 +150,7 @@ class TestAgainstTheRealTree:
         leaks = {
             m
             for m in ("fantabot.asta_engine.prices", "fantabot.news.pool")
-            if G.reaches(m, "fantabot.db")
+            if G.reaches(m, "fantabot.adapters.persistence")
         }
         split = {
             m

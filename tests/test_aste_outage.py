@@ -3,7 +3,7 @@
 Two halves, and they are proved differently.
 
 The collector cannot depend on Postgres because it cannot *reach* it: the
-modules that capture and write are checked for any path to `fantabot.db`. That
+modules that capture and write are checked for any path to `fantabot.adapters.persistence`. That
 is a structural proof and it holds for every future edit, where stopping a
 container once would only have proved it for one afternoon.
 
@@ -46,7 +46,7 @@ def test_the_capture_path_cannot_reach_the_database(module: str) -> None:
     """Not "does not today" — cannot. An outage must cost catch-up time and
     never a record, and that only holds if the collector has no way to wait on
     a database in the first place."""
-    offenders = {name for name in _imports(PACKAGE / module) if name.startswith("fantabot.db")}
+    offenders = {name for name in _imports(PACKAGE / module) if name.startswith("fantabot.adapters.persistence")}
     assert offenders == set(), f"{module} can reach the database via {offenders}"
 
 

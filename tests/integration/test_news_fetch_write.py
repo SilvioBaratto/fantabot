@@ -18,8 +18,8 @@ import pytest
 from sqlalchemy import text
 from typer.testing import CliRunner
 
+from fantabot.adapters.persistence import database_manager
 from fantabot.cli import app
-from fantabot.db import database_manager
 from fantabot.news.pipeline import FetchResult
 
 pytestmark = pytest.mark.db
@@ -134,7 +134,7 @@ def _already_stored_pool_player() -> Any:
     `database_manager.get_session()`. It writes with `force=True` and then hard-DELETEs, so
     the run day it lands on must be one no real run can ever occupy — see RUN_DAY.
     """
-    from fantabot.db.repositories.sentiment import SentimentRepository
+    from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
     from fantabot.news.read import load_pool
 
     with database_manager.get_session() as session:
@@ -378,7 +378,7 @@ def test_a_database_that_fails_mid_run_is_named_and_the_run_exits_non_zero(
     only other signal is the stored count quietly ceasing to advance while the
     counter, the scores and the ETA all go on looking healthy — and a run that
     stored nothing must not exit 0 and report the week as collected."""
-    from fantabot.db.repositories.sentiment import SentimentRepository
+    from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
     from fantabot.news import pipeline
 
     row = _row(canary_player, "mai scritta")
@@ -420,7 +420,7 @@ def test_the_canary_is_not_a_player_the_weekly_run_collects(canary_player: str) 
     """
     from sqlalchemy import text
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     with database_manager.get_session() as session:
         in_pool = session.execute(

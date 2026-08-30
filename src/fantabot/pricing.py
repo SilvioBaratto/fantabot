@@ -108,7 +108,7 @@ from dataclasses import dataclass
 
 from rich.table import Table
 
-from fantabot.db import scraping as _db
+from fantabot.adapters.persistence import scraping as _db
 from fantabot.interface.console import console
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]

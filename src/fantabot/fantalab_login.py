@@ -82,8 +82,8 @@ def _preflight_database() -> None:
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import SQLAlchemyError
 
+    from fantabot.adapters.persistence import database_manager
     from fantabot.config import settings
-    from fantabot.db import database_manager
 
     try:
         with database_manager.get_session() as session:
@@ -125,7 +125,7 @@ def run(
     now: datetime | None = None,
 ) -> FantalabLoginResult:
     """One login. Collaborators are injected so the flow is testable with fakes."""
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
     from fantabot.tokens.fantalab_store import FantalabStore
 
     moment = now or datetime.now(UTC)

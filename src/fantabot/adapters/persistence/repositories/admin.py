@@ -19,8 +19,8 @@ from typing import Any
 from sqlalchemy import MetaData, text
 from sqlalchemy.orm import Session
 
-from fantabot.db.base import Base
-from fantabot.db.repositories._base import RepositoryBase
+from fantabot.adapters.persistence.base import Base
+from fantabot.adapters.persistence.repositories._base import RepositoryBase
 
 _PUBLIC_SCHEMA = "public"
 

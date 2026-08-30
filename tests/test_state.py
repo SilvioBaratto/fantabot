@@ -46,9 +46,9 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
     `browser.py` was covered by nothing: this test read `state.py` alone, and
     after `fantabot auth login` replaces `auth`, `fantabot.cli` no longer pulls in
     `browser` at all — so no other test catches it incidentally either, while
-    `login.py` legitimately imports both `browser` and `fantabot.db`.
+    `login.py` legitimately imports both `browser` and `fantabot.adapters.persistence`.
 
-    Import statements, not prose: both module docstrings name `fantabot.db` in
+    Import statements, not prose: both module docstrings name `fantabot.adapters.persistence` in
     order to explain why they must not import it.
     """
     imports = [
@@ -56,7 +56,7 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
         for line in Path(f"src/fantabot/{module}").read_text().splitlines()
         if line.startswith(("import ", "from "))
     ]
-    offenders = [line for line in imports if "fantabot.db" in line or "sqlalchemy" in line]
+    offenders = [line for line in imports if "fantabot.adapters.persistence" in line or "sqlalchemy" in line]
 
     assert offenders == [], f"src/fantabot/{module} reaches the database: {offenders}"
 
@@ -70,7 +70,7 @@ def test_the_browser_chain_can_be_imported_with_no_database() -> None:
     (SPEC assumption 6).
 
     `fantabot.login` is deliberately **not** imported here. It imports
-    `fantabot.db`, legitimately — which is precisely what this test forbids on
+    `fantabot.adapters.persistence`, legitimately — which is precisely what this test forbids on
     this chain.
     """
     script = textwrap.dedent(

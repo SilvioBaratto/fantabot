@@ -44,7 +44,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fantabot.db.base import Base, TimestampMixin
+from fantabot.adapters.persistence.base import Base, TimestampMixin
 
 # Coach rows carry this instead of a player role, and no player id.
 COACH_ROLE = "ALL"

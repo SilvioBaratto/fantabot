@@ -8,7 +8,7 @@ Three pure modules and one shell, the same split as `news/`:
 * `status` — what `auth status` renders. Pure.
 * `store`  — the one place a stored token is decrypted. The only I/O here.
 
-The first four import nothing from `fantabot.db`, `fantabot.config`, `playwright`
+The first four import nothing from `fantabot.adapters.persistence`, `fantabot.config`, `playwright`
 or `httpx`, which is what makes the interesting cases testable without a socket.
 
 **`TokenStore` is deliberately NOT re-exported here**, though SPEC's Project

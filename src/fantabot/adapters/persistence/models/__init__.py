@@ -5,20 +5,20 @@ re-exported here is invisible to autogenerate, which silently proposes dropping
 its table.
 """
 
-from fantabot.db.base import Base, TimestampMixin
-from fantabot.db.models.aste import (
+from fantabot.adapters.persistence.base import Base, TimestampMixin
+from fantabot.adapters.persistence.models.aste import (
     ASTA_TYPES,
     Asta,
     AstaAssignment,
     AstaEvent,
 )
-from fantabot.db.models.league import (
+from fantabot.adapters.persistence.models.league import (
     LeaguePlayerPool,
     LeagueSnapshot,
     LeagueTeamSnapshot,
 )
-from fantabot.db.models.matches import COACH_ROLE, MatchGrain
-from fantabot.db.models.reference import (
+from fantabot.adapters.persistence.models.matches import COACH_ROLE, MatchGrain
+from fantabot.adapters.persistence.models.reference import (
     FONTI,
     LISTONI,
     MACRO_ROLES,
@@ -28,8 +28,8 @@ from fantabot.db.models.reference import (
     TargetPrice,
     Team,
 )
-from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
-from fantabot.db.models.tokens import FantalabSession, LeagueToken
+from fantabot.adapters.persistence.models.sentiment import SCORE_COLUMNS, PlayerSentiment
+from fantabot.adapters.persistence.models.tokens import FantalabSession, LeagueToken
 
 __all__ = [
     "ASTA_TYPES",

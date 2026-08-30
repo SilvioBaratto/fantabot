@@ -45,10 +45,10 @@ def aste_scan(
     """
     import json
 
+    from fantabot.adapters.persistence import database_manager
     from fantabot.aste.client import AuthExpired, LiveAuctionsClient, ScanEmpty
     from fantabot.aste.registry import from_seed_row, merge, to_seed_rows
     from fantabot.config import settings
-    from fantabot.db import database_manager
     from fantabot.tokens.crypto import TokenCipher
     from fantabot.tokens.fantalab_store import FantalabStore
 
@@ -160,6 +160,7 @@ def aste_load(
     import json
     import time
 
+    from fantabot.adapters.persistence.models.aste import ASTA_TYPES
     from fantabot.aste import incremental
     from fantabot.aste.backfill import auction_rows, event_rows
     from fantabot.aste.loader import (
@@ -173,7 +174,6 @@ def aste_load(
         catching_up,
         read_from,
     )
-    from fantabot.db.models.aste import ASTA_TYPES
 
     if asta_type not in ASTA_TYPES:
         console.print(f"[red]{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}")
@@ -210,8 +210,8 @@ def aste_load(
     # reading it is a session and 1,492 ids across the wire.
 
     def fetch_known_players() -> frozenset[int]:
-        from fantabot.db import database_manager
-        from fantabot.db.repositories.aste import AsteRepository
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
         with database_manager.get_session() as session:
             return AsteRepository(session).known_player_ids()
@@ -295,8 +295,8 @@ def aste_load(
             row["fantacalcio_id"] = fid
             unlinked += fid is None
         if not dry_run:
-            from fantabot.db import database_manager
-            from fantabot.db.repositories.aste import AsteRepository
+            from fantabot.adapters.persistence import database_manager
+            from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
             with database_manager.get_session() as session:
                 repo = AsteRepository(session)
@@ -475,8 +475,8 @@ def aste_backfill(
     """
     import json
 
+    from fantabot.adapters.persistence.models.aste import ASTA_TYPES
     from fantabot.aste.backfill import build, read_jsonl
-    from fantabot.db.models.aste import ASTA_TYPES
 
     # Checked before any work: asta_type is NOT NULL and only two values exist,
     # so a typo caught here beats a constraint violation after building 144,518
@@ -497,8 +497,8 @@ def aste_backfill(
 
     known_players: frozenset[int] | None = None
     if not dry_run:
-        from fantabot.db import database_manager
-        from fantabot.db.repositories.aste import AsteRepository
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
         with database_manager.get_session() as session:
             known_players = AsteRepository(session).known_player_ids()
@@ -522,8 +522,8 @@ def aste_backfill(
         console.print("[yellow]dry run — nothing written[/yellow]")
         return
 
-    from fantabot.db import database_manager
-    from fantabot.db.repositories.aste import AsteRepository
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
     with database_manager.get_session() as session:
         repo = AsteRepository(session)

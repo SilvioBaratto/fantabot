@@ -24,9 +24,9 @@ from sqlalchemy import cast, desc, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.types import Text
 
+from fantabot.adapters.persistence.models.sentiment import SCORE_COLUMNS, PlayerSentiment
+from fantabot.adapters.persistence.repositories._base import RepositoryBase
 from fantabot.data_sources.models import RoleDrift, SentimentRow, TrailingSentiment
-from fantabot.db.models.sentiment import SCORE_COLUMNS, PlayerSentiment
-from fantabot.db.repositories._base import RepositoryBase
 
 _TEXT_COLUMNS: tuple[str, ...] = (
     "stagione",

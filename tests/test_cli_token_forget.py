@@ -63,7 +63,7 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Any:
         def __exit__(self, *a: Any) -> None:
             return None
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(database_manager, "get_session", lambda: _Session())
     return {"rows": rows, "removed": removed}

@@ -118,8 +118,8 @@ def read_plan_inputs(
     Sales are restricted to our exact league shape — 8 teams, 500 credits — so the prices
     are directly comparable and need no budget normalization.
     """
-    from fantabot.db.repositories.aste import AsteRepository
-    from fantabot.db.repositories.reference import ReferenceRepository
+    from fantabot.adapters.persistence.repositories.aste import AsteRepository
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     sales = AsteRepository(session).mantra_clearing_sales(budget=500, num_teams=8)
     return build_plan_inputs(

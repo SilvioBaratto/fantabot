@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.db.models import Asta, AstaAssignment, AstaEvent, Base
+from fantabot.adapters.persistence.models import Asta, AstaAssignment, AstaEvent, Base
 
 TABLES = {"asta", "asta_event", "asta_assignment"}
 

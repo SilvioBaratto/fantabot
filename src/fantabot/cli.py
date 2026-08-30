@@ -152,8 +152,8 @@ def news_fetch(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from exc
 
-    from fantabot.db import database_manager
-    from fantabot.db.repositories.sentiment import SentimentRepository
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
 
     # Checked before anything is spent, the way `login` checks everything it can
     # before opening a browser. This one value keys both halves of resume — the
@@ -436,8 +436,8 @@ def db_backfill_teams() -> None:
     """
     from sqlalchemy.exc import SQLAlchemyError
 
-    from fantabot.db import database_manager
-    from fantabot.db.scraping import backfill_team_names
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.scraping import backfill_team_names
 
     try:
         with database_manager.get_session() as session:
@@ -550,10 +550,10 @@ def db_check() -> None:
     from rich.table import Table
     from sqlalchemy.exc import SQLAlchemyError
 
-    import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
+    import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.admin import AdminRepository
     from fantabot.config import settings
-    from fantabot.db import database_manager
-    from fantabot.db.repositories.admin import AdminRepository
 
     try:
         with database_manager.get_session() as session:
@@ -659,8 +659,8 @@ def token_status(
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import SQLAlchemyError
 
+    from fantabot.adapters.persistence import database_manager
     from fantabot.config import settings
-    from fantabot.db import database_manager
     from fantabot.tokens.crypto import TokenCipher
     from fantabot.tokens.errors import TokenError
     from fantabot.tokens.status import MISSING
@@ -764,7 +764,7 @@ def token_forget(
     """
     from datetime import UTC, datetime
 
-    from fantabot.db import database_manager
+    from fantabot.adapters.persistence import database_manager
     from fantabot.tokens.status import render_state
     from fantabot.tokens.store import TokenStore
 
