@@ -139,4 +139,5 @@ TREE: dict[str, str] = {
     "test_scripts_resolve.py": ".",
     "test_testtree.py": ".",
     "test_docs.py": ".",
+    "test_links.py": ".",
 }
