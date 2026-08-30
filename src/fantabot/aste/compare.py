@@ -173,3 +173,73 @@ def compare(
         extra_rungs=extra,
         outside_window=outside,
     )
+
+
+def equivalent(whole_file: Sequence[Assignment], incremental: Sequence[Assignment]) -> Verdict:
+    """Do two reconstructions of the same records agree exactly?
+
+    **A different question from `compare`, over the same machinery.** `compare` asks
+    whether streaming is a *strict superset* of polling, and treats equality as a
+    failure — two collectors watching the same rooms must agree on every sale, and
+    the streamed side must additionally carry rungs a merged snapshot could not show.
+    Here both sides read the *same* records by two routes, so equality is the only
+    acceptable answer and any difference is a defect in one of them.
+
+    That is why this exists rather than `compare(a, b) and compare(b, a)`: those two
+    calls can never both succeed, because each demands the other side gained a rung.
+
+    Written for the incremental reducer. A fold that keeps state across passes must
+    produce exactly what one whole-file pass produces, and "exactly" has to include
+    the ladders — a window starting mid-turn rebuilds a ladder from nothing, and the
+    upsert is DO UPDATE, so a short ladder silently overwrites a complete one. The
+    price alone would not notice that.
+    """
+    left, right = _by_key(whole_file), _by_key(incremental)
+
+    missing = sorted(set(left) - set(right))
+    if missing:
+        shown = ", ".join(player for _auction, player in missing[:5])
+        return Verdict(
+            ok=False,
+            reason=f"{len(missing)} sale(s) the whole-file fold found and the incremental lost: {shown}",
+            only_polled=missing,
+        )
+
+    invented = sorted(set(right) - set(left))
+    if invented:
+        shown = ", ".join(player for _auction, player in invented[:5])
+        return Verdict(
+            ok=False,
+            reason=f"{len(invented)} sale(s) only the incremental fold produced: {shown}",
+            only_streamed=len(invented),
+        )
+
+    for key in sorted(left):
+        a, b = left[key], right[key]
+        if a.price != b.price:
+            return Verdict(
+                ok=False,
+                reason=f"price disagreement on {key[1]}: whole-file {a.price}, incremental {b.price}",
+            )
+        if a.buyer_team_id != b.buyer_team_id:
+            return Verdict(
+                ok=False,
+                reason=f"buyer disagreement on {key[1]}: {a.buyer_team_id} vs {b.buyer_team_id}",
+            )
+        if a.ladder != b.ladder:
+            return Verdict(
+                ok=False,
+                reason=(
+                    f"ladder disagreement on {key[1]}: whole-file {len(a.ladder)} rungs, "
+                    f"incremental {len(b.ladder)} — a short ladder overwrites a complete one"
+                ),
+            )
+
+    return Verdict(
+        ok=True,
+        shared=len(left),
+        # `summary()` renders `compare`'s question — "strict superset", "rungs polling
+        # could not see" — which is the wrong sentence for this one. Saying so here
+        # keeps a passing equivalence from reading like a passing superset check.
+        reason=f"identical: {len(left)} sales, same prices, buyers and ladders",
+    )
