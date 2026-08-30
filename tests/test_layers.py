@@ -138,9 +138,6 @@ def _violations(rule: object) -> set[tuple[str, str]]:
 #: not a subset: a violation someone fixed without deleting its line here would leave
 #: the list looking like it still protects something.
 EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = {
-    # P11-3 — `prices.py:38` imports `db.repositories.aste` inside `clearing_sales`.
-    ("fantabot.asta_engine.prices", "fantabot.db"),
-    ("fantabot.asta_engine.prices", "sqlalchemy"),
     # P11-4 — `pool.py:87`, and the two modules that import it for its pure half.
     ("fantabot.news.pool", "fantabot.db"),
     ("fantabot.news.pool", "sqlalchemy"),

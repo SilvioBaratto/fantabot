@@ -25,6 +25,12 @@ over it rather than collapsing the difference.
 **Split in two on purpose.** `build_plan_inputs` is pure and takes rows; `read_plan_inputs`
 is the two-query shell over a `Session`. Validating `--sentiment-run` stays in the CLI,
 because it raises `typer.BadParameter` and nothing in this package may import typer.
+
+Both queries sit in the shell rather than behind helpers in the modules that reduce their
+rows. `expected_prices` used to live in `prices.py`, with its repository import inside the
+function body — so `prices.py` read as pure to a reader and to a grep while reaching
+Postgres on every call. Keeping the reads here means the layer a module belongs to is the
+one its imports say it belongs to.
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from .legality import SchemaLegality, build_legality, load_compat
-from .prices import expected_prices
+from .prices import Sale, mean_prices
 from .report import build_pool, build_value
 from .roles import MantraPlayer
 from .sentiment import SentimentWeights
@@ -108,12 +114,18 @@ def read_plan_inputs(
     as_of: date | None,
     tilt_k: float,
 ) -> PlanInputs:
-    """The I/O half: two reads on one session, then the pure derivation above."""
+    """The I/O half: two reads on one session, then the pure derivation above.
+
+    Sales are restricted to our exact league shape — 8 teams, 500 credits — so the prices
+    are directly comparable and need no budget normalization.
+    """
+    from fantabot.db.repositories.aste import AsteRepository
     from fantabot.db.repositories.reference import ReferenceRepository
 
+    sales = AsteRepository(session).mantra_clearing_sales(budget=500, num_teams=8)
     return build_plan_inputs(
         ReferenceRepository(session).quotazioni(season, "mantra"),
-        expected_prices(session),
+        mean_prices(Sale(player_id, price) for player_id, price in sales),
         sentiment,
         as_of=as_of,
         tilt_k=tilt_k,

@@ -1,20 +1,21 @@
 """Expected clearing price per player, from the loaded real Mantra auctions.
 
-The pure reducer ``mean_prices`` averages a player's observed sale prices; the thin
-``expected_prices`` shell pulls those sales from Postgres through the repository. Prices
-are drawn from auctions of our exact league shape (8 teams, 500 credits) so they are
-directly comparable — no budget normalization needed at v1. A player never sold in that
-set has no entry, and the caller falls back to a prior.
+`mean_prices` averages a player's observed sale prices. Prices are drawn from auctions
+of our exact league shape (8 teams, 500 credits) so they are directly comparable — no
+budget normalization needed at v1. A player never sold in that set has no entry, and the
+caller falls back to a prior.
+
+**The query that supplies these sales lives in `plan.py`.** It used to live here, as an
+`expected_prices` shell whose repository import sat inside the function body, which made
+this module read as pure at every level a reader or a grep would check while it reached
+Postgres on every call. `plan.py` was its only caller and already holds the other two
+reads, so moving it there removed an indirection rather than adding a file.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
 
 
 @dataclass(frozen=True)
@@ -31,16 +32,3 @@ def mean_prices(sales: Iterable[Sale]) -> dict[str, float]:
     for sale in sales:
         totals.setdefault(sale.player_id, []).append(sale.price)
     return {player_id: sum(prices) / len(prices) for player_id, prices in totals.items()}
-
-
-def expected_prices(session: Session, *, budget: int = 500, num_teams: int = 8) -> dict[str, float]:
-    """The I/O edge: fetch Mantra sales of our league shape and reduce to a mean per player."""
-    from fantabot.db.repositories.aste import AsteRepository
-
-    sales = [
-        Sale(player_id, price)
-        for player_id, price in AsteRepository(session).mantra_clearing_sales(
-            budget=budget, num_teams=num_teams
-        )
-    ]
-    return mean_prices(sales)
