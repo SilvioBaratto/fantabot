@@ -41,12 +41,12 @@ SSE_FIXTURES = FIXTURES / "sse"
 #: half adapters, and a test about "everything that handles a token" needs both halves or
 #: it quietly checks a fraction of what it claims.
 _PACKAGES: dict[str, tuple[Path, ...]] = {
-    "agentkit": (PACKAGE / "agentkit",),
+    "agentkit": (PACKAGE / "adapters" / "agent",),
     "asta_engine": (PACKAGE / "asta_engine",),
     "aste": (PACKAGE / "aste",),
     "data_sources": (PACKAGE / "data_sources",),
     "db": (PACKAGE / "adapters" / "persistence",),
-    "fantalab": (PACKAGE / "fantalab",),
+    "fantalab": (PACKAGE / "adapters" / "http" / "fantalab",),
     "mantra_grid": (PACKAGE / "mantra_grid",),
     "news": (PACKAGE / "news",),
     "scrapers": (PACKAGE / "scrapers",),

@@ -15,13 +15,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from _paths import PACKAGE
+from _paths import PACKAGE, pkg
 from claude_agent_sdk import RateLimitEvent, ResultMessage
 from claude_agent_sdk.types import RateLimitInfo
 from pydantic import BaseModel, ConfigDict, Field
 
-from fantabot.agentkit.options import AgentRequest, build_options
-from fantabot.agentkit.runner import Outcome, classify_result, consume
+from fantabot.adapters.agent.options import AgentRequest, build_options
+from fantabot.adapters.agent.runner import Outcome, classify_result, consume
 
 
 class Sample(BaseModel):
@@ -29,6 +29,13 @@ class Sample(BaseModel):
 
     score: float = Field(ge=0.0, le=1.0)
     note: str
+
+
+#: Where the agent adapter lives, spelled once. Both assertions below used to
+#: spell "agentkit" inline, in two different shapes -- a package prefix and a path
+#: fragment -- so the move broke them separately.
+RUNNER = pkg("agentkit") / "runner.py"
+AGENT_PACKAGE = "fantabot." + ".".join(pkg("agentkit").relative_to(PACKAGE).parts)
 
 
 def _request(**overrides: Any) -> AgentRequest:
@@ -284,7 +291,7 @@ def test_the_repo_has_exactly_one_message_loop() -> None:
     ]
 
     assert len(loops) == 1, loops
-    assert loops[0].startswith("agentkit/runner.py:"), loops
+    assert loops[0].startswith(f"{RUNNER.relative_to(PACKAGE).parent}/runner.py:"), loops
 
 
 def test_only_agentkit_imports_the_sdk() -> None:
@@ -305,7 +312,7 @@ def test_only_agentkit_imports_the_sdk() -> None:
     offenders = sorted(
         module
         for module in G.modules()
-        if not module.startswith("fantabot.agentkit")
+        if not module.startswith("fantabot.adapters.agent")
         and any(name.startswith("claude_agent_sdk") for name in G.direct_imports(module))
     )
 

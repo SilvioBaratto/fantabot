@@ -57,7 +57,7 @@ BrowserFactory = Callable[[], AbstractContextManager[Any]]
 def _real_browser(channel: str | None = None) -> AbstractContextManager[Any]:
     # Imported here, not at module scope: `fantabot --help` must not load
     # Playwright, and a test pins that.
-    from fantabot import browser
+    from fantabot.adapters.browser import capture as browser
 
     return browser.interactive_login_context(channel)
 

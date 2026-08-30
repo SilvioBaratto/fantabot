@@ -18,7 +18,7 @@ import httpx
 import pytest
 from _paths import pkg
 
-from fantabot.fantalab import rtdb
+from fantabot.adapters.http.fantalab import rtdb
 
 PACKAGE = pkg("fantalab")
 CAPTURE = ("rest.py", "rtdb.py", "feed.py", "room.py")

@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from fantabot.fantalab import rest
+from fantabot.adapters.http.fantalab import rest
 
 # The shape observed live 2026-08-28 for the throwaway "provaalgoritmo" room (docs/fantalab/06).
 FETCH_BODY: dict[str, Any] = {

@@ -97,7 +97,7 @@ BrowserFactory = Callable[[], AbstractContextManager[Any]]
 
 
 def _real_browser() -> AbstractContextManager[Any]:
-    from fantabot import browser
+    from fantabot.adapters.browser import capture as browser
 
     return browser.interactive_login_context()
 
@@ -293,7 +293,7 @@ def _verify(
     """
     import httpx
 
-    from fantabot import apileague
+    from fantabot.adapters.http import apileague as apileague
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
 
@@ -329,7 +329,7 @@ def _verify(
 def _write_session(blob: dict[str, Any]) -> bool:
     import json
 
-    from fantabot import state
+    from fantabot.adapters.browser import storage_state as state
     from fantabot.config import settings
 
     settings.fantabot_data_dir.mkdir(parents=True, exist_ok=True)
@@ -345,7 +345,7 @@ def _warn_stale_session() -> bool:
     Removing user data is on SPEC's Ask-first list, and a file somebody kept on
     purpose is not ours to tidy away.
     """
-    from fantabot import state
+    from fantabot.adapters.browser import storage_state as state
 
     path = state.storage_state_path()
     if path.exists():

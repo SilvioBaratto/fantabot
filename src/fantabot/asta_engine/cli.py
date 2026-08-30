@@ -189,7 +189,7 @@ def asta_live(
         if db < 0:
             console.print("[red]--league needs --db (the room's RTDB shard).[/red]")
             raise typer.Exit(1)
-        from fantabot.fantalab import feed
+        from fantabot.adapters.http.fantalab import feed
 
         events = feed.ledger_events(db, league)
     else:
@@ -199,7 +199,7 @@ def asta_live(
     # FantaLab identifies players by UUID; everything downstream is keyed by
     # fantacalcio id. Without this the first lot we own puts a UUID into
     # `AstaState.owned` and `optimize_roster` raises for an id absent from the pool.
-    from fantabot.fantalab import listone
+    from fantabot.adapters.http.fantalab import listone
 
     events, unknown = resolve_ids(events, listone.fetch())
     if unknown:
@@ -278,10 +278,10 @@ def asta_bid(
     """
     import time
 
+    from fantabot.adapters.http.fantalab import feed, room, rtdb
     from fantabot.adapters.persistence import database_manager
     from fantabot.asta_engine.bid import Seat
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
-    from fantabot.fantalab import feed, room, rtdb
 
     # The same value model asta optimize planned with, by construction now rather than by
     # maintenance: a walk-away is "what is he worth to us", and this is the one command
@@ -298,7 +298,7 @@ def asta_bid(
     # Fetched once for the run, not per poll: the mapping changes only when the
     # platform adds a player, and a live room does not want an HTTP round trip it
     # can avoid. See `fantalab/listone.py` for why this exists at all.
-    from fantabot.fantalab import listone
+    from fantabot.adapters.http.fantalab import listone
 
     bridge = listone.fetch()
     if not bridge:

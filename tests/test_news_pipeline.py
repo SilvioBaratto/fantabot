@@ -9,8 +9,8 @@ import asyncio
 from datetime import date
 from typing import Any
 
-from fantabot.agentkit.options import AgentRequest
-from fantabot.agentkit.runner import Outcome
+from fantabot.adapters.agent.options import AgentRequest
+from fantabot.adapters.agent.runner import Outcome
 from fantabot.news.models import PlayerSentiment
 from fantabot.news.pipeline import fetch_all
 from fantabot.news.pool import PoolPlayer

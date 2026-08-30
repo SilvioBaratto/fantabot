@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from fantabot.adapters.http.fantalab.room import run_bid_loop
 from fantabot.asta_engine.bid import Seat
-from fantabot.fantalab.room import run_bid_loop
 
 SEAT = Seat(fantateam_id="seat2", user_id="me")
 FL = "L"

@@ -28,9 +28,9 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-from fantabot.agentkit.options import AgentRequest
-from fantabot.agentkit.runner import Outcome, Usage
-from fantabot.agentkit.runner import run as sdk_run
+from fantabot.adapters.agent.options import AgentRequest
+from fantabot.adapters.agent.runner import Outcome, Usage
+from fantabot.adapters.agent.runner import run as sdk_run
 from fantabot.news.models import PlayerSentiment
 from fantabot.news.pool import PoolPlayer
 from fantabot.news.prompt import build_system_prompt, build_user_prompt

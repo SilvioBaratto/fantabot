@@ -57,17 +57,17 @@ LAYERS: dict[str, str] = {
     "fantabot.application": "application",
     # -- adapters: everything that talks to the world.
     "fantabot.adapters.persistence": "adapters",
-    "fantabot.agentkit": "adapters",
-    "fantabot.fantalab": "adapters",
+    "fantabot.adapters.agent": "adapters",
+    "fantabot.adapters.http.fantalab": "adapters",
     "fantabot.scrapers": "adapters",
-    "fantabot.apileague": "adapters",
-    "fantabot.browser": "adapters",
+    "fantabot.adapters.http.apileague": "adapters",
+    "fantabot.adapters.browser.capture": "adapters",
     "fantabot.config": "adapters",
     # `state.storage_state_path` resolves a path out of Settings. Its docstring calls
     # it "one function" and it imports nothing from `db/` — but reading configuration
     # to name a file on disk is infrastructure, and placing it in the domain layer
     # would have made `.env` a dependency of every pure test that touched it.
-    "fantabot.state": "adapters",
+    "fantabot.adapters.browser.storage_state": "adapters",
     "fantabot.domain.tokens": "domain",
     "fantabot.aste.stream": "adapters",
     "fantabot.aste.transport": "adapters",
@@ -95,7 +95,7 @@ UNPLACED = {"fantabot.domain", "fantabot.application", "fantabot.adapters",
             "fantabot.interface",
             "fantabot", "fantabot.asta_engine", "fantabot.aste", "fantabot.news",
             "fantabot.domain.tokens", "fantabot.adapters.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
-            "fantabot.adapters.persistence.repositories", "fantabot.agentkit", "fantabot.fantalab",
+            "fantabot.adapters.persistence.repositories", "fantabot.adapters.agent", "fantabot.adapters.http.fantalab",
             "fantabot.scrapers", "fantabot.mantra_grid", "fantabot.data_sources"}
 
 
@@ -116,7 +116,7 @@ def layer_of(module: str) -> str:
 #: `fantabot.interface` and `fantabot.config`: a pure module that reads settings has
 #: tests that depend on `.env`, and one that prints has tests that depend on a terminal.
 FORBIDDEN_TO_DOMAIN = (
-    "fantabot.adapters.persistence", "fantabot.interface", "fantabot.browser", "fantabot.config",
+    "fantabot.adapters.persistence", "fantabot.interface", "fantabot.adapters.browser.capture", "fantabot.config",
     "sqlalchemy", "psycopg2", "playwright", "httpx", "claude_agent_sdk", "typer", "rich",
 )
 

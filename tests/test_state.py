@@ -17,9 +17,10 @@ import sys
 import textwrap
 from pathlib import Path
 
+import _importgraph as G
 import pytest
 
-from fantabot import state
+from fantabot.adapters.browser import storage_state as state
 
 
 def test_storage_state_path_comes_from_settings(
@@ -39,7 +40,10 @@ def test_state_no_longer_carries_runtime_state() -> None:
     assert not hasattr(state, "_DEFAULT_STATE")
 
 
-@pytest.mark.parametrize("module", ["state.py", "browser.py"])
+@pytest.mark.parametrize(
+    "module",
+    ["fantabot.adapters.browser.storage_state", "fantabot.adapters.browser.capture"],
+)
 def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
     """SPEC's Never list names **both** files, and only one was ever checked.
 
@@ -48,15 +52,17 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
     `browser` at all — so no other test catches it incidentally either, while
     `login.py` legitimately imports both `browser` and `fantabot.adapters.persistence`.
 
-    Import statements, not prose: both module docstrings name `fantabot.adapters.persistence` in
-    order to explain why they must not import it.
+    Asked of the import graph, not of the file's lines. Both module docstrings name the
+    persistence package in order to explain why they must not import it, and a
+    line-by-line scan for that string could not tell the sentence from the import. The
+    graph is also transitive, which a scan of one file is not: the layer rules permit an
+    adapter to reach persistence, so nothing else makes this claim.
     """
-    imports = [
-        line
-        for line in Path(f"src/fantabot/{module}").read_text().splitlines()
-        if line.startswith(("import ", "from "))
+    offenders = [
+        target
+        for target in ("fantabot.adapters.persistence", "sqlalchemy")
+        if G.reaches(module, target)
     ]
-    offenders = [line for line in imports if "fantabot.adapters.persistence" in line or "sqlalchemy" in line]
 
     assert offenders == [], f"src/fantabot/{module} reaches the database: {offenders}"
 
@@ -83,8 +89,8 @@ def test_the_browser_chain_can_be_imported_with_no_database() -> None:
         socket.socket.connect = boom
         socket.create_connection = boom
 
-        import fantabot.state
-        import fantabot.browser
+        import fantabot.adapters.browser.storage_state
+        import fantabot.adapters.browser.capture
         """
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)

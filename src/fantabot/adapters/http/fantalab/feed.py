@@ -15,8 +15,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from fantabot.adapters.http.fantalab import rtdb
 from fantabot.asta_engine.live import AssignmentEvent, purchases_to_events
-from fantabot.fantalab import rtdb
 
 #: The signature of a node reader — ``rtdb.read_snapshot`` in production, a fake in tests.
 Reader = Callable[[int | None, str], "dict[str, Any] | None"]

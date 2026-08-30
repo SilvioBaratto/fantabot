@@ -125,7 +125,7 @@ def news_fetch(
     import signal
     import time
 
-    from fantabot.agentkit.env import strip_dangerous_env
+    from fantabot.adapters.agent.env import strip_dangerous_env
     from fantabot.config import settings
     from fantabot.news.pipeline import Progress, fetch_all, format_cost_line
     from fantabot.news.pool import PoolPlayer
@@ -372,7 +372,7 @@ def mantra_grid(
     model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
 ) -> None:
     """Collect the 11 Mantra schemas and the out-of-position matrix. One-off, not cron."""
-    from fantabot.agentkit.env import strip_dangerous_env
+    from fantabot.adapters.agent.env import strip_dangerous_env
     from fantabot.config import settings
     from fantabot.mantra_grid.collect import CollectError, collect
     from fantabot.mantra_grid.writer import write_json
@@ -602,7 +602,7 @@ def token_status_rows(
     and the command is a thin shell over it. `--verify` fires exactly one
     request per stored row; without it, nothing is built at all.
     """
-    from fantabot import apileague
+    from fantabot.adapters.http import apileague as apileague
     from fantabot.domain.tokens.errors import TokenError
     from fantabot.domain.tokens.status import orphaned, render_state
 

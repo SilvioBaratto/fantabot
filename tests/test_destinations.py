@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import _importgraph as G
 from _destinations import OVERRIDE, destination
+from _paths import PACKAGE
 from test_layers import UNPLACED, layer_of
 
 
@@ -50,14 +51,18 @@ def test_no_two_modules_land_on_the_same_path() -> None:
     assert clashes == [], clashes
 
 
-def test_every_override_names_something_that_exists() -> None:
+def test_every_override_names_something_that_exists_or_has_already_moved() -> None:
     """An override for a name that was renamed or deleted moves nothing, silently.
 
-    Packages count. A package whose modules split across layers -- `tokens/` -- has to
-    have its `__init__.py` placed by hand, and those names are absent from `_modules()`
-    because a namespace package belongs to no layer.
+    An entry is satisfied two ways: the source still exists, or its destination does.
+    The second is what lets a completed move keep its entry -- the map is the record of
+    where things went, and deleting each line as its move lands would erase the record
+    exactly when it becomes true. Packages count, since a package whose modules split
+    across layers has its `__init__.py` placed by hand, and those names are absent from
+    `_modules()` because a namespace package belongs to no layer.
     """
-    known = set(_modules()) | {m for m in G.modules() if m in UNPLACED}
+    known = set(_modules())
     known |= {m[len("fantabot."):] for m in G.modules() if m in UNPLACED}
+    arrived = {name for name, path in OVERRIDE.items() if (PACKAGE / path).exists()}
 
-    assert sorted(set(OVERRIDE) - known) == []
+    assert sorted(set(OVERRIDE) - known - arrived) == []

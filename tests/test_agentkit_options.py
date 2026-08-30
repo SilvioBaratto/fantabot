@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from fantabot.agentkit.options import AgentRequest, build_options
+from fantabot.adapters.agent.options import AgentRequest, build_options
 
 
 class _Schema(BaseModel):

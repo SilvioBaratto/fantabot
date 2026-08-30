@@ -21,7 +21,7 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from fantabot import apileague
+from fantabot.adapters.http import apileague as apileague
 from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.tokens.store import TokenStore
 from fantabot.domain.tokens.crypto import TokenCipher

@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from fantabot import config
-from fantabot.fantalab import rtdb
+from fantabot.adapters.http.fantalab import rtdb
 
 PAYLOAD: dict[str, Any] = {
     "price": 6,

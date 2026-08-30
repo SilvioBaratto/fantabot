@@ -9,7 +9,7 @@ load-bearing numbers are the token counts and the cache-read fraction.
 
 from __future__ import annotations
 
-from fantabot.agentkit.runner import Usage
+from fantabot.adapters.agent.runner import Usage
 from fantabot.news.pipeline import PlayerOutcome, format_cost_line, total_usage
 from fantabot.news.pool import PoolPlayer
 

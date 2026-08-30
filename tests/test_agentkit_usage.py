@@ -16,7 +16,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from fantabot.agentkit.runner import Usage, extract_usage
+from fantabot.adapters.agent.runner import Usage, extract_usage
 
 
 def _msg(**kwargs: Any) -> SimpleNamespace:

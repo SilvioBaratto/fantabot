@@ -168,6 +168,33 @@ def move(prefixes: list[str]) -> dict[str, str]:
     return renames
 
 
+def _rewrite_from_package_import(text: str, renames: dict[str, str]) -> str:
+    """`from fantabot import browser` -> `from fantabot.adapters.browser import capture as browser`.
+
+    This form names the module without spelling it dotted, so the substitution below
+    cannot see it -- and the failure is quiet in the worst way: the import still resolves
+    while the package is mid-move, and only mypy notices that `fantabot` has no attribute
+    `browser`. The local name is preserved with `as`, so every use of it in the body
+    stays correct and this rewrite stays a one-line change.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        indent, names = match.group(1), match.group(2)
+        out = []
+        for entry in (n.strip() for n in names.split(",")):
+            name, _, alias = entry.partition(" as ")
+            name, alias = name.strip(), alias.strip() or name.strip()
+            new = renames.get(f"fantabot.{name}")
+            if new is None:
+                out.append(f"{indent}from fantabot import {entry}")
+                continue
+            module, _, leaf = new.rpartition(".")
+            out.append(f"{indent}from {module} import {leaf} as {alias}")
+        return "\n".join(out)
+
+    return re.sub(r"^([ \t]*)from fantabot import ([^(\n]+)$", replace, text, flags=re.M)
+
+
 def rewrite(renames: dict[str, str], roots: list[Path]) -> int:
     """Rewrite every dotted reference. Longest name first, so prefixes do not collide."""
     ordered = sorted(renames.items(), key=lambda kv: -len(kv[0]))
@@ -175,12 +202,42 @@ def rewrite(renames: dict[str, str], roots: list[Path]) -> int:
     for root in roots:
         for path in sorted(root.rglob("*.py")):
             text = original = path.read_text(encoding="utf-8")
+            text = _rewrite_from_package_import(text, renames)
             for old, new in ordered:
                 text = re.sub(rf"(?<![\w.]){re.escape(old)}(?![\w])", new, text)
             if text != original:
                 path.write_text(text, encoding="utf-8")
                 touched += 1
     return touched
+
+
+def _retarget_paths_table(renames: dict[str, str]) -> None:
+    """Point `tests/_paths.py`'s package table at the new directories.
+
+    That table is the suite's single anchor, and every move invalidates the entries it
+    names. Doing it by hand worked -- the table raises loudly, so nothing passes
+    silently -- but it was a manual step after three of these, and a manual step in a
+    mechanical move is the one that gets forgotten on the fourth.
+
+    Only entries the move actually renamed are touched, and only their path expression.
+    A logical name mapping to several directories is left alone: which half a split
+    package's pieces belong to is a decision, not a substitution.
+    """
+    table = ROOT / "tests" / "_paths.py"
+    text = original = table.read_text(encoding="utf-8")
+    for old, new in renames.items():
+        name = old[len("fantabot."):]
+        parts = new[len("fantabot."):].split(".")
+        expression = "PACKAGE / " + " / ".join(f'"{p}"' for p in parts)
+        text = re.sub(
+            rf'^(    "{re.escape(name)}": \()PACKAGE / "[^)]*?"(,\),)$',
+            rf"\1{expression}\2",
+            text,
+            flags=re.M,
+        )
+    if text != original:
+        table.write_text(text, encoding="utf-8")
+        print(f"  updated the package table in {table.relative_to(ROOT)}")
 
 
 def _sweep_pycache() -> None:
@@ -212,6 +269,7 @@ def main() -> None:
         if directory.is_dir() and not any(directory.iterdir()):
             directory.rmdir()
             print(f"  removed empty {directory.relative_to(PACKAGE)}")
+    _retarget_paths_table(renames)
     for old, new in sorted(renames.items()):
         print(f"  {old}  ->  {new}")
     print(f"\n{len(renames)} modules moved, {touched} files rewritten.")

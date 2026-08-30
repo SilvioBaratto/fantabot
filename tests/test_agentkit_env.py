@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from fantabot.agentkit.env import (
+from fantabot.adapters.agent.env import (
     DANGEROUS_VARS,
     AuthLeakError,
     assert_auth,
@@ -10,7 +10,7 @@ from fantabot.agentkit.env import (
     assert_subscription_auth,
     strip_dangerous_env,
 )
-from fantabot.agentkit.options import agent_env
+from fantabot.adapters.agent.options import agent_env
 
 OLLAMA = "http://localhost:11434"
 

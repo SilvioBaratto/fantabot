@@ -12,9 +12,9 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from fantabot.agentkit.options import AgentRequest
-from fantabot.agentkit.runner import Outcome
-from fantabot.agentkit.runner import run as sdk_run
+from fantabot.adapters.agent.options import AgentRequest
+from fantabot.adapters.agent.runner import Outcome
+from fantabot.adapters.agent.runner import run as sdk_run
 from fantabot.mantra_grid.gates import check_compat, check_schemi
 from fantabot.mantra_grid.models import CompatMatrix, SchemaGrid
 from fantabot.mantra_grid.prompt import COMPAT_PROMPT, SCHEMI_PROMPT
