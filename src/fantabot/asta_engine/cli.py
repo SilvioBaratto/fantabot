@@ -20,7 +20,7 @@ from fantabot.interface.console import console
 from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
 
 from .legality import build_legality, fieldable_schemi, load_compat
-from .live import normalize
+from .live import normalize, resolve_ids
 from .opponents import format_advisory, format_opponents, track_opponents
 from .optimizer import InfeasibleRoster, optimize_roster
 from .plan import read_plan_inputs
@@ -197,6 +197,18 @@ def asta_live(
         rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
         events = normalize(row.get("state", row) for row in rows)
 
+    # FantaLab identifies players by UUID; everything downstream is keyed by
+    # fantacalcio id. Without this the first lot we own puts a UUID into
+    # `AstaState.owned` and `optimize_roster` raises for an id absent from the pool.
+    from fantabot.fantalab import listone
+
+    events, unknown = resolve_ids(events, listone.fetch())
+    if unknown:
+        console.print(
+            f"[yellow]{len(unknown)} sale(s) dropped — the listone does not know "
+            f"those players, so they cannot be valued[/yellow]"
+        )
+
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
 
     # One reading per invocation, on both paths.
@@ -284,6 +296,19 @@ def asta_bid(
             session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k
         )
 
+    # Fetched once for the run, not per poll: the mapping changes only when the
+    # platform adds a player, and a live room does not want an HTTP round trip it
+    # can avoid. See `fantalab/listone.py` for why this exists at all.
+    from fantabot.fantalab import listone
+
+    bridge = listone.fetch()
+    if not bridge:
+        console.print(
+            "[red]no uuid -> fantacalcio_id bridge. Without it every lot we win is an "
+            "unknown player and the planner refuses the roster.[/red]"
+        )
+        raise typer.Exit(code=1)
+
     seat = Seat(fantateam_id=team, user_id=user)
 
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
@@ -291,7 +316,8 @@ def asta_bid(
         if not isinstance(player_id, str):
             return None
         state = AstaState(total_budget=budget)
-        for event in feed.ledger_events(db, league):
+        events, _unknown = resolve_ids(feed.ledger_events(db, league), bridge)
+        for event in events:
             state = apply_event(state, event, our_team_id=team)
         _, walkaways = reservations(
             state,

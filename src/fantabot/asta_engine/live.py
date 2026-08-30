@@ -23,7 +23,7 @@ and a live ledger produce identically.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 #: The room state that closes a player's auction — i.e. a sale.
@@ -100,3 +100,32 @@ def purchases_to_events(purchases: Mapping[str, Mapping[str, Any]]) -> list[Assi
     records.sort(key=lambda record: record.get("created_at") or 0)
     events = (parse_purchase(record) for record in records)
     return [event for event in events if event is not None]
+
+
+def resolve_ids(
+    events: Iterable[AssignmentEvent], bridge: Mapping[str, int]
+) -> tuple[list[AssignmentEvent], list[str]]:
+    """Re-key events from FantaLab UUIDs to fantacalcio ids. Pure.
+
+    **This is the boundary the engine was missing.** Everything downstream —
+    `AstaState.owned`, the pool, the value model, the legality matrix — is keyed by
+    fantacalcio id. Events arrive keyed by FantaLab UUID. Without this, the first lot
+    we win puts a UUID into `owned` and `optimize_roster` raises `InfeasibleRoster`
+    for an id that is not in the pool, which is what `asta-bid` did.
+
+    Returns the resolved events and the UUIDs that could not be mapped. Unresolvable
+    events are **dropped, and counted** — the same rule the loader applies to events
+    for auctions it has never heard of. A player the listone does not know cannot be
+    valued, so keeping him would put the same unmappable id into `owned` by a longer
+    route; and a drop nobody counts reads as an empty input, which this package has
+    had to learn more than once.
+    """
+    resolved: list[AssignmentEvent] = []
+    unknown: list[str] = []
+    for event in events:
+        fid = bridge.get(event.player_id)
+        if fid is None:
+            unknown.append(event.player_id)
+            continue
+        resolved.append(replace(event, player_id=str(fid)))
+    return resolved, unknown

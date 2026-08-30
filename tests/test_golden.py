@@ -44,11 +44,11 @@ CASES: dict[str, list[str]] = {
         "--lam",
         "0.3",
     ],
-    # Pins a real defect, not a success: every id in the replay is a FantaLab UUID and the
-    # pool is keyed by fantacalcio id, so the moment our team owns anything `optimize_roster`
-    # raises. `--team t1` passes only because t1 never buys. Captured so that fixing the
-    # mapping is a deliberate, reviewable golden change.
-    "live_replay_owned_raises": [
+    # Was `live_replay_owned_raises`, and pinned a real defect: every id in the replay is
+    # a FantaLab UUID while the pool is keyed by fantacalcio id, so the moment our team
+    # owned anything `optimize_roster` raised. Fixed on 2026-08-30 by resolving ids at the
+    # event boundary; this case now pins the advisory it should always have produced.
+    "live_replay_owned": [
         "asta", "live",
         "--replay",
         "tests/fixtures/states/one_auction.jsonl",
