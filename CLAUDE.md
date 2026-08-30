@@ -163,11 +163,16 @@ alembic check                # models and migrations agree?
    (hence the reap each reload cycle), and **a run with no end must speak while
    it runs** (hence the `live / expected` heartbeat — the summary it printed at
    exit was never reached).
-   **`scripts/*_aste_live.py` is the retired poller.** Kept as a fallback and as
-   the thing `aste/compare.py` measured it against; it read merged
-   snapshots, so two raises inside one interval collapse into one. The shadow run
-   of 2026-08-27 put numbers on that: same 23 rooms, 105 shared sales, and **224
-   rungs the poller could not see.** Use `aste-collect`.
+   **`scripts/resolve_aste_live.py` is what survives the retired poller.** Its
+   collecting halves went on 2026-08-30 — `harvest scan` and `harvest collect`
+   replaced them, and the 2026-08-27 shadow run measured the difference: same 23
+   rooms, 105 shared sales, and **224 rungs the poller could not see**, because a
+   poll reads a merged snapshot and two raises inside one interval collapse into
+   one. The resolver is kept for two reasons that are not about polling: it is the
+   independent oracle behind `tests/test_aste_reconstruct.py`, whose constants it
+   produced and whose failure message says to re-run it; and it holds the
+   `GET /v2/listone` UUID → `fantacalcio_id` bridge that `asta_engine` still lacks.
+   It is the last file in `scripts/`.
 
 15. **`asta_engine/sentiment.py`** — the news feed as a multiplier on `fvm`. Pure:
    no I/O, and **no clock** — `as_of` is a parameter, because a pure module that

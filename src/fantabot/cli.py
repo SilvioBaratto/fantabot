@@ -443,6 +443,103 @@ def db_backfill_teams() -> None:
     console.print(f"resolved {changed} club name(s)")
 
 
+def db_scrape(
+    table: str = typer.Argument(
+        ..., help="quotazioni | statistiche | voti — which pages to fetch."
+    ),
+    seasons: list[str] = typer.Option(
+        [], "--season", help="Repeatable. Defaults to every season the scraper knows."
+    ),
+) -> None:
+    """Fetch from fantacalcio.it and upsert. Reads a live site, so it is slow and polite.
+
+    `voti` is roughly 38 GETs per season at one second apart, and writes both
+    match-grain tables. Run `quotazioni` first on a fresh database: `players` and
+    `teams` have no outbound foreign keys and everything else points at them, so
+    writing the facts first is a foreign-key violation rather than a slow run.
+    """
+    # Imported inside the body, like every other command that touches the database:
+    # `tests/test_db_boundary.py` asserts that importing the CLI loads neither
+    # sqlalchemy nor playwright, and these modules pull in the whole persistence stack.
+    known = {"quotazioni", "statistiche", "voti"}
+    if table not in known:
+        raise typer.BadParameter(f"{table!r} is not scrapable. Pick one of {sorted(known)}.")
+
+    from importlib import import_module
+
+    module = import_module(f"fantabot.scrapers.{table}")
+    if seasons:
+        module.run(seasons)
+    else:
+        module.run()
+
+
+def db_price(
+    system: str = typer.Option("classic", help="classic | mantra — which listone to price."),
+    top_n: int = typer.Option(15, "--top-n", help="How many rows to show per table."),
+) -> None:
+    """Fit the target-price model and upsert `target_price`.
+
+    The only numbers in this repo that get spent as real credits. It reads
+    `quotazioni`, `statistiche` and `qi_bias`, so run the scrapers first.
+    """
+    if system not in ("classic", "mantra"):
+        raise typer.BadParameter(f"{system!r} is not a listone. Pick classic or mantra.")
+
+    from fantabot import pricing
+
+    pricing.run(system=system, top_n=top_n)
+
+
+def db_dump() -> None:
+    """Dump the database to a timestamped file OUTSIDE the repository.
+
+    `docker-compose.yml` mounts a named volume and that is the entire durability
+    story. `docker compose down -v` destroys both 50,634-row match-grain tables, and
+    re-scraping them is roughly 750 GETs per season against a site under no
+    obligation to keep serving 2022/23.
+
+    The dump lands in `$HOME`, never under the repo: it contains the `league_tokens`
+    rows — encrypted, but still credentials — and anything inside the working tree is
+    one `git add -A` from a commit. `$HOME` is also a different volume from the
+    external drive, so it survives unmounting.
+
+    Custom format (`-Fc`), which is what makes `pg_restore` usable and selective.
+    To restore into a scratch database::
+
+        docker compose exec -T db psql -U postgres \\
+          -c "DROP DATABASE IF EXISTS fantabot_restore; CREATE DATABASE fantabot_restore;"
+        docker compose exec -T db pg_restore -U postgres -d fantabot_restore \\
+          < ~/fantabot-db-YYYYMMDD.dump
+        FANTABOT_DATABASE_URL=...fantabot_restore fantabot db check
+    """
+    import subprocess
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    out = Path.home() / f"fantabot-db-{datetime.now(UTC):%Y%m%d}.dump"
+    # The guard the shell script carried: never write the dump onto the repo's own
+    # volume, which is the thing the dump exists to survive the loss of.
+    if str(out.resolve()).startswith("/Volumes/"):
+        console.print(f"[red]refusing to write the dump onto an external volume: {out}[/red]")
+        raise typer.Exit(code=1)
+
+    with out.open("wb") as handle:
+        result = subprocess.run(
+            [
+                "docker", "compose", "exec", "-T", "db",
+                "pg_dump", "-U", "postgres", "-Fc", "fantabot",
+            ],
+            stdout=handle,
+        )
+    if result.returncode != 0:
+        console.print("[red]pg_dump failed — is the compose stack up?[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"wrote {out} ({out.stat().st_size / 1_048_576:.0f} MB)")
+    console.print("[dim]restore: see `fantabot db dump --help`[/dim]")
+
+
 def db_check() -> None:
     """Database health, plus a row count and on-disk size for every table."""
     from rich.table import Table
@@ -712,6 +809,9 @@ for _group, _name in (
 news_app.command("fetch")(news_fetch)
 db_app.command("check")(db_check)
 db_app.command("backfill-teams")(db_backfill_teams)
+db_app.command("scrape")(db_scrape)
+db_app.command("price")(db_price)
+db_app.command("dump")(db_dump)
 auth_app.command("login")(login)
 auth_app.command("status")(token_status)
 auth_app.command("forget")(token_forget)

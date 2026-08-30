@@ -27,11 +27,14 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 
 #: Modules a script may import as a bare sibling name, and where the real file lives.
-#: Empty since 2026-08-30: ``_db.py`` moved to ``fantabot/db/scraping.py``, so the
-#: scrapers' shared helper is now a package module that ``mypy --strict`` type-checks
-#: and ``ruff`` lints. The parse check below still earns its place — ``scripts/`` is
-#: still outside both — and this table stays so a new sibling cannot reappear
-#: unguarded.
+#: Empty since 2026-08-30, and the directory it guards is nearly empty too: the four
+#: scrapers moved into ``fantabot.scrapers`` / ``fantabot.pricing`` and their shared
+#: helper into ``fantabot.db.scraping``, so all of that is now linted by ``ruff`` and
+#: typed by ``mypy --strict``. What is left is ``resolve_aste_live.py``, which imports
+#: no sibling.
+#:
+#: The parse check below still earns its place — ``scripts/`` remains outside both
+#: tools — and this table stays so a new sibling cannot reappear unguarded.
 SIBLINGS: dict[str, Path] = {}
 
 

@@ -25,13 +25,12 @@ them.
 
 from __future__ import annotations
 
-import argparse
 import sys
 import time
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from pathlib import Path
 
 from fantabot.db import scraping as _db
 
@@ -179,18 +178,11 @@ def fetch_season(season: str) -> list[PlayerRow]:
     return parser.rows
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--seasons",
-        nargs="+",
-        default=DEFAULT_SEASONS,
-        help="Seasons to fetch, e.g. --seasons 2022/23 2023/24 (default: %(default)s)",
-    )
-    args = parser.parse_args()
+def run(seasons: Sequence[str] = DEFAULT_SEASONS) -> None:
+    """Fetch the listone for each season and upsert players, teams and quotazioni."""
 
     all_rows: list[PlayerRow] = []
-    for i, season in enumerate(args.seasons):
+    for i, season in enumerate(seasons):
         if i > 0:
             time.sleep(REQUEST_DELAY_SECONDS)
         rows = fetch_season(season)
@@ -238,12 +230,10 @@ def main() -> None:
     with _db.session() as handle:
         stored = _db.upsert_quotazioni(handle, payload)
 
-    print(f"{len(all_rows)} players across {len(args.seasons)} seasons -> {stored} quotazioni rows")
+    print(f"{len(all_rows)} players across {len(seasons)} seasons -> {stored} quotazioni rows")
 
     # A promoted club arrives here first, named after its own code by the
     # placeholder insert. Resolve it now if fixtures exist to resolve it from.
     _db.resolve_team_names_or_report()
 
 
-if __name__ == "__main__":
-    main()

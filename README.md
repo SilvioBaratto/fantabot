@@ -82,11 +82,12 @@ alembic upgrade head
 # fresh clone: data/'s CSVs are git-ignored (.gitignore:8), so they have never
 # been part of a checkout. Measured end to end on 2026-08-26 — under 5 minutes
 # for four seasons, most of it the voti leg.
-python scripts/scrape_quotazioni.py     # ~1 GET/season  -> players, teams, quotazioni
-python scripts/scrape_statistiche.py    # ~3 GETs/season -> statistiche
-python scripts/scrape_voti.py           # ~38 GETs/season, 1s apart -> voti, bonus_malus
-python scripts/target_price.py --system classic   # NOTE: one system per run,
-python scripts/target_price.py --system mantra    # --system defaults to classic
+fantabot db scrape quotazioni    # ~1 GET/season  -> players, teams, quotazioni
+fantabot db scrape statistiche   # ~3 GETs/season -> statistiche
+fantabot db scrape voti          # ~38 GETs/season, 1s apart -> voti, bonus_malus
+fantabot db price --system classic   # NOTE: one system per run,
+fantabot db price --system mantra    # --system defaults to classic
+fantabot db dump                 # restore point, outside the repo
 
 fantabot db check         # health, per-table row counts and sizes
 

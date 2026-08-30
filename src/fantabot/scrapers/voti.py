@@ -36,18 +36,17 @@ because coach rows have no player_id. See fantabot.db.upserts.
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from pathlib import Path
+from typing import Any
 
 from fantabot.db import scraping as _db
-
 from fantabot.parsing import italian_decimal, parse_date, parse_time
 
 BASE_URL = "https://www.fantacalcio.it/voti-fantacalcio-serie-a"
@@ -351,14 +350,16 @@ def fetch_season(season: str) -> int:
     return stored
 
 
-def to_payloads(rows: list[PlayerMatchRow]) -> tuple[list[dict], list[dict]]:
+def to_payloads(
+    rows: list[PlayerMatchRow],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """One scraped row becomes one voti row and one bonus_malus row."""
 
     def counter(raw: str) -> int:
         return int(raw) if str(raw).strip() else 0
 
-    voti: list[dict] = []
-    bonus: list[dict] = []
+    voti: list[dict[str, Any]] = []
+    bonus: list[dict[str, Any]] = []
     for r in rows:
         player_id = int(r.player_id) if r.player_id else None
         shared = {
@@ -397,18 +398,11 @@ def to_payloads(rows: list[PlayerMatchRow]) -> tuple[list[dict], list[dict]]:
     return voti, bonus
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--seasons",
-        nargs="+",
-        default=DEFAULT_SEASONS,
-        help="Seasons to fetch, e.g. --seasons 2022/23 2023/24 (default: %(default)s)",
-    )
-    args = parser.parse_args()
+def run(seasons: Sequence[str] = DEFAULT_SEASONS) -> None:
+    """Fetch every matchday and upsert voti + bonus_malus."""
 
     total = 0
-    for i, season in enumerate(args.seasons):
+    for i, season in enumerate(seasons):
         if i > 0:
             time.sleep(REQUEST_DELAY_SECONDS)
         total += fetch_season(season)
@@ -417,12 +411,10 @@ def main() -> None:
         print("No player rows found for any season — page structure may have changed.", file=sys.stderr)
         raise SystemExit(1)
 
-    print(f"{total} player-match rows across {len(args.seasons)} seasons -> voti + bonus_malus")
+    print(f"{total} player-match rows across {len(seasons)} seasons -> voti + bonus_malus")
 
     # Fixtures carry the full club names, so this is where a placeholder code
     # written by an earlier listone scrape finally resolves.
     _db.resolve_team_names_or_report()
 
 
-if __name__ == "__main__":
-    main()

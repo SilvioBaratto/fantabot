@@ -35,17 +35,15 @@ throw away the disagreement.
 
 from __future__ import annotations
 
-import argparse
 import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from pathlib import Path
 
 from fantabot.db import scraping as _db
-
 from fantabot.parsing import italian_decimal
 
 BASE_URL = "https://www.fantacalcio.it/statistiche-serie-a"
@@ -211,27 +209,16 @@ def fetch_provider(season: str, provider: str) -> list[PlayerStatsRow]:
     return parser.rows
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--seasons",
-        nargs="+",
-        default=DEFAULT_SEASONS,
-        help="Seasons to fetch, e.g. --seasons 2022/23 2023/24 (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--providers",
-        nargs="+",
-        default=PROVIDERS,
-        choices=PROVIDERS,
-        help="Rating sources to fetch (default: %(default)s)",
-    )
-    args = parser.parse_args()
+def run(
+    seasons: Sequence[str] = DEFAULT_SEASONS,
+    providers: Sequence[str] = PROVIDERS,
+) -> None:
+    """Fetch season totals per rating provider and upsert statistiche."""
 
     all_rows: list[PlayerStatsRow] = []
     first = True
-    for season in args.seasons:
-        for provider in args.providers:
+    for season in seasons:
+        for provider in providers:
             if not first:
                 time.sleep(REQUEST_DELAY_SECONDS)
             first = False
@@ -292,10 +279,8 @@ def main() -> None:
         stored = _db.upsert_statistiche(handle, payload)
 
     print(
-        f"{len(all_rows)} scraped rows across {len(args.seasons)} seasons x "
-        f"{len(args.providers)} providers -> {stored} statistiche rows"
+        f"{len(all_rows)} scraped rows across {len(seasons)} seasons x "
+        f"{len(providers)} providers -> {stored} statistiche rows"
     )
 
 
-if __name__ == "__main__":
-    main()

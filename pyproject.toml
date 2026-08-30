@@ -43,15 +43,6 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = ["E501", "B008", "RUF003"]
 
-[tool.ruff.lint.per-file-ignores]
-# Every script inserts its own parent on sys.path before importing `_db`, which
-# is a sibling module rather than a package. That puts imports after a
-# statement. Ruff does not currently raise E402 there, so the `# noqa: E402`
-# comments that used to carry this were flagged as unused and removed — leaving
-# nothing to state the intent. This is that statement, and it survives a ruff
-# version that starts raising it.
-"scripts/*.py" = ["E402"]
-
 [tool.mypy]
 python_version = "3.11"
 strict = true

@@ -101,13 +101,10 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import math
 import statistics
-import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -343,13 +340,10 @@ def compute_target_prices(system: str) -> list[TargetPriceRow]:
     return out
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--system", choices=["classic", "mantra"], default="classic")
-    parser.add_argument("--top-n", type=int, default=15)
-    args = parser.parse_args()
-    fades = fit_role_fades(args.system)
-    console.print(f"[bold]{args.system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
+def run(system: str = "classic", top_n: int = 15) -> None:
+    """Fit the role fades, apply the team factors, and upsert target_price."""
+    fades = fit_role_fades(system)
+    console.print(f"[bold]{system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
     fade_table = Table()
     fade_table.add_column("macro role")
     fade_table.add_column("n", justify="right")
@@ -358,14 +352,14 @@ def main() -> None:
     fade_table.add_column("clamp range (as %)", justify="right")
     # RoleFade doesn't carry n; recompute just for display
     with _db.session() as handle:
-        prior_stats_dbg = _db.load_prior_stats(handle, args.system)
+        prior_stats_dbg = _db.load_prior_stats(handle, system)
     with _db.session() as handle:
         bias_rows_dbg = _db.load_bias_rows(
-            handle, args.system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
+            handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
         )
     n_by_role: dict[str, int] = defaultdict(int)
     for row in bias_rows_dbg:
-        role = macro_role(row.role, args.system)
+        role = macro_role(row.role, system)
         prior = prior_stats_dbg.get((row.id, PREV_OF_TRAIN[row.stagione]))
         if prior is not None and REGULAR_APPEARANCES_LO <= prior.partite_giocate <= REGULAR_APPEARANCES_HI:
             n_by_role[role] += 1
@@ -381,10 +375,10 @@ def main() -> None:
         )
     console.print(fade_table)
 
-    team_factors = team_discount_factors(args.system)
+    team_factors = team_discount_factors(system)
     console.print(f"\n[bold]Team discount factors applied:[/bold] {team_factors}\n")
 
-    rows = compute_target_prices(args.system)
+    rows = compute_target_prices(system)
 
 
     # Database only. The CSV writer was removed on 2026-08-26, once the port
@@ -393,7 +387,7 @@ def main() -> None:
     with _db.session() as handle:
         stored = _db.upsert_target_price(
             handle,
-            args.system,
+            system,
             TARGET_SEASON,
             [
                 {
@@ -411,19 +405,19 @@ def main() -> None:
                 for r in rows
             ],
         )
-    console.print(f"wrote {stored} target_price rows for {args.system}\n")
+    console.print(f"wrote {stored} target_price rows for {system}\n")
 
-    biggest_bumps = sorted(rows, key=lambda r: -(r.target_price - r.qi))[: args.top_n]
-    biggest_cuts = sorted(rows, key=lambda r: (r.target_price - r.qi))[: args.top_n]
+    biggest_bumps = sorted(rows, key=lambda r: -(r.target_price - r.qi))[: top_n]
+    biggest_cuts = sorted(rows, key=lambda r: (r.target_price - r.qi))[: top_n]
 
-    console.print(f"Top {args.top_n} biggest UPWARD adjustments (target > qi):", markup=False)
+    console.print(f"Top {top_n} biggest UPWARD adjustments (target > qi):", markup=False)
     for r in biggest_bumps:
         console.print(
             f"  {r.nome:20s} {r.squadra:4s} {r.role:8s}({r.macro_role:7s}) qi={r.qi:>3d} -> target={r.target_price:>3d}  flags={r.flags}",
             markup=False,
         )
 
-    console.print(f"\nTop {args.top_n} biggest DOWNWARD adjustments (target < qi):", markup=False)
+    console.print(f"\nTop {top_n} biggest DOWNWARD adjustments (target < qi):", markup=False)
     for r in biggest_cuts:
         console.print(
             f"  {r.nome:20s} {r.squadra:4s} {r.role:8s}({r.macro_role:7s}) qi={r.qi:>3d} -> target={r.target_price:>3d}  flags={r.flags}",
@@ -438,5 +432,3 @@ def main() -> None:
     console.print(f"\nFlag counts: {dict(flag_counts)}")
 
 
-if __name__ == "__main__":
-    main()
