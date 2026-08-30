@@ -375,7 +375,8 @@ def mantra_grid(
     from fantabot.agentkit.env import strip_dangerous_env
     from fantabot.config import settings
     from fantabot.mantra_grid.collect import CollectError, collect
-    from fantabot.mantra_grid.writer import COMPAT_FILENAME, SCHEMI_FILENAME, write_json
+    from fantabot.mantra_grid.writer import write_json
+    from fantabot.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
 
     try:
         model = settings.resolve_agent_model(model)
@@ -406,11 +407,15 @@ def mantra_grid(
         console.print("[dim]--write not given, nothing saved.[/dim]")
         return
 
-    data_dir: Path = settings.fantabot_data_dir
-    write_json(data_dir / SCHEMI_FILENAME, result.grid)
-    write_json(data_dir / COMPAT_FILENAME, result.matrix)
-    console.print(f"[green]-> {data_dir / SCHEMI_FILENAME}[/green]")
-    console.print(f"[green]-> {data_dir / COMPAT_FILENAME}[/green]")
+    # Written where `legality.load_compat` reads, which is inside the package. These
+    # two files are the matcher's input, not runtime state; writing them to
+    # `settings.fantabot_data_dir` meant the reader and the writer agreed only when
+    # the process happened to start in the repository root.
+    out = data_dir()
+    write_json(out / SCHEMI_FILENAME, result.grid)
+    write_json(out / COMPAT_FILENAME, result.matrix)
+    console.print(f"[green]-> {out / SCHEMI_FILENAME}[/green]")
+    console.print(f"[green]-> {out / COMPAT_FILENAME}[/green]")
     console.print(
         "[yellow]Verify both by hand against rules/sistema-mantra.md before committing.[/yellow]"
     )
@@ -516,7 +521,6 @@ def db_dump() -> None:
     """
     import subprocess
     from datetime import UTC, datetime
-    from pathlib import Path
 
     out = Path.home() / f"fantabot-db-{datetime.now(UTC):%Y%m%d}.dump"
     # The guard the shell script carried: never write the dump onto the repo's own

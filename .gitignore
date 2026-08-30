@@ -10,11 +10,11 @@ data/*
 # Documentation, not data.
 !data/README.md
 # The news pipeline's output is the historical record: a past Wednesday cannot be
-# regenerated, so it is tracked despite living under data/. The two Mantra files
-# are collected once from fixed rules and verified by hand.
+# regenerated, so it is tracked despite living under data/.
 !data/player_sentiment_*.csv
-!data/mantra_schemi.json
-!data/mantra_compat.json
+# The two Mantra artefacts moved to src/fantabot/data/ in P11-6 -- they are the
+# matcher's input, so they ship with the package. Not listed here: `data/*` carries a
+# slash and is therefore anchored to this file's directory, so it never reached them.
 *.egg-info/
 .pytest_cache/
 .mypy_cache/

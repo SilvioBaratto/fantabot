@@ -81,7 +81,7 @@ def split_codes(raw: str) -> list[str]:
     """``"B;DS;E"`` becomes ``["B", "DS", "E"]``; empty becomes ``[]``.
 
     Upper-cased because the same codes appear in three casings across the
-    project: the Mantra listone stores ``DC``, ``data/mantra_schemi.json``
+    project: the Mantra listone stores ``DC``, ``mantra_schemi.json``
     stores ``Dc``, and ``rules/sistema-mantra.md`` uses lowercase. Classic shares
     this column and stores a single element.
     """

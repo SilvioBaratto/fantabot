@@ -7,8 +7,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-SCHEMI_FILENAME = "mantra_schemi.json"
-COMPAT_FILENAME = "mantra_compat.json"
+from fantabot.resources import COMPAT_FILENAME, SCHEMI_FILENAME
+
+__all__ = ["COMPAT_FILENAME", "SCHEMI_FILENAME", "write_json"]
 
 
 def write_json(path: Path, model: BaseModel) -> None:

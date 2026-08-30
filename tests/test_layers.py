@@ -37,6 +37,9 @@ LAYERS: dict[str, str] = {
     "fantabot.mantra_grid": "domain",
     "fantabot.club_names": "domain",
     "fantabot.parsing": "domain",
+    # Where the packaged JSON artefacts are. A constant location, not a setting, so
+    # a pure module may ask it without acquiring a dependency on the environment.
+    "fantabot.resources": "domain",
     "fantabot.data_sources.models": "domain",
     "fantabot.tokens.claims": "domain",
     "fantabot.tokens.errors": "domain",

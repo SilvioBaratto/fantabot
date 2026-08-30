@@ -11,7 +11,8 @@ lineup is built and admitted only as the outcome of a forced substitution, so a 
 that treats it as ``-1`` fields lineups the platform rejects. See ``mantra_grid.models``.
 
 ``build_legality`` and the matcher are pure — they take the parsed matrix. ``load_compat``
-is the thin data-load edge (a static JSON file; no database, no network).
+is the thin data-load edge: a JSON file that ships inside the package, so no database, no
+network, and no dependence on the working directory.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..mantra_grid.models import ROLE_ORDER, CompatMatrix
+from ..resources import COMPAT_FILENAME, data_dir
 from .roles import MantraPlayer
 
 Mode = Literal["submission", "substitution"]
@@ -31,7 +33,6 @@ Mode = Literal["submission", "substitution"]
 _SUBMISSION_CELLS: frozenset[str] = frozenset({"ok", "-1"})
 _SUBSTITUTION_CELLS: frozenset[str] = frozenset({"ok", "-1", "-1*"})
 
-_DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 #: The 12 role codes in column order, canonical (uppercase), aligned to a compat row.
 _CANONICAL: tuple[str, ...] = tuple(code.upper() for code in ROLE_ORDER)
 
@@ -137,7 +138,11 @@ def marginal_legality(
     return after - before
 
 
-def load_compat(data_dir: Path | None = None) -> CompatMatrix:
-    """Read the shipped compat matrix from ``data/``. The data-load edge — no DB, no network."""
-    path = (data_dir or _DATA_DIR) / "mantra_compat.json"
+def load_compat(source: Path | None = None) -> CompatMatrix:
+    """Read the shipped compat matrix. The data-load edge — no DB, no network.
+
+    The default is package-anchored rather than CWD-relative, so this works from any
+    directory. See ``fantabot.resources``.
+    """
+    path = (source or data_dir()) / COMPAT_FILENAME
     return CompatMatrix.model_validate(json.loads(path.read_text(encoding="utf-8")))
