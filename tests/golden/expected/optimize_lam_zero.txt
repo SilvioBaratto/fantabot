@@ -1,4 +1,4 @@
-roster: 30 players | cost 500 | obj 2546.7
+roster: 30 players | cost 500 | obj 2372.3
   Svilar                      42
   Bremer                      31
   Rrahmani                    19
@@ -9,26 +9,26 @@ roster: 30 players | cost 500 | obj 2546.7
   McTominay                   76
   Paz N.                      96
   Leao                         1
-  Colombo                      9
-  Tourè E.                     2
-  David                        1
-  Lukaku                       0
-  Schmid                       2  ⚠ tagged W;T / played C;T
+  Colombo                     11
+  Lukaku                       1
   Cutrone                      1
-  Romero D.                    1  ⚠ tagged PC / played W
-  Dia                          1  ⚠ tagged A / played PC
-  Volpato                      1
-  Coulibaly L.                 1  ⚠ tagged M;C / played C;T
-  Ellertsson                   1  ⚠ tagged E;C / played DS;E
-  Elmas                        1
-  Cambiaghi                    1
   Raimondo                     1
-  Winks                        1
-  Kvernadze                    1  ⚠ tagged W;A / played T;W
-  Adopo                        1  ⚠ tagged M;C / played C;M;T
   Keita M.                     1
-  Matic                        1
-  Thiam                        0
-fallback 1: cost 500 | obj 2303.8
-fallback 2: cost 500 | obj 2356.7
-fallback 3: cost 500 | obj 2579.4
+  Rovella                      1
+  El Aynaoui                   1
+  Piotrowski                   1
+  Fatah                        1
+  Osmajic                      1
+  Gineitis                     1
+  Mota                         1
+  Pierotti                     1  ⚠ tagged W / played T;W
+  Musah                        1
+  Cichella                     1
+  Akinsanmiro                  1
+  Leysen F.                    1
+  Noslin                       1  ⚠ tagged A / played W
+  Bracaglia                    1  ⚠ tagged DS;DC / played B;DS
+  Thiam                        1
+fallback 1: cost 500 | obj 2184.1
+fallback 2: cost 500 | obj 2295.4
+fallback 3: cost 500 | obj 2468.3

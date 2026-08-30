@@ -52,8 +52,14 @@ def build_index(
     return _Index(pool, prices, rules or RosterRules(), value)
 
 
-def _cost(player_id: str, prices: Mapping[str, float]) -> int:
-    """Planning cost in credits: the auction never sells below 1, so neither do we."""
+def planning_cost(player_id: str, prices: Mapping[str, float]) -> int:
+    """Planning cost in credits: the auction never sells below 1, so neither do we.
+
+    Public because the roster report has to agree with it. It printed the raw price map
+    instead, so a player with no observed sale showed as costing 0 -- a number the
+    platform will not accept a bid at -- while the plan had budgeted him the riserva, and
+    the printed lines did not sum to the header's own total.
+    """
     return max(DEFAULT_PRICE, round(prices.get(player_id, float(DEFAULT_PRICE))))
 
 
@@ -175,7 +181,7 @@ class _Index:
         rules: RosterRules,
         value: ValueModel,
     ) -> None:
-        self.cost: dict[str, int] = {p.id: _cost(p.id, prices) for p in pool}
+        self.cost: dict[str, int] = {p.id: planning_cost(p.id, prices) for p in pool}
         self.is_goalkeeper: dict[str, bool] = {p.id: _is_goalkeeper(p, rules) for p in pool}
         # `value.value` was called 52,597 times a cycle for two floats that never
         # change within one. The model is a pure function of the player id, so

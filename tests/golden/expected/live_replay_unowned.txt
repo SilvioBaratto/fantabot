@@ -1,9 +1,9 @@
-target roster: 30 players | obj 2387.9
-  chase Orsolini             walk-away 122
-  chase Dimarco              walk-away 116
-  chase McTominay            walk-away 70
-  chase De Bruyne            walk-away 70
-  chase Scamacca             walk-away 39
+target roster: 30 players | obj 2279.5
+  chase Orsolini             walk-away 132
+  chase Dimarco              walk-away 109
+  chase De Bruyne            walk-away 81
+  chase McTominay            walk-away 67
+  chase Scamacca             walk-away 46
 opponents:
   a1bdb260-59f3-4221-af85-572ce57e1f1e  2 players | spent 434 | left  66
   f9927161-caca-4f46-9c4f-a0f74052d17c  4 players | spent 385 | left 115

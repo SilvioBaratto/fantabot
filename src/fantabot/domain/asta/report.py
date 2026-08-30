@@ -12,6 +12,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from typing import Any
 
+from fantabot.domain.asta.optimizer import planning_cost
 from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
 from fantabot.domain.asta.sentiment import SentimentWeights, effect_by_id, variance_by_id
 from fantabot.domain.asta.state import Roster
@@ -117,7 +118,13 @@ def format_roster(
     *,
     sentiment: Mapping[str, SentimentRow] | None = None,
 ) -> str:
-    """One header line plus a line per player (name, expected price, and any role drift).
+    """One header line plus a line per player (name, planning cost, and any role drift).
+
+    The cost is `optimizer.planning_cost`, not the raw price map. Those differ for a
+    player with no observed clearing sale: the map has no entry, the optimizer budgets
+    the 1-credit riserva, and printing the map showed `0` -- a price the platform will
+    not take a bid at, and one that made the printed lines disagree with the header's
+    own total.
 
     The drift annotation is a **warning, not a permission**. The platform freezes Mantra
     role tags in late July and enforces its own at submission, so a player tagged ``A`` who
@@ -134,7 +141,8 @@ def format_roster(
         if row is not None and row.deriva_ruolo > 0:
             drift = f"  ⚠ tagged {row.ruoli_mantra} / played {row.ruolo_campo}"
         lines.append(
-            f"  {names.get(player_id, player_id):<24} {prices.get(player_id, 0.0):>5.0f}{drift}"
+            f"  {names.get(player_id, player_id):<24} "
+            f"{planning_cost(player_id, prices):>5d}{drift}"
         )
     return "\n".join(lines)
 

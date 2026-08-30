@@ -62,6 +62,17 @@ class AsteRepository(RepositoryBase):
         so the prices are directly comparable to ours without budget normalization; sales
         with no linked player (`fantacalcio_id IS NULL`) are dropped. Read-only.
 
+        **A row with no buyer is not a sale, and this used to return them.** The collector
+        records every lot the room calls, and 12,544 of 43,298 assignment rows -- 29% --
+        are lots that were called and never bid on: no `buyer_team_id`, one ladder rung,
+        and that rung's `team_id` is `None`. They entered the mean at their opening price
+        and dragged it toward zero. In our own league shape it was 3,076 rows of 9,559.
+
+        The filter is on the buyer, not on the price. The platform will not sell a player
+        for 0 credits -- the minimum bid is 1 -- so a row with no buyer is not a purchase
+        whatever price it carries, and 364 of them carry a price above zero, being opening
+        calls at a starting price. `price > 0` would have left those in.
+
         **The `ORDER BY` is load-bearing even though the reducer does not need it.**
         `prices.mean_prices` sums ints, so the mean is order-independent — but the golden
         harness pins a fixture captured from exactly these rows, and Postgres has no
@@ -78,6 +89,7 @@ class AsteRepository(RepositoryBase):
                 Asta.num_credits == budget,
                 Asta.num_teams == num_teams,
                 AstaAssignment.fantacalcio_id.is_not(None),
+                AstaAssignment.buyer_team_id.is_not(None),
             )
             .order_by(AstaAssignment.fantacalcio_id, AstaAssignment.price)
         ).all()

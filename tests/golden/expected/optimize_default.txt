@@ -1,4 +1,4 @@
-roster: 30 players | cost 500 | obj 2435.8
+roster: 30 players | cost 500 | obj 2251.8
   Svilar                      42
   Bremer                      31
   Rrahmani                    19
@@ -9,26 +9,26 @@ roster: 30 players | cost 500 | obj 2435.8
   McTominay                   76
   Paz N.                      96
   Leao                         1
-  Colombo                      9
-  Tourè E.                     2
+  Colombo                     11
   Cutrone                      1
-  Schmid                       2  ⚠ tagged W;T / played C;T
-  David                        1
-  Dia                          1  ⚠ tagged A / played PC
-  Romero D.                    1  ⚠ tagged PC / played W
-  Lukaku                       0
-  Volpato                      1
-  Coulibaly L.                 1  ⚠ tagged M;C / played C;T
-  Elmas                        1
-  Cambiaghi                    1
-  Winks                        1
+  Lukaku                       1
   Raimondo                     1
-  Ellertsson                   1  ⚠ tagged E;C / played DS;E
-  Adopo                        1  ⚠ tagged M;C / played C;M;T
-  Piotrowski                   0
-  Mandragora                   1
-  Matic                        1
-  Mascardi                     1
-fallback 1: cost 500 | obj 2195.8
-fallback 2: cost 500 | obj 2251.4
-fallback 3: cost 500 | obj 2465.5
+  Keita M.                     1
+  Rovella                      1
+  Piotrowski                   1
+  Gineitis                     1
+  Fatah                        1
+  Musah                        1
+  Mota                         1
+  Mendy P.                     1
+  Cichella                     1
+  El Aynaoui                   1
+  Moro N.                      1
+  Ratkov                       1
+  Ranieri L.                   1
+  Leysen F.                    1
+  Osmajic                      1
+  Thiam                        1
+fallback 1: cost 500 | obj 2061.1
+fallback 2: cost 500 | obj 2175.6
+fallback 3: cost 500 | obj 2344.1

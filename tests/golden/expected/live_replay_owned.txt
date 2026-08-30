@@ -1,7 +1,7 @@
-target roster: 30 players | obj 1432.0
-  chase Leao                 walk-away 41
-  chase David                walk-away 23
-  chase Lukaku               walk-away 18
+target roster: 30 players | obj 1270.4
+  chase Leao                 walk-away 47
+  chase Lukaku               walk-away 23
+  chase Cutrone              walk-away 20
   chase Carnesecchi          walk-away 15
   chase Vasquez              walk-away 0
 opponents:
