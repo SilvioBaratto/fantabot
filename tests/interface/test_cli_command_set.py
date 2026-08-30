@@ -28,7 +28,7 @@ EXPECTED: set[str] = {
     "asta legality",
     "asta live",
     "asta optimize",
-    "auth auth fantalab-login",
+    "auth fantalab-login",
     "auth forget",
     "auth login",
     "auth status",
@@ -98,3 +98,30 @@ def test_every_command_has_help_text() -> None:
         return [bad for name, sub in subs.items() for bad in walk(sub, (*prefix, name))]
 
     assert not walk(root), f"commands with no help: {walk(root)}"
+
+
+def test_no_command_name_contains_a_space() -> None:
+    """A name is a name, not a path. `("auth fantalab-login", ...)` was registered as a
+    literal command name inside the `auth` group, so `fantabot auth fantalab-login`
+    answered `No such command`. The set above had been updated to expect
+    `auth auth fantalab-login` rather than the registration being fixed, which is how a
+    recorded-output test turns a bug into the specification.
+    """
+    from fantabot.interface.app import app
+
+    group = typer.main.get_command(app)
+    offenders = sorted(
+        name
+        for command in [group, *_subgroups(group)]
+        for name in getattr(command, "commands", {})
+        if " " in name
+    )
+
+    assert offenders == [], f"registered with a space in the name: {offenders}"
+
+
+def _subgroups(command: click.Command) -> list[click.Command]:
+    subs = getattr(command, "commands", {}).values()
+    return [c for c in subs if hasattr(c, "commands")] + [
+        g for c in subs if hasattr(c, "commands") for g in _subgroups(c)
+    ]

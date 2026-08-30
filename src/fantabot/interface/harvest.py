@@ -553,7 +553,13 @@ HARVEST_COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
     ("backfill", aste_backfill),
 )
 
-AUTH_COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (("auth fantalab-login", fantalab_login),)
+#: The name *within* the `auth` group, not the path to it. It read
+#: `"auth fantalab-login"` and was registered as that literal, so the only way to
+#: invoke it was `fantabot auth "auth fantalab-login"` and the obvious spelling
+#: answered `No such command 'fantalab-login'`.
+AUTH_COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
+    ("fantalab-login", fantalab_login),
+)
 
 
 def register(harvest: typer.Typer, auth: typer.Typer) -> None:
