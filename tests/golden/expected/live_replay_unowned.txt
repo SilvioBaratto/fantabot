@@ -1,0 +1,15 @@
+target roster: 30 players | obj 2435.8
+  chase Calhanoglu           walk-away 240
+  chase Dimarco              walk-away 184
+  chase McTominay            walk-away 127
+  chase Paz N.               walk-away 0
+  chase Svilar               walk-away 0
+opponents:
+  a1bdb260-59f3-4221-af85-572ce57e1f1e  2 players | spent 434 | left  66
+  f9927161-caca-4f46-9c4f-a0f74052d17c  4 players | spent 385 | left 115
+  aa9ec8bf-2bd4-49b6-9655-25321f2f5402  2 players | spent 384 | left 116
+  51e59719-a3dc-4fa8-9e22-586e962e1f88  3 players | spent 316 | left 184
+  1447f15c-3296-4b83-ae37-af41ea3506b7  2 players | spent 267 | left 233
+  411aa968-de90-4828-9f8e-512d824ee892  2 players | spent 231 | left 269
+  2b248001-9665-49ac-a680-73224bae4c6d  2 players | spent 219 | left 281
+  089502ff-c33d-4d66-9b54-c4f911a37ec5  1 players | spent  89 | left 411

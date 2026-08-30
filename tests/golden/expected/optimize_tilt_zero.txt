@@ -1,0 +1,34 @@
+roster: 30 players | cost 500 | obj 2352.0
+  Svilar                      42
+  Bremer                      31
+  Rrahmani                    19
+  Akanji                      23
+  Dimarco                     74
+  Wesley                      37
+  Calhanoglu                  71
+  McTominay                   76
+  Paz N.                      96
+  Leao                         1
+  Colombo                      9
+  Tourè E.                     2
+  David                        1
+  Cutrone                      1
+  Schmid                       2  ⚠ tagged W;T / played C;T
+  Dia                          1  ⚠ tagged A / played PC
+  Romero D.                    1  ⚠ tagged PC / played W
+  Lukaku                       0
+  Volpato                      1
+  Coulibaly L.                 1  ⚠ tagged M;C / played C;T
+  Cambiaghi                    1
+  Winks                        1
+  Elmas                        1
+  Ellertsson                   1  ⚠ tagged E;C / played DS;E
+  Raimondo                     1
+  Mandragora                   1
+  Piotrowski                   0
+  Matic                        1
+  Gineitis                     0
+  Thiam                        0
+fallback 1: cost 500 | obj 2134.0
+fallback 2: cost 500 | obj 2184.0
+fallback 3: cost 500 | obj 2367.6

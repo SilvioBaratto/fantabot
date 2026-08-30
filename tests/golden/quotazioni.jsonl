@@ -1,0 +1,548 @@
+{"fvm": 1, "nome": "Radunovic", "player_id": "3", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "CAG"}
+{"fvm": 1, "nome": "Sportiello", "player_id": "4", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ATA"}
+{"fvm": 10, "nome": "De Roon", "player_id": "22", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ATA"}
+{"fvm": 36, "nome": "Skorupski", "player_id": "133", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "BOL"}
+{"fvm": 45, "nome": "Zielinski", "player_id": "152", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "INT"}
+{"fvm": 1, "nome": "Lezzerini", "player_id": "158", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FIO"}
+{"fvm": 30, "nome": "Bernardeschi", "player_id": "184", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "BOL"}
+{"fvm": 5, "nome": "Perin", "player_id": "218", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "JUV"}
+{"fvm": 1, "nome": "Sommariva", "player_id": "219", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "GEN"}
+{"fvm": 6, "nome": "Biraghi", "player_id": "252", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "TOR"}
+{"fvm": 253, "nome": "Dimarco", "player_id": "254", "ruoli": ["Esterno", "Ala"], "ruoli_codice": ["E", "W"], "squadra": "INT"}
+{"fvm": 3, "nome": "Rugani", "player_id": "294", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "JUV"}
+{"fvm": 95, "nome": "Dybala", "player_id": "309", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "ROM"}
+{"fvm": 7, "nome": "Morata", "player_id": "313", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "COM"}
+{"fvm": 1, "nome": "Patric", "player_id": "327", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "LAZ"}
+{"fvm": 15, "nome": "Cataldi", "player_id": "333", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LAZ"}
+{"fvm": 5, "nome": "Petagna", "player_id": "383", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "MON"}
+{"fvm": 1, "nome": "Goldaniga", "player_id": "418", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "COM"}
+{"fvm": 22, "nome": "Romagnoli", "player_id": "460", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LAZ"}
+{"fvm": 4, "nome": "De Silvestri", "player_id": "487", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "BOL"}
+{"fvm": 4, "nome": "Duncan", "player_id": "526", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "VEN"}
+{"fvm": 25, "nome": "Pellegrini Lo.", "player_id": "530", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "ROM"}
+{"fvm": 101, "nome": "Berardi", "player_id": "531", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "SAS"}
+{"fvm": 40, "nome": "Politano", "player_id": "536", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "NAP"}
+{"fvm": 1, "nome": "Padelli", "player_id": "543", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "UDI"}
+{"fvm": 19, "nome": "Zappacosta", "player_id": "554", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "ATA"}
+{"fvm": 53, "nome": "Meret", "player_id": "572", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "NAP"}
+{"fvm": 16, "nome": "Zapata D.", "player_id": "608", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "TOR"}
+{"fvm": 1, "nome": "Gollini", "player_id": "610", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ROM"}
+{"fvm": 85, "nome": "Zaccagni", "player_id": "632", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "LAZ"}
+{"fvm": 32, "nome": "Cristante", "player_id": "779", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ROM"}
+{"fvm": 16, "nome": "Djimsiti", "player_id": "787", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ATA"}
+{"fvm": 5, "nome": "Sabelli", "player_id": "791", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "GEN"}
+{"fvm": 38, "nome": "Locatelli", "player_id": "827", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "JUV"}
+{"fvm": 25, "nome": "Spinazzola", "player_id": "1852", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "NAP"}
+{"fvm": 80, "nome": "Barella", "player_id": "1870", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "INT"}
+{"fvm": 8, "nome": "Deiola", "player_id": "1871", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "CAG"}
+{"fvm": 1, "nome": "Di Gennaro", "player_id": "1926", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "INT"}
+{"fvm": 1, "nome": "Pinsoglio", "player_id": "1930", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "JUV"}
+{"fvm": 23, "nome": "Mandragora", "player_id": "1933", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "FIO"}
+{"fvm": 11, "nome": "Milik", "player_id": "2012", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "JUV"}
+{"fvm": 48, "nome": "Pinamonti", "player_id": "2038", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "SAS"}
+{"fvm": 77, "nome": "Simeone", "player_id": "2061", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "TOR"}
+{"fvm": 24, "nome": "Pasalic", "player_id": "2077", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "ATA"}
+{"fvm": 187, "nome": "Kean", "player_id": "2097", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "FIO"}
+{"fvm": 11, "nome": "Delli Carri", "player_id": "2115", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MON"}
+{"fvm": 43, "nome": "Bastoni", "player_id": "2120", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "INT"}
+{"fvm": 1, "nome": "Satalino", "player_id": "2127", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "SAS"}
+{"fvm": 30, "nome": "Falcone", "player_id": "2134", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LEC"}
+{"fvm": 123, "nome": "Scamacca", "player_id": "2137", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "ATA"}
+{"fvm": 30, "nome": "Cutrone", "player_id": "2155", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "MON"}
+{"fvm": 192, "nome": "Orsolini", "player_id": "2167", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "BOL"}
+{"fvm": 7, "nome": "Milinkovic-Savic V.", "player_id": "2170", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "NAP"}
+{"fvm": 23, "nome": "Marusic", "player_id": "2188", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "LAZ"}
+{"fvm": 266, "nome": "Calhanoglu", "player_id": "2194", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "INT"}
+{"fvm": 5, "nome": "Lazzari", "player_id": "2263", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "LAZ"}
+{"fvm": 49, "nome": "Mancini", "player_id": "2296", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ROM"}
+{"fvm": 1, "nome": "Rossi F.", "player_id": "2297", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ATA"}
+{"fvm": 145, "nome": "Rabiot", "player_id": "2379", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "MIL"}
+{"fvm": 1, "nome": "Fruchtl", "player_id": "2401", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LEC"}
+{"fvm": 160, "nome": "Pulisic", "player_id": "2423", "ruoli": ["Trequartista", "Attaccante"], "ruoli_codice": ["T", "A"], "squadra": "MIL"}
+{"fvm": 30, "nome": "Stones", "player_id": "2514", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "INT"}
+{"fvm": 105, "nome": "De Bruyne", "player_id": "2517", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "NAP"}
+{"fvm": 40, "nome": "De Gea", "player_id": "2521", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FIO"}
+{"fvm": 17, "nome": "Matic", "player_id": "2528", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "SAS"}
+{"fvm": 10, "nome": "Mkhitaryan", "player_id": "2529", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "INT"}
+{"fvm": 41, "nome": "Lukaku", "player_id": "2531", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "NAP"}
+{"fvm": 8, "nome": "Martin", "player_id": "2593", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "GEN"}
+{"fvm": 51, "nome": "Modric", "player_id": "2606", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "MIL"}
+{"fvm": 10, "nome": "Kolasinac", "player_id": "2640", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "ATA"}
+{"fvm": 15, "nome": "Buongiorno", "player_id": "2724", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "NAP"}
+{"fvm": 7, "nome": "Pellegrini Lu.", "player_id": "2728", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "LAZ"}
+{"fvm": 20, "nome": "Pessina", "player_id": "2741", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "MON"}
+{"fvm": 367, "nome": "Martinez L.", "player_id": "2764", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "INT"}
+{"fvm": 15, "nome": "Odgaard", "player_id": "2765", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "BOL"}
+{"fvm": 85, "nome": "Zaniolo", "player_id": "2766", "ruoli": ["Trequartista", "Attaccante"], "ruoli_codice": ["T", "A"], "squadra": "UDI"}
+{"fvm": 60, "nome": "Bremer", "player_id": "2788", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "JUV"}
+{"fvm": 1, "nome": "Vigorito", "player_id": "2809", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "COM"}
+{"fvm": 5, "nome": "Provedel", "player_id": "2814", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "INT"}
+{"fvm": 1, "nome": "Terracciano", "player_id": "2815", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "MIL"}
+{"fvm": 40, "nome": "Di Lorenzo", "player_id": "2816", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "NAP"}
+{"fvm": 29, "nome": "Boga", "player_id": "2832", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "JUV"}
+{"fvm": 1, "nome": "Contini", "player_id": "2845", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "NAP"}
+{"fvm": 68, "nome": "Frattesi", "player_id": "2848", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "LAZ"}
+{"fvm": 11, "nome": "Traorè Hj.", "player_id": "2857", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "GEN"}
+{"fvm": 51, "nome": "Akanji", "player_id": "4159", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "INT"}
+{"fvm": 16, "nome": "Pavard", "player_id": "4177", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "INT"}
+{"fvm": 18, "nome": "Loftus-Cheek", "player_id": "4199", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "MIL"}
+{"fvm": 20, "nome": "Mina", "player_id": "4210", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "CAG"}
+{"fvm": 47, "nome": "Zambo Anguissa", "player_id": "4220", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "NAP"}
+{"fvm": 15, "nome": "Muric", "player_id": "4236", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "SAS"}
+{"fvm": 20, "nome": "Winks", "player_id": "4260", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "CAG"}
+{"fvm": 12, "nome": "Kabasele", "player_id": "4263", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "UDI"}
+{"fvm": 27, "nome": "Lobotka", "player_id": "4287", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "NAP"}
+{"fvm": 50, "nome": "Maignan", "player_id": "4312", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "MIL"}
+{"fvm": 44, "nome": "N'Dicka", "player_id": "4317", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ROM"}
+{"fvm": 21, "nome": "Nicolussi Caviglia", "player_id": "4349", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "PAR"}
+{"fvm": 34, "nome": "Piccoli", "player_id": "4359", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "BOL"}
+{"fvm": 28, "nome": "Caprile", "player_id": "4360", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "CAG"}
+{"fvm": 35, "nome": "Gaetano", "player_id": "4364", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ATA"}
+{"fvm": 76, "nome": "Raspadori", "player_id": "4371", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "ATA"}
+{"fvm": 12, "nome": "Walukiewicz", "player_id": "4374", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "SAS"}
+{"fvm": 8, "nome": "Terzic", "player_id": "4375", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "FRO"}
+{"fvm": 12, "nome": "Ranieri L.", "player_id": "4378", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "FIO"}
+{"fvm": 10, "nome": "Adorante", "player_id": "4387", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "VEN"}
+{"fvm": 24, "nome": "Gabbia", "player_id": "4401", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MIL"}
+{"fvm": 51, "nome": "Rrahmani", "player_id": "4409", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "NAP"}
+{"fvm": 52, "nome": "Carnesecchi", "player_id": "4431", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ATA"}
+{"fvm": 19, "nome": "Zortea", "player_id": "4433", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "BOL"}
+{"fvm": 23, "nome": "Cambiaghi", "player_id": "4436", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "BOL"}
+{"fvm": 19, "nome": "Rovella", "player_id": "4459", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LAZ"}
+{"fvm": 9, "nome": "Zappa", "player_id": "4461", "ruoli": ["Braccetto", "Dif. destro", "Esterno"], "ruoli_codice": ["B", "DD", "E"], "squadra": "CAG"}
+{"fvm": 40, "nome": "Esposito Se.", "player_id": "4463", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "CAG"}
+{"fvm": 27, "nome": "Fagioli", "player_id": "4465", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FIO"}
+{"fvm": 1, "nome": "Bleve", "player_id": "4468", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LEC"}
+{"fvm": 28, "nome": "Elmas", "player_id": "4479", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "ATA"}
+{"fvm": 11, "nome": "Thiam", "player_id": "4485", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "MON"}
+{"fvm": 13, "nome": "Gallo", "player_id": "4502", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "LEC"}
+{"fvm": 75, "nome": "Leao", "player_id": "4510", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "MIL"}
+{"fvm": 1, "nome": "Russo A.", "player_id": "4518", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "SAS"}
+{"fvm": 17, "nome": "Celik", "player_id": "4657", "ruoli": ["Braccetto", "Dif. destro", "Esterno"], "ruoli_codice": ["B", "DD", "E"], "squadra": "JUV"}
+{"fvm": 21, "nome": "Badiashile", "player_id": "4664", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "NAP"}
+{"fvm": 12, "nome": "Fofana Y.", "player_id": "4686", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "MIL"}
+{"fvm": 20, "nome": "Nkunku", "player_id": "4728", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "MIL"}
+{"fvm": 24, "nome": "Miranda J.", "player_id": "4734", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "BOL"}
+{"fvm": 8, "nome": "Tomori", "player_id": "4751", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MIL"}
+{"fvm": 12, "nome": "Angelino", "player_id": "4772", "ruoli": ["Esterno"], "ruoli_codice": ["E"], "squadra": "ROM"}
+{"fvm": 228, "nome": "McTominay", "player_id": "4777", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "NAP"}
+{"fvm": 26, "nome": "Hermoso", "player_id": "4807", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ROM"}
+{"fvm": 15, "nome": "Pedraza", "player_id": "4817", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "LAZ"}
+{"fvm": 12, "nome": "Correia T.", "player_id": "4845", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "VEN"}
+{"fvm": 20, "nome": "Chukwueze", "player_id": "4856", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "MIL"}
+{"fvm": 1, "nome": "Turati", "player_id": "4867", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "SAS"}
+{"fvm": 16, "nome": "Adopo", "player_id": "4870", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "CAG"}
+{"fvm": 263, "nome": "Thuram", "player_id": "4871", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "INT"}
+{"fvm": 17, "nome": "Bellanova", "player_id": "4887", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "ATA"}
+{"fvm": 35, "nome": "Saelemaekers", "player_id": "4892", "ruoli": ["Esterno", "Ala"], "ruoli_codice": ["E", "W"], "squadra": "MIL"}
+{"fvm": 21, "nome": "Maldini", "player_id": "4896", "ruoli": ["Trequartista", "Attaccante"], "ruoli_codice": ["T", "A"], "squadra": "CAG"}
+{"fvm": 15, "nome": "Douglas Luiz", "player_id": "4911", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "JUV"}
+{"fvm": 52, "nome": "Colombo", "player_id": "4923", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "GEN"}
+{"fvm": 11, "nome": "Carboni A.", "player_id": "4925", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "MON"}
+{"fvm": 1, "nome": "Ciocci", "player_id": "4929", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "CAG"}
+{"fvm": 12, "nome": "Brescianini", "player_id": "4947", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "FIO"}
+{"fvm": 13, "nome": "Monterisi", "player_id": "4952", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 1, "nome": "Montipò", "player_id": "4957", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "VEN"}
+{"fvm": 58, "nome": "Vicario", "player_id": "4964", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "JUV"}
+{"fvm": 8, "nome": "Messias", "player_id": "4970", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "GEN"}
+{"fvm": 70, "nome": "McKennie", "player_id": "4973", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "JUV"}
+{"fvm": 48, "nome": "Kalulu", "player_id": "4976", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "JUV"}
+{"fvm": 19, "nome": "Vojvoda", "player_id": "4994", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "UDI"}
+{"fvm": 80, "nome": "Molina N.", "player_id": "4998", "ruoli": ["Esterno"], "ruoli_codice": ["E"], "squadra": "ROM"}
+{"fvm": 8, "nome": "Ilic", "player_id": "5007", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "TOR"}
+{"fvm": 13, "nome": "Ismajli", "player_id": "5010", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "TOR"}
+{"fvm": 48, "nome": "Pavlovic", "player_id": "5022", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MIL"}
+{"fvm": 20, "nome": "Geubbels", "player_id": "5029", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "LEC"}
+{"fvm": 17, "nome": "Caqueret", "player_id": "5036", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "COM"}
+{"fvm": 63, "nome": "Martinez Jo.", "player_id": "5116", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "INT"}
+{"fvm": 41, "nome": "Samardzic", "player_id": "5119", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "ATA"}
+{"fvm": 10, "nome": "Gilmour", "player_id": "5131", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "NAP"}
+{"fvm": 48, "nome": "Jones C.", "player_id": "5172", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "INT"}
+{"fvm": 13, "nome": "Estupinan", "player_id": "5273", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "MIL"}
+{"fvm": 15, "nome": "Musah", "player_id": "5295", "ruoli": ["Cen.centrale", "Ala"], "ruoli_codice": ["C", "W"], "squadra": "MIL"}
+{"fvm": 16, "nome": "Pobega", "player_id": "5298", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "BOL"}
+{"fvm": 14, "nome": "Luis Henrique", "player_id": "5301", "ruoli": ["Esterno", "Ala"], "ruoli_codice": ["E", "W"], "squadra": "INT"}
+{"fvm": 10, "nome": "Valenti", "player_id": "5307", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "PAR"}
+{"fvm": 11, "nome": "Sohm", "player_id": "5319", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "VEN"}
+{"fvm": 1, "nome": "Paleari", "player_id": "5320", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "TOR"}
+{"fvm": 27, "nome": "Dragusin", "player_id": "5365", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FIO"}
+{"fvm": 2, "nome": "Antov", "player_id": "5399", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MON"}
+{"fvm": 17, "nome": "Zalewski", "player_id": "5422", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "ATA"}
+{"fvm": 1, "nome": "Amey", "player_id": "5424", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 26, "nome": "Gutierrez", "player_id": "5427", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "NAP"}
+{"fvm": 19, "nome": "Raimondo", "player_id": "5436", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "FRO"}
+{"fvm": 10, "nome": "Parisi", "player_id": "5449", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "FIO"}
+{"fvm": 12, "nome": "Ricci S.", "player_id": "5453", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "MIL"}
+{"fvm": 9, "nome": "Maleh", "player_id": "5457", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LEC"}
+{"fvm": 3, "nome": "Mazzocchi", "player_id": "5481", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "NAP"}
+{"fvm": 3, "nome": "Bjarkason", "player_id": "5485", "ruoli": ["Esterno", "Ala"], "ruoli_codice": ["E", "W"], "squadra": "VEN"}
+{"fvm": 5, "nome": "Casale", "player_id": "5498", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "BOL"}
+{"fvm": 26, "nome": "Cancellieri", "player_id": "5500", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "LAZ"}
+{"fvm": 22, "nome": "Coulibaly L.", "player_id": "5504", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LEC"}
+{"fvm": 17, "nome": "Busio", "player_id": "5507", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "VEN"}
+{"fvm": 35, "nome": "Vasquez", "player_id": "5514", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "GEN"}
+{"fvm": 27, "nome": "Cambiaso", "player_id": "5520", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "JUV"}
+{"fvm": 28, "nome": "Scalvini", "player_id": "5526", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ATA"}
+{"fvm": 10, "nome": "Zanoli", "player_id": "5527", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "UDI"}
+{"fvm": 34, "nome": "David", "player_id": "5544", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "JUV"}
+{"fvm": 12, "nome": "Kamara H.", "player_id": "5555", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "UDI"}
+{"fvm": 87, "nome": "Da Cunha", "player_id": "5559", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "COM"}
+{"fvm": 35, "nome": "Thuram K.", "player_id": "5562", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "JUV"}
+{"fvm": 12, "nome": "Kossounou", "player_id": "5578", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "ATA"}
+{"fvm": 414, "nome": "Malen", "player_id": "5585", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "ROM"}
+{"fvm": 45, "nome": "Konè M.", "player_id": "5589", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ROM"}
+{"fvm": 8, "nome": "Pongracic", "player_id": "5603", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FIO"}
+{"fvm": 12, "nome": "Tavares N.", "player_id": "5620", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "LAZ"}
+{"fvm": 109, "nome": "Davis K.", "player_id": "5637", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "UDI"}
+{"fvm": 32, "nome": "Chalobah T.", "player_id": "5641", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "COM"}
+{"fvm": 30, "nome": "Dia", "player_id": "5672", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "LAZ"}
+{"fvm": 20, "nome": "Basic", "player_id": "5674", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "VEN"}
+{"fvm": 13, "nome": "Holm", "player_id": "5678", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "BOL"}
+{"fvm": 13, "nome": "Koopmeiners", "player_id": "5685", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "JUV"}
+{"fvm": 72, "nome": "Vlasic", "player_id": "5687", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "TOR"}
+{"fvm": 10, "nome": "Haps", "player_id": "5695", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "VEN"}
+{"fvm": 17, "nome": "Obert", "player_id": "5701", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "CAG"}
+{"fvm": 1, "nome": "Piana", "player_id": "5707", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "UDI"}
+{"fvm": 3, "nome": "Kone B.", "player_id": "5725", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "FRO"}
+{"fvm": 45, "nome": "Soulè", "player_id": "5734", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "ROM"}
+{"fvm": 23, "nome": "Volpato", "player_id": "5735", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "SAS"}
+{"fvm": 14, "nome": "De Winter", "player_id": "5739", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "MIL"}
+{"fvm": 43, "nome": "Ostigard", "player_id": "5750", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "GEN"}
+{"fvm": 8, "nome": "Cittadini", "player_id": "5757", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 18, "nome": "Zhegrova", "player_id": "5761", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "JUV"}
+{"fvm": 25, "nome": "Frendrup", "player_id": "5791", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "GEN"}
+{"fvm": 54, "nome": "Ederson D.S.", "player_id": "5792", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ATA"}
+{"fvm": 40, "nome": "Gudmundsson A.", "player_id": "5800", "ruoli": ["Trequartista", "Attaccante"], "ruoli_codice": ["T", "A"], "squadra": "FIO"}
+{"fvm": 7, "nome": "Terracciano F.", "player_id": "5812", "ruoli": ["Braccetto", "Dif. destro", "Dif. sinistro"], "ruoli_codice": ["B", "DD", "DS"], "squadra": "MIL"}
+{"fvm": 7, "nome": "Miretti", "player_id": "5813", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "JUV"}
+{"fvm": 13, "nome": "Bertola", "player_id": "5820", "ruoli": ["Dif. destro", "Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DD", "DS", "DC"], "squadra": "UDI"}
+{"fvm": 27, "nome": "Baldanzi", "player_id": "5823", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "GEN"}
+{"fvm": 10, "nome": "Gatti", "player_id": "5831", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "JUV"}
+{"fvm": 31, "nome": "Gila", "player_id": "5833", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MIL"}
+{"fvm": 14, "nome": "Birindelli", "player_id": "5838", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "MON"}
+{"fvm": 15, "nome": "Olivera", "player_id": "5840", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "NAP"}
+{"fvm": 75, "nome": "Svilar", "player_id": "5841", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ROM"}
+{"fvm": 40, "nome": "Thorstvedt", "player_id": "5844", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "SAS"}
+{"fvm": 10, "nome": "Doig", "player_id": "5851", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "SAS"}
+{"fvm": 27, "nome": "Ferguson", "player_id": "5858", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "BOL"}
+{"fvm": 24, "nome": "Valeri", "player_id": "5862", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "PAR"}
+{"fvm": 3, "nome": "Helgason", "player_id": "5872", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "VEN"}
+{"fvm": 10, "nome": "Di Gregorio", "player_id": "5876", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "JUV"}
+{"fvm": 27, "nome": "Carlos Augusto", "player_id": "5877", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "INT"}
+{"fvm": 22, "nome": "Colpani", "player_id": "5878", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "MON"}
+{"fvm": 6, "nome": "Ciurria", "player_id": "5880", "ruoli": ["Esterno", "Ala"], "ruoli_codice": ["E", "W"], "squadra": "MON"}
+{"fvm": 18, "nome": "Mota", "player_id": "5882", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "MON"}
+{"fvm": 20, "nome": "Dodò", "player_id": "5885", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "FIO"}
+{"fvm": 32, "nome": "Casadei", "player_id": "5888", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "TOR"}
+{"fvm": 10, "nome": "Sulemana K.", "player_id": "5918", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "ATA"}
+{"fvm": 20, "nome": "Sow", "player_id": "5946", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "GEN"}
+{"fvm": 211, "nome": "Kolo Muani", "player_id": "5951", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "JUV"}
+{"fvm": 37, "nome": "Spence", "player_id": "5982", "ruoli": ["Esterno"], "ruoli_codice": ["E"], "squadra": "INT"}
+{"fvm": 5, "nome": "Ebosse", "player_id": "5994", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "UDI"}
+{"fvm": 98, "nome": "De Ketelaere", "player_id": "5995", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "ATA"}
+{"fvm": 10, "nome": "Zerbin", "player_id": "5998", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "FRO"}
+{"fvm": 12, "nome": "Ilkhan", "player_id": "6005", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "TOR"}
+{"fvm": 24, "nome": "Fazzini", "player_id": "6010", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "CAG"}
+{"fvm": 12, "nome": "Berisha M.", "player_id": "6015", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "LEC"}
+{"fvm": 21, "nome": "Ellertsson", "player_id": "6020", "ruoli": ["Esterno", "Cen.centrale"], "ruoli_codice": ["E", "C"], "squadra": "GEN"}
+{"fvm": 12, "nome": "Abankwah", "player_id": "6021", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "UDI"}
+{"fvm": 8, "nome": "Sulemana I.", "player_id": "6024", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ATA"}
+{"fvm": 4, "nome": "Cabal", "player_id": "6039", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "JUV"}
+{"fvm": 18, "nome": "Lucumì", "player_id": "6042", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "JUV"}
+{"fvm": 11, "nome": "Hien", "player_id": "6046", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ATA"}
+{"fvm": 257, "nome": "Hojlund", "player_id": "6052", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "NAP"}
+{"fvm": 17, "nome": "Moro N.", "player_id": "6054", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "BOL"}
+{"fvm": 86, "nome": "Laurientè", "player_id": "6060", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "SAS"}
+{"fvm": 3, "nome": "Carboni F.", "player_id": "6149", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "PAR"}
+{"fvm": 42, "nome": "Perrone", "player_id": "6151", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "COM"}
+{"fvm": 16, "nome": "Vitinha O.", "player_id": "6164", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "GEN"}
+{"fvm": 15, "nome": "Gineitis", "player_id": "6170", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "TOR"}
+{"fvm": 2, "nome": "Missori", "player_id": "6189", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "SAS"}
+{"fvm": 17, "nome": "Pisilli", "player_id": "6190", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "ROM"}
+{"fvm": 3, "nome": "Belahyane", "player_id": "6191", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LAZ"}
+{"fvm": 12, "nome": "Beukema", "player_id": "6202", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "NAP"}
+{"fvm": 19, "nome": "Kvernadze", "player_id": "6204", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "FRO"}
+{"fvm": 8, "nome": "Fabbian", "player_id": "6206", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "FIO"}
+{"fvm": 11, "nome": "Almqvist", "player_id": "6207", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "PAR"}
+{"fvm": 4, "nome": "Zarraga", "player_id": "6212", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "UDI"}
+{"fvm": 9, "nome": "Lucca", "player_id": "6215", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "NAP"}
+{"fvm": 37, "nome": "Bisseck", "player_id": "6217", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "INT"}
+{"fvm": 14, "nome": "Oristanio", "player_id": "6218", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "TOR"}
+{"fvm": 5, "nome": "Boloca", "player_id": "6219", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "SAS"}
+{"fvm": 12, "nome": "El Azzouzi O.", "player_id": "6225", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "BOL"}
+{"fvm": 43, "nome": "Tourè E.", "player_id": "6229", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "PAR"}
+{"fvm": 10, "nome": "Oyono A.", "player_id": "6238", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "FRO"}
+{"fvm": 8, "nome": "Gelli F.", "player_id": "6241", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "FRO"}
+{"fvm": 7, "nome": "Borrelli", "player_id": "6243", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "CAG"}
+{"fvm": 2, "nome": "Matturro", "player_id": "6244", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "GEN"}
+{"fvm": 2, "nome": "Vogliacco", "player_id": "6245", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "GEN"}
+{"fvm": 5, "nome": "Lipani", "player_id": "6246", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "SAS"}
+{"fvm": 12, "nome": "Stankovic F.", "player_id": "6248", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "VEN"}
+{"fvm": 5, "nome": "Folorunsho", "player_id": "6252", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "NAP"}
+{"fvm": 20, "nome": "El Aynaoui", "player_id": "6271", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "ROM"}
+{"fvm": 47, "nome": "Diouf", "player_id": "6274", "ruoli": ["Esterno", "Cen.centrale"], "ruoli_codice": ["E", "C"], "squadra": "INT"}
+{"fvm": 25, "nome": "Ndour", "player_id": "6294", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "FIO"}
+{"fvm": 16, "nome": "Doekhi", "player_id": "6320", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LAZ"}
+{"fvm": 47, "nome": "Moreira", "player_id": "6372", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "MIL"}
+{"fvm": 228, "nome": "Ramos G.", "player_id": "6397", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "MIL"}
+{"fvm": 22, "nome": "Isaksen", "player_id": "6398", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "LAZ"}
+{"fvm": 1, "nome": "Christensen O.", "player_id": "6403", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FIO"}
+{"fvm": 2, "nome": "Kaba", "player_id": "6410", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LEC"}
+{"fvm": 12, "nome": "Palmisani", "player_id": "6415", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FRO"}
+{"fvm": 7, "nome": "Prati", "player_id": "6424", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "CAG"}
+{"fvm": 12, "nome": "Pedersen", "player_id": "6426", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "TOR"}
+{"fvm": 150, "nome": "Yildiz", "player_id": "6434", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "JUV"}
+{"fvm": 100, "nome": "Krstovic", "player_id": "6435", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "ATA"}
+{"fvm": 29, "nome": "Okoye", "player_id": "6462", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "UDI"}
+{"fvm": 32, "nome": "Mandas", "player_id": "6482", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LAZ"}
+{"fvm": 22, "nome": "Kristensen T.", "player_id": "6485", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "ATA"}
+{"fvm": 13, "nome": "Comuzzo", "player_id": "6495", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "TOR"}
+{"fvm": 22, "nome": "Bartesaghi", "player_id": "6496", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "MIL"}
+{"fvm": 9, "nome": "Stankovic A.", "player_id": "6503", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "INT"}
+{"fvm": 13, "nome": "Fini", "player_id": "6506", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "FRO"}
+{"fvm": 17, "nome": "Camarda", "player_id": "6519", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "MIL"}
+{"fvm": 1, "nome": "Samooja", "player_id": "6523", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LEC"}
+{"fvm": 30, "nome": "Ghedjemis", "player_id": "6530", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "FRO"}
+{"fvm": 25, "nome": "Jimenez A.", "player_id": "6531", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "FIO"}
+{"fvm": 17, "nome": "Pierotti", "player_id": "6549", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "LEC"}
+{"fvm": 17, "nome": "Noslin", "player_id": "6556", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "LAZ"}
+{"fvm": 1, "nome": "Stolz", "player_id": "6569", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "GEN"}
+{"fvm": 73, "nome": "Castro S.", "player_id": "6572", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "ROM"}
+{"fvm": 1, "nome": "Forson O.", "player_id": "6592", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "MON"}
+{"fvm": 16, "nome": "Akinsanmiro", "player_id": "6593", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "MON"}
+{"fvm": 10, "nome": "Mutandwa", "player_id": "6598", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "CAG"}
+{"fvm": 9, "nome": "Kambwala", "player_id": "6601", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "COM"}
+{"fvm": 25, "nome": "Cissè A.", "player_id": "6618", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "MIL"}
+{"fvm": 13, "nome": "Dele-Bashiru", "player_id": "6629", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "LAZ"}
+{"fvm": 10, "nome": "Ghilardi", "player_id": "6631", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ROM"}
+{"fvm": 12, "nome": "Gaspar K.", "player_id": "6632", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LEC"}
+{"fvm": 8, "nome": "Marin R.", "player_id": "6638", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "NAP"}
+{"fvm": 8, "nome": "Felici", "player_id": "6640", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "CAG"}
+{"fvm": 20, "nome": "Suzuki", "player_id": "6641", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "PAR"}
+{"fvm": 14, "nome": "Coco", "player_id": "6642", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "TOR"}
+{"fvm": 10, "nome": "Dallinga", "player_id": "6643", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "BOL"}
+{"fvm": 33, "nome": "Adams C.", "player_id": "6646", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "TOR"}
+{"fvm": 1, "nome": "Sherri", "player_id": "6650", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "CAG"}
+{"fvm": 12, "nome": "Lucchesi", "player_id": "6659", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "MON"}
+{"fvm": 14, "nome": "Marcandalli", "player_id": "6660", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "GEN"}
+{"fvm": 10, "nome": "Corvi", "player_id": "6662", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "PAR"}
+{"fvm": 18, "nome": "Circati", "player_id": "6663", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "PAR"}
+{"fvm": 24, "nome": "Delprato", "player_id": "6664", "ruoli": ["Braccetto", "Dif. destro", "Esterno"], "ruoli_codice": ["B", "DD", "E"], "squadra": "PAR"}
+{"fvm": 35, "nome": "Bernabè", "player_id": "6666", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "PAR"}
+{"fvm": 15, "nome": "Bonny", "player_id": "6669", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "INT"}
+{"fvm": 1, "nome": "Grandi", "player_id": "6671", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "VEN"}
+{"fvm": 19, "nome": "Idzes", "player_id": "6672", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "SAS"}
+{"fvm": 7, "nome": "Sverko", "player_id": "6673", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "VEN"}
+{"fvm": 55, "nome": "Dovbyk", "player_id": "6675", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "BOL"}
+{"fvm": 16, "nome": "Adzic", "player_id": "6677", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "SAS"}
+{"fvm": 20, "nome": "Liberali", "player_id": "6678", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "COM"}
+{"fvm": 23, "nome": "Karlstrom", "player_id": "6680", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "UDI"}
+{"fvm": 4, "nome": "Sagrado", "player_id": "6681", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "VEN"}
+{"fvm": 1, "nome": "Pizzignacco", "player_id": "6682", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "MON"}
+{"fvm": 45, "nome": "Ekkelenkamp", "player_id": "6684", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "UDI"}
+{"fvm": 20, "nome": "Konè I.", "player_id": "6717", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "SAS"}
+{"fvm": 26, "nome": "Couto", "player_id": "6727", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "COM"}
+{"fvm": 14, "nome": "Kelly L.", "player_id": "6766", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "JUV"}
+{"fvm": 15, "nome": "Unai Gomez", "player_id": "6783", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "UDI"}
+{"fvm": 3, "nome": "Marianucci", "player_id": "6809", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "NAP"}
+{"fvm": 1, "nome": "Torriani", "player_id": "6813", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "MIL"}
+{"fvm": 21, "nome": "Norton-Cuffy", "player_id": "6814", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "GEN"}
+{"fvm": 10, "nome": "Fadera", "player_id": "6815", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "CAG"}
+{"fvm": 12, "nome": "Hainaut", "player_id": "6821", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "VEN"}
+{"fvm": 10, "nome": "Ekhator", "player_id": "6822", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "JUV"}
+{"fvm": 16, "nome": "Njie", "player_id": "6827", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "TOR"}
+{"fvm": 20, "nome": "Neres", "player_id": "6831", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "NAP"}
+{"fvm": 47, "nome": "Rowe", "player_id": "6844", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "BOL"}
+{"fvm": 21, "nome": "Valle", "player_id": "6867", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "COM"}
+{"fvm": 32, "nome": "Ramon", "player_id": "6869", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "COM"}
+{"fvm": 247, "nome": "Paz N.", "player_id": "6875", "ruoli": ["Trequartista", "Attaccante"], "ruoli_codice": ["T", "A"], "squadra": "COM"}
+{"fvm": 4, "nome": "Jean", "player_id": "6883", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LEC"}
+{"fvm": 67, "nome": "Conceicao", "player_id": "6884", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "JUV"}
+{"fvm": 4, "nome": "Anjorin", "player_id": "6889", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "TOR"}
+{"fvm": 6, "nome": "Moreno M.", "player_id": "6890", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "VEN"}
+{"fvm": 10, "nome": "Schingtienne", "player_id": "6892", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "VEN"}
+{"fvm": 13, "nome": "Kempf", "player_id": "6893", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "COM"}
+{"fvm": 12, "nome": "Dominguez B.", "player_id": "6895", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "SAS"}
+{"fvm": 5, "nome": "Van Der Brempt", "player_id": "6896", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "COM"}
+{"fvm": 17, "nome": "Keita M.", "player_id": "6898", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "PAR"}
+{"fvm": 5, "nome": "Hasa", "player_id": "6903", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "FRO"}
+{"fvm": 27, "nome": "Yeboah J.", "player_id": "6904", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "VEN"}
+{"fvm": 86, "nome": "Atta", "player_id": "6908", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "FIO"}
+{"fvm": 16, "nome": "Ahanor", "player_id": "6916", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "ATA"}
+{"fvm": 10, "nome": "Masini", "player_id": "6917", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FRO"}
+{"fvm": 11, "nome": "Palma", "player_id": "6925", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "UDI"}
+{"fvm": 46, "nome": "Solet", "player_id": "6956", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "UDI"}
+{"fvm": 54, "nome": "Butez", "player_id": "6966", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "COM"}
+{"fvm": 50, "nome": "Diao", "player_id": "6967", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "COM"}
+{"fvm": 5, "nome": "Otoa", "player_id": "6977", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "GEN"}
+{"fvm": 4, "nome": "Venturino", "player_id": "6980", "ruoli": ["Ala"], "ruoli_codice": ["W"], "squadra": "GEN"}
+{"fvm": 3, "nome": "Vaz", "player_id": "6981", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "ROM"}
+{"fvm": 16, "nome": "Ondrejka", "player_id": "6984", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "PAR"}
+{"fvm": 8, "nome": "Candè", "player_id": "6985", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "SAS"}
+{"fvm": 16, "nome": "Rensch", "player_id": "6986", "ruoli": ["Braccetto", "Dif. destro", "Esterno"], "ruoli_codice": ["B", "DD", "E"], "squadra": "ROM"}
+{"fvm": 20, "nome": "Tiago Gabriel", "player_id": "6989", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LEC"}
+{"fvm": 12, "nome": "Veiga D.", "player_id": "6990", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "LEC"}
+{"fvm": 15, "nome": "Perez K.", "player_id": "6994", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "VEN"}
+{"fvm": 17, "nome": "N'Dri", "player_id": "7001", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "LEC"}
+{"fvm": 10, "nome": "Gimenez", "player_id": "7008", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "MIL"}
+{"fvm": 14, "nome": "Provstgaard", "player_id": "7012", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LAZ"}
+{"fvm": 10, "nome": "Smolcic I.", "player_id": "7014", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "COM"}
+{"fvm": 170, "nome": "Douvikas", "player_id": "7017", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "COM"}
+{"fvm": 47, "nome": "Pellegrino M.", "player_id": "7023", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "FIO"}
+{"fvm": 1, "nome": "Azon", "player_id": "7027", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "COM"}
+{"fvm": 14, "nome": "Bakola", "player_id": "7036", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "SAS"}
+{"fvm": 1, "nome": "De Marzi", "player_id": "7048", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ROM"}
+{"fvm": 23, "nome": "Cacciamani", "player_id": "7060", "ruoli": ["Esterno", "Ala"], "ruoli_codice": ["E", "W"], "squadra": "TOR"}
+{"fvm": 10, "nome": "Vitik", "player_id": "7068", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "BOL"}
+{"fvm": 12, "nome": "Fortini", "player_id": "7069", "ruoli": ["Esterno"], "ruoli_codice": ["E"], "squadra": "TOR"}
+{"fvm": 21, "nome": "Sucic P.", "player_id": "7070", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "INT"}
+{"fvm": 105, "nome": "Esposito F.P.", "player_id": "7071", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "INT"}
+{"fvm": 54, "nome": "Mastantuono", "player_id": "7078", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "FIO"}
+{"fvm": 12, "nome": "Lang", "player_id": "7120", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "NAP"}
+{"fvm": 3, "nome": "Idrissi R.", "player_id": "7125", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "CAG"}
+{"fvm": 95, "nome": "Baturina", "player_id": "7126", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "COM"}
+{"fvm": 8, "nome": "Addai", "player_id": "7127", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "COM"}
+{"fvm": 7, "nome": "Kuhn", "player_id": "7128", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "COM"}
+{"fvm": 31, "nome": "Rodriguez Je.", "player_id": "7129", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "COM"}
+{"fvm": 10, "nome": "Floriani Mussolini", "player_id": "7131", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "LAZ"}
+{"fvm": 6, "nome": "Ordonez C.", "player_id": "7138", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "PAR"}
+{"fvm": 19, "nome": "Tourè I.", "player_id": "7146", "ruoli": ["Esterno", "Mediano"], "ruoli_codice": ["E", "M"], "squadra": "MON"}
+{"fvm": 8, "nome": "Odenthal", "player_id": "7154", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "SAS"}
+{"fvm": 1, "nome": "Pieragnolo", "player_id": "7156", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "SAS"}
+{"fvm": 1, "nome": "Iannoni", "player_id": "7157", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "SAS"}
+{"fvm": 1, "nome": "Moro L.", "player_id": "7158", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "SAS"}
+{"fvm": 3, "nome": "Bayo V.", "player_id": "7161", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "UDI"}
+{"fvm": 10, "nome": "Giovane", "player_id": "7162", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "NAP"}
+{"fvm": 1, "nome": "Perez M.", "player_id": "7164", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "LEC"}
+{"fvm": 1, "nome": "Liteta", "player_id": "7165", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "CAG"}
+{"fvm": 1, "nome": "Pessina Mas.", "player_id": "7172", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "BOL"}
+{"fvm": 12, "nome": "Joao Mario", "player_id": "7175", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "FIO"}
+{"fvm": 82, "nome": "Wesley", "player_id": "7181", "ruoli": ["Esterno"], "ruoli_codice": ["E"], "squadra": "ROM"}
+{"fvm": 5, "nome": "Ndaba", "player_id": "7182", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "LEC"}
+{"fvm": 4, "nome": "Aboukhlal", "player_id": "7183", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "TOR"}
+{"fvm": 17, "nome": "Piotrowski", "player_id": "7198", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "UDI"}
+{"fvm": 8, "nome": "Ndiaye", "player_id": "7202", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "PAR"}
+{"fvm": 13, "nome": "Jashari", "player_id": "7203", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "MIL"}
+{"fvm": 15, "nome": "Miller L.", "player_id": "7208", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "UDI"}
+{"fvm": 12, "nome": "Sorensen O.", "player_id": "7209", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "PAR"}
+{"fvm": 8, "nome": "Athekame", "player_id": "7211", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "MIL"}
+{"fvm": 17, "nome": "Heggem", "player_id": "7212", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "BOL"}
+{"fvm": 10, "nome": "Frigan", "player_id": "7213", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "PAR"}
+{"fvm": 18, "nome": "Bernasconi", "player_id": "7219", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "ATA"}
+{"fvm": 42, "nome": "Vergara", "player_id": "7223", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "NAP"}
+{"fvm": 14, "nome": "Troilo", "player_id": "7235", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "PAR"}
+{"fvm": 10, "nome": "Kouadio", "player_id": "7238", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "MON"}
+{"fvm": 12, "nome": "Siebert", "player_id": "7240", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LEC"}
+{"fvm": 15, "nome": "Gorter", "player_id": "7248", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LEC"}
+{"fvm": 4, "nome": "Buksa", "player_id": "7249", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "UDI"}
+{"fvm": 10, "nome": "Stulic", "player_id": "7252", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "LEC"}
+{"fvm": 13, "nome": "Bella-Kotchap", "player_id": "7253", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "VEN"}
+{"fvm": 12, "nome": "Britschgi", "player_id": "7255", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "PAR"}
+{"fvm": 2, "nome": "Ziolkowski", "player_id": "7260", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ROM"}
+{"fvm": 17, "nome": "Rodriguez Ju.", "player_id": "7268", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "CAG"}
+{"fvm": 6, "nome": "Gueye", "player_id": "7272", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "UDI"}
+{"fvm": 15, "nome": "Zè Pedro", "player_id": "7274", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "CAG"}
+{"fvm": 3, "nome": "Cremaschi", "player_id": "7276", "ruoli": ["Esterno", "Cen.centrale"], "ruoli_codice": ["E", "C"], "squadra": "PAR"}
+{"fvm": 20, "nome": "Valdepenas", "player_id": "7294", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "FIO"}
+{"fvm": 1, "nome": "Tornqvist", "player_id": "7301", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "COM"}
+{"fvm": 25, "nome": "Romano", "player_id": "7311", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "CAG"}
+{"fvm": 8, "nome": "Arizala", "player_id": "7312", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "UDI"}
+{"fvm": 23, "nome": "Ratkov", "player_id": "7313", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "LAZ"}
+{"fvm": 57, "nome": "Taylor K.", "player_id": "7314", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "LAZ"}
+{"fvm": 2, "nome": "Trepy", "player_id": "7317", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "CAG"}
+{"fvm": 10, "nome": "Gandelman", "player_id": "7318", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "LEC"}
+{"fvm": 1, "nome": "Fofana Sa.", "player_id": "7319", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LEC"}
+{"fvm": 16, "nome": "Ngom", "player_id": "7322", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "LEC"}
+{"fvm": 12, "nome": "Helland", "player_id": "7326", "ruoli": ["Dif. destro", "Dif. centrale"], "ruoli_codice": ["DD", "DC"], "squadra": "BOL"}
+{"fvm": 15, "nome": "Obrador", "player_id": "7329", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "SAS"}
+{"fvm": 17, "nome": "Bijlow", "player_id": "7332", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "GEN"}
+{"fvm": 1, "nome": "Motta", "player_id": "7337", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LAZ"}
+{"fvm": 1, "nome": "Albarracin", "player_id": "7338", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "CAG"}
+{"fvm": 13, "nome": "Amorim", "player_id": "7341", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "GEN"}
+{"fvm": 10, "nome": "Elphege", "player_id": "7342", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "PAR"}
+{"fvm": 5, "nome": "Przyborek", "player_id": "7345", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "LAZ"}
+{"fvm": 1, "nome": "Raterink", "player_id": "7346", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "CAG"}
+{"fvm": 36, "nome": "Bowie", "player_id": "7347", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "SAS"}
+{"fvm": 7, "nome": "Kulenovic", "player_id": "7349", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "TOR"}
+{"fvm": 62, "nome": "Santos A.", "player_id": "7351", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "NAP"}
+{"fvm": 3, "nome": "Mlacic", "player_id": "7356", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "UDI"}
+{"fvm": 1, "nome": "Lahdo", "player_id": "7357", "ruoli": ["Cen.centrale", "Trequartista"], "ruoli_codice": ["C", "T"], "squadra": "COM"}
+{"fvm": 1, "nome": "Siviero", "player_id": "7363", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "TOR"}
+{"fvm": 11, "nome": "Mendy P.", "player_id": "7374", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "CAG"}
+{"fvm": 3, "nome": "Camara A.", "player_id": "7392", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "UDI"}
+{"fvm": 8, "nome": "Cuenca A.", "player_id": "7407", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "COM"}
+{"fvm": 1, "nome": "Lisman", "player_id": "7408", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "VEN"}
+{"fvm": 13, "nome": "Meichtry", "player_id": "7409", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "GEN"}
+{"fvm": 19, "nome": "Viery", "player_id": "7410", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "FIO"}
+{"fvm": 10, "nome": "Daffara", "player_id": "7411", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "PAR"}
+{"fvm": 25, "nome": "Milla", "player_id": "7412", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "COM"}
+{"fvm": 3, "nome": "Puczka", "player_id": "7413", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "GEN"}
+{"fvm": 16, "nome": "Kaiki", "player_id": "7414", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "COM"}
+{"fvm": 6, "nome": "Chakvetadze", "player_id": "7418", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "UDI"}
+{"fvm": 52, "nome": "Alajbegovic", "player_id": "7436", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "JUV"}
+{"fvm": 15, "nome": "Rrahmani Al.", "player_id": "7449", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "VEN"}
+{"fvm": 7, "nome": "Havel", "player_id": "7453", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "GEN"}
+{"fvm": 1, "nome": "Gomes", "player_id": "7454", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "VEN"}
+{"fvm": 1, "nome": "El Azzouzi A.", "player_id": "7456", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FRO"}
+{"fvm": 13, "nome": "Mascardi", "player_id": "7457", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "TOR"}
+{"fvm": 3, "nome": "Desplanches", "player_id": "7463", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FRO"}
+{"fvm": 22, "nome": "Oulai", "player_id": "7464", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FIO"}
+{"fvm": 1, "nome": "Lolic", "player_id": "7466", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FRO"}
+{"fvm": 12, "nome": "Calvani", "player_id": "7467", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 1, "nome": "Gelli J.", "player_id": "7468", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 14, "nome": "Bracaglia", "player_id": "7469", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "FRO"}
+{"fvm": 2, "nome": "Oyono J.", "player_id": "7470", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "FRO"}
+{"fvm": 1, "nome": "Corrado", "player_id": "7471", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "FRO"}
+{"fvm": 28, "nome": "Calò", "player_id": "7472", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FRO"}
+{"fvm": 15, "nome": "Cichella", "player_id": "7473", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FRO"}
+{"fvm": 11, "nome": "Koutsoupias", "player_id": "7474", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "FRO"}
+{"fvm": 1, "nome": "Strajnar", "player_id": "7475", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "MON"}
+{"fvm": 4, "nome": "Bakoune", "player_id": "7476", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "MON"}
+{"fvm": 8, "nome": "Colombo L.", "player_id": "7477", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "MON"}
+{"fvm": 7, "nome": "Franjic", "player_id": "7478", "ruoli": ["Braccetto", "Dif. sinistro", "Esterno"], "ruoli_codice": ["B", "DS", "E"], "squadra": "VEN"}
+{"fvm": 1, "nome": "Dagasso", "player_id": "7481", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "VEN"}
+{"fvm": 1, "nome": "Lauberbach", "player_id": "7482", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "VEN"}
+{"fvm": 6, "nome": "Alhassane", "player_id": "7483", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "BOL"}
+{"fvm": 42, "nome": "Adams A.", "player_id": "7484", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "VEN"}
+{"fvm": 15, "nome": "Mangas", "player_id": "7485", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "MON"}
+{"fvm": 6, "nome": "Varela G.", "player_id": "7523", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "MON"}
+{"fvm": 4, "nome": "Diawara S.", "player_id": "7525", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "MIL"}
+{"fvm": 12, "nome": "Comert", "player_id": "7526", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "TOR"}
+{"fvm": 14, "nome": "Amondarain", "player_id": "7528", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "BOL"}
+{"fvm": 17, "nome": "Koulierakis", "player_id": "7529", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "ROM"}
+{"fvm": 1, "nome": "Pozzi", "player_id": "7531", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "VEN"}
+{"fvm": 8, "nome": "Kofler", "player_id": "7532", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "CAG"}
+{"fvm": 1, "nome": "Happonen", "player_id": "7533", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "BOL"}
+{"fvm": 1, "nome": "Renzetti", "player_id": "7534", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LAZ"}
+{"fvm": 23, "nome": "Fitz-Jim", "player_id": "7535", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "TOR"}
+{"fvm": 10, "nome": "Diallo O.", "player_id": "7536", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "PAR"}
+{"fvm": 10, "nome": "Mitaj", "player_id": "7537", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "GEN"}
+{"fvm": 10, "nome": "Halhal", "player_id": "7538", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "VEN"}
+{"fvm": 6, "nome": "Akpoguma", "player_id": "7540", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 1, "nome": "Vismara", "player_id": "7545", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "ATA"}
+{"fvm": 10, "nome": "Robinson J.", "player_id": "7546", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "MON"}
+{"fvm": 34, "nome": "Kevin Carlos", "player_id": "7547", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "CAG"}
+{"fvm": 5, "nome": "Aurelio", "player_id": "7548", "ruoli": ["Dif. sinistro", "Esterno"], "ruoli_codice": ["DS", "E"], "squadra": "CAG"}
+{"fvm": 13, "nome": "Grillitsch", "player_id": "7550", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "FRO"}
+{"fvm": 30, "nome": "Schmid", "player_id": "7551", "ruoli": ["Ala", "Trequartista"], "ruoli_codice": ["W", "T"], "squadra": "FRO"}
+{"fvm": 1, "nome": "Omar Fayed", "player_id": "7553", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "FRO"}
+{"fvm": 35, "nome": "Romero D.", "player_id": "7554", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "PAR"}
+{"fvm": 95, "nome": "Mora", "player_id": "7556", "ruoli": ["Trequartista"], "ruoli_codice": ["T"], "squadra": "ROM"}
+{"fvm": 1, "nome": "Penev", "player_id": "7557", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "LEC"}
+{"fvm": 1, "nome": "Pisseri", "player_id": "7560", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "FRO"}
+{"fvm": 10, "nome": "Lontani", "player_id": "7561", "ruoli": ["Attaccante"], "ruoli_codice": ["A"], "squadra": "PAR"}
+{"fvm": 13, "nome": "Favasuli", "player_id": "7563", "ruoli": ["Dif. destro", "Dif. sinistro", "Esterno"], "ruoli_codice": ["DD", "DS", "E"], "squadra": "NAP"}
+{"fvm": 14, "nome": "Leysen F.", "player_id": "7564", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "SAS"}
+{"fvm": 1, "nome": "De Martis", "player_id": "7568", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "PAR"}
+{"fvm": 1, "nome": "Laerke", "player_id": "7571", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "LEC"}
+{"fvm": 1, "nome": "Comotto", "player_id": "7572", "ruoli": ["Mediano", "Cen.centrale"], "ruoli_codice": ["M", "C"], "squadra": "MIL"}
+{"fvm": 4, "nome": "Cinquegrano", "player_id": "7573", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "SAS"}
+{"fvm": 2, "nome": "Foe Ondoa", "player_id": "7574", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "MON"}
+{"fvm": 2, "nome": "Mout", "player_id": "7575", "ruoli": ["Cen.centrale"], "ruoli_codice": ["C"], "squadra": "MON"}
+{"fvm": 19, "nome": "Sutalo J.", "player_id": "7580", "ruoli": ["Dif. centrale"], "ruoli_codice": ["DC"], "squadra": "LAZ"}
+{"fvm": 2, "nome": "Lulli", "player_id": "7599", "ruoli": ["Esterno"], "ruoli_codice": ["E"], "squadra": "ROM"}
+{"fvm": 27, "nome": "Osmajic", "player_id": "7600", "ruoli": ["Punta centrale"], "ruoli_codice": ["PC"], "squadra": "GEN"}
+{"fvm": 18, "nome": "Fatah", "player_id": "7602", "ruoli": ["Ala", "Attaccante"], "ruoli_codice": ["W", "A"], "squadra": "LEC"}
+{"fvm": 1, "nome": "Grabara", "player_id": "7603", "ruoli": ["Portiere"], "ruoli_codice": ["POR"], "squadra": "JUV"}
+{"fvm": 1, "nome": "Maye", "player_id": "7604", "ruoli": ["Dif. sinistro", "Dif. centrale"], "ruoli_codice": ["DS", "DC"], "squadra": "MON"}
+{"fvm": 8, "nome": "Tchato", "player_id": "7605", "ruoli": ["Dif. destro", "Esterno"], "ruoli_codice": ["DD", "E"], "squadra": "FRO"}
