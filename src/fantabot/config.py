@@ -7,6 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Kept, but used by nothing that signs in. `login.py` opens a headed window and
+    # the human types the credentials; CLAUDE.md forbids scripting that, so these
+    # three can never be what authenticates. `lega_email` and `lega_password` are
+    # read only by `config-check`, which prints whether they are set and masks the
+    # password. `lega_url` is read by nobody — `login.py:213` explains that it
+    # deliberately navigates to the site root instead. See tasks/todo.md P3-A9.
     lega_email: str = ""
     lega_password: str = ""
     lega_url: str = ""
@@ -88,12 +94,6 @@ class Settings(BaseSettings):
                 f"fail. Set the base URL, or pick a claude-* model."
             )
         return model
-
-    def require_credentials(self) -> None:
-        if not (self.lega_email and self.lega_password and self.lega_url):
-            raise RuntimeError(
-                "LEGA_EMAIL, LEGA_PASSWORD, LEGA_URL must be set in .env (copy .env.example first)"
-            )
 
 
 settings = Settings()
