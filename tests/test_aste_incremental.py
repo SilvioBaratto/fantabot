@@ -10,7 +10,6 @@ overwrites the complete one.
 
 from __future__ import annotations
 
-import itertools
 import json
 from pathlib import Path
 from typing import Any, ClassVar
@@ -247,15 +246,50 @@ class TestAFailedWriteMustNotCorruptTheLadder:
         assert [b.price for b in retry.ladders["a"]] == [b.price for b in attempt.ladders["a"]]
         assert [b.price for b in retry.ladders["a"]] == [0, 5, 6, 7]
 
-    def test_binding_the_new_state_before_the_write_makes_a_ladder_step_down(self) -> None:
-        """The bug this ordering exists to prevent, reproduced.
+    def test_binding_the_new_state_before_the_write_corrupts_the_ladder(self) -> None:
+        """The bug this ordering exists to prevent.
 
-        A descending rung is what `reconstruct` calls the corruption an opponent model
-        reads as a bidding war that ended at zero.
+        The per-turn `seen_this_turn` guard absorbs a *straight* replay of the same
+        window — the stamps are already there, so the rungs are not re-appended, and
+        an earlier draft of this test asserted a descending ladder that no longer
+        occurs. It is not idempotent in general: replay across a turn boundary
+        re-resets the ladder and rungs are lost, measured at 21 rungs against 29 over
+        the real fixture. So the ordering discipline remains the defence and the guard
+        is a second line, not a replacement.
         """
-        state, _ = I.advance(self._mid_turn(), self.WINDOW)
-        wrong, _ = I.advance(state, self.WINDOW)         # bound too early, then retried
+        records = _records()
 
-        prices = [b.price for b in wrong.ladders["a"]]
-        assert prices == [0, 5, 6, 7, 6, 7]
-        assert any(b < a for a, b in itertools.pairwise(prices))
+        def fold(step: int, twice: bool) -> list[tuple[str, tuple[int, ...]]]:
+            """What the database ends up holding, ladders included.
+
+            The comparison is on *emitted* assignments, not on `state.ladders`: the
+            state holds only the turn currently on the block, so a ladder corrupted
+            and then closed leaves no trace there. What is written is what matters.
+            """
+            state = I.empty()
+            emitted: list[Any] = []
+            for start in range(0, len(records), step):
+                window = records[start : start + step]
+                state, closed = I.advance(state, window)
+                emitted.extend(closed)
+                if twice:  # the retry, with the state already bound
+                    state, closed = I.advance(state, window)
+                    emitted.extend(closed)
+            return sorted(
+                (a.player_id, tuple(b.price for b in a.ladder)) for a in I.drain(emitted)
+            )
+
+        # Whether a replay is harmless depends on where the window boundary falls: a
+        # straight re-fold inside one turn is absorbed by `seen_this_turn`, while one
+        # spanning a turn boundary re-resets the ladder and drops rungs. At least one
+        # split must corrupt, or the ordering rule would have nothing to protect.
+        damaged = [
+            step
+            for step in (7, 13, 40, 97, len(records) // 7 or 1)
+            if fold(step, twice=True) != fold(step, twice=False)
+        ]
+        assert damaged, (
+            "no window size was corrupted by a replay — if the fold really is "
+            "idempotent across turn boundaries, this test and the ordering rule in "
+            "FoldState's docstring should both be revisited"
+        )

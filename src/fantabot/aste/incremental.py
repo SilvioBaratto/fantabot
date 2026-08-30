@@ -15,12 +15,23 @@ The planning estimate was 161 MB — large enough that writing it each pass woul
 cost more than the re-fold it replaces. Measured, it is **198 KB**, because two of the
 four structures `reconstruct` keeps are not needed here:
 
-* `seen_updates` — 2,353,995 entries and ~290 MB of RSS, guarding against 1,853
-  duplicate observations (0.08%). `reconstruct`'s own docstring records that the guard
-  is redundant, and it was re-verified against the recorded evening: identical output
-  with and without, 11,498 assignments and 70,627 rungs either way, 2.3x faster
-  without. The two rules that actually absorb duplicates — a rung only on a price
-  change, and a later close superseding an earlier one — are kept.
+* `seen_updates` — kept, but **scoped to the turn** rather than to the evening.
+  `reconstruct` holds every `(auction, last_update)` it has ever seen: 2,353,995
+  entries and ~290 MB on the real zone. Its docstring calls the guard redundant, and
+  on the recorded evening it is — identical output with and without, 11,498
+  assignments and 70,627 rungs either way.
+
+  **It is not redundant on the production zone, and that was nearly shipped as a
+  behaviour change.** Removing it and re-running over `live.jsonl` (2,355,848 records)
+  gives 1,864,164 rungs against 1,864,162: two ladders of 167,894 gain a rung, where
+  two records share an `(auction, last_update)` and disagree on price. The guard takes
+  the first; without it both are appended. Which reading is *right* is not knowable
+  from here — but the archive already holds what the guard produced, so matching it is
+  the only safe answer.
+
+  Scoping it to the turn keeps the property and drops the cost: the ladder resets on
+  `first_call`, so a stamp from an earlier turn can never collide with one in this
+  turn's ladder. Bounded by live auctions and their current turn, not by records seen.
 * `sold` — the map from `(auction, player)` to an index, so a later close could replace
   an earlier one *in the returned list*. Here that is the database's job:
   `upsert_assignments` is `ON CONFLICT DO UPDATE` on `(asta_id, player_uuid)`, so
@@ -85,6 +96,10 @@ class FoldState:
 
     #: auction -> the ladder of the turn currently on the block.
     ladders: Mapping[str, tuple[Bid, ...]] = field(default_factory=dict)
+    #: auction -> the `last_update` stamps seen during the turn currently on the
+    #: block. Cleared with the ladder, which is what bounds it. See the module
+    #: docstring: dropping this entirely changes two ladders in 167,894.
+    seen_this_turn: Mapping[str, frozenset[Any]] = field(default_factory=dict)
     #: auction -> the player currently on the block. `None` is a real value: a
     #: `confirm` state carries no player because the slot is empty between sales.
     on_the_block: Mapping[str, str | None] = field(default_factory=dict)
@@ -109,6 +124,7 @@ def advance(
     whole point. A caller that needs everything ever closed re-folds from the start.
     """
     ladders = {k: list(v) for k, v in state.ladders.items()}
+    seen = {k: set(v) for k, v in state.seen_this_turn.items()}
     on_the_block = dict(state.on_the_block)
     known = set(state.known)
     closed: list[Assignment] = []
@@ -133,6 +149,16 @@ def advance(
         if update_type == FIRST_CALL or first_time or on_the_block[auction_id] != player_id:
             on_the_block[auction_id] = player_id if isinstance(player_id, str) else None
             ladders[auction_id] = []
+            seen[auction_id] = set()
+
+        # A restart re-sends what the node already held. Same stamp, same state:
+        # nothing happened, so nothing is recorded. Scoped to the turn because the
+        # ladder it protects is.
+        stamp = raw.get("last_update")
+        if stamp is not None:
+            if stamp in seen.setdefault(auction_id, set()):
+                continue
+            seen[auction_id].add(stamp)
 
         if update_type not in BIDDING:
             continue
@@ -160,6 +186,7 @@ def advance(
         replace(
             state,
             ladders={k: tuple(v) for k, v in ladders.items()},
+            seen_this_turn={k: frozenset(v) for k, v in seen.items()},
             on_the_block=on_the_block,
             known=frozenset(known),
         ),
@@ -198,6 +225,7 @@ def to_json(state: FoldState) -> dict[str, Any]:
             for auction, ladder in state.ladders.items()
         },
         "on_the_block": dict(state.on_the_block),
+        "seen_this_turn": {a: sorted(s) for a, s in state.seen_this_turn.items()},
         "known": sorted(state.known),
     }
 
@@ -219,7 +247,13 @@ def from_json(blob: Any) -> FoldState | None:
         }
         on_the_block = {str(k): (str(v) if v is not None else None)
                         for k, v in blob["on_the_block"].items()}
+        seen_this_turn = {str(a): frozenset(s) for a, s in blob["seen_this_turn"].items()}
         known = frozenset(str(a) for a in blob["known"])
     except (KeyError, TypeError, ValueError):
         return None
-    return FoldState(ladders=ladders, on_the_block=on_the_block, known=known)
+    return FoldState(
+        ladders=ladders,
+        seen_this_turn=seen_this_turn,
+        on_the_block=on_the_block,
+        known=known,
+    )

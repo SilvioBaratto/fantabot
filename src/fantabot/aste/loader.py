@@ -14,17 +14,28 @@ one that could not be started. `read_from` takes at most `DEFAULT_WINDOW_BYTES`,
 and `catching_up` tells `--follow` not to sleep an interval between passes while
 a full window is still owed.
 
-**Events are incremental; assignments are not, and cannot be.** A checkpointed
-window is right for `asta_event`, which is append-only. It is wrong for
-`asta_assignment`: ``reconstruct`` holds its ladders in locals, so a window
-starting mid-turn rebuilds from nothing, and the upsert is DO UPDATE — the short
-ladder then overwrites the complete one and the checkpoint never returns for the
-rungs it skipped. The sale survives, the price survives, only the ladder is
-quietly truncated, which is the one thing this collector exists to keep.
+**Both are incremental now, and the assignment half took a second idea.** A
+checkpointed window has always been right for `asta_event`, which is append-only.
+It was wrong for `asta_assignment`, because ``reconstruct`` holds its ladders in
+locals: a window starting mid-turn rebuilt from nothing, and the upsert is DO
+UPDATE, so the short ladder overwrote the complete one and the checkpoint never
+returned for the rungs it skipped. The sale survived, the price survived, only the
+ladder was quietly truncated — the one thing this collector exists to keep.
 
-So assignments are rebuilt from the whole landing zone each pass. It costs a
-re-read — measured at roughly one second for 144,518 records against a ten-second
-interval — and it is the only shape that cannot lose a rung.
+The first answer was to rebuild assignments from the whole landing zone every
+pass. Correct, and it stopped being affordable: on the real zone that is 1.22 GB
+and 2,355,848 records, 10.2 s and 3.3 GB of RSS, re-upserting all 167,894
+assignments, every ten seconds, for a result the next pass discarded.
+
+The second answer is `aste/incremental.py`: carry the ladders across passes rather
+than re-deriving them. A pass carrying 1,000 records costs 2.9 ms and writes 98
+rows. `FoldCheckpoint` below keeps that state beside the byte offset — 287 KB for
+the whole zone — because the two describe the same position and must move
+together.
+
+``assignments_for_pass`` is still here, and is still the whole-file rebuild. The
+follower does not call it; `harvest backfill` does, because a finished recording
+genuinely has no earlier state to resume from.
 
 **The rule that makes it safe: never consume a line the writer has not
 finished.** The two processes share a file with no lock between them, so a read
@@ -311,8 +322,8 @@ def assignments_for_pass(
 def iter_records(path: Path) -> Iterator[dict[str, Any]]:
     """Every complete record in ``path``, streamed.
 
-    The whole-file pass has to exist — a window starting mid-turn rebuilds a
-    ladder from nothing — but it must not *hold* the whole file. ``read_from``
+    The whole-file pass exists for `harvest backfill`, which reads a finished
+    recording — but it must not *hold* the whole file. ``read_from``
     takes it in one ``handle.read()``, so the bytes, the decoded string, the
     split lines and the parsed dicts are alive together: a 92 MB landing zone
     put the loader at 1.6 GB resident, re-paid every ten seconds, against a file

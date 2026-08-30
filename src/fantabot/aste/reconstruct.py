@@ -10,7 +10,9 @@ Three behaviours carry the weight:
 **Duplicates are absorbed, not counted** — but not by the ``last_update`` guard
 below, which mutation testing on 2026-08-27 showed to be redundant: removing it
 reconstructs the whole recorded evening to the same 11,498 assignments and
-70,152 rungs. Two other rules do the work, and they are the ones to preserve:
+70,627 rungs. (That figure read 70,152 until 2026-08-30, when re-running the
+comparison found both paths at 70,627 — a later fix moved the count and the prose
+did not follow it. The claim was and is that the two agree.) Two other rules do the work, and they are the ones to preserve:
 ``sold`` keeps the first close per (auction, player), and a rung is appended only
 on a *price change*. The guard stays as cheap insurance against an input shape
 neither of those covers, and is described here as what it is rather than as what
