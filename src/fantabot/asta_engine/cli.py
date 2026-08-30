@@ -23,10 +23,9 @@ from .legality import build_legality, fieldable_schemi, load_compat
 from .live import normalize
 from .opponents import format_advisory, format_opponents, track_opponents
 from .optimizer import InfeasibleRoster, optimize_roster
-from .prices import expected_prices
+from .plan import read_plan_inputs
 from .report import (
     build_pool,
-    build_value,
     format_legality,
     format_roster,
     parse_ids,
@@ -35,7 +34,6 @@ from .report import (
 from .reservation import apply_event, reservations, rolling_advisory
 from .sentiment import SentimentWeights
 from .state import AstaState
-from .value import ValueModel
 
 
 class _SentimentSource(Protocol):
@@ -109,36 +107,25 @@ def asta_optimize(
     """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
     from fantabot.db import database_manager
-    from fantabot.db.repositories.reference import ReferenceRepository
 
     with database_manager.get_session() as session:
-        quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
-        prices = expected_prices(session)
         rows = sentiment_rows(
             NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
         )
+        world = read_plan_inputs(
+            session, season=season, sentiment=rows, as_of=_today(), tilt_k=tilt_k
+        )
 
-    pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
-    teams = {pid: row.squadra for pid, row in quotazioni.items()}
-    names = {pid: row.nome for pid, row in quotazioni.items()}
-    value = build_value(
-        {pid: row.fvm for pid, row in quotazioni.items()},
-        priced_ids=set(prices),
-        sentiment=rows,
-        as_of=_today() if rows else None,
-        weights=SentimentWeights(k=tilt_k),
-    )
-    legality = build_legality(load_compat())
     state = AstaState(owned=parse_ids(owned), total_budget=budget)
 
     try:
         result = optimize_roster(
             state,
-            pool,
-            value=value,
-            prices=prices,
-            teams=teams,
-            legality=legality,
+            world.pool,
+            value=world.value,
+            prices=world.prices,
+            teams=world.teams,
+            legality=world.legality,
             lam=lam,
             n_fallbacks=fallbacks,
         )
@@ -146,7 +133,7 @@ def asta_optimize(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
-    console.print(format_roster(result.optimal, names, prices, sentiment=rows))
+    console.print(format_roster(result.optimal, world.names, world.prices, sentiment=rows))
     for index, fallback in enumerate(result.fallbacks, start=1):
         console.print(
             f"[dim]fallback {index}: cost {fallback.total_cost:.0f} | obj {fallback.objective:.1f}[/dim]"
@@ -194,7 +181,6 @@ def asta_live(
     from pathlib import Path
 
     from fantabot.db import database_manager
-    from fantabot.db.repositories.reference import ReferenceRepository
 
     if bool(league) == bool(replay):
         console.print("[red]Pass exactly one of --league or --replay.[/red]")
@@ -213,31 +199,6 @@ def asta_live(
 
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
 
-    with database_manager.get_session() as session:
-        quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
-        prices = expected_prices(session)
-
-    pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
-    teams = {pid: row.squadra for pid, row in quotazioni.items()}
-    names = {pid: row.nome for pid, row in quotazioni.items()}
-    roles = {pid: row.ruoli_codice for pid, row in quotazioni.items()}
-    fvm = {pid: row.fvm for pid, row in quotazioni.items()}
-    weights = SentimentWeights(k=tilt_k)
-    legality = build_legality(load_compat())
-
-    def read_value() -> ValueModel:
-        with database_manager.get_session() as fresh:
-            rows = sentiment_rows(
-                NewsSentimentSource(fresh), enabled=sentiment, run=sentiment_run
-            )
-        return build_value(
-            fvm,
-            priced_ids=set(prices),
-            sentiment=rows,
-            as_of=_today() if rows else None,
-            weights=weights,
-        )
-
     # One reading per invocation, on both paths.
     #
     # The live path used to re-read per event, which bought nothing and cost a session and a
@@ -248,19 +209,26 @@ def asta_live(
     # live table changes underneath it would mix two clocks.
     #
     # `rolling_advisory` still takes a factory rather than a model, and that is deliberate:
-    # it is the seam a genuinely live `asta-live` needs. Re-reading only becomes meaningful
-    # once this command polls the ledger each cycle the way `asta-bid` already does, and at
-    # that point the per-cycle read belongs there.
-    snapshot = read_value()
-
-    def value_of() -> ValueModel:
-        return snapshot
+    # it is the seam a genuinely live `asta-live` needs — which is why `PlanInputs` exposes
+    # `value_of` rather than collapsing it. Re-reading only becomes meaningful once this
+    # command polls the ledger each cycle the way `asta-bid` already does, and at that point
+    # the per-cycle read belongs there.
+    with database_manager.get_session() as session:
+        # `readings`, not `rows`: the replay branch above already binds `rows` to the
+        # decoded JSONL lines, and shadowing it here would hand `read_plan_inputs` a
+        # list of raw states. mypy caught that; nothing else would have.
+        readings = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
+        world = read_plan_inputs(
+            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k
+        )
 
     last = None
     for step in rolling_advisory(
-        AstaState(total_budget=budget), pool, events,
-        our_team_id=team, value_of=value_of, prices=prices, teams=teams, legality=legality,
-        lam=lam,
+        AstaState(total_budget=budget), world.pool, events,
+        our_team_id=team, value_of=world.value_of, prices=world.prices, teams=world.teams,
+        legality=world.legality, lam=lam,
     ):
         last = step
     if last is None:
@@ -268,8 +236,8 @@ def asta_live(
         return
 
     _, _, result, walkaways = last
-    console.print(format_advisory(result, walkaways, names))
-    opponents = track_opponents(events, our_team_id=team, roles_by_id=roles)
+    console.print(format_advisory(result, walkaways, world.names))
+    opponents = track_opponents(events, our_team_id=team, roles_by_id=world.roles)
     console.print(format_opponents(opponents, names={}, total_budget=int(budget)))
 
 
@@ -302,29 +270,20 @@ def asta_bid(
     from fantabot.asta_engine.bid import Seat
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
     from fantabot.db import database_manager
-    from fantabot.db.repositories.reference import ReferenceRepository
     from fantabot.fantalab import feed, room, rtdb
 
+    # The same value model asta-optimize planned with, by construction now rather than by
+    # maintenance: a walk-away is "what is he worth to us", and this is the one command
+    # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
+    # credits with a metatarsal fracture reported by three sources.
     with database_manager.get_session() as session:
-        quotazioni = ReferenceRepository(session).quotazioni(season, "mantra")
-        prices = expected_prices(session)
-        rows = sentiment_rows(
+        readings = sentiment_rows(
             NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
         )
-    pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
-    teams = {pid: row.squadra for pid, row in quotazioni.items()}
-    # The same value model asta-optimize planned with. A walk-away is "what is he worth to
-    # us", and this is the one command where that number becomes money — so it is the last
-    # place the planner and the bidder may disagree. On plain fvm this loop would chase
-    # Yildiz to 62 credits with a metatarsal fracture reported by three sources.
-    value = build_value(
-        {pid: row.fvm for pid, row in quotazioni.items()},
-        priced_ids=set(prices),
-        sentiment=rows,
-        as_of=_today() if rows else None,
-        weights=SentimentWeights(k=tilt_k),
-    )
-    legality = build_legality(load_compat())
+        world = read_plan_inputs(
+            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k
+        )
+
     seat = Seat(fantateam_id=team, user_id=user)
 
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
@@ -335,7 +294,13 @@ def asta_bid(
         for event in feed.ledger_events(db, league):
             state = apply_event(state, event, our_team_id=team)
         _, walkaways = reservations(
-            state, pool, value=value, prices=prices, teams=teams, legality=legality, lam=lam
+            state,
+            world.pool,
+            value=world.value,
+            prices=world.prices,
+            teams=world.teams,
+            legality=world.legality,
+            lam=lam,
         )
         walk_away = walkaways.get(player_id)
         return (player_id, int(walk_away)) if walk_away is not None else None

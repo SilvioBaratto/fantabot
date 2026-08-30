@@ -10,12 +10,10 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from fantabot.asta_engine.legality import build_legality, fieldable_schemi, load_compat
+from fantabot.asta_engine.legality import fieldable_schemi
 from fantabot.asta_engine.optimizer import optimize_roster
-from fantabot.asta_engine.prices import expected_prices
-from fantabot.asta_engine.report import build_pool, build_value
+from fantabot.asta_engine.plan import PlanInputs, read_plan_inputs
 from fantabot.asta_engine.state import AstaState, RosterRules
-from fantabot.db.repositories.reference import ReferenceRepository
 
 pytestmark = pytest.mark.db
 
@@ -23,32 +21,40 @@ BUDGET = 500.0
 RULES = RosterRules()
 
 
-def _world(session: Session):
-    quotazioni = ReferenceRepository(session).quotazioni("2026/27", "mantra")
-    prices = expected_prices(session)
-    pool = build_pool({pid: row.ruoli_codice for pid, row in quotazioni.items()})
-    teams = {pid: row.squadra for pid, row in quotazioni.items()}
-    value = build_value({pid: row.fvm for pid, row in quotazioni.items()}, priced_ids=set(prices))
-    roles = {pid: set(row.ruoli_codice) for pid, row in quotazioni.items()}
-    return pool, teams, value, prices, roles, build_legality(load_compat())
+def _world(session: Session) -> PlanInputs:
+    """The same assembly the three commands use.
+
+    This was a fourth copy of it — the one nobody had counted when the spec said the
+    block appeared three times. Sharing it is what makes this test an invariant check on
+    *the real thing*, rather than on a parallel construction that could drift away from
+    what the commands actually plan with.
+
+    `sentiment=None` keeps the pre-sentiment model these invariants were written against;
+    the sentiment path has its own coverage in `tests/test_asta_sentiment_wiring.py` and
+    in the golden harness.
+    """
+    return read_plan_inputs(
+        session, season="2026/27", sentiment=None, as_of=None, tilt_k=0.25
+    )
 
 
 @pytest.mark.parametrize("lam", [0.0, 0.5, 2.0])
 def test_the_real_listone_always_optimizes_to_a_legal_budget_rosa(db_session: Session, lam: float) -> None:
-    pool, teams, value, prices, roles, legality = _world(db_session)
-    if not pool:
+    world = _world(db_session)
+    if not world.pool:
         pytest.skip("no Mantra listone loaded")
 
     result = optimize_roster(
-        AstaState(total_budget=BUDGET), pool,
-        value=value, prices=prices, teams=teams, legality=legality, rules=RULES, lam=lam,
+        AstaState(total_budget=BUDGET), world.pool,
+        value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, rules=RULES, lam=lam,
     )
     roster = result.optimal
-    by_id = {p.id: p for p in pool}
+    by_id = {p.id: p for p in world.pool}
 
     assert len(roster) == RULES.size
     assert roster.total_cost <= BUDGET
-    assert fieldable_schemi([by_id[pid] for pid in roster.player_ids], legality)
-    goalkeepers = sum(1 for pid in roster.player_ids if "POR" in roles.get(pid, set()))
+    assert fieldable_schemi([by_id[pid] for pid in roster.player_ids], world.legality)
+    goalkeepers = sum(1 for pid in roster.player_ids if "POR" in set(world.roles.get(pid, ())))
     assert goalkeepers == RULES.min_goalkeepers
     assert len(set(roster.player_ids)) == RULES.size  # no duplicates
