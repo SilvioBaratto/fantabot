@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from fantabot.application.fantalab_login import FantalabLoginResult, run
+from fantabot.interface.console import console
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -110,7 +111,7 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: _FakeContext) -> 
     import fantabot.adapters.persistence as db_module
 
     monkeypatch.setattr(db_module.database_manager, "get_session", lambda: _Session())
-    result = run(browser_factory=lambda: ctx, prompt=lambda _m: "",
+    result = run(report=console, browser_factory=lambda: ctx, prompt=lambda _m: "",
                  now=datetime(2026, 8, 27, tzinfo=UTC))
     return result, saved
 

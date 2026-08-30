@@ -494,7 +494,7 @@ def db_price(
 
     from fantabot.application import pricing as pricing
 
-    pricing.run(system=system, top_n=top_n)
+    pricing.run(system=system, top_n=top_n, report=console)
 
 
 def db_dump() -> None:
@@ -735,12 +735,18 @@ def login(
 
     Running it again when every token is still valid opens no browser at all.
     """
+    from fantabot.adapters.browser.capture import real_browser
     from fantabot.application import auth_login as login_module
     from fantabot.domain.tokens.errors import TokenError
 
     try:
         login_module.run(
-            league=league, force=force, verify=verify, save_session=save_session
+            browser_factory=real_browser,
+            league=league,
+            force=force,
+            verify=verify,
+            save_session=save_session,
+            report=console,
         )
     except login_module.LoginAborted as exc:
         console.print(f"[red]{exc}[/red]")

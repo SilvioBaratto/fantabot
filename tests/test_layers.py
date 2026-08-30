@@ -125,6 +125,12 @@ FORBIDDEN_TO_DOMAIN = (
 #: to show different menus.
 CLI_ONLY = ("typer",)
 
+#: The application layer orchestrates; it does not present. Reaching the interface layer
+#: points the dependency the wrong way, and reaching Rich means it is deciding how
+#: something looks rather than what it is. Three modules did the first until P12-11 gave
+#: them an injected `Reporter`; one still does the second.
+FORBIDDEN_TO_APPLICATION = ("typer", "rich", "fantabot.interface", "playwright")
+
 
 def _violations(rule: object) -> set[tuple[str, str]]:
     """`(module, target)` for every module that breaks `rule`. Sorted set, for equality."""
@@ -133,8 +139,12 @@ def _violations(rule: object) -> set[tuple[str, str]]:
         if module in UNPLACED:
             continue
         layer = layer_of(module)
-        targets = FORBIDDEN_TO_DOMAIN if rule == "domain" else CLI_ONLY
-        if rule == "domain" and layer != "domain":
+        targets = {
+            "domain": FORBIDDEN_TO_DOMAIN,
+            "application": FORBIDDEN_TO_APPLICATION,
+            "cli": CLI_ONLY,
+        }[str(rule)]
+        if rule in ("domain", "application") and layer != rule:
             continue
         if rule == "cli" and layer == "interface":
             continue
@@ -149,6 +159,16 @@ def _violations(rule: object) -> set[tuple[str, str]]:
 EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = set()
 
 EXPECTED_CLI_VIOLATIONS: set[tuple[str, str]] = set()
+
+#: `pricing.run` builds `rich.table.Table` objects and prints them. It arrived from
+#: `scripts/` as a debugging tool and its `run` is computation, presentation and an
+#: upsert in one function -- the computation is already separated as
+#: `compute_target_prices`, so the fix is for the interface to render what that returns.
+#: Recorded rather than done here: P12-11's scope was the two login modules, and a
+#: half-done presentation split is worse than a named one.
+EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = {
+    ("fantabot.application.pricing", "rich"),
+}
 
 
 def _report(actual: set[tuple[str, str]], expected: set[tuple[str, str]]) -> str:
@@ -172,6 +192,15 @@ def test_the_domain_layer_stays_out_of_the_world() -> None:
     assert actual == EXPECTED_DOMAIN_VIOLATIONS, (
         "the domain layer's dependency list moved:\n"
         + _report(actual, EXPECTED_DOMAIN_VIOLATIONS)
+    )
+
+
+def test_the_application_layer_orchestrates_rather_than_presents() -> None:
+    """It may use adapters; it may not be a user interface, or know about one."""
+    actual = _violations("application")
+    assert actual == EXPECTED_APPLICATION_VIOLATIONS, (
+        "the application layer's dependency list moved:\n"
+        + _report(actual, EXPECTED_APPLICATION_VIOLATIONS)
     )
 
 

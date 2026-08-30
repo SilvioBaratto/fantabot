@@ -25,10 +25,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.errors import KeyMissing, TokenError
 from fantabot.domain.tokens.fantalab import FantalabSession, parse_fantalab_storage
-from fantabot.interface.console import console
 
 LOGIN_URL = "https://app.fantalab.it/aste-live"
 EXIT_PREFLIGHT = 2
@@ -52,14 +52,6 @@ class FantalabLoginResult:
 
 
 BrowserFactory = Callable[[], AbstractContextManager[Any]]
-
-
-def _real_browser(channel: str | None = None) -> AbstractContextManager[Any]:
-    # Imported here, not at module scope: `fantabot --help` must not load
-    # Playwright, and a test pins that.
-    from fantabot.adapters.browser import capture as browser
-
-    return browser.interactive_login_context(channel)
 
 
 def _prompt(message: str) -> str:
@@ -98,7 +90,9 @@ def _preflight_database() -> None:
         ) from None
 
 
-def _read_session(ctx: Any, prompt: Callable[[str], str]) -> FantalabSession:
+def _read_session(
+    ctx: Any, prompt: Callable[[str], str], report: Reporter
+) -> FantalabSession:
     """One `storage_state` read, with one human-confirmed retry.
 
     The likeliest failure is pressing Enter before the SPA has finished writing
@@ -111,7 +105,7 @@ def _read_session(ctx: Any, prompt: Callable[[str], str]) -> FantalabSession:
     try:
         return parse_fantalab_storage(dict(ctx.storage_state()))
     except TokenError as first:
-        console.print(f"[yellow]{first}[/yellow]")
+        report.print(f"[yellow]{first}[/yellow]")
         prompt("Press Enter to read again, or Ctrl-C to abort... ")
         return parse_fantalab_storage(dict(ctx.storage_state()))
 
@@ -119,10 +113,10 @@ def _read_session(ctx: Any, prompt: Callable[[str], str]) -> FantalabSession:
 def run(
     *,
     force: bool = False,
-    channel: str | None = None,
-    browser_factory: BrowserFactory | None = None,
+    browser_factory: BrowserFactory,
     prompt: Callable[[str], str] = _prompt,
     now: datetime | None = None,
+    report: Reporter,
 ) -> FantalabLoginResult:
     """One login. Collaborators are injected so the flow is testable with fakes."""
     from fantabot.adapters.persistence import database_manager
@@ -131,34 +125,33 @@ def run(
     moment = now or datetime.now(UTC)
 
     cipher = _preflight_key()
-    console.print(f"Encryption key: [green]ok[/green] (fingerprint {cipher.fingerprint})")
+    report.print(f"Encryption key: [green]ok[/green] (fingerprint {cipher.fingerprint})")
     _preflight_database()
-    console.print("Database:       [green]ok[/green]")
+    report.print("Database:       [green]ok[/green]")
 
     if not force:
         with database_manager.get_session() as session:
             existing = FantalabStore(session, cipher).describe()
         if existing:
             user_id, captured_at, _ = existing[0]
-            console.print(
+            report.print(
                 f"A session is already stored for {user_id} "
                 f"(captured {captured_at:%Y-%m-%d %H:%M}). No browser opened.\n"
                 "Force a re-auth with --force."
             )
             return FantalabLoginResult(user_id, browser_opened=False, stored=False)
 
-    console.print(
+    report.print(
         f"\nOpening a browser at {LOGIN_URL}.\n"
         "Sign in yourself — this program types nothing and clicks nothing.\n"
         "When the auction list has finished loading, come back here."
     )
 
-    factory = browser_factory or (lambda: _real_browser(channel))
-    with factory() as ctx:
+    with browser_factory() as ctx:
         page = ctx.new_page()
         page.goto(LOGIN_URL)
         prompt("\nPress Enter once you are signed in and the page has loaded... ")
-        captured = _read_session(ctx, prompt)
+        captured = _read_session(ctx, prompt, report)
 
     with database_manager.get_session() as session:
         FantalabStore(session, cipher).save(captured, now=moment)
@@ -166,6 +159,6 @@ def run(
 
     # The user id, and nothing else. Not the token, not a prefix of it, not its
     # length — CLAUDE.md's rule admits no truncated form.
-    console.print(f"\n[green]Session stored, encrypted, for {captured.user_id}[/green]")
-    console.print("No storage_state.json was written.")
+    report.print(f"\n[green]Session stored, encrypted, for {captured.user_id}[/green]")
+    report.print("No storage_state.json was written.")
     return FantalabLoginResult(captured.user_id, browser_opened=True, stored=True)

@@ -109,7 +109,7 @@ from dataclasses import dataclass
 from rich.table import Table
 
 from fantabot.adapters.persistence import scraping as _db
-from fantabot.interface.console import console
+from fantabot.application.reporting import Reporter
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]
 PREV_OF_TRAIN = dict(zip(TRAIN_SEASONS, ["2022/23", "2023/24", "2024/25"], strict=True))
@@ -338,10 +338,10 @@ def compute_target_prices(system: str) -> list[TargetPriceRow]:
     return out
 
 
-def run(system: str = "classic", top_n: int = 15) -> None:
+def run(system: str = "classic", top_n: int = 15, *, report: Reporter) -> None:
     """Fit the role fades, apply the team factors, and upsert target_price."""
     fades = fit_role_fades(system)
-    console.print(f"[bold]{system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
+    report.print(f"[bold]{system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
     fade_table = Table()
     fade_table.add_column("macro role")
     fade_table.add_column("n", justify="right")
@@ -371,10 +371,10 @@ def run(system: str = "classic", top_n: int = 15) -> None:
             f"{fade.intercept:+.3f}",
             f"[{pct_lo:+.0f}%, {pct_hi:+.0f}%]",
         )
-    console.print(fade_table)
+    report.print(fade_table)
 
     team_factors = team_discount_factors(system)
-    console.print(f"\n[bold]Team discount factors applied:[/bold] {team_factors}\n")
+    report.print(f"\n[bold]Team discount factors applied:[/bold] {team_factors}\n")
 
     rows = compute_target_prices(system)
 
@@ -403,21 +403,21 @@ def run(system: str = "classic", top_n: int = 15) -> None:
                 for r in rows
             ],
         )
-    console.print(f"wrote {stored} target_price rows for {system}\n")
+    report.print(f"wrote {stored} target_price rows for {system}\n")
 
     biggest_bumps = sorted(rows, key=lambda r: -(r.target_price - r.qi))[: top_n]
     biggest_cuts = sorted(rows, key=lambda r: (r.target_price - r.qi))[: top_n]
 
-    console.print(f"Top {top_n} biggest UPWARD adjustments (target > qi):", markup=False)
+    report.print(f"Top {top_n} biggest UPWARD adjustments (target > qi):", markup=False)
     for r in biggest_bumps:
-        console.print(
+        report.print(
             f"  {r.nome:20s} {r.squadra:4s} {r.role:8s}({r.macro_role:7s}) qi={r.qi:>3d} -> target={r.target_price:>3d}  flags={r.flags}",
             markup=False,
         )
 
-    console.print(f"\nTop {top_n} biggest DOWNWARD adjustments (target < qi):", markup=False)
+    report.print(f"\nTop {top_n} biggest DOWNWARD adjustments (target < qi):", markup=False)
     for r in biggest_cuts:
-        console.print(
+        report.print(
             f"  {r.nome:20s} {r.squadra:4s} {r.role:8s}({r.macro_role:7s}) qi={r.qi:>3d} -> target={r.target_price:>3d}  flags={r.flags}",
             markup=False,
         )
@@ -427,6 +427,6 @@ def run(system: str = "classic", top_n: int = 15) -> None:
         for flag in r.flags.split(";"):
             if flag:
                 flag_counts[flag.split("(")[0]] += 1
-    console.print(f"\nFlag counts: {dict(flag_counts)}")
+    report.print(f"\nFlag counts: {dict(flag_counts)}")
 
 

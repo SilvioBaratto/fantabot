@@ -9,7 +9,7 @@ and is still read by nothing; that is recorded at ``state.py``.
 """
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 
 from playwright.sync_api import BrowserContext, sync_playwright
 
@@ -45,3 +45,17 @@ def interactive_login_context(channel: str | None = None) -> Iterator[BrowserCon
         finally:
             ctx.close()
             browser.close()
+
+
+def real_browser(channel: str | None = None) -> AbstractContextManager[BrowserContext]:
+    """A `BrowserFactory` over the real thing, for the interface to inject.
+
+    It lived in `application/auth_login.py` and `application/fantalab_login.py` as a
+    private `_real_browser` default, with the Playwright import inside the function body
+    so that `fantabot --help` would not load it. That kept the *cost* out of the import
+    path but not the dependency: both use cases named the browser package, and the
+    application layer is meant to reach the outside world only through a port it is
+    handed. The `browser_factory` seam already existed and the tests already used it;
+    only the default was pointing the wrong way.
+    """
+    return interactive_login_context(channel)

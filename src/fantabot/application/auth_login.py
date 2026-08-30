@@ -20,11 +20,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.capture import CapturedToken, parse_storage_state
 from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.errors import KeyMissing, NoLeaguesFound, TokenError
 from fantabot.domain.tokens.status import TokenStatus
-from fantabot.interface.console import console
 
 LOGIN_URL = "https://leghe.fantacalcio.it"
 EXIT_PREFLIGHT = 2
@@ -96,12 +96,6 @@ def _preflight_database() -> None:
 BrowserFactory = Callable[[], AbstractContextManager[Any]]
 
 
-def _real_browser() -> AbstractContextManager[Any]:
-    from fantabot.adapters.browser import capture as browser
-
-    return browser.interactive_login_context()
-
-
 def _prompt(message: str) -> str:
     return input(message)
 
@@ -112,10 +106,11 @@ def run(
     force: bool = False,
     verify: bool = True,
     save_session: bool = False,
-    browser_factory: BrowserFactory | None = None,
+    browser_factory: BrowserFactory,
     transport: object | None = None,
     prompt: Callable[[str], str] = _prompt,
     now: datetime | None = None,
+    report: Reporter,
 ) -> LoginResult:
     """One login. Injected collaborators so the decision table is testable.
 
@@ -129,9 +124,9 @@ def run(
     moment = now or datetime.now(UTC)
 
     cipher = _preflight_key()
-    console.print(f"Encryption key: [green]ok[/green] (fingerprint {cipher.fingerprint})")
+    report.print(f"Encryption key: [green]ok[/green] (fingerprint {cipher.fingerprint})")
     _preflight_database()
-    console.print("Database:       [green]ok[/green]")
+    report.print("Database:       [green]ok[/green]")
 
     with database_manager.get_session() as session:
         existing = TokenStore(session, cipher).status()
@@ -140,7 +135,7 @@ def run(
         summary = ", ".join(
             f"{row.league_id} ({(row.expires_at - moment).days}d)" for row in existing
         )
-        console.print(
+        report.print(
             f"All stored tokens valid — {summary}. No browser opened.\n"
             "Force a re-auth with --force."
         )
@@ -151,10 +146,11 @@ def run(
         league=league,
         verify=verify,
         save_session=save_session,
-        browser_factory=browser_factory or _real_browser,
+        browser_factory=browser_factory,
         transport=transport,
         prompt=prompt,
         moment=moment,
+        report=report,
     )
 
 
@@ -170,7 +166,9 @@ def _all_valid(rows: Sequence[TokenStatus], moment: datetime, league: int) -> bo
     return bool(wanted) and all(moment < row.expires_at for row in wanted)
 
 
-def _read_blob(ctx: Any, prompt: Callable[[str], str]) -> list[CapturedToken]:
+def _read_blob(
+    ctx: Any, prompt: Callable[[str], str], report: Reporter
+) -> list[CapturedToken]:
     """One `localStorage` read, with one explicit human-confirmed re-read.
 
     The likeliest real-world failure of this whole phase is pressing Enter
@@ -184,7 +182,7 @@ def _read_blob(ctx: Any, prompt: Callable[[str], str]) -> list[CapturedToken]:
     try:
         return parse_storage_state(dict(ctx.storage_state()))
     except NoLeaguesFound:
-        console.print(
+        report.print(
             "[yellow]LEAGUES2024_LOCAL not found — the page may still be "
             "loading.[/yellow]"
         )
@@ -201,6 +199,7 @@ def _capture(
     browser_factory: BrowserFactory,
     transport: object | None,
     prompt: Callable[[str], str],
+    report: Reporter,
     moment: datetime,
 ) -> LoginResult:
     """The browser step, the parse, and the encrypted write."""
@@ -215,7 +214,7 @@ def _capture(
     # fires and the browser lands on a dead URL. Observed on a real run before
     # anyone had filled it in. `lega_url` is kept for the lega-specific pages a
     # future roster reader will need; nothing uses it today.
-    console.print(f"\nOpening {LOGIN_URL} — log in, then press Enter here.")
+    report.print(f"\nOpening {LOGIN_URL} — log in, then press Enter here.")
 
     with browser_factory() as ctx:
         page = ctx.new_page()
@@ -226,12 +225,12 @@ def _capture(
         # the failure would only appear during a real login — which is why the
         # fake browser in the tests asserts on the ordering rather than trusting
         # it.
-        captured = _read_blob(ctx, prompt)
+        captured = _read_blob(ctx, prompt, report)
         state_blob = dict(ctx.storage_state()) if save_session else None
 
-    console.print(f"  read LEAGUES2024_LOCAL: {len(captured)} leghe")
+    report.print(f"  read LEAGUES2024_LOCAL: {len(captured)} leghe")
     for one in captured:
-        console.print(
+        report.print(
             f"    {one.league_name or '—'} ({one.league_id})  l_id ok  "
             f"t_id {one.claims.team_id}  exp {one.claims.expires_at:%Y-%m-%d}"
         )
@@ -255,15 +254,19 @@ def _capture(
         store.save(to_store, now=moment)
         store.touch_seen([one.league_id for one in captured], moment)
 
-    saved = _write_session(state_blob) if state_blob is not None else _warn_stale_session()
+    saved = (
+        _write_session(state_blob, report)
+        if state_blob is not None
+        else _warn_stale_session(report)
+    )
 
     verified, failures = (
-        _verify([one.league_id for one in to_store], cipher, transport, moment)
+        _verify([one.league_id for one in to_store], cipher, transport, moment, report)
         if verify
         else ([], [])
     )
 
-    console.print(
+    report.print(
         f"\n{len(to_store)} token(s) stored, {len(verified)} verified."
         + (f" {len(failures)} failed verification." if failures else "")
     )
@@ -282,6 +285,7 @@ def _verify(
     cipher: TokenCipher,
     transport: object | None,
     moment: datetime,
+    report: Reporter,
 ) -> tuple[list[int], list[tuple[int, str]]]:
     """One GET per stored lega, proving the token authenticates headlessly.
 
@@ -297,7 +301,7 @@ def _verify(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
 
-    console.print("\nVerifying:")
+    report.print("\nVerifying:")
     verified: list[int] = []
     failures: list[tuple[int, str]] = []
 
@@ -313,12 +317,12 @@ def _verify(
                 )
             except TokenError as exc:
                 failures.append((league_id, str(exc)))
-                console.print(f"  [yellow]{league_id}  {exc}[/yellow]")
+                report.print(f"  [yellow]{league_id}  {exc}[/yellow]")
                 continue
             store.mark_verified(league_id, moment)
 
         verified.append(league_id)
-        console.print(
+        report.print(
             f"  {league_id}  GET /onboarding/v1/league/status  200  "
             f"sId={body.get('sId')} mday={body.get('mday')}"
         )
@@ -326,7 +330,7 @@ def _verify(
     return verified, failures
 
 
-def _write_session(blob: dict[str, Any]) -> bool:
+def _write_session(blob: dict[str, Any], report: Reporter) -> bool:
     import json
 
     from fantabot.adapters.browser import storage_state as state
@@ -335,11 +339,11 @@ def _write_session(blob: dict[str, Any]) -> bool:
     settings.fantabot_data_dir.mkdir(parents=True, exist_ok=True)
     path = state.storage_state_path()
     path.write_text(json.dumps(blob))
-    console.print(f"  session -> {path}")
+    report.print(f"  session -> {path}")
     return True
 
 
-def _warn_stale_session() -> bool:
+def _warn_stale_session(report: Reporter) -> bool:
     """Say something about a leftover file; never delete it.
 
     Removing user data is on SPEC's Ask-first list, and a file somebody kept on
@@ -349,13 +353,13 @@ def _warn_stale_session() -> bool:
 
     path = state.storage_state_path()
     if path.exists():
-        console.print(
+        report.print(
             f"[yellow]  {path} already exists and was left untouched. Nothing "
             "reads it as of 2026-08-26; delete it yourself if you no longer want "
             "a plaintext session on disk.[/yellow]"
         )
     else:
-        console.print(
+        report.print(
             "  session not saved (nothing reads it — pass --save-session if you "
             "need cookies)"
         )
