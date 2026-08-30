@@ -216,8 +216,8 @@ def _capture(
     # trustworthy for this: `.env.example` ships it as the placeholder
     # `.../nome-della-tua-lega`, which is non-empty, so an `or` fallback never
     # fires and the browser lands on a dead URL. Observed on a real run before
-    # anyone had filled it in. `lega_url` stays what lineup.py and auction.py
-    # use for their own pages.
+    # anyone had filled it in. `lega_url` is kept for the lega-specific pages a
+    # future roster reader will need; nothing uses it today.
     console.print(f"\nOpening {LOGIN_URL} — log in, then press Enter here.")
 
     with browser_factory() as ctx:

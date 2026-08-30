@@ -124,9 +124,9 @@ def news_fetch(
 
     if scope != "pool":
         # Not deferred-and-half-built: reading a roster needs the league API
-        # (lineup.scrape_roster is a stub, docs/leghe-api.md has the endpoints),
-        # and with two leagues it would also need a --league selector. Falling
-        # back to the full pool would spend 523 queries and look like it worked.
+        # (docs/leghe-api.md has the endpoints), and with two leagues it would
+        # also need a --league selector. Falling back to the full pool would
+        # spend 523 queries and look like it worked.
         console.print(
             f"[red]--scope {scope!r} is not implemented.[/red] Only 'pool' exists today: "
             "reading your roster needs the apileague.fantacalcio.it endpoints in "

@@ -48,15 +48,15 @@ fantabot mantra-grid --write  # write only if every gate passes
 
 ## Status
 
-Scaffold + decision engine done and tested. **Not yet live-capable** — see
-"Known unknowns" in `CLAUDE.md`. Two things block real autonomy:
+The asta path is live-capable: `asta-optimize` plans, `asta-live` advises off a
+real room, and `asta-bid` places bids over FantaLab's unauthenticated RTDB —
+gated behind `FANTABOT_AUTO_ACT`, which is `false` by default.
 
-1. `leghe.fantacalcio.it`'s DOM isn't mapped (login form, roster page) —
-   `lineup.py` raises `NotImplementedError` at the site-touching functions
-   until that's done. The asta path no longer needs it: `asta-bid` drives
-   FantaLab's unauthenticated RTDB directly.
-2. No stats/injuries/probable-lineup source is wired in yet — implement
-   `data_sources.StatsSource` once one is picked.
+**Weekly lineup submission is not built.** The Classic scaffolding that stood in
+for it — `lineup.py`, `auction.py`, `strategy.py` and their DOM stubs — was
+removed rather than left raising `NotImplementedError` against a DOM nobody
+mapped. When it is wanted it gets built on the `apileague.fantacalcio.it` JSON
+endpoints documented in `docs/leghe-api.md`, not on scraped markup.
 
 Persistence is done: all ten scraped CSVs, the sentiment series, the lineup
 guard and the auction budget live in Postgres, and the auction budget now
