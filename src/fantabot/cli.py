@@ -407,6 +407,34 @@ def mantra_grid(
 
 
 @app.command()
+def db_backfill_teams() -> None:
+    """Resolve club codes to full names for a season whose fixtures arrived late.
+
+    The scrapers print an instruction to run this when they meet a season whose
+    ``teams`` rows have codes but no full names — `voti` carries the full names and
+    is scraped separately, so a quotazioni-first run legitimately has the gap.
+
+    It existed as ``python scripts/_db.py backfill-team-names`` and was named in that
+    printed remedy, which is the only reason anyone would ever have found it. The file
+    moved into the package, so the instruction pointed at a path that no longer
+    existed; an operator-facing remedy has to name a command that does.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.db import database_manager
+    from fantabot.db.scraping import backfill_team_names
+
+    try:
+        with database_manager.get_session() as session:
+            changed = backfill_team_names(session)
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"resolved {changed} club name(s)")
+
+
+@app.command()
 def db_check() -> None:
     """Database health, plus a row count and on-disk size for every table."""
     from rich.table import Table

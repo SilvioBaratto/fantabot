@@ -30,6 +30,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -211,40 +212,6 @@ def load_quotes(
     ]
 
 
-def upsert_qi_bias(handle: Session, listone: str, rows: list[dict[str, object]]) -> int:
-    """Write derived bias rows back. Idempotent.
-
-    ``role`` arrives in the source files' spelling; it is normalised back to the
-    upper-case array the table holds, so this round-trips through
-    ``_role_string`` without changing what is stored.
-    """
-    if not rows:
-        return 0
-
-    payload = [
-        {
-            **row,
-            "listone": listone,
-            "ruoli_codice": split_codes(str(row.pop("role"))),
-        }
-        for row in rows
-    ]
-
-    handle.execute(
-        text(
-            "INSERT INTO qi_bias (stagione, player_id, listone, squadra, ruoli_codice, "
-            "qi, qa, fvm, delta, pct_delta) VALUES (:stagione, :player_id, :listone, "
-            ":squadra, :ruoli_codice, :qi, :qa, :fvm, :delta, :pct_delta) "
-            "ON CONFLICT (stagione, player_id, listone) DO UPDATE SET "
-            "squadra = EXCLUDED.squadra, ruoli_codice = EXCLUDED.ruoli_codice, "
-            "qi = EXCLUDED.qi, qa = EXCLUDED.qa, fvm = EXCLUDED.fvm, "
-            "delta = EXCLUDED.delta, pct_delta = EXCLUDED.pct_delta"
-        ),
-        payload,
-    )
-    return len(payload)
-
-
 def upsert_target_price(
     handle: Session, listone: str, stagione: str, rows: list[dict[str, object]]
 ) -> int:
@@ -384,7 +351,9 @@ def upsert_statistiche(handle: Session, rows: list[dict[str, object]]) -> int:
     return len(rows)
 
 
-def upsert_match_grain(handle: Session, voti: list[dict], bonus: list[dict]) -> tuple[int, int]:
+def upsert_match_grain(
+    handle: Session, voti: list[dict[str, Any]], bonus: list[dict[str, Any]]
+) -> tuple[int, int]:
     """Write one matchday's rows to both match-grain tables.
 
     Two passes per table, one per partial unique index: a single INSERT names
@@ -461,21 +430,10 @@ def resolve_team_names_or_report() -> int:
     except TeamMappingError as exc:
         print(
             f"teams: names not resolved ({exc}) — run "
-            "`python scripts/_db.py backfill-team-names` once that season's "
-            "fixtures are scraped"
+            "`fantabot db-backfill-teams` once that season's fixtures are scraped"
         )
         return 0
     if changed:
         print(f"teams: resolved {changed} club name(s)")
     return changed
 
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == "backfill-team-names":
-        with session() as _handle:
-            print(f"resolved {backfill_team_names(_handle)} club name(s)")
-    else:
-        print("usage: python scripts/_db.py backfill-team-names")
-        raise SystemExit(2)
