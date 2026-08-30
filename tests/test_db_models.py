@@ -90,9 +90,10 @@ def test_match_grain_declares_two_disjoint_partial_unique_indexes(table: str) ->
 
 
 def test_the_corrupt_team_column_is_named_raw_and_never_keyed_on() -> None:
-    """scripts/analyze_qi_bias_by_team.py documents that the scraper labels
-    every row in a match block with the fixture's home team, so the column
-    cannot say which side a player played for."""
+    """The scraper labels every row in a match block with the fixture's home
+    team, so the column cannot say which side a player played for. Stated in
+    full on db/models/matches.py; measured in 2026 by an analysis script since
+    deleted, which is why the finding lives in the code and not in a citation."""
     for table in MATCH_TABLES:
         metadata_table = Base.metadata.tables[table]
         assert "squadra_raw" in metadata_table.c

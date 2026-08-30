@@ -90,9 +90,11 @@ counter columns are the opposite case and are NOT NULL.
 ### `voti` / `bonus_malus` — `squadra_raw` is corrupt
 
 ⚠️ The scraper labels **every row in a match block with the fixture's home
-team**, so the column cannot say which side a player played for
-(`scripts/analyze_qi_bias_by_team.py:8-13`). Nothing keys, indexes or joins on
-it, and a test enforces that.
+team**, so the column cannot say which side a player played for. Nothing keys,
+indexes or joins on it, and a test enforces that. The full statement lives on
+`db/models/matches.py`; the analysis script that measured it in 2026 has since
+been deleted, so the finding was moved into the code rather than left as a
+citation.
 
 What does survive is the fixture: `squadra_raw` and `avversario_raw` identify
 home and away correctly, and the two goal columns are that fixture's score. A

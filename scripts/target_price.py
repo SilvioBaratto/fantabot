@@ -1,12 +1,20 @@
 """Sketch of a target_price function for the 2026/27 asta iniziale, classic or mantra.
 
-Not wired into src/fantabot/data_sources/ yet — this is a research script that
-mirrors StatsSource.target_price(player) -> int's shape so it's a drop-in
-later, once someone decides it's good enough to trust with real credits.
+This is a research script; `fantabot db price` will be its home once W3 ports it.
+It used to say it mirrored `StatsSource.target_price()` — that Protocol was a
+guess about a shape nothing implemented and was deleted on 2026-08-30 with the
+Classic lineup scaffolding.
+
+**On the citations below.** The four qi-bias analyses they name
+(`join_qi_bias_performance.py`, `analyze_qi_bias_by_team.py`,
+`analyze_low_minutes_bias.py`, `analyze_qi_bias.py`) were deleted the same day,
+their job done. They are kept as provenance, not as paths to follow: every number
+they produced that this model depends on is quoted inline below, which is what
+makes the constants defensible without them. `git log` has the scripts.
 
 Starts from QI(2026/27) (== QA(2026/27), season hasn't started — confirmed
-earlier) and applies two adjustments, both backed by scripts/join_qi_bias_performance.py
-and scripts/analyze_qi_bias_by_team.py's output on 2022/23-2025/26:
+earlier) and applies two adjustments, both backed by those analyses'
+output on 2022/23-2025/26:
 
 1. Regression-to-mean fade (outfield roles only — goalkeepers showed ~0
    correlation, left untouched). Fits pct_delta ~ prior_media_fantavoto per
