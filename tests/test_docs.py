@@ -32,6 +32,12 @@ DELETED_ON_PURPOSE = {
 #: `<phase>-plan.md` style templates, which name no single file.
 TEMPLATE = re.compile(r"^-?(plan|todo|spec)\.md$|<")
 
+#: Names of the *convention*, not of files. `SPEC.md`, `tasks/plan.md` and
+#: `tasks/todo.md` are what a phase in flight is called; between phases they correctly do
+#: not exist, and the paragraph naming them is the rule that says so. Exempting them by
+#: name rather than by pattern keeps the exemption to these three.
+CONVENTIONAL = {"SPEC.md", "tasks/plan.md", "tasks/todo.md"}
+
 
 def _commands(doc: str) -> set[str]:
     """Every `fantabot <group> <command>` shown in a fenced block or inline."""
@@ -65,6 +71,7 @@ def test_every_path_named_is_a_file_that_exists(doc: str) -> None:
                 or ref in DELETED_ON_PURPOSE
                 or ref.rsplit("/", 1)[-1] in DELETED_ON_PURPOSE
                 or TEMPLATE.match(ref)
+                or ref in CONVENTIONAL
                 or ref in basenames
             ):
                 continue

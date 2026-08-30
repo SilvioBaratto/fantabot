@@ -24,7 +24,7 @@ import pytest
 from _paths import REPO
 
 #: Files that exist on disk, are cited by the specs, and are **not tracked** because
-#: `.gitignore` excludes `docs/`. SPEC.md §"Decisions taken" §4 records the call
+#: `.gitignore` excludes `docs/`. `tasks/archive/simplification-spec.md` §"Decisions taken" §4 records the call
 #: deliberately: no credential is in any of them, so the exposure is a working recipe
 #: against a third party's live service rather than a secret, and whether to track them is
 #: a live decision that phase did not make.

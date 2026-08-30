@@ -1,4 +1,7 @@
-"""Every success criterion in SPEC.md, as a measurement.
+"""Every success criterion of the simplification phase, as a measurement.
+
+The spec is `tasks/archive/simplification-spec.md`; it was `SPEC.md` while the phase
+was in flight, and that name now belongs to whatever phase is next.
 
 Run it: `python scripts/verify_criteria.py`. It prints what it measured and what was
 expected, and exits non-zero if any live check fails.
@@ -65,7 +68,12 @@ def _suite(args: list[str]) -> str:
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", *args], cwd=ROOT, capture_output=True, text=True
     )
-    return "green" if result.returncode == 0 else f"RED\n{result.stdout[-2000:]}"
+    if result.returncode == 0:
+        return "green"
+    # The summary lines only. Printing the whole failure once per criterion that runs the
+    # suite buried the report under three copies of the same traceback.
+    failed = [ln for ln in result.stdout.splitlines() if ln.startswith(("FAILED", "ERROR"))]
+    return "RED: " + "; ".join(failed) if failed else "RED"
 
 
 def main() -> int:
