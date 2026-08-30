@@ -1,25 +1,19 @@
-"""Stats/injuries/probable-lineup provider interface.
+"""Read-side adapters over the data the decision layers consume.
 
-Site not chosen yet — user is picking one. Implement it as a class satisfying
-this Protocol (e.g. data_sources/fantacalcio_it.py or data_sources/some_api.py),
-then wire it into lineup.py / auction.py. Nothing else in the codebase should
-need to change: strategy.py only consumes ScoredPlayer objects.
+Today that is one module: :mod:`news_sentiment`, the read side of
+``fantabot news-fetch``, plus the frozen value types it serves in
+:mod:`models`.
+
+**What used to be here.** A ``StatsSource`` Protocol — ``projected_scores`` /
+``player_pool`` / ``target_price`` — declared against a per-matchday stats
+provider that was never chosen. It was removed with the Classic lineup
+scaffolding it was written for (``lineup.py``, ``auction.py``, ``strategy.py``):
+an interface with no implementation and no caller is a guess about a shape, and
+this one had been guessed three phases before anything would consume it. The
+asta engine does not need it — it prices from ``quotazioni.fvm``, the observed
+clearing prices in ``asta_assignment`` and the sentiment feed, none of which
+that Protocol described.
+
+When a per-matchday stats source is picked, the interface gets written against
+the consumer that actually exists at the time.
 """
-
-from typing import Protocol
-
-from fantabot.models import Player, ScoredPlayer
-
-
-class StatsSource(Protocol):
-    def projected_scores(self, matchday: int) -> dict[str, ScoredPlayer]:
-        """player.id -> ScoredPlayer for the given matchday."""
-        ...
-
-    def player_pool(self) -> list[Player]:
-        """All players known to the source (for auction valuation)."""
-        ...
-
-    def target_price(self, player: Player) -> int:
-        """This source's suggested fair-value credits for an auction target."""
-        ...

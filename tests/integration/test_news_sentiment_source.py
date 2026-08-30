@@ -70,7 +70,7 @@ def _row(data_run: str, player_id: str = PLAYER, **overrides: str) -> dict[str, 
 
 
 def _source(db_session: Session, rows: list[dict[str, str]]) -> NewsSentimentSource:
-    """Store the rows, then read them back the way the strategy layer will.
+    """Store the rows, then read them back the way the asta engine will.
 
     Player rows are created for any id the fixture invents: player_sentiment
     carries a real foreign key, and the whole transaction rolls back at teardown
