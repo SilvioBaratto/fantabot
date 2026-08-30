@@ -1,4 +1,4 @@
-"""`aste-load` must not store a ladder shorter than the file supports.
+"""`harvest load` must not store a ladder shorter than the file supports.
 
 The loader reads incrementally, which is right for events and wrong for
 assignments: `reconstruct` holds its ladders in locals, so a window that starts
@@ -8,7 +8,7 @@ rungs it skipped.
 
 That defeats the phase's whole point silently — the sale is there, the price is
 right, only the ladder is short — and it happens on the documented live path
-(`aste-collect &` + `aste-load --follow`).
+(`harvest collect &` + `harvest load --follow`).
 """
 
 from __future__ import annotations

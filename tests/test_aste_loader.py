@@ -97,7 +97,7 @@ def test_a_missing_file_is_an_error_because_it_means_nothing_is_collecting(
     """
     from fantabot.aste.loader import LandingZoneMissing
 
-    with pytest.raises(LandingZoneMissing, match="aste-collect"):
+    with pytest.raises(LandingZoneMissing, match="harvest collect"):
         read_from(tmp_path / "absent.jsonl", 0)
 
 
@@ -132,7 +132,7 @@ def test_the_command_is_registered_with_its_flags() -> None:
 
     from fantabot.cli import app
 
-    result = CliRunner().invoke(app, ["aste-load", "--help"])
+    result = CliRunner().invoke(app, ["harvest", "load", "--help"])
     assert result.exit_code == 0
     plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     for flag in ("--seed", "--follow", "--interval", "--dry-run"):
@@ -152,7 +152,7 @@ def test_a_dry_run_reports_progress_without_a_database(tmp_path: Path) -> None:
     seed.write_text(json.dumps([["a-1", "4", 8, 500, 25, 25, "random", "free", 8, 8, "x"]]))
 
     result = CliRunner().invoke(
-        app, ["aste-load", str(landing), "--seed", str(seed), "--dry-run"]
+        app, ["harvest", "load", str(landing), "--seed", str(seed), "--dry-run"]
     )
     assert result.exit_code == 0, result.output
     plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
@@ -164,7 +164,7 @@ def test_a_missing_landing_zone_is_named_not_reported_as_quiet(tmp_path: Path) -
     """`carried 0 · 0 bytes behind` printed identically for a file that does not
     exist, one that is empty, and one already fully loaded.
 
-    Observed 2026-08-27: the operator ran scan and load, skipped `aste-collect`,
+    Observed 2026-08-27: the operator ran scan and load, skipped `harvest collect`,
     and watched a healthy-looking loader report zero indefinitely. It is the
     failure shape this phase guards against everywhere else — a 401 and a quiet
     night must not read the same — left standing in our own loader.
@@ -180,11 +180,11 @@ def test_a_missing_landing_zone_is_named_not_reported_as_quiet(tmp_path: Path) -
     absent = tmp_path / "never-created.jsonl"
 
     result = CliRunner().invoke(
-        app, ["aste-load", str(absent), "--seed", str(seed), "--dry-run"]
+        app, ["harvest", "load", str(absent), "--seed", str(seed), "--dry-run"]
     )
     plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "never-created.jsonl" in plain, "the missing file must be named"
-    assert "aste-collect" in plain, "and so must the command that would create it"
+    assert "harvest collect" in plain, "and so must the command that would create it"
     assert "carried 0" not in plain, "a missing file is not a quiet pass"
 
 
@@ -203,7 +203,7 @@ def test_an_empty_landing_zone_reads_differently_from_a_missing_one(tmp_path: Pa
     empty.touch()
 
     result = CliRunner().invoke(
-        app, ["aste-load", str(empty), "--seed", str(seed), "--dry-run"]
+        app, ["harvest", "load", str(empty), "--seed", str(seed), "--dry-run"]
     )
     assert result.exit_code == 0
     assert "carried 0" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
@@ -244,7 +244,7 @@ class TestCachedPlayerIds:
     def test_a_failed_fetch_does_not_poison_the_cache(self) -> None:
         """A momentary database outage must not turn every player unlinked.
 
-        `aste-load --follow` already survives an outage by skipping the pass;
+        `harvest load --follow` already survives an outage by skipping the pass;
         a cache that stored the failure would keep nulling `fantacalcio_id`
         long after the database came back.
         """
@@ -260,7 +260,7 @@ class TestCachedPlayerIds:
 
 
 class TestTheSeedIsRereadWhileFollowing:
-    """`aste-load --follow` read the seed once, and dropped what it missed.
+    """`harvest load --follow` read the seed once, and dropped what it missed.
 
     Measured 2026-08-27 22:07. The collector re-reads its seed and adopts
     auctions that opened since; the loader did not, so every adopted auction's
@@ -281,7 +281,7 @@ class TestTheSeedIsRereadWhileFollowing:
         assert [row[0] for row in source.read()] == ["a-0", "a-1"]
 
     def test_a_half_written_seed_keeps_the_last_good_one(self, tmp_path: Path) -> None:
-        """`aste-scan` rewrites the file this reads. Catching it mid-write must
+        """`harvest scan` rewrites the file this reads. Catching it mid-write must
         cost one pass, not turn every auction into an unknown one — which is
         the very loss this re-read exists to stop."""
         seed = tmp_path / "seed.json"

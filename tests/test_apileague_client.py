@@ -182,7 +182,7 @@ def test_ath001_says_the_token_was_rejected_and_names_the_fix() -> None:
         apileague.league_status(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
 
     message = str(caught.value)
-    assert "fantabot login" in message
+    assert "fantabot auth login" in message
     assert str(_tokens.LEGA_MANTRA) in message
 
 

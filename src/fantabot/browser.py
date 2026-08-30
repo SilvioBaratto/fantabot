@@ -23,7 +23,7 @@ def interactive_login_context(channel: str | None = None) -> Iterator[BrowserCon
     a browser it considers automated — *"This browser or app may not be
     secure"*. Whether a channel helps is not obvious: the detection is about
     automation flags rather than the brand, so this is a cheap thing to try and
-    not a fix to rely on. `fantalab-login --browser msedge`.
+    not a fix to rely on. `auth fantalab-login --browser msedge`.
 
     **It no longer writes anything.** The caller decides, because it has to:
     `ctx.storage_state()` must be read *inside* the body, and this function used

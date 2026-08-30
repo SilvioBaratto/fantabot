@@ -29,7 +29,7 @@ GENERATE_KEY_HINT = (
     'python -c "from cryptography.fernet import Fernet; '
     'print(Fernet.generate_key().decode())"'
 )
-RELOGIN_HINT = "run `fantabot login` to capture a fresh token"
+RELOGIN_HINT = "run `fantabot auth login` to capture a fresh token"
 
 
 class TokenError(Exception):
@@ -82,7 +82,7 @@ class TokenMissing(TokenError):
     def __init__(self, league_id: int) -> None:
         super().__init__(
             f"no stored token for lega {league_id} — {RELOGIN_HINT}. "
-            "Check what is stored with `fantabot token-status`."
+            "Check what is stored with `fantabot auth status`."
         )
 
 

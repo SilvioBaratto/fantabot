@@ -4,7 +4,7 @@
 has to — its subject is that two *ways of invoking* the CLI agree, which is a
 subprocess question. But its regex takes the first word of every boxed row, and a
 boxed row can be an option description: it reports 18 commands, one of which is
-`ledger`, a word from `asta-live`'s help text. A check that hallucinates a command
+`ledger`, a word from `asta live`'s help text. A check that hallucinates a command
 cannot be the thing that tells you a command went missing.
 
 Walking Typer's Click tree asks the question directly, and reaches nested groups,
@@ -24,23 +24,23 @@ from fantabot.cli import app
 #: Every command reachable from the root, as the user types it. Sub-app commands
 #: appear space-separated (`asta optimize`) once the groups land.
 EXPECTED: set[str] = {
-    "asta-bid",
-    "asta-legality",
-    "asta-live",
-    "asta-optimize",
-    "aste-backfill",
-    "aste-collect",
-    "aste-load",
-    "aste-scan",
+    "asta bid",
+    "asta legality",
+    "asta live",
+    "asta optimize",
+    "auth auth fantalab-login",
+    "auth forget",
+    "auth login",
+    "auth status",
     "config-check",
-    "db-backfill-teams",
-    "db-check",
-    "fantalab-login",
-    "login",
+    "db backfill-teams",
+    "db check",
+    "harvest backfill",
+    "harvest collect",
+    "harvest load",
+    "harvest scan",
     "mantra-grid",
-    "news-fetch",
-    "token-forget",
-    "token-status",
+    "news fetch",
 }
 
 

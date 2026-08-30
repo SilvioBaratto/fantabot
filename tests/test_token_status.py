@@ -1,6 +1,6 @@
 """`orphaned` and `render_state` — the display logic, with no session and no key.
 
-That is the point of the module existing: SC 11 says `token-status` must answer
+That is the point of the module existing: SC 11 says `auth status` must answer
 with `FANTABOT_ENCRYPTION_KEY` absent, and SC 12 wants `ORPHANED`. Both are
 reachable here without a database, so neither criterion rests on a live stack or
 on getting a shell invocation right.

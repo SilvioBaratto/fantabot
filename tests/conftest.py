@@ -147,7 +147,7 @@ def db_session(db_connection: Connection) -> Generator[Session, None, None]:
 #: The alternative, `SELECT id FROM players ORDER BY id LIMIT n`, borrows real players.
 #: That is not hypothetical: it is how `pytest -m db` came to be deleting a real player's
 #: weekly reading (see `canary_player` in test_news_fetch_write.py), and how a shared
-#: database made these tests depend on whatever `news-fetch` last wrote.
+#: database made these tests depend on whatever `news fetch` last wrote.
 SYNTHETIC_PLAYER_BASE = 9_100_000_000
 
 

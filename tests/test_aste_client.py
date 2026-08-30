@@ -68,7 +68,7 @@ def test_the_token_travels_in_the_header_and_nowhere_else() -> None:
 def test_an_expired_session_is_named_not_swallowed() -> None:
     """A 401 means the id_token aged out — about an hour after capture. Silently
     returning nothing would look exactly like a night with no auctions."""
-    with pytest.raises(AuthExpired, match="fantalab-login"):
+    with pytest.raises(AuthExpired, match="auth fantalab-login"):
         _client(_Response(401, {"error": "unauthorized"})).live_auctions()
 
 

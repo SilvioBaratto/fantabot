@@ -1,7 +1,7 @@
 """Read-side adapters over the data the decision layers consume.
 
 Today that is one module: :mod:`news_sentiment`, the read side of
-``fantabot news-fetch``, plus the frozen value types it serves in
+``fantabot news fetch``, plus the frozen value types it serves in
 :mod:`models`.
 
 **What used to be here.** A ``StatsSource`` Protocol — ``projected_scores`` /

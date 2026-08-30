@@ -90,7 +90,7 @@ def test_importing_the_cli_opens_no_connection() -> None:
 
 
 def test_a_fresh_manager_has_no_engine_until_it_is_asked_for_a_session() -> None:
-    """Asserted on a fresh instance rather than the module-level one: news-fetch
+    """Asserted on a fresh instance rather than the module-level one: news fetch
     connects now, so whether the global has an engine depends on test order.
     The import-time guarantee is covered by the subprocess test above."""
     assert DatabaseManager().engine is None

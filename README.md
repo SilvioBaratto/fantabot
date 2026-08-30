@@ -5,7 +5,7 @@ submission, asta iniziale (initial auction), asta di riparazione (repair
 auction) — all handled without a human clicking anything, once the site's DOM
 is mapped and a stats source is wired in.
 
-## News sentiment (`fantabot news-fetch`)
+## News sentiment (`fantabot news fetch`)
 
 One Claude Agent SDK query per player over `WebSearch` + `WebFetch`, validated
 against a pydantic schema, appended weekly to `data/player_sentiment_2026-27.csv`
@@ -13,9 +13,9 @@ as a per-player time-series. Runs on the Claude Code OAuth subscription — no
 `ANTHROPIC_API_KEY` anywhere.
 
 ```bash
-fantabot news-fetch --limit 5      # smoke test: queries, writes nothing
-fantabot news-fetch --write        # the weekly run, all 523 quotati
-fantabot news-fetch --write --force --lookback-days 21
+fantabot news fetch --limit 5      # smoke test: queries, writes nothing
+fantabot news fetch --write        # the weekly run, all 523 quotati
+fantabot news fetch --write --force --lookback-days 21
 ```
 
 Each row carries an overall `sentiment` plus `disponibilita`, `titolarita`,
@@ -31,7 +31,7 @@ being played as, and `deriva_ruolo` flags when the frozen tag has gone stale.
 Suggested cron (Wednesday mornings, in-season):
 
 ```cron
-0 9 * * 3 cd /path/to/fantabot && /path/to/conda-env/bin/fantabot news-fetch --write >> data/news_cron.log 2>&1
+0 9 * * 3 cd /path/to/fantabot && /path/to/conda-env/bin/fantabot news fetch --write >> data/news_cron.log 2>&1
 ```
 
 ## Mantra tactical grid (`fantabot mantra-grid`)
@@ -71,7 +71,7 @@ playwright install chromium
 cp .env.example .env   # fill in LEGA_EMAIL / LEGA_PASSWORD / LEGA_URL / FANTABOT_LEAGUE_ID
 
 # generate an encryption key and paste it into .env as FANTABOT_ENCRYPTION_KEY.
-# It encrypts the bearer token at rest; without it `fantabot login` refuses to
+# It encrypts the bearer token at rest; without it `fantabot auth login` refuses to
 # open a browser. Never commit it, and never pass it on the command line.
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
@@ -88,10 +88,10 @@ python scripts/scrape_voti.py           # ~38 GETs/season, 1s apart -> voti, bon
 python scripts/target_price.py --system classic   # NOTE: one system per run,
 python scripts/target_price.py --system mantra    # --system defaults to classic
 
-fantabot db-check         # health, per-table row counts and sizes
+fantabot db check         # health, per-table row counts and sizes
 
-fantabot login          # interactive, opens a real browser — log in once
-fantabot token-status   # what is stored, when it expires, whether it still works
+fantabot auth login          # interactive, opens a real browser — log in once
+fantabot auth status   # what is stored, when it expires, whether it still works
 fantabot config-check   # sanity check env is loaded (secrets masked)
 pytest                  # decision logic; opens zero sockets
 pytest -m db            # integration tier, needs the stack above
@@ -99,12 +99,12 @@ pytest -m db            # integration tier, needs the stack above
 
 ## Storage
 
-**The `apileague` bearer token lives in Postgres, encrypted.** `fantabot login`
+**The `apileague` bearer token lives in Postgres, encrypted.** `fantabot auth login`
 opens a real browser, you sign in yourself, and it reads each lega's token out
 of `localStorage`, encrypts it with `FANTABOT_ENCRYPTION_KEY` and writes it to
 `league_tokens` keyed by lega. Nothing reads a token from disk.
 
-`data/storage_state.json` is **opt-in** now (`fantabot login --save-session`).
+`data/storage_state.json` is **opt-in** now (`fantabot auth login --save-session`).
 It holds Playwright's cookies, and as of 2026-08-26 no working code path reads
 them — so the default run does not create it.
 
@@ -129,12 +129,12 @@ alembic check                     # do models and migrations still agree?
 ## Commands
 
 ```bash
-fantabot login           # interactive login; stores each lega's token encrypted
-fantabot token-status    # stored / expires / state, per lega — works with no key
-fantabot token-forget    # remove one lega's row; --league required, no --all
+fantabot auth login           # interactive login; stores each lega's token encrypted
+fantabot auth status    # stored / expires / state, per lega — works with no key
+fantabot auth forget    # remove one lega's row; --league required, no --all
 fantabot config-check    # print resolved settings, secrets masked
-fantabot db-check        # database health + per-table row counts and sizes
-fantabot news-fetch      # weekly sentiment run; --write stores it
+fantabot db check        # database health + per-table row counts and sizes
+fantabot news fetch      # weekly sentiment run; --write stores it
 fantabot mantra-grid     # one-off, collects the Mantra schema grid
 ```
 
@@ -147,7 +147,7 @@ verifying selectors against the live site in a low-stakes matchday.
 ## Scheduling
 
 - **Auctions (iniziale / riparazione)**: live sessions, not a point in time.
-  `fantabot asta-bid` is a long-lived polling loop, started shortly before the
+  `fantabot asta bid` is a long-lived polling loop, started shortly before the
   scheduled auction and left running for its duration — not fired once from cron.
 
 Example crontab. cron gets no shell profile, so the conda env's binary is named

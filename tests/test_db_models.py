@@ -112,7 +112,7 @@ def test_the_corrupt_team_column_is_named_raw_and_never_keyed_on() -> None:
 
 def test_the_throwaway_probe_is_gone() -> None:
     """It existed only to prove ARRAY and partial indexes round-trip. Left in,
-    it would be a table in db-check that appears nowhere in SPEC's Schema."""
+    it would be a table in db check that appears nowhere in SPEC's Schema."""
     assert "_probe_match_grain" not in Base.metadata.tables
 
 

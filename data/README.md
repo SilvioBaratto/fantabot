@@ -22,7 +22,7 @@ site, so the counts below are floors from the capture day, not fixtures.
 ```bash
 docker compose up -d          # Postgres on 54321, Adminer on 18082
 alembic upgrade head
-fantabot db-check             # health, row counts, sizes
+fantabot db check             # health, row counts, sizes
 ```
 
 ## What is still on disk
@@ -49,7 +49,7 @@ column tells them apart.
 | `target_price` | player × season × listone | 1,046 → 1,088 | `scripts/target_price.py` |
 | `voti` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
 | `bonus_malus` | player × matchday | 50,634 | `scripts/scrape_voti.py` |
-| `player_sentiment` | player × run day | 0 | `fantabot news-fetch --write` |
+| `player_sentiment` | player × run day | 0 | `fantabot news fetch --write` |
 | `bot_state` | one lega | 0 | `lineup.py` |
 | `auction_bids` | one bid | 0 | `auction.py` |
 | `league_snapshot`, `league_team_snapshot`, `league_player_pool` | point in time | 0 | not yet produced — SPEC open question 5 |
@@ -150,8 +150,8 @@ One row per lega: the `apileague.fantacalcio.it` bearer token, encrypted with
 | `last_seen_at` | `timestamptz` | Last login at which this lega appeared in `leagues[]`. A row behind the newest stamp is `ORPHANED`. |
 | `last_verified_at` | `timestamptz` NULL | Last `200` from the API. NULL = never confirmed. |
 
-Written by `fantabot login`, read through `TokenStore`, inspected with
-`fantabot token-status`, removed with `fantabot token-forget --league <id>`.
+Written by `fantabot auth login`, read through `TokenStore`, inspected with
+`fantabot auth status`, removed with `fantabot auth forget --league <id>`.
 Replaced rather than versioned: a superseded token is a live credential until
 its `exp`.
 
@@ -161,7 +161,7 @@ its `exp`.
   out-of-position matrix, collected once by `fantabot mantra-grid` and verified
   by hand. Tracked in git.
 - `storage_state.json` — Playwright's cookies. **Opt-in and usually absent**:
-  `fantabot login` writes it only under `--save-session`, because as of
+  `fantabot auth login` writes it only under `--save-session`, because as of
   2026-08-26 no working code path reads it. Git-ignored either way.
 
   It no longer holds the bearer token. That moved to `league_tokens`, encrypted

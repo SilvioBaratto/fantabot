@@ -1,4 +1,4 @@
-"""`fantabot aste-backfill`, exercised without a database.
+"""`fantabot harvest backfill`, exercised without a database.
 
 `--dry-run` exists so the expensive half can be checked in the default tier:
 building 144,518 rows is where the mistakes are, and it needs no connection. A
@@ -41,7 +41,7 @@ def _seed(tmp_path: Path) -> Path:
 
 
 def test_the_command_is_registered_with_its_flags() -> None:
-    result = runner.invoke(app, ["aste-backfill", "--help"])
+    result = runner.invoke(app, ["harvest", "backfill", "--help"])
     assert result.exit_code == 0
     for flag in ("--seed", "--listone", "--asta-type", "--dry-run"):
         assert flag in _plain(result.output), f"{flag} is missing from the help"
@@ -52,7 +52,7 @@ def test_a_dry_run_reports_counts_and_opens_nothing(tmp_path: Path) -> None:
     outright if the dry run reached for either."""
     result = runner.invoke(
         app,
-        ["aste-backfill", str(STATES), "--seed", str(_seed(tmp_path)), "--dry-run"],
+        ["harvest", "backfill", str(STATES), "--seed", str(_seed(tmp_path)), "--dry-run"],
     )
     assert result.exit_code == 0, result.output
     assert "328" in _plain(result.output), "the event count is not reported"
@@ -62,7 +62,7 @@ def test_a_dry_run_reports_counts_and_opens_nothing(tmp_path: Path) -> None:
 def test_a_missing_seed_exits_two_with_an_instruction(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
-        ["aste-backfill", str(STATES), "--seed", str(tmp_path / "absent.json"), "--dry-run"],
+        ["harvest", "backfill", str(STATES), "--seed", str(tmp_path / "absent.json"), "--dry-run"],
     )
     assert result.exit_code == 2
     assert "absent.json" in _plain(result.output)
@@ -74,7 +74,7 @@ def test_an_unknown_format_is_refused_before_any_work(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
-            "aste-backfill", str(STATES),
+            "harvest", "backfill", str(STATES),
             "--seed", str(_seed(tmp_path)),
             "--asta-type", "manta",
             "--dry-run",

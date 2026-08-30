@@ -1,4 +1,4 @@
-"""`fantabot news-fetch --write` end to end, with the agent call faked out.
+"""`fantabot news fetch --write` end to end, with the agent call faked out.
 
 Everything downstream of the query is real: the CLI, the repository, the upsert
 and the database. Only ``fetch_all`` is replaced, because a genuine run spends
@@ -27,9 +27,9 @@ pytestmark = pytest.mark.db
 runner = CliRunner()
 #: The run day these tests write and read. A year back, and deliberately **not** today.
 #:
-#: `news-fetch` has a resume filter — it skips any player who already has a row for the run
+#: `news fetch` has a resume filter — it skips any player who already has a row for the run
 #: day — and the `db` tier runs against the development database. The moment a real
-#: `news-fetch` had written today's listone, every one of these tests got "Nothing to do —
+#: `news fetch` had written today's listone, every one of these tests got "Nothing to do —
 #: every player already has a row for today", the fake fetch never ran, and eleven of them
 #: failed. Nothing was wrong with the production code; the tests were asserting against a
 #: shared table's live state.
@@ -115,12 +115,12 @@ def canary_player() -> Any:
 
 
 def _news_fetch(*args: str) -> Any:
-    """Invoke `news-fetch` pinned to RUN_DAY, so the resume filter sees only our own rows.
+    """Invoke `news fetch` pinned to RUN_DAY, so the resume filter sees only our own rows.
 
     A test that passes its own `--date` keeps it — one of them is specifically about how a
     given day is validated.
     """
-    argv = ["news-fetch", *args]
+    argv = ["news", "fetch", *args]
     if "--date" not in argv:
         argv += ["--date", RUN_DAY]
     return runner.invoke(app, argv)
@@ -202,7 +202,7 @@ def test_force_updates_in_place_rather_than_appending(
 
 
 def test_scope_pool_builds_the_pool_from_postgres() -> None:
-    """Moved from the default tier: the pool is a query now, so news-fetch
+    """Moved from the default tier: the pool is a query now, so news fetch
     needs the stack up even for --no-run."""
     result = _news_fetch("--scope", "pool", "--limit", "1", "--no-run")
 
@@ -374,7 +374,7 @@ def test_a_second_run_says_what_it_is_resuming_from(
 def test_a_database_that_fails_mid_run_is_named_and_the_run_exits_non_zero(
     monkeypatch: pytest.MonkeyPatch, canary_player: str
 ) -> None:
-    """`aste-load` names an unreachable database the pass it happens. Here the
+    """`harvest load` names an unreachable database the pass it happens. Here the
     only other signal is the stored count quietly ceasing to advance while the
     counter, the scores and the ETA all go on looking healthy — and a run that
     stored nothing must not exit 0 and report the week as collected."""

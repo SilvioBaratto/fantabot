@@ -1,6 +1,6 @@
-"""What `fantabot token-status` renders. Pure — no session, no key, no network.
+"""What `fantabot auth status` renders. Pure — no session, no key, no network.
 
-SC 11 (`token-status` answers with the key absent) and SC 12 (`ORPHANED`) are
+SC 11 (`auth status` answers with the key absent) and SC 12 (`ORPHANED`) are
 display logic, and putting them here rather than in `store.py` or as SQL in the
 repository is what makes them testable with no database and no key at all. Same
 pure/shell split CLAUDE.md already mandates.
@@ -27,7 +27,7 @@ from datetime import datetime
 class TokenStatus:
     """One `league_tokens` row as the operator sees it, detached from its session.
 
-    A plain value, never a live ORM instance: `token-status` renders these long
+    A plain value, never a live ORM instance: `auth status` renders these long
     after the session has closed, and a lazy attribute would either trip a query
     or raise `DetachedInstanceError` in front of the operator.
 
@@ -52,7 +52,7 @@ def orphaned(rows: Iterable[TokenStatus]) -> set[int]:
 
     A row is orphaned when its `last_seen_at` is strictly behind the newest stamp
     in the table. Self-contained — no extra table, no network — which is what
-    keeps `token-status` an offline read.
+    keeps `auth status` an offline read.
 
     Empty for zero rows, and empty for one row: the only lega you have is the one
     you just saw, so a single-row table can never be orphaned. Empty, too, when

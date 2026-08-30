@@ -2,7 +2,7 @@
 
 Four options — `--season`, `--sentiment/--no-sentiment`, `--sentiment-run` and
 `--tilt-k` — were declared once per command that takes them: thirteen declarations
-across four commands, since `asta-legality` carries a `--season` too. That is
+across four commands, since `asta legality` carries a `--season` too. That is
 thirteen places for a default or a help string to drift, and one of them already
 had: the same flag was documented three different ways.
 

@@ -107,9 +107,9 @@ def rolling_advisory(
     layer further up.
 
     **No caller exercises that yet.** Both of today's callers pass a constant factory, and
-    ``asta-live`` is right to: ``feed.ledger_events`` materializes the whole ledger in one
+    ``asta live`` is right to: ``feed.ledger_events`` materializes the whole ledger in one
     GET before the loop begins, so re-reading between events cannot see anything newer. The
-    seam is kept because it is what a polling ``asta-live`` will need — re-reading is only
+    seam is kept because it is what a polling ``asta live`` will need — re-reading is only
     meaningful once the *ledger* is re-read each cycle — and a constant factory costs
     nothing in the meantime.
     """

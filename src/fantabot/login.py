@@ -1,4 +1,4 @@
-"""`fantabot login` — sign in once, store every lega's token encrypted.
+"""`fantabot auth login` — sign in once, store every lega's token encrypted.
 
 Replaces the old `auth` command. Same headed browser, same manual sign-in; new
 is that the bearer token goes into Postgres encrypted instead of sitting in a
@@ -8,7 +8,7 @@ plaintext file, and that `storage_state.json` is written only on request.
 into a real browser, possibly with a captcha, is expensive to waste — and this
 preflight is what replaced the old write-the-file-first safety net (SPEC
 assumption 5). Nothing here is a round-trip: the key is validated by
-constructing the cipher, and the database by the `SELECT 1` `db-check` already
+constructing the cipher, and the database by the `SELECT 1` `db check` already
 uses.
 """
 
@@ -68,7 +68,7 @@ def _preflight_key() -> TokenCipher:
 
 
 def _preflight_database() -> None:
-    """A `SELECT 1`, worded as `db-check` words it. The DSN is masked."""
+    """A `SELECT 1`, worded as `db check` words it. The DSN is masked."""
     from sqlalchemy import text
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import SQLAlchemyError

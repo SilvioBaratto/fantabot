@@ -1,13 +1,13 @@
 """Everything a plan needs, assembled once. The one place the value model is built.
 
-Three commands — `asta-optimize`, `asta-live` and `asta-bid` — each repeated the same
+Three commands — `asta optimize`, `asta live` and `asta bid` — each repeated the same
 fifteen lines: read `quotazioni`, read the observed clearing prices, read the sentiment
 feed, then derive the pool, the club map, the name map, the value model and the legality
 matrix. A fourth copy lived in `tests/integration/test_asta_engine_db.py`'s `_world()`
 helper, which nobody had counted.
 
-**Why that mattered rather than being untidy.** They drifted. `asta-bid` was still
-planning on plain `fvm` after `asta-optimize` had moved to the sentiment-adjusted model,
+**Why that mattered rather than being untidy.** They drifted. `asta bid` was still
+planning on plain `fvm` after `asta optimize` had moved to the sentiment-adjusted model,
 which meant the command that spends real credits and the command that says what to spend
 disagreed about what a player was worth. On plain `fvm` that loop would chase Yildiz to 62
 credits with a metatarsal fracture reported by three sources. A walk-away is "what is he
@@ -16,10 +16,10 @@ differ.
 
 **The factory seam survives, and is not an accident.** `reservation.rolling_advisory`
 takes `value_of: Callable[[], ValueModel]` while `reservation.reservations` takes a
-`ValueModel` directly. `asta-live` supplies the callable; today it returns one snapshot,
+`ValueModel` directly. `asta live` supplies the callable; today it returns one snapshot,
 because `feed.ledger_events` materialises the whole ledger before the loop starts and
 there is no "later" during which a fresher reading could arrive. The seam is what a
-genuinely live `asta-live` will need, so `PlanInputs` exposes both the model and a factory
+genuinely live `asta live` will need, so `PlanInputs` exposes both the model and a factory
 over it rather than collapsing the difference.
 
 **Split in two on purpose.** `build_plan_inputs` is pure and takes rows; `read_plan_inputs`

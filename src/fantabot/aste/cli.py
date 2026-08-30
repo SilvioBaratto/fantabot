@@ -19,6 +19,7 @@ runs. ``cli.py`` imports this module at start-up, so a module-level
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,7 +56,7 @@ def aste_scan(
     with database_manager.get_session() as session:
         stored = FantalabStore(session, cipher).load()
     if stored is None or not stored.id_token:
-        console.print("[red]No FantaLab session stored. Run: fantabot fantalab-login[/red]")
+        console.print("[red]No FantaLab session stored. Run: fantabot auth fantalab-login[/red]")
         raise typer.Exit(2)
 
     try:
@@ -500,12 +501,26 @@ def aste_backfill(
         console.print(f"[green]stored — {repo.count_assignments()} assignments in total")
 
 
-#: In the order they were declared in `cli.py`, because Typer lists commands in
-#: registration order and `--help` should not reshuffle between releases.
-COMMANDS = (aste_scan, fantalab_login, aste_load, aste_collect, aste_backfill)
+#: `(name, function)`, in declaration order — Typer lists commands in registration
+#: order and `--help` should not reshuffle between releases.
+#:
+#: The names are given explicitly rather than derived from the function names,
+#: because the group supplies the prefix now: `harvest scan`, not `harvest aste-scan`.
+#: `fantalab_login` is not a harvest command at all and moves to the `auth` group; it
+#: lived here only because this is where the FantaLab session store was first needed.
+HARVEST_COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
+    ("scan", aste_scan),
+    ("load", aste_load),
+    ("collect", aste_collect),
+    ("backfill", aste_backfill),
+)
+
+AUTH_COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (("auth fantalab-login", fantalab_login),)
 
 
-def register(app: typer.Typer) -> None:
-    """Attach every harvest command to the root app."""
-    for command in COMMANDS:
-        app.command()(command)
+def register(harvest: typer.Typer, auth: typer.Typer) -> None:
+    """Attach this module's commands to the groups they belong to."""
+    for name, command in HARVEST_COMMANDS:
+        harvest.command(name)(command)
+    for name, command in AUTH_COMMANDS:
+        auth.command(name)(command)

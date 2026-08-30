@@ -76,7 +76,7 @@ class LandingZoneMissing(FileNotFoundError):
     def __init__(self, path: Path) -> None:
         super().__init__(
             f"no landing zone at {path} — nothing is collecting into it.\n"
-            f"Start one with: fantabot aste-collect --seed <seed> --out {path}"
+            f"Start one with: fantabot harvest collect --seed <seed> --out {path}"
         )
         self.path = path
 
@@ -95,7 +95,7 @@ class CachedPlayerIds:
     the honest answer: rare enough to stop being a per-pass query, short enough
     that an import is picked up without a restart.
 
-    A failed fetch is not stored. `aste-load --follow` already survives a
+    A failed fetch is not stored. `harvest load --follow` already survives a
     database outage by skipping the pass; a cache that remembered the failure
     would go on unlinking players long after the database came back.
     """
@@ -116,7 +116,7 @@ class CachedPlayerIds:
 class SeedRows:
     """The seed, re-read each pass, with the last good one as the fallback.
 
-    `aste-load --follow` read it once at startup. The collector re-reads its own
+    `harvest load --follow` read it once at startup. The collector re-reads its own
     and adopts auctions that opened since, so within an hour the loader was
     seeing events for auctions it had never heard of — and dropping them, then
     advancing its checkpoint past them. Not a delay: a loss. Measured 2026-08-27
@@ -126,7 +126,7 @@ class SeedRows:
     ten-second interval — which is why it is here rather than behind a TTL like
     `CachedPlayerIds`. The database query needed the window; this does not.
 
-    `aste-scan` rewrites this file while the loader reads it, so a half-written
+    `harvest scan` rewrites this file while the loader reads it, so a half-written
     or briefly missing seed keeps the previous rows and costs one pass. Turning
     every auction into an unknown one for a cycle is the exact loss the re-read
     exists to stop.
@@ -237,7 +237,7 @@ def read_from(
 def catching_up(behind: int, *, window: int = DEFAULT_WINDOW_BYTES) -> bool:
     """Whether a full further window is still owed after a pass.
 
-    ``aste-load --follow`` sleeps ``--interval`` between passes, which is right
+    ``harvest load --follow`` sleeps ``--interval`` between passes, which is right
     while it is keeping up — the collector had appended about 150 kB by the time
     the last pass finished — and wrong while it is not: a 1.14 GB backlog at a
     32 MB window is thirty-six passes, and ten seconds between them adds six

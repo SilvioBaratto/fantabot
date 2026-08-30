@@ -1,4 +1,4 @@
-"""`fantabot token-status` — the instrument, tested before the experiment exists.
+"""`fantabot auth status` — the instrument, tested before the experiment exists.
 
 The load-bearing case is SC 11: it must answer with `FANTABOT_ENCRYPTION_KEY`
 absent. That is asserted **in process** here, not through a shell invocation —
@@ -153,7 +153,7 @@ def test_without_verify_no_request_is_ever_built() -> None:
     """Proven with a transport that fails the test if it is touched."""
 
     def explode(request: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("token-status made a request without --verify")
+        raise AssertionError("auth status made a request without --verify")
 
     token_status_rows(
         _store(a_status()), now=NOW, verify=False, transport=httpx.MockTransport(explode)
@@ -192,7 +192,7 @@ def test_a_rejected_token_is_reported_in_the_row_and_does_not_raise() -> None:
         store, now=NOW, verify=True, transport=httpx.MockTransport(handler)
     )
 
-    assert "fantabot login" in rows[0][3]
+    assert "fantabot auth login" in rows[0][3]
     assert store.verified == []
     # "ok (357d) · apileague rejected the token" reads as a contradiction —
     # observed on a real run against the live API.
@@ -216,7 +216,7 @@ def test_an_empty_table_says_to_log_in(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(config.settings, "fantabot_league_id", 0)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
-    result = runner.invoke(app, ["token-status"])
+    result = runner.invoke(app, ["auth", "status"])
 
     assert result.exit_code == 0
     assert "No tokens stored" in result.output
@@ -235,7 +235,7 @@ def test_a_configured_league_with_no_row_is_reported_missing(
 
     monkeypatch.setattr(config.settings, "fantabot_league_id", 4103937)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
-    result = runner.invoke(app, ["token-status"])
+    result = runner.invoke(app, ["auth", "status"])
 
     assert result.exit_code == 0
     assert "MISSING" in result.output
@@ -247,7 +247,7 @@ def test_an_unknown_league_is_reported_missing(monkeypatch: pytest.MonkeyPatch) 
     from fantabot.db import database_manager
 
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
-    result = runner.invoke(app, ["token-status", "--league", "9911111"])
+    result = runner.invoke(app, ["auth", "status", "--league", "9911111"])
 
     assert result.exit_code == 0
     assert "MISSING" in result.output
@@ -265,7 +265,7 @@ def test_a_dead_database_prints_an_instruction_not_a_traceback(
         raise OperationalError("SELECT 1", {}, Exception("connection refused"))
 
     monkeypatch.setattr(database_manager, "_session_factory", lambda: boom())
-    result = runner.invoke(app, ["token-status"])
+    result = runner.invoke(app, ["auth", "status"])
 
     assert result.exit_code == 1
     assert "docker compose up -d" in result.output
@@ -280,7 +280,7 @@ def test_no_output_contains_a_token_or_the_key(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(config.settings, "fantabot_encryption_key", key)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
 
-    result = runner.invoke(app, ["token-status"])
+    result = runner.invoke(app, ["auth", "status"])
 
     assert key[:8] not in result.output
     assert PLAINTEXT[:12] not in result.output
@@ -337,7 +337,7 @@ def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyP
 
     Every `--verify` test called `token_status_rows(..., verify=True)` directly,
     so the *wiring* from the Typer command was never covered — and the command
-    dropped the flag on the floor. `fantabot token-status --verify` made no
+    dropped the flag on the floor. `fantabot auth status --verify` made no
     request at all. Found by running the real binary against a real database,
     not by the suite.
     """
@@ -353,8 +353,8 @@ def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(cli, "token_status_rows", spy)
     monkeypatch.setattr(database_manager, "_session_factory", lambda: _EmptySession())
 
-    runner.invoke(app, ["token-status"])
+    runner.invoke(app, ["auth", "status"])
     assert seen["verify"] is False
 
-    runner.invoke(app, ["token-status", "--verify"])
+    runner.invoke(app, ["auth", "status", "--verify"])
     assert seen["verify"] is True, "--verify never reached token_status_rows"

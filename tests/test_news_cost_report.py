@@ -1,7 +1,7 @@
 """Run-level usage totals and the cost report line. Pure and synchronous.
 
 ``total_usage`` folds the per-player usage the fan-out collected into one figure;
-``format_cost_line`` turns it into the single stdout line ``news-fetch`` prints at
+``format_cost_line`` turns it into the single stdout line ``news fetch`` prints at
 the end of a run. The dollar estimate is deliberately hedged — on a custom Foundry
 model id the SDK's price table may not recognise the model and reports 0 — so the
 load-bearing numbers are the token counts and the cache-read fraction.

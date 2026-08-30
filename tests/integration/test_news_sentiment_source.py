@@ -256,7 +256,7 @@ def test_a_row_written_after_construction_is_visible(db_session: Session) -> Non
 # These assert on the fixture's own ids rather than on the whole mapping. The db
 # tier runs against the development database, which carries a real listone — a
 # bulk read sees those rows too, and pinning an exact key set would make the
-# suite depend on whatever news-fetch last wrote.
+# suite depend on whatever news fetch last wrote.
 
 
 def test_all_latest_keys_every_player_by_id(db_session: Session) -> None:

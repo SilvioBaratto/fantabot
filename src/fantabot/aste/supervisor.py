@@ -122,7 +122,7 @@ class Supervisor:
 
         With ``reload``, the population is re-read every ``reload_every``
         seconds and any auction not already followed gets a watcher. Without it
-        the seed is read once, which is what the collector did: `aste-scan`
+        the seed is read once, which is what the collector did: `harvest scan`
         rewrites that file whenever it runs, and on a live evening it finds
         rooms that did not exist an hour earlier — so every asta opening
         mid-evening was lost, with nothing in the report saying so.

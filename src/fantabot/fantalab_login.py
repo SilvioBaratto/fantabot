@@ -1,4 +1,4 @@
-"""`fantabot fantalab-login` — sign in once, store the session encrypted.
+"""`fantabot auth fantalab-login` — sign in once, store the session encrypted.
 
 Same posture as `login.py`, and for the same reason: **the sign-in is never
 scripted and no page is ever clicked.** A scripted credential entry is what gets

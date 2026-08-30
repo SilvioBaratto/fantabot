@@ -1,4 +1,4 @@
-"""news-fetch behaviours that need neither the database nor an agent.
+"""news fetch behaviours that need neither the database nor an agent.
 
 The rest moved to tests/integration/: the pool is a query now, so the command
 needs the stack up even for --no-run.
@@ -16,7 +16,7 @@ runner = CliRunner()
 def test_scope_roster_errors_instead_of_silently_fetching_the_whole_pool() -> None:
     # Falling back to `pool` would spend 523 queries for someone who asked for ~25,
     # and look like it worked.
-    result = runner.invoke(app, ["news-fetch", "--scope", "roster"])
+    result = runner.invoke(app, ["news", "fetch", "--scope", "roster"])
 
     assert result.exit_code != 0
     output = result.output.lower()

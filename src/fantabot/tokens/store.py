@@ -28,7 +28,7 @@ from fantabot.tokens.status import TokenStatus
 class TokenStore:
     """Encrypted tokens, and the plaintext columns beside them.
 
-    `cipher` is optional so `token-status` can be built without a key. Every
+    `cipher` is optional so `auth status` can be built without a key. Every
     method that needs one says so by raising `KeyMissing`, never by failing on
     an attribute of `None`.
     """
@@ -86,7 +86,7 @@ class TokenStore:
 
         The expiry check happens **here**, before any caller opens a socket —
         which is the difference between "your token expired on 2027-08-19, run
-        `fantabot login`" and a bare `401` from a server.
+        `fantabot auth login`" and a bare `401` from a server.
         """
         cipher = self._require_cipher()
 

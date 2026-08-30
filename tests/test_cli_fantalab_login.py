@@ -1,4 +1,4 @@
-"""`fantabot fantalab-login`, with a fake browser.
+"""`fantabot auth fantalab-login`, with a fake browser.
 
 No Chromium launches and no socket opens — the autouse guard would fail these
 outright. What is pinned is the posture: the page is navigated once and never

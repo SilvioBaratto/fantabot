@@ -196,7 +196,7 @@ class TestTheFollowLoopDoesNotWaitOutABacklog:
 class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
     """The loop, driven end to end with the database faked.
 
-    `catching_up` on its own proves the rule; this proves `aste-load` asks it.
+    `catching_up` on its own proves the rule; this proves `harvest load` asks it.
     The bug it guards is one an operator would read as working: passes go by,
     each one carries records, and the run is simply thirty-six intervals slower
     than the disk it is reading.
@@ -272,7 +272,7 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
         result = CliRunner().invoke(
             app,
             [
-                "aste-load",
+                "harvest", "load",
                 str(landing),
                 "--seed",
                 str(self._seed(tmp_path)),
@@ -316,7 +316,7 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
         result = CliRunner().invoke(
             app,
             [
-                "aste-load",
+                "harvest", "load",
                 str(landing),
                 "--seed",
                 str(self._seed(tmp_path)),
@@ -401,7 +401,7 @@ def _load(landing: Path, seed: Path, tmp_path: Path, *extra: str) -> object:
     return CliRunner().invoke(
         app,
         [
-            "aste-load",
+            "harvest", "load",
             str(landing),
             "--seed",
             str(seed),
@@ -419,7 +419,7 @@ def _carried(output: str) -> list[int]:
 
 
 class TestAOneShotLoadCarriesTheWholeBacklog:
-    """`aste-load` without `--follow` promises, in its own docstring, to *carry
+    """`harvest load` without `--follow` promises, in its own docstring, to *carry
     the landing zone*. Capping the window quietly turned that into "carry 32 MB
     and exit 0" — a partial load reported as a complete one, which is the shape
     this repo keeps having to name. `--follow` should mean only *keep watching

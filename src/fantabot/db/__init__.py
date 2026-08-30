@@ -7,7 +7,7 @@ per CLAUDE.md's working rules.
 
 Importing this package must never construct an Engine or open a socket:
 ``fantabot --help`` has to work with the compose stack down — and so does
-``fantabot login --help``, which is what SC 22 pins — and the default test run
+``fantabot auth login --help``, which is what SC 22 pins — and the default test run
 has to stay socket-free.
 """
 

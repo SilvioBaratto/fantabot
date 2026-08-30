@@ -30,13 +30,13 @@ MANIFEST = GOLDEN / "MANIFEST.sha256"
 #: control CLAUDE.md calls load-bearing — it must reproduce the pre-sentiment value model
 #: field for field, so a change to the sentiment layer that leaks into it shows up here.
 CASES: dict[str, list[str]] = {
-    "optimize_default": ["asta-optimize", "--budget", "500", "--lam", "0.3"],
-    "optimize_no_sentiment": ["asta-optimize", "--budget", "500", "--lam", "0.3", "--no-sentiment"],
-    "optimize_lam_zero": ["asta-optimize", "--budget", "500", "--lam", "0"],
-    "optimize_tilt_zero": ["asta-optimize", "--budget", "500", "--lam", "0.3", "--tilt-k", "0"],
-    "legality_no_xi": ["asta-legality", "--rosa", "2170,6675,4227"],
+    "optimize_default": ["asta", "optimize", "--budget", "500", "--lam", "0.3"],
+    "optimize_no_sentiment": ["asta", "optimize", "--budget", "500", "--lam", "0.3", "--no-sentiment"],
+    "optimize_lam_zero": ["asta", "optimize", "--budget", "500", "--lam", "0"],
+    "optimize_tilt_zero": ["asta", "optimize", "--budget", "500", "--lam", "0.3", "--tilt-k", "0"],
+    "legality_no_xi": ["asta", "legality", "--rosa", "2170,6675,4227"],
     "live_replay_unowned": [
-        "asta-live",
+        "asta", "live",
         "--replay",
         "tests/fixtures/states/one_auction.jsonl",
         "--team",
@@ -49,7 +49,7 @@ CASES: dict[str, list[str]] = {
     # raises. `--team t1` passes only because t1 never buys. Captured so that fixing the
     # mapping is a deliberate, reviewable golden change.
     "live_replay_owned_raises": [
-        "asta-live",
+        "asta", "live",
         "--replay",
         "tests/fixtures/states/one_auction.jsonl",
         "--team",
@@ -63,7 +63,7 @@ CASES: dict[str, list[str]] = {
 #: `half_life_days` is structurally invisible: every stored row shares one `data_run`, so at
 #: zero age the decay is 1.0 for any half-life and a mutation to it cannot be caught.
 AGED_CASES: dict[str, tuple[list[str], int]] = {
-    "optimize_aged_7d": (["asta-optimize", "--budget", "500", "--lam", "0.3"], 7),
+    "optimize_aged_7d": (["asta", "optimize", "--budget", "500", "--lam", "0.3"], 7),
 }
 
 

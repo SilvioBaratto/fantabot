@@ -1,4 +1,4 @@
-"""`fantabot login` — the decision table, with a fake browser and no sockets.
+"""`fantabot auth login` — the decision table, with a fake browser and no sockets.
 
 The preflight is the half worth pinning hardest. A password typed into a real
 browser, possibly behind a captcha, is expensive to waste, so everything
@@ -584,7 +584,7 @@ def test_a_rejected_token_is_reported_but_the_row_stays_stored(
     assert len(result.stored) == 2
     assert result.verified == []
     assert len(result.failures) == 2
-    assert all("fantabot login" in reason for _, reason in result.failures)
+    assert all("fantabot auth login" in reason for _, reason in result.failures)
 
 
 def test_the_report_contains_no_token_and_no_key(
@@ -643,10 +643,10 @@ def test_login_is_registered_with_all_four_flags() -> None:
 
     from fantabot.cli import app
 
-    output = CliRunner().invoke(app, ["login", "--help"]).output
+    output = CliRunner().invoke(app, ["auth", "login", "--help"]).output
 
     for flag in ("--league", "--force", "--no-verify", "--save-session"):
-        assert flag in output, f"{flag} is missing from `fantabot login --help`"
+        assert flag in output, f"{flag} is missing from `fantabot auth login --help`"
 
 
 def test_a_missing_key_exits_two_through_the_command(
@@ -659,7 +659,7 @@ def test_a_missing_key_exits_two_through_the_command(
     from fantabot.cli import app
 
     monkeypatch.setattr(config.settings, "fantabot_encryption_key", "")
-    result = CliRunner().invoke(app, ["login"])
+    result = CliRunner().invoke(app, ["auth", "login"])
 
     assert result.exit_code == 2
     assert "Fernet.generate_key()" in result.output
@@ -674,7 +674,7 @@ def test_a_malformed_key_exits_two_through_the_command(
     from fantabot.cli import app
 
     monkeypatch.setattr(config.settings, "fantabot_encryption_key", "not-a-key")
-    result = CliRunner().invoke(app, ["login"])
+    result = CliRunner().invoke(app, ["auth", "login"])
 
     assert result.exit_code == 2
     assert "44-character urlsafe-base64" in result.output

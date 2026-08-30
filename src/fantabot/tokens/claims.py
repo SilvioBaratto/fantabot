@@ -31,7 +31,7 @@ from fantabot.tokens.errors import TokenUnreadable
 #
 # The whole point is to read `exp` on an expired token, so verify_exp must be off
 # too — with it on, PyJWT raises before handing back the payload and
-# `token-status` could never print the date that explains the failure.
+# `auth status` could never print the date that explains the failure.
 #
 # No `algorithms=` argument: the real header is `RS256` with a `kid` (measured
 # 2026-08-26), and naming an algorithm we are not checking would only be a lie

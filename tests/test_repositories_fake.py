@@ -129,7 +129,7 @@ class TestTruncateIsAllowlisted:
 class TestTableListIsDerivedNotHardcoded:
     def test_a_table_added_to_the_metadata_appears_with_no_code_change(self) -> None:
         """The point of deriving it: a migration in a later phase must not
-        require editing this repository to show up in db-check."""
+        require editing this repository to show up in db check."""
         metadata = MetaData()
         Table("later_phase_table", metadata, Column("id", BigInteger, primary_key=True))
 
@@ -151,7 +151,7 @@ class TestTableListIsDerivedNotHardcoded:
         assert [row["name"] for row in stats] == ["one", "two"]
 
     def test_a_missing_table_is_reported_rather_than_raising(self) -> None:
-        """db-check runs before the first migration too, and should say so."""
+        """db check runs before the first migration too, and should say so."""
         metadata = MetaData()
         Table("absent", metadata, Column("id", BigInteger, primary_key=True))
 

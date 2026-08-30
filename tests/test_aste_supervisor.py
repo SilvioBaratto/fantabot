@@ -141,7 +141,7 @@ def test_an_empty_or_single_population_is_handled(count: int) -> None:
 
 def test_a_sink_failure_escapes_instead_of_being_retried() -> None:
     """`watch_auction` wraps a sink error in `SinkFailed` and re-raises it past
-    its own reconnect loop, and `aste-collect` has an `except SinkFailed` that
+    its own reconnect loop, and `harvest collect` has an `except SinkFailed` that
     exits 1. The supervisor sat between them and its `except Exception` caught it
     first — so the CLI handler was unreachable on every path.
 
@@ -212,7 +212,7 @@ def test_the_report_carries_no_field_nothing_reads() -> None:
 class TestAdoptingNewAuctions:
     """An asta that opens after the collector started was never followed.
 
-    `aste-collect --seed` read the file once. `aste-scan` writes it again every
+    `harvest collect --seed` read the file once. `harvest scan` writes it again every
     time it runs, and on a live evening it finds rooms that did not exist an
     hour earlier — 207 were open at once on 2026-08-27. The retired poller
     re-read its seed each cycle; the supervisor that replaced it did not, so
@@ -242,7 +242,7 @@ class TestAdoptingNewAuctions:
         assert sorted(seen) == ["a-0", "a-1"], "a reload is a diff, not a restart"
 
     def test_an_unreadable_seed_is_skipped_rather_than_fatal(self) -> None:
-        """`aste-scan` rewrites the file the collector is reading.
+        """`harvest scan` rewrites the file the collector is reading.
 
         Catching a half-written seed must cost one reload, not the evening's
         collection — every watcher already running would die with it.

@@ -1,4 +1,4 @@
-"""The offline asta commands: `asta-optimize` and `asta-legality`. Read-only, no FantaLab.
+"""The offline asta commands: `asta optimize` and `asta legality`. Read-only, no FantaLab.
 
 The thin I/O shell: fetch the Mantra pool, values and prices from Postgres, hand them to the
 pure engine (legality / value / optimizer / report), and print. Registered on the root app
@@ -7,7 +7,7 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -89,7 +89,7 @@ def sentiment_rows(
         where = f"for data_run {run}" if run else "in the database"
         raise typer.BadParameter(
             f"sentiment is on but there are no rows {where}. "
-            "Run `fantabot news-fetch --write`, or pass --no-sentiment."
+            "Run `fantabot news fetch --write`, or pass --no-sentiment."
         )
     return rows
 
@@ -209,9 +209,9 @@ def asta_live(
     # live table changes underneath it would mix two clocks.
     #
     # `rolling_advisory` still takes a factory rather than a model, and that is deliberate:
-    # it is the seam a genuinely live `asta-live` needs — which is why `PlanInputs` exposes
+    # it is the seam a genuinely live `asta live` needs — which is why `PlanInputs` exposes
     # `value_of` rather than collapsing it. Re-reading only becomes meaningful once this
-    # command polls the ledger each cycle the way `asta-bid` already does, and at that point
+    # command polls the ledger each cycle the way `asta bid` already does, and at that point
     # the per-cycle read belongs there.
     with database_manager.get_session() as session:
         # `readings`, not `rows`: the replay branch above already binds `rows` to the
@@ -272,7 +272,7 @@ def asta_bid(
     from fantabot.db import database_manager
     from fantabot.fantalab import feed, room, rtdb
 
-    # The same value model asta-optimize planned with, by construction now rather than by
+    # The same value model asta optimize planned with, by construction now rather than by
     # maintenance: a walk-away is "what is he worth to us", and this is the one command
     # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
     # credits with a metatarsal fracture reported by three sources.
@@ -324,10 +324,17 @@ def asta_bid(
     )
 
 
-COMMANDS = (asta_optimize, asta_legality, asta_live, asta_bid)
+#: `(name, function)`. Explicit, because the group supplies the prefix: the command
+#: is `asta optimize`, not `asta asta optimize`.
+COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
+    ("optimize", asta_optimize),
+    ("legality", asta_legality),
+    ("live", asta_live),
+    ("bid", asta_bid),
+)
 
 
-def register(app: typer.Typer) -> None:
-    """Attach the offline asta commands to the root app."""
-    for command in COMMANDS:
-        app.command()(command)
+def register(asta: typer.Typer) -> None:
+    """Attach the asta commands to their group."""
+    for name, command in COMMANDS:
+        asta.command(name)(command)

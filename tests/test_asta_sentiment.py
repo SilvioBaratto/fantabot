@@ -381,7 +381,7 @@ def test_a_silent_row_is_untouched_even_when_the_pool_pulls_the_mean_down() -> N
 
 
 def test_a_player_absent_from_the_feed_is_untouched_in_such_a_pool_too() -> None:
-    """The same premium hit any listone id added since the last news-fetch run."""
+    """The same premium hit any listone id added since the last news fetch run."""
     rows = _mixed_pool()
 
     effects = effect_by_id(rows, [*rows, "never-queried"], as_of=AS_OF)

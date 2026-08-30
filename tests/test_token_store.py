@@ -170,7 +170,7 @@ def test_a_missing_row_names_the_lega_and_the_command() -> None:
         store.load_plaintext(9911111)
 
     assert "9911111" in str(caught.value)
-    assert "fantabot login" in str(caught.value)
+    assert "fantabot auth login" in str(caught.value)
 
 
 def test_an_expired_row_is_refused_before_it_is_decrypted() -> None:
@@ -182,7 +182,7 @@ def test_an_expired_row_is_refused_before_it_is_decrypted() -> None:
         TokenStore(session, cipher).load_plaintext(_tokens.LEGA_MANTRA, now=NOW)
 
     assert str(_tokens.LEGA_MANTRA) in str(caught.value)
-    assert "fantabot login" in str(caught.value)
+    assert "fantabot auth login" in str(caught.value)
 
 
 def test_a_fingerprint_mismatch_names_both_before_fernet_is_reached() -> None:

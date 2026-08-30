@@ -22,6 +22,18 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
 
 app = typer.Typer(no_args_is_help=True)
 
+# The five groups. Declared here and nowhere else: every command in the package is
+# attached to one of these, so `fantabot --help` is the whole tool and there is one
+# place to look for where a command comes from.
+#
+# `config-check` and `mantra-grid` stay top-level. They are one-offs that belong to no
+# family, and a group of one reads as a capability with more behind it than there is.
+asta_app = typer.Typer(no_args_is_help=True, help="Plan, watch and bid a Mantra asta.")
+harvest_app = typer.Typer(no_args_is_help=True, help="Collect FantaLab auctions and load them.")
+db_app = typer.Typer(no_args_is_help=True, help="Database health, scraping and pricing.")
+auth_app = typer.Typer(no_args_is_help=True, help="Sign in; manage stored credentials.")
+news_app = typer.Typer(no_args_is_help=True, help="Weekly player news sentiment.")
+
 
 @app.command()
 def config_check() -> None:
@@ -83,7 +95,6 @@ def _report_stop(result: FetchResult) -> None:
     raise typer.Exit(code=1)
 
 
-@app.command()
 def news_fetch(
     scope: str = typer.Option("pool", help="Only 'pool' is implemented — see below."),
     write: bool = typer.Option(
@@ -405,7 +416,6 @@ def mantra_grid(
 
 
 
-@app.command()
 def db_backfill_teams() -> None:
     """Resolve club codes to full names for a season whose fixtures arrived late.
 
@@ -433,7 +443,6 @@ def db_backfill_teams() -> None:
     console.print(f"resolved {changed} club name(s)")
 
 
-@app.command()
 def db_check() -> None:
     """Database health, plus a row count and on-disk size for every table."""
     from rich.table import Table
@@ -529,7 +538,6 @@ def token_status_rows(
     return rendered
 
 
-@app.command()
 def token_status(
     league: int = typer.Option(0, "--league", help="Only this lega's row."),
     verify: bool = typer.Option(
@@ -590,7 +598,7 @@ def token_status(
             rows = [(str(wanted), "—", "—", MISSING)]
 
     if not rows:
-        console.print("[yellow]No tokens stored — run [bold]fantabot login[/bold].[/yellow]")
+        console.print("[yellow]No tokens stored — run [bold]fantabot auth login[/bold].[/yellow]")
         return
 
     table = Table("lega", "name", "expires", "state")
@@ -602,11 +610,10 @@ def token_status(
         console.print(
             "[dim]ORPHANED = the token is still valid, but a later login did not find "
             "that lega on the account. Nothing is deleted automatically; remove it "
-            "with [bold]fantabot token-forget --league <id>[/bold].[/dim]"
+            "with [bold]fantabot auth forget --league <id>[/bold].[/dim]"
         )
 
 
-@app.command()
 def login(
     league: int = typer.Option(0, "--league", help="Only capture this lega."),
     force: bool = typer.Option(False, "--force", help="Re-auth even if the token is valid."),
@@ -641,7 +648,6 @@ def login(
         raise typer.Exit(code=1) from None
 
 
-@app.command()
 def token_forget(
     league: int = typer.Option(0, "--league", help="The lega whose row to remove."),
     yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt."),
@@ -692,8 +698,26 @@ def token_forget(
 # only the commands registered by the time `app()` runs, and a registration
 # under the guard would give `python cli.py` a shorter menu than `fantabot` —
 # which is the split test_cli_entrypoints.py exists to refuse.
-register_aste_commands(app)
-register_asta_engine_commands(app)
+# One registration block, and the only one. Names are explicit because the group
+# supplies the prefix — `db check`, not `db db check`.
+for _group, _name in (
+    (asta_app, "asta"),
+    (harvest_app, "harvest"),
+    (db_app, "db"),
+    (auth_app, "auth"),
+    (news_app, "news"),
+):
+    app.add_typer(_group, name=_name)
+
+news_app.command("fetch")(news_fetch)
+db_app.command("check")(db_check)
+db_app.command("backfill-teams")(db_backfill_teams)
+auth_app.command("login")(login)
+auth_app.command("status")(token_status)
+auth_app.command("forget")(token_forget)
+
+register_aste_commands(harvest_app, auth_app)
+register_asta_engine_commands(asta_app)
 
 
 if __name__ == "__main__":

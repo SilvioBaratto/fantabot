@@ -44,7 +44,7 @@ already expected of the average player.
 
 **Staleness rides on ``confidenza``** rather than becoming a second concept with its own
 threshold — a dated reading is simply a less trustworthy one. The half-life is 7 days
-because ``news-fetch`` is weekly, so one half-life is exactly one missed run. There is no
+because ``news fetch`` is weekly, so one half-life is exactly one missed run. There is no
 cliff, and at high age the effect converges to 1.0: the honest fallback of plain ``fvm``.
 
 ``as_of`` is a parameter, never ``date.today()``. A pure module that reads the clock is a

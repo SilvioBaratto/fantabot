@@ -6,12 +6,12 @@ excluded from every average.** That value means "no coverage was found", not
 destroys the distinction the schema exists to preserve — so a player whose only
 rows are silent has no trailing average at all, and says so by returning ``None``.
 
-This is the read side of ``fantabot news-fetch``. The lineup layer does not consume
+This is the read side of ``fantabot news fetch``. The lineup layer does not consume
 it yet; wiring ``disponibilita``/``rigorista`` into ``decide_bid`` and
 ``titolarita`` into ``pick_starting_lineup`` is a later phase.
 
 **No longer a snapshot.** The CSV version slurped the whole file at construction
-and answered from that dict forever. ``asta-bid`` polls a live room for hours, so
+and answered from that dict forever. ``asta bid`` polls a live room for hours, so
 it would have held a frozen reading for the whole duration of an asta.
 Every call is a query now, and a row written after construction is visible to the
 next one.

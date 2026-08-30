@@ -1,9 +1,9 @@
-"""Health, introspection and truncation — what ``fantabot db-check`` reports.
+"""Health, introspection and truncation — what ``fantabot db check`` reports.
 
 The table list is derived from ``Base.metadata`` rather than written out.
 optimizer's equivalent keeps a hand-maintained ``APP_TABLES`` literal, which
 drifts the moment a migration lands without someone remembering to edit it.
-Deriving it means a table added in a later phase appears in ``db-check`` and in
+Deriving it means a table added in a later phase appears in ``db check`` and in
 the truncate allowlist with no code change here.
 
 Truncation is allowlisted because the table name reaches SQL as an identifier

@@ -71,8 +71,8 @@ def test_a_classic_card_survives_the_boundary_unchanged() -> None:
 
 def test_the_format_survives_the_seed_round_trip() -> None:
     """The filter was gone from collection and the format was still lost — at
-    persistence. `aste-scan` fetched both, wrote them to an 11-field positional
-    seed with no `asta_type`, and `aste-load --asta-type mantra` then labelled
+    persistence. `harvest scan` fetched both, wrote them to an 11-field positional
+    seed with no `asta_type`, and `harvest load --asta-type mantra` then labelled
     185 Classic auctions as Mantra. The coverage goal defeated at the last step.
     """
     from fantabot.aste.registry import from_seed_row, to_seed_rows

@@ -115,7 +115,7 @@ def test_the_advisory_re_reads_the_value_each_cycle() -> None:
         )
 
     # Between the first sale and the second, a5's reading improves — as a mid-asta
-    # news-fetch would do. A snapshotted model would never see it.
+    # news fetch would do. A snapshotted model would never see it.
     models = [_model(0.1), _model(99.0)]
     calls: list[int] = []
 

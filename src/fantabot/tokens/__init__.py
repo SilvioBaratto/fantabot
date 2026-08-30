@@ -5,7 +5,7 @@ Three pure modules and one shell, the same split as `news/`:
 * `claims` — decode a JWT payload. Values in, values out.
 * `crypto` — Fernet encrypt/decrypt. Takes its key as an argument.
 * `capture` — a Playwright `storage_state` dict into league-checked tokens.
-* `status` — what `token-status` renders. Pure.
+* `status` — what `auth status` renders. Pure.
 * `store`  — the one place a stored token is decrypted. The only I/O here.
 
 The first four import nothing from `fantabot.db`, `fantabot.config`, `playwright`

@@ -1,6 +1,6 @@
 """Storing readings as they arrive, so a crash costs the in-flight ones only.
 
-`news-fetch --write` gathered all 548 players and issued **one** upsert after
+`news fetch --write` gathered all 548 players and issued **one** upsert after
 the last of them returned. Two things followed from that, both observed on
 2026-08-28:
 
@@ -13,7 +13,7 @@ the last of them returned. Two things followed from that, both observed on
 
 The sink is the fix and is deliberately dumb: it batches, it flushes through an
 injected callable, and it **keeps rows that failed to flush** rather than
-dropping them — `aste-load`'s rule, that an outage costs time and never a
+dropping them — `harvest load`'s rule, that an outage costs time and never a
 record, applied to the other long-running command.
 
 It also de-duplicates by key, which is what lets the command keep its
@@ -154,7 +154,7 @@ class TestAFailedFlushKeepsItsRows:
 
 
 class TestTheEndOfRunPassIsFree:
-    """`news-fetch` stores each row as it lands *and* passes `result.rows` at the
+    """`news fetch` stores each row as it lands *and* passes `result.rows` at the
     end, so a bug in the incremental path cannot lose the run. The second pass
     must therefore cost nothing when the first one already did the work."""
 
@@ -216,7 +216,7 @@ class TestItReportsWhatItDid:
 
 
 class TestAFailingFlushSpeaks:
-    """`aste-load` prints `database unreachable: OperationalError` the moment a
+    """`harvest load` prints `database unreachable: OperationalError` the moment a
     pass cannot write. This had nothing — the only signal was the ` · N stored`
     fragment of the progress line quietly ceasing to advance while the counter,
     the sentiment and the ETA all kept looking healthy. On a run measured at

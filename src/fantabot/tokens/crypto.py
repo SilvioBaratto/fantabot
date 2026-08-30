@@ -65,12 +65,12 @@ class TokenCipher:
             raise TokenUndecryptable(
                 f"this row was encrypted with key {stored_fingerprint}, but "
                 f"FANTABOT_ENCRYPTION_KEY is {self.fingerprint}. Restore the old "
-                "key, or re-run `fantabot login` to replace the row."
+                "key, or re-run `fantabot auth login` to replace the row."
             )
         try:
             return self._fernet.decrypt(ciphertext).decode()
         except InvalidToken as exc:
             raise TokenUndecryptable(
                 "the stored token failed its authenticity check — the row is "
-                "corrupt. Re-run `fantabot login`."
+                "corrupt. Re-run `fantabot auth login`."
             ) from exc

@@ -358,12 +358,61 @@ def _grep(pattern: str) -> list[str]:
     return [line for line in out.stdout.splitlines() if line]
 
 
-def test_nothing_tells_anyone_to_run_the_deleted_auth_command() -> None:
-    """SC 21. The command is gone; no file may still instruct someone to run it."""
-    hits = _grep("fantabot auth")
+def test_nothing_tells_anyone_to_run_a_command_that_does_not_exist() -> None:
+    """SC 21, generalised — because its original form stopped being satisfiable.
+
+    It grepped the instruction surface for `fantabot auth`, the command deleted in
+    the token-store phase. On 2026-08-30 `auth` came back as a *group* —
+    `auth login`, `auth status`, `auth forget`, `auth fantalab-login` — so the
+    literal now matches eight legitimate instructions, and the guard could only be
+    satisfied by renaming a group the spec's rename table had settled.
+
+    The property it protected is not about that one name: no file may tell a human
+    to run something that is not there. That is now checked against the live command
+    tree, which covers every command this phase renamed — a strictly larger set than
+    the literal ever did.
+
+    **Only instruction-shaped text counts.** A first draft matched any
+    `fantabot <word>` and reported 54 things, almost all of them
+    `from fantabot import config` and prose like "fantabot is a". A guard that cries
+    wolf on an import statement gets deleted, so it looks at two shapes and no others:
+    a backticked phrase, and a line that starts a shell command.
+    """
+    import re
+
+    from test_cli_command_set import command_set
+
+    known = command_set()
+    groups = {c.split(" ")[0] for c in known if " " in c}
+    # A group name alone is a real thing to write: "see `fantabot auth`".
+    valid = known | groups
+
+    #: `` `fantabot x y` `` or a line beginning `fantabot x y`.
+    SHAPES = (
+        re.compile(r"`fantabot ([a-z][a-z-]*(?: [a-z][a-z-]*)?)"),
+        re.compile(r"(?:^|\s{2,}|\$ )fantabot ([a-z][a-z-]*(?: [a-z][a-z-]*)?)"),
+    )
+
+    #: A sentence saying a command *was removed* names it without instructing anyone
+    #: to run it, and is the record of this phase. Degrading that prose — dropping the
+    #: backticks — to satisfy a check would be the check editing the history it exists
+    #: to protect. Same call as SC 27's removal notes.
+    RETIRED = re.compile(r"\b(removed|deleted|retired|no longer exists|used to)\b", re.I)
+
+    hits: list[str] = []
+    for line in _grep(r"fantabot [a-z][a-z-]*"):
+        _, _, text = line.partition(":")
+        if RETIRED.search(text):
+            continue
+        for shape in SHAPES:
+            for match in shape.finditer(text):
+                phrase = match.group(1)
+                if phrase in valid or phrase.split(" ")[0] in valid:
+                    continue
+                hits.append(f"{line}  ->  `fantabot {phrase}`")
 
     assert hits == [], (
-        "these still name the deleted command:\n  " + "\n  ".join(hits)
+        "these name a command that does not exist:\n  " + "\n  ".join(sorted(set(hits)))
     )
 
 

@@ -1,4 +1,4 @@
-"""`fantabot db-check` — the operator view every later import phase reports through.
+"""`fantabot db check` — the operator view every later import phase reports through.
 
 Kept in the default (socket-free) tier by injecting a session factory, so these
 run without Postgres. The live-stack behaviour is covered by running the command
@@ -64,7 +64,7 @@ def _use_fake_session(monkeypatch: Any) -> None:
 def test_reports_health_latency_and_a_row_per_table(monkeypatch: Any) -> None:
     _use_fake_session(monkeypatch)
 
-    result = runner.invoke(app, ["db-check"])
+    result = runner.invoke(app, ["db", "check"])
 
     assert result.exit_code == 0
     assert "health" in result.output
@@ -88,7 +88,7 @@ def test_an_unreachable_database_exits_nonzero_with_an_instruction(monkeypatch: 
 
     monkeypatch.setattr(database_manager, "_session_factory", _Dead)
 
-    result = runner.invoke(app, ["db-check"])
+    result = runner.invoke(app, ["db", "check"])
 
     assert result.exit_code != 0
     assert "docker compose up -d" in result.output
@@ -117,13 +117,13 @@ def test_the_dsn_password_is_not_printed_when_the_database_is_down(monkeypatch: 
 
     monkeypatch.setattr(database_manager, "_session_factory", _Dead)
 
-    result = runner.invoke(app, ["db-check"])
+    result = runner.invoke(app, ["db", "check"])
 
     assert "DbCheckCanary" not in result.output
 
 
 def test_it_does_not_need_league_credentials(monkeypatch: Any) -> None:
-    """db-check must work before `fantabot login` has ever been run."""
+    """db check must work before `fantabot auth login` has ever been run."""
     from fantabot import config
 
     _use_fake_session(monkeypatch)
@@ -131,4 +131,4 @@ def test_it_does_not_need_league_credentials(monkeypatch: Any) -> None:
     monkeypatch.setattr(config.settings, "lega_password", "")
     monkeypatch.setattr(config.settings, "lega_url", "")
 
-    assert runner.invoke(app, ["db-check"]).exit_code == 0
+    assert runner.invoke(app, ["db", "check"]).exit_code == 0

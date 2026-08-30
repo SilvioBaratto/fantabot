@@ -167,7 +167,7 @@ def run(argv: list[str], *, today: date | None = None) -> str:
     """Invoke the real CLI against the pinned world and return exactly what it printed.
 
     The exit code is folded into the captured text rather than asserted, because *a command
-    that fails today* is part of what this pins: `asta-live` with a team that actually owns
+    that fails today* is part of what this pins: `asta live` with a team that actually owns
     players raises `InfeasibleRoster`, and that must show up as a deliberate golden change
     when it is fixed, not as a silent one.
     """

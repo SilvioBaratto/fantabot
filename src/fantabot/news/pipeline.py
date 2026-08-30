@@ -115,7 +115,7 @@ def total_usage(outcomes: Iterable[PlayerOutcome]) -> Usage:
 
 
 def format_cost_line(usage: Usage) -> str:
-    """The one stdout line ``news-fetch`` prints at the end of a run.
+    """The one stdout line ``news fetch`` prints at the end of a run.
 
     The cache-read fraction is the reused share of all cacheable input (uncached
     input + cache writes + cache reads); a higher fraction is a cheaper run and the

@@ -120,7 +120,7 @@ def test_the_wrong_key_names_both_fingerprints() -> None:
     message = str(caught.value)
     assert original.fingerprint in message
     assert current.fingerprint in message
-    assert "fantabot login" in message
+    assert "fantabot auth login" in message
 
 
 def test_a_corrupt_row_under_the_right_key_says_something_different() -> None:

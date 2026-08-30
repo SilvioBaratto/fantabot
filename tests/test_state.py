@@ -44,7 +44,7 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
     """SPEC's Never list names **both** files, and only one was ever checked.
 
     `browser.py` was covered by nothing: this test read `state.py` alone, and
-    after `fantabot login` replaces `auth`, `fantabot.cli` no longer pulls in
+    after `fantabot auth login` replaces `auth`, `fantabot.cli` no longer pulls in
     `browser` at all — so no other test catches it incidentally either, while
     `login.py` legitimately imports both `browser` and `fantabot.db`.
 

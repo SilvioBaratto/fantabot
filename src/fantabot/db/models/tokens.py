@@ -4,7 +4,7 @@
 the ciphertext. They are metadata, not credentials — knowing a token dies in
 August does not help anyone use it — and both consumers need them without a key:
 
-* ``fantabot token-status`` has to answer "is it expired" when
+* ``fantabot auth status`` has to answer "is it expired" when
   ``FANTABOT_ENCRYPTION_KEY`` is missing or wrong, which is precisely the
   situation where a straight answer matters most.
 * ``auth_headers`` has to refuse an expired token **before a socket opens**,
@@ -61,7 +61,7 @@ class LeagueToken(Base, TimestampMixin):
     )
     # The last login at which this lega appeared in `leagues[]`. A row behind the
     # newest stamp in the table is ORPHANED: a later login looked and did not
-    # find it. Self-contained, so `token-status` stays an offline read.
+    # find it. Self-contained, so `auth status` stays an offline read.
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -1,6 +1,6 @@
 """Storing readings as they land, rather than all of them at the end.
 
-``news-fetch --write`` gathered every player and then issued **one** upsert. Two
+``news fetch --write`` gathered every player and then issued **one** upsert. Two
 consequences, both observed on 2026-08-28 against a 548-player pool running at
 roughly two players a minute:
 
@@ -12,7 +12,7 @@ roughly two players a minute:
 
 This sink is deliberately dumb. It batches, it flushes through an injected
 callable, and it **keeps rows whose flush failed** instead of dropping them:
-``aste-load``'s rule — an outage costs catch-up time and never a record —
+``harvest load``'s rule — an outage costs catch-up time and never a record —
 applied to the other long-running command. A ten-second database blip must not
 turn into five players silently missing from the week.
 
@@ -95,7 +95,7 @@ class SentimentSink:
         except Exception as exc:
             self.flush_failures += 1
             if self._on_error is not None:
-                # Said out loud, the way `aste-load` names an unreachable
+                # Said out loud, the way `harvest load` names an unreachable
                 # database. The only other sign is the progress line's stored
                 # count ceasing to advance while every other field on it — the
                 # counter, the scores, the ETA — goes on looking healthy.

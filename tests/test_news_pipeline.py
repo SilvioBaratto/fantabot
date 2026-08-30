@@ -185,9 +185,9 @@ class TestTheRunSpeaksWhileItWorks:
     """548 queries at two a minute is nearly two hours with nothing on stdout
     between the opening line and the summary.
 
-    `aste-collect` learned this already and CLAUDE.md records it: *a run with no
+    `harvest collect` learned this already and CLAUDE.md records it: *a run with no
     end must speak while it runs*, because the summary it prints at exit is the
-    one thing an interrupted run never reaches. `news-fetch` is the same shape
+    one thing an interrupted run never reaches. `news fetch` is the same shape
     and had the same silence — on 2026-08-28 the only way to tell a working run
     from a stalled one was to count subprocesses.
 

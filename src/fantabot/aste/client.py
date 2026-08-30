@@ -83,7 +83,7 @@ class LiveAuctionsClient:
         if response.status_code == 401:
             raise AuthExpired(
                 "the stored FantaLab session no longer authenticates — "
-                "run `fantabot fantalab-login --force`"
+                "run `fantabot auth fantalab-login --force`"
             )
         if response.status_code != 200:
             raise RuntimeError(f"{LIVE_URL} answered {response.status_code}")

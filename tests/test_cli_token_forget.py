@@ -1,4 +1,4 @@
-"""`fantabot token-forget` — the only thing that removes a stored token.
+"""`fantabot auth forget` — the only thing that removes a stored token.
 
 Small on purpose. SPEC's Open Question 5 rules that removal is manual, because a
 `leagues[]` that came back short would otherwise silently destroy a working
@@ -70,7 +70,7 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 
 def test_no_league_exits_two_and_removes_nothing(store: Any) -> None:
-    result = runner.invoke(app, ["token-forget"])
+    result = runner.invoke(app, ["auth", "forget"])
 
     assert result.exit_code == 2
     assert store["removed"] == []
@@ -85,7 +85,8 @@ def test_there_is_no_all_flag_and_no_wildcard() -> None:
     """
     import typer.main
 
-    command = typer.main.get_command(app).commands["token-forget"]  # type: ignore[attr-defined]
+    root = typer.main.get_command(app)
+    command = root.commands["auth"].commands["forget"]  # type: ignore[attr-defined]
     flags = {opt for param in command.params for opt in param.opts}
 
     assert "--all" not in flags
@@ -94,7 +95,7 @@ def test_there_is_no_all_flag_and_no_wildcard() -> None:
 
 def test_a_confirmed_removal_takes_exactly_one_row(store: Any) -> None:
     """Asserted on the row count either side, not on the exit code."""
-    result = runner.invoke(app, ["token-forget", "--league", "4103937"], input="y\n")
+    result = runner.invoke(app, ["auth", "forget", "--league", "4103937"], input="y\n")
 
     assert result.exit_code == 0
     assert store["removed"] == [4103937]
@@ -102,7 +103,7 @@ def test_a_confirmed_removal_takes_exactly_one_row(store: Any) -> None:
 
 
 def test_a_declined_confirmation_removes_nothing(store: Any) -> None:
-    result = runner.invoke(app, ["token-forget", "--league", "4103937"], input="n\n")
+    result = runner.invoke(app, ["auth", "forget", "--league", "4103937"], input="n\n")
 
     assert store["removed"] == []
     assert len(store["rows"]) == 2
@@ -110,14 +111,14 @@ def test_a_declined_confirmation_removes_nothing(store: Any) -> None:
 
 
 def test_yes_skips_the_prompt(store: Any) -> None:
-    result = runner.invoke(app, ["token-forget", "--league", "4103937", "--yes"])
+    result = runner.invoke(app, ["auth", "forget", "--league", "4103937", "--yes"])
 
     assert result.exit_code == 0
     assert store["removed"] == [4103937]
 
 
 def test_an_unknown_lega_says_so_without_a_traceback(store: Any) -> None:
-    result = runner.invoke(app, ["token-forget", "--league", "9911111", "--yes"])
+    result = runner.invoke(app, ["auth", "forget", "--league", "9911111", "--yes"])
 
     assert result.exit_code == 0
     assert "nothing to remove" in result.output
@@ -125,7 +126,7 @@ def test_an_unknown_lega_says_so_without_a_traceback(store: Any) -> None:
 
 
 def test_the_printed_row_shows_no_ciphertext_and_no_fingerprint(store: Any) -> None:
-    result = runner.invoke(app, ["token-forget", "--league", "4103937"], input="n\n")
+    result = runner.invoke(app, ["auth", "forget", "--league", "4103937"], input="n\n")
 
     assert "4f2a1c8e" not in result.output
     assert "ciphertext" not in result.output

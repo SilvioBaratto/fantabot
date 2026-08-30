@@ -476,7 +476,7 @@ class TestSentimentWriteAgainstALiveTable:
     def _a_real_player(db_session: Session) -> int:
         """Synthetic, despite the name — kept so the call sites read unchanged.
 
-        Borrowing a real id made these assertions depend on whatever `news-fetch` last
+        Borrowing a real id made these assertions depend on whatever `news fetch` last
         wrote: a real player already has a reading, so an upsert keyed on
         `(data_run, player_id)` hits an existing row and the round-trip reads back prose
         this file never stored.

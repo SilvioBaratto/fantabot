@@ -89,7 +89,7 @@ class LeagueTokenRepository(RepositoryBase):
         """Every stored lega, ordered.
 
         The `ORDER BY` is explicit because Postgres has no inherent row order,
-        and `token-status`'s output would otherwise shuffle between runs for no
+        and `auth status`'s output would otherwise shuffle between runs for no
         reason the operator could explain.
         """
         rows = self.session.execute(

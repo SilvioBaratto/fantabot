@@ -2,7 +2,7 @@
 
 That is the point — the contracts these tests pin are about ordering, windowing and NULL
 handling, which a fake session cannot settle. It is also the hazard: the database is
-*shared*, so a test that borrows a real row is not isolated from whatever `news-fetch` or
+*shared*, so a test that borrows a real row is not isolated from whatever `news fetch` or
 the scrapers last wrote, and its result depends on the calendar.
 
 This file is the standing guard, checked statically so it runs in the default socket-free

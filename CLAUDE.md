@@ -23,23 +23,23 @@ playwright install chromium
 
 docker compose up -d         # Postgres on 54321, Adminer on 18082
 alembic upgrade head
-fantabot db-check            # health, per-table row counts and sizes
+fantabot db check            # health, per-table row counts and sizes
 
-fantabot login               # interactive login → encrypted tokens in league_tokens
-fantabot login --force       # re-auth even when every stored token is valid
-fantabot token-status        # stored / expires / state per lega; works with no key
-fantabot token-forget --league 4103937
+fantabot auth login               # interactive login → encrypted tokens in league_tokens
+fantabot auth login --force       # re-auth even when every stored token is valid
+fantabot auth status        # stored / expires / state per lega; works with no key
+fantabot auth forget --league 4103937
 fantabot config-check
 
-fantabot news-fetch --limit 5           # smoke test, queries but writes nothing
-fantabot news-fetch --write             # the weekly run: all 523, both leagues
+fantabot news fetch --limit 5           # smoke test, queries but writes nothing
+fantabot news fetch --write             # the weekly run: all 523, both leagues
 fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
 
-fantabot fantalab-login                 # headed, manual; session encrypted into Postgres
-fantabot aste-scan --seed seed.json     # which auctions are live, both formats
-fantabot aste-collect --seed seed.json --out landing.jsonl   # subscribe, append to disk
-fantabot aste-load landing.jsonl --seed seed.json --follow   # landing zone -> Postgres
-fantabot aste-backfill events.jsonl --seed seed.json         # a recorded evening
+fantabot auth fantalab-login                 # headed, manual; session encrypted into Postgres
+fantabot harvest scan --seed seed.json     # which auctions are live, both formats
+fantabot harvest collect --seed seed.json --out landing.jsonl   # subscribe, append to disk
+fantabot harvest load landing.jsonl --seed seed.json --follow   # landing zone -> Postgres
+fantabot harvest backfill events.jsonl --seed seed.json         # a recorded evening
 
 pytest                       # default tier: zero sockets, db tests deselected
 pytest -m db                 # integration tier, needs the compose stack
@@ -62,7 +62,7 @@ alembic check                # models and migrations agree?
    caller reads `storage_state()` inside the body and decides whether to persist it.
    (A headless `context()` reusing `data/storage_state.json` went with its only two
    callers on 2026-08-30; it had never run.)
-3. **`login.py`** — `fantabot login`. Opens a real headed Chrome window, waits
+3. **`login.py`** — `fantabot auth login`. Opens a real headed Chrome window, waits
    for the human to log in (captcha/2FA included), then reads each lega's token
    out of `localStorage`, encrypts it and writes it to `league_tokens`. **The
    sign-in is never scripted, and no page is ever clicked** — every entry in
@@ -122,7 +122,7 @@ alembic check                # models and migrations agree?
    Agent-level failures are returned, never raised. Two tests enforce the
    boundary: exactly one `async for message` in the repo, and no
    `claude_agent_sdk` import outside `agentkit/`.
-11. **`news/`** — `fantabot news-fetch`. One query per player over
+11. **`news/`** — `fantabot news fetch`. One query per player over
    WebSearch/WebFetch, validated against `PlayerSentiment`, appended to
    `data/player_sentiment_2026-27.csv` (tracked by git — a past Wednesday
    cannot be regenerated). `models`/`mantra`/`prompt`/`pool` are pure; only
@@ -215,11 +215,11 @@ alembic check                # models and migrations agree?
   the asta runs on FantaLab, and `asta-bid` drives its unauthenticated RTDB
   directly. See `docs/fantalab/06-asta-write-path.md`, verified live 2026-08-28.
 - **Stats source**: still unchosen. News sentiment is covered by
-  `fantabot news-fetch` (see `docs/spec-news-sentiment.md`), which is a different
+  `fantabot news fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores. When one
   is picked, write the interface against the consumer that exists then.
 - ~~**Bearer token**~~ **Resolved.** Encrypted in Postgres (`league_tokens`),
-  written by `fantabot login`, read through `apileague.auth_headers`. Spec:
+  written by `fantabot auth login`, read through `apileague.auth_headers`. Spec:
   [`tasks/archive/token-store-spec.md`](tasks/archive/token-store-spec.md) — recovered from commit
   `edb693c` on 2026-08-30, because `SPEC.md` had been overwritten by four later
   phases and nine links still pointed at it. `SPEC.md` holds only the **current**

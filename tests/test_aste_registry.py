@@ -87,7 +87,7 @@ def test_the_result_is_ordered_so_a_seed_file_diff_stays_readable() -> None:
 
 
 def test_a_config_round_trips_through_the_seed_format() -> None:
-    """`aste-backfill` and `aste-load` both read the seed file, so the registry
+    """`harvest backfill` and `harvest load` both read the seed file, so the registry
     has to be able to write one they still understand."""
     configs = [from_card(_card("a-1"))]
     rows = to_seed_rows(configs)

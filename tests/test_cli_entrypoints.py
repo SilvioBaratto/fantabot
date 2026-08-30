@@ -1,7 +1,7 @@
 """Both ways of running the CLI must expose the same commands.
 
 `if __name__ == "__main__": app()` used to sit in the middle of cli.py, above
-the news-fetch and mantra-grid definitions. Typer registers a command when its
+the news fetch and mantra-grid definitions. Typer registers a command when its
 decorator executes, so `python src/fantabot/cli.py` ran `app()` before those two
 were defined and silently offered a shorter menu than `fantabot` did — 3
 commands against 5. Invisible through the console script, which is how it
@@ -12,7 +12,7 @@ invariant rather than the fix.
 
 **This file does not pin the command set**, and its regex could not: it takes the
 first word of every boxed row, and a boxed row can be an option description — it
-reports eighteen commands, one of which is `ledger`, a word out of `asta-live`'s
+reports eighteen commands, one of which is `ledger`, a word out of `asta live`'s
 help. That is harmless here, because the same regex is applied to both invocations
 and the property under test is that they *agree*. The actual command set is pinned
 by `tests/test_cli_command_set.py`, which walks Typer's Click tree.
