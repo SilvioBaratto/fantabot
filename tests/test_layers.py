@@ -48,7 +48,6 @@ LAYERS: dict[str, str] = {
     "fantabot.aste.supervisor": "application",
     "fantabot.news.pipeline": "application",
     "fantabot.mantra_grid.collect": "application",
-    "fantabot.mantra_grid.writer": "application",
     "fantabot.pricing": "application",
     "fantabot.login": "application",
     "fantabot.fantalab_login": "application",
@@ -70,6 +69,9 @@ LAYERS: dict[str, str] = {
     "fantabot.aste.stream": "adapters",
     "fantabot.aste.transport": "adapters",
     "fantabot.aste.landing": "adapters",
+    # "The only module here that touches disk", says its own docstring. It was filed
+    # under application until the W6 destination map contradicted it.
+    "fantabot.mantra_grid.writer": "adapters",
     "fantabot.aste.client": "adapters",
     # `store.py` holds only `build_row`, which is pure — it reached the database
     # solely by importing `PoolPlayer` from a module that did.
