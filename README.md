@@ -8,7 +8,7 @@ is mapped and a stats source is wired in.
 ## News sentiment (`fantabot news fetch`)
 
 One Claude Agent SDK query per player over `WebSearch` + `WebFetch`, validated
-against a pydantic schema, appended weekly to `data/player_sentiment_2026-27.csv`
+against a pydantic schema, written weekly to `player_sentiment` in Postgres
 as a per-player time-series. Runs on the Claude Code OAuth subscription — no
 `ANTHROPIC_API_KEY` anywhere.
 
@@ -37,9 +37,10 @@ Suggested cron (Wednesday mornings, in-season):
 ## Mantra tactical grid (`fantabot mantra-grid`)
 
 One-off, **not** on cron. Collects the 11 Mantra schemas and the per-formation
-out-of-position matrix into `data/mantra_schemi.json` and `data/mantra_compat.json`,
-behind six fail-closed gates. These are the input to a Mantra lineup engine, which
-does not exist yet — `models.Role` and `VALID_FORMATIONS` are Classic-only.
+out-of-position matrix into `src/fantabot/data/mantra_schemi.json` and
+`mantra_compat.json`, behind six fail-closed gates. They ship as package data because
+they are the legality matcher's input, not runtime state — `domain/asta/legality.py`
+reads them through `importlib.resources`, so `asta legality` works from any directory.
 
 ```bash
 fantabot mantra-grid          # collect and gate, write nothing
@@ -48,8 +49,8 @@ fantabot mantra-grid --write  # write only if every gate passes
 
 ## Status
 
-The asta path is live-capable: `asta-optimize` plans, `asta-live` advises off a
-real room, and `asta-bid` places bids over FantaLab's unauthenticated RTDB —
+The asta path is live-capable: `asta optimize` plans, `asta live` advises off a
+real room, and `asta bid` places bids over FantaLab's unauthenticated RTDB —
 gated behind `FANTABOT_AUTO_ACT`, which is `false` by default.
 
 **Weekly lineup submission is not built.** The Classic scaffolding that stood in
@@ -116,7 +117,7 @@ strictly better than a plaintext token in a file that gets rsynced and backed up
 
 Postgres is the source of truth. The CSVs in `data/` are the one-time seed it
 was built from and nothing reads them any more — the scrapers, the analysis
-scripts and `news-fetch` all go through the database. See
+scripts and `news fetch` all go through the database. See
 [`data/README.md`](data/README.md) for the table dictionary, and
 [`docs/spec-postgres-persistence.md`](docs/spec-postgres-persistence.md) for why
 each departure from the file layout was made.
@@ -129,15 +130,52 @@ alembic check                     # do models and migrations still agree?
 
 ## Commands
 
+One CLI, five groups and two one-offs. `fantabot --help` is the whole surface.
+
 ```bash
-fantabot auth login           # interactive login; stores each lega's token encrypted
-fantabot auth status    # stored / expires / state, per lega — works with no key
-fantabot auth forget    # remove one lega's row; --league required, no --all
-fantabot config-check    # print resolved settings, secrets masked
-fantabot db check        # database health + per-table row counts and sizes
-fantabot news fetch      # weekly sentiment run; --write stores it
-fantabot mantra-grid     # one-off, collects the Mantra schema grid
+fantabot asta optimize --lam 0.3 --budget 500   # the roster to aim for
+fantabot asta legality --rosa "1,2,3"           # which of the 11 schemi this rosa fields
+fantabot asta live --league <id> --db <shard> --team <id>    # advise off a live room
+fantabot asta bid  --league <id> --db <shard> --team <id> --user <id>
+
+fantabot harvest scan --seed seed.json                       # which auctions are live
+fantabot harvest collect --seed seed.json --out landing.jsonl --pool 800
+fantabot harvest load landing.jsonl --seed seed.json --follow
+fantabot harvest backfill events.jsonl --seed seed.json
+
+fantabot db check                    # health, per-table row counts and sizes
+fantabot db scrape quotazioni        # also statistiche, voti
+fantabot db price --system mantra --top-n 15
+
+fantabot auth login                  # interactive; stores each lega's token encrypted
+fantabot auth status                 # stored / expires / state, per lega — works with no key
+fantabot auth forget --league <id>   # one row at a time, no --all
+fantabot auth fantalab-login         # headed, manual; session encrypted into Postgres
+
+fantabot news fetch --write          # the weekly sentiment run
+
+fantabot config-check                # resolved settings, secrets masked
+fantabot mantra-grid --write         # one-off, collects the Mantra schema grid
 ```
+
+## Layout
+
+Four layers, dependencies pointing inward, enforced over every module by
+`tests/test_layers.py`:
+
+```
+src/fantabot/
+  domain/        pure decisions — asta, harvest, news, mantra, tokens, shared
+  application/   use cases — asta_planner, harvest_loader, news_fetcher, auth_login, …
+  adapters/      the outside world — persistence, http, agent, browser, files, tokens
+  interface/     typer only; the root app and the one Console
+  config.py      settings; the one module both sides may read
+  data/          the Mantra schema grid and legality matrix, as package data
+```
+
+The rule that pays for itself: nothing in `domain/` may reach sqlalchemy,
+Playwright, httpx, the agent SDK, typer, rich, the settings or the CLI. That is why
+the default test tier runs in five seconds, opens no socket and makes no agent call.
 
 ## Safety
 
