@@ -29,6 +29,18 @@ four structures `reconstruct` keeps are not needed here:
 What is left is `ladders` and `on_the_block`, bounded by auctions **in progress** rather
 than by records seen: 1,282 auctions and 7,317 rungs at peak.
 
+**Emitting a close twice is idempotent across writes and fatal within one.** The
+database settles last-wins — `upsert_assignments` is `ON CONFLICT DO UPDATE` on
+`(asta_id, player_uuid)` — but only *between* statements. Postgres rejects a single
+statement whose `VALUES` carry the same conflict key twice: *"ON CONFLICT DO UPDATE
+command cannot affect row a second time"*. `reconstruct` never hit that because its
+`sold` map collapsed repeats before returning; `advance` emits every close it sees,
+and the node keeps returning a closed state until the next call begins, so one window
+routinely carries the same sale twice. **Always pass emitted closes through `drain`.**
+
+`compare.equivalent` cannot catch this — its `_by_key` collapses duplicates on the way
+in, so a doubled emission compares equal. The test for it counts rows.
+
 **Emission is separate from folding, and that separation is load-bearing.** `harvest
 load` defers its assignment work while catching up — see `aste/cli.py` — but it advances
 the byte offset on every pass regardless. A fold that only ran when it emitted would
@@ -55,9 +67,20 @@ STATE_VERSION = 1
 class FoldState:
     """Everything the fold must remember between passes.
 
-    Frozen, and `advance` returns a new one. A follower that mutated shared state and
-    then failed to write it would be describing a landing zone position it had not
-    committed to.
+    Frozen, and `advance` returns a new one. That is not style: it is what makes the
+    failure path safe.
+
+    **Bind the new state only after the write commits.** The caller folds, writes, then
+    advances its checkpoint. If the write fails the byte offset does not move, so the
+    same window is re-read — and folding it onto a state that already contains it
+    appends the same rungs again. Measured: a window opening mid-ladder gives `[0,5,6,7]`
+    clean and `[0,5,6,7,6,7]` replayed, a ladder that steps downwards, which
+    `tests/test_aste_reconstruct.py` asserts can never happen and `reconstruct` names as
+    the corruption an opponent model reads as a bidding war. Keeping the old state until
+    the commit succeeds makes the retry a no-op instead.
+
+    A window that opens on `first_call` self-heals, because the reset clears the ladder.
+    That is why a fixture split there proves nothing.
     """
 
     #: auction -> the ladder of the turn currently on the block.
@@ -142,6 +165,28 @@ def advance(
         ),
         closed,
     )
+
+
+def drain(closes: Iterable[Assignment]) -> list[Assignment]:
+    """One row per `(auction, player)`, last close winning. Order preserved.
+
+    Required before every write, for two independent reasons.
+
+    *Postgres.* A statement whose `VALUES` repeat a conflict key raises
+    `ON CONFLICT DO UPDATE command cannot affect row a second time`. Under `--follow`
+    that is caught by the loader's `SQLAlchemyError` handler, reported as a database
+    outage, and retried against the identical window for ever.
+
+    *Correctness.* Last wins, not first. A re-emission carries the same price so either
+    rule agrees; a genuine re-auction after an annulled call does not, and `reconstruct`
+    records what first-wins cost when it was tried: the superseded price on 271 pairs,
+    the buyer lost on 175 of them, and the evening's spend under-counted by 1,814
+    credits.
+    """
+    final: dict[tuple[str, str], Assignment] = {}
+    for assignment in closes:
+        final[(assignment.auction_id, assignment.player_id)] = assignment
+    return list(final.values())
 
 
 def to_json(state: FoldState) -> dict[str, Any]:

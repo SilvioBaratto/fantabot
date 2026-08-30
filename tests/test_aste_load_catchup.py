@@ -34,16 +34,37 @@ from fantabot.aste.loader import (
 )
 
 
-def _zone(path: Path, records: int, pad: int = 400) -> None:
-    """A landing zone shaped like the real one: ~500 bytes a record."""
+def _zone(path: Path, records: int, pad: int = 340) -> None:
+    """A landing zone shaped like the real one: ~500 bytes a record, and it sells.
+
+    **It used not to sell, and that made several assertions below vacuous.** The states
+    carried only `last_update`, `price` and padding — no `update_type`, no `player_id` —
+    so `reconstruct` returned zero assignments for any zone built here, and every
+    assertion about assignment batches was satisfied by a list of zeros. Found on
+    2026-08-30 while replacing the whole-file rebuild, by running `reconstruct` over
+    this fixture and getting nothing.
+
+    Each auction now runs a repeating turn: `first_call`, two raises, a close. `pad` is
+    trimmed to keep the record near 500 bytes, because the window-size arithmetic in
+    this module is calibrated on it.
+    """
+    turn = ("first_call", "raise", "raise", "close_auction")
     with path.open("w", encoding="utf-8") as handle:
         for i in range(records):
+            step = i % len(turn)
             handle.write(
                 json.dumps(
                     {
                         "auction_id": f"a-{i % 50}",
                         "seen_at": "2026-08-27T22:00:00+00:00",
-                        "state": {"last_update": i, "price": i % 90, "pad": "x" * pad},
+                        "state": {
+                            "last_update": i,
+                            "update_type": turn[step],
+                            "player_id": f"p-{i // len(turn) % 7}",
+                            "price": step * 3,
+                            "fantateam_id": None if step == 0 else f"t-{step}",
+                            "pad": "x" * pad,
+                        },
                     }
                 )
                 + "\n"

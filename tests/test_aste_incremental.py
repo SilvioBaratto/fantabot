@@ -10,9 +10,10 @@ overwrites the complete one.
 
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -32,16 +33,9 @@ def _records() -> list[dict[str, Any]]:
     ]
 
 
-def _drain(emitted: list[Any]) -> list[Any]:
-    """What the database ends up holding: last close per key wins.
-
-    `advance` emits every close it sees, and `upsert_assignments` is
-    `ON CONFLICT DO UPDATE` on `(asta_id, player_uuid)`, so this mirrors the write.
-    """
-    final: dict[tuple[str, str], Any] = {}
-    for a in emitted:
-        final[(a.auction_id, a.player_id)] = a
-    return list(final.values())
+#: The production drain. Tested directly below rather than reimplemented here — a
+#: helper that duplicated the rule would pass while the shipped one was wrong.
+_drain = I.drain
 
 
 def _fold_in(records: list[dict[str, Any]], chunks: int) -> list[Any]:
@@ -160,3 +154,108 @@ def test_an_auction_is_known_only_once_it_has_been_folded() -> None:
     assert all(state.sees(a) for a in auctions)
     assert not state.sees("an-auction-that-opened-later")
     assert not I.empty().sees(next(iter(auctions)))
+
+
+class TestOneWindowCanCarryTheSameSaleTwice:
+    """`drain` is not tidiness — without it the write raises and the loop wedges.
+
+    The node keeps returning a closed state until the next call begins, so one window
+    routinely observes the same sale more than once. `reconstruct` absorbed that in its
+    `sold` map before returning; `advance` deliberately does not, so the caller must.
+
+    **`compare.equivalent` cannot catch this.** Its `_by_key` is a dict comprehension,
+    so a doubled emission collapses on the way in and compares equal. These tests count
+    rows.
+    """
+
+    @staticmethod
+    def _reemitted_close() -> list[dict[str, Any]]:
+        def state(**over: Any) -> dict[str, Any]:
+            base = {
+                "update_type": "raise",
+                "player_id": "p",
+                "price": 5,
+                "fantateam_id": "t1",
+            }
+            return {"auction_id": "a", "state": base | over}
+
+        return [
+            state(update_type="first_call", price=0, fantateam_id=None, last_update=1),
+            state(last_update=2),
+            state(update_type="close_auction", last_update=3),
+            # The held state, read again on the next poll.
+            state(update_type="close_auction", last_update=4),
+        ]
+
+    def test_advance_emits_the_close_twice(self) -> None:
+        _, closed = I.advance(I.empty(), self._reemitted_close())
+        assert len(closed) == 2, "the fixture no longer re-emits; this test proves nothing"
+        assert len({(a.auction_id, a.player_id) for a in closed}) == 1
+
+    def test_drain_reduces_it_to_one_row_keeping_the_later(self) -> None:
+        _, closed = I.advance(I.empty(), self._reemitted_close())
+        drained = I.drain(closed)
+
+        assert len(drained) == 1
+        assert drained[0].closed_at_ms == 4, (
+            "first-wins was tried and cost 1,814 credits and 175 buyers — see reconstruct"
+        )
+
+    def test_the_oracle_is_blind_to_it_which_is_why_these_count(self) -> None:
+        """Pinning the limitation, so nobody later assumes `equivalent` covers it."""
+        records = self._reemitted_close()
+        _, closed = I.advance(I.empty(), records)
+
+        assert equivalent(reconstruct(records), closed).ok
+        assert len(closed) != len(reconstruct(records))
+
+
+class TestAFailedWriteMustNotCorruptTheLadder:
+    """The retry folds the same window again; the state must not have moved.
+
+    `harvest load` writes, then advances the byte offset. A failed write leaves the
+    offset where it was, so the window is re-read — and folding it onto a state that
+    already holds it appends the rungs a second time.
+    """
+
+    #: Opens mid-ladder, deliberately. A window opening on `first_call` self-heals,
+    #: because the reset clears the ladder, and a fixture split there passes vacuously.
+    WINDOW: ClassVar[list[dict[str, Any]]] = [
+        {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                      "price": 6, "fantateam_id": "t1", "last_update": 6}},
+        {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                      "price": 7, "fantateam_id": "t2", "last_update": 7}},
+    ]
+
+    @staticmethod
+    def _mid_turn() -> I.FoldState:
+        state, _ = I.advance(I.empty(), [
+            {"auction_id": "a", "state": {"update_type": "first_call", "player_id": "p",
+                                          "price": 0, "fantateam_id": None, "last_update": 1}},
+            {"auction_id": "a", "state": {"update_type": "raise", "player_id": "p",
+                                          "price": 5, "fantateam_id": "t1", "last_update": 5}},
+        ])
+        return state
+
+    def test_keeping_the_old_state_makes_the_retry_a_no_op(self) -> None:
+        """What the caller must do: bind the new state only after the write commits."""
+        before = self._mid_turn()
+
+        attempt, _ = I.advance(before, self.WINDOW)      # write fails; `before` is kept
+        retry, _ = I.advance(before, self.WINDOW)        # same window, same input state
+
+        assert [b.price for b in retry.ladders["a"]] == [b.price for b in attempt.ladders["a"]]
+        assert [b.price for b in retry.ladders["a"]] == [0, 5, 6, 7]
+
+    def test_binding_the_new_state_before_the_write_makes_a_ladder_step_down(self) -> None:
+        """The bug this ordering exists to prevent, reproduced.
+
+        A descending rung is what `reconstruct` calls the corruption an opponent model
+        reads as a bidding war that ended at zero.
+        """
+        state, _ = I.advance(self._mid_turn(), self.WINDOW)
+        wrong, _ = I.advance(state, self.WINDOW)         # bound too early, then retried
+
+        prices = [b.price for b in wrong.ladders["a"]]
+        assert prices == [0, 5, 6, 7, 6, 7]
+        assert any(b < a for a, b in itertools.pairwise(prices))
