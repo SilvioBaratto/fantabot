@@ -61,6 +61,14 @@ class AsteRepository(RepositoryBase):
         Restricted to `asta_type = 'mantra'` and the league shape (credits, team count)
         so the prices are directly comparable to ours without budget normalization; sales
         with no linked player (`fantacalcio_id IS NULL`) are dropped. Read-only.
+
+        **The `ORDER BY` is load-bearing even though the reducer does not need it.**
+        `prices.mean_prices` sums ints, so the mean is order-independent — but the golden
+        harness pins a fixture captured from exactly these rows, and Postgres has no
+        inherent order. Without a total order, re-capturing the fixture produces a diff
+        indistinguishable from real drift. `(fantacalcio_id, price)` is total over the
+        projected columns; `fantacalcio_id` alone is not, since a player sold in several
+        auctions has several rows.
         """
         rows = self.session.execute(
             select(AstaAssignment.fantacalcio_id, AstaAssignment.price)
@@ -71,6 +79,7 @@ class AsteRepository(RepositoryBase):
                 Asta.num_teams == num_teams,
                 AstaAssignment.fantacalcio_id.is_not(None),
             )
+            .order_by(AstaAssignment.fantacalcio_id, AstaAssignment.price)
         ).all()
         return [(str(fantacalcio_id), price) for fantacalcio_id, price in rows]
 

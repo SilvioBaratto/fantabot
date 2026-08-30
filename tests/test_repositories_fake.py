@@ -397,3 +397,29 @@ class TestLeagueTokenRepository:
 
         assert "tokens.crypto" not in source
         assert "decrypt(" not in source
+
+
+class TestClearingSalesAreReadInAStableOrder:
+    """`mantra_clearing_sales` feeds the golden fixture, so its row order is load-bearing.
+
+    Postgres has no inherent order, and this query had no `ORDER BY`. Today that is
+    harmless — `prices.mean_prices` sums ints, and integer addition is associative — but
+    the fixture the golden harness pins is captured from exactly these rows. Without a
+    total order, re-capturing it produces a diff that is indistinguishable from real
+    drift, and a gate that cries wolf gets regenerated instead of investigated.
+
+    `(fantacalcio_id, price)` is a total order over the projected columns, which
+    `fantacalcio_id` alone is not: a player sold in several auctions has several rows.
+    """
+
+    def test_the_query_orders_by_player_then_price(self) -> None:
+        session = _session([])
+        from fantabot.db.repositories.aste import AsteRepository
+
+        AsteRepository(session).mantra_clearing_sales()
+
+        sql = session.statements[0]
+        assert "ORDER BY" in sql, "clearing sales are read in whatever order Postgres returns"
+        order_by = sql.split("ORDER BY", 1)[1]
+        assert "asta_assignment.fantacalcio_id" in order_by
+        assert "asta_assignment.price" in order_by
