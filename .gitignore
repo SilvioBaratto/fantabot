@@ -21,3 +21,10 @@ data/*
 .ruff_cache/
 
 docs/
+
+# Database dumps. scripts/db_dump.sh refuses to write onto this volume at all,
+# because a dump carries the league_tokens rows — encrypted, but still
+# credentials — and the working tree is one `git add -A` from a commit, now with
+# a remote to push it to. A dump asked for in the repo root is ignored instead.
+*.dump
+*.sql

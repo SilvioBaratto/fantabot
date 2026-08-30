@@ -80,7 +80,7 @@ def test_a_nested_put_does_not_replace_the_whole_state() -> None:
     """`Frame.path` was parsed and then consulted by nothing, so a frame aimed at
     a child key was applied at the root: a nested `put` wiped the auction.
 
-    `docs/spec-aste-streaming.md`'s own Code Style snippet refuses a non-root
+    `tasks/archive/aste-streaming-spec.md`'s own Code Style snippet refuses a non-root
     path — that guard was specified and never implemented.
     """
     state = fold(parse(LIVE)[:1])

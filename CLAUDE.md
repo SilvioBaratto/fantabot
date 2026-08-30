@@ -244,9 +244,12 @@ alembic check                # models and migrations agree?
 - **Stats source**: still unchosen for `StatsSource` proper. News sentiment is
   now covered by `fantabot news-fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores.
-- **Bearer token**: still a git-ignored file. The decision is made — encrypted
-  in Postgres, written by a CLI login flow that re-authenticates on expiry —
-  but it is the next phase, and `SPEC.md` is now that spec in full.
+- ~~**Bearer token**~~ **Resolved.** Encrypted in Postgres (`league_tokens`),
+  written by `fantabot login`, read through `apileague.auth_headers`. Spec:
+  [`tasks/archive/token-store-spec.md`](tasks/archive/token-store-spec.md) — recovered from commit
+  `edb693c` on 2026-08-30, because `SPEC.md` had been overwritten by four later
+  phases and nine links still pointed at it. `SPEC.md` holds only the **current**
+  phase; a closing phase copies its spec to `docs/spec-<phase>.md` first.
 - **Mantra vs Classic**: the user plays **both**, one league each — and as of
   2026-08-26 we know which is which: **`3584692` (Legamiallerotaie) is Classic**
   (`sroles=1`, `minrl=[3,8,8,6]`, 25-man) and **`4103937` (Legamiallerotaie2) is
@@ -303,8 +306,9 @@ alembic check                # models and migrations agree?
   and nothing reads them any more; the scrapers and `news-fetch` write to
   Postgres. Row counts in `data/README.md` are floors, not fixtures — the
   scrapers read a live site and it moves.
-- **Archive `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
-  `tasks/archive/<phase>-plan.md` and `-todo.md`, and repoint that phase's spec
+- **Archive `SPEC.md`, `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
+  `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:23`
+  ignores it, which is how the token-store spec came to survive only in git history. Repoint that phase's spec
   at the archived path in the same commit. Those two filenames are reused by
   every phase, so an inbound link to them silently starts describing different
   work — four references had rotted this way by 2026-08-28, in
