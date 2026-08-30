@@ -31,7 +31,6 @@ fantabot login --force       # re-auth even when every stored token is valid
 fantabot token-status        # stored / expires / state per lega; works with no key
 fantabot token-forget --league 4103937
 fantabot config-check
-fantabot lineup-submit
 
 fantabot news-fetch --limit 5           # smoke test, queries but writes nothing
 fantabot news-fetch --write             # the weekly run: all 523, both leagues

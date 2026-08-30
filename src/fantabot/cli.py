@@ -62,18 +62,6 @@ def config_check() -> None:
     console.print(f"fantabot_database_url: {dsn}")
 
 
-@app.command()
-def lineup_submit(
-    headless: bool = typer.Option(True, help="Run browser headless (cron use)."),
-) -> None:
-    """Single run: check deadline, pick best XI + captain, submit if not already done."""
-    console.print(
-        "[red]No StatsSource wired in yet — pick a data source, implement it under "
-        "fantabot/data_sources/, then call lineup.run_once(your_source, headless).[/red]"
-    )
-    raise typer.Exit(code=1)
-
-
 def _report_stop(result: FetchResult) -> None:
     """Say that the run ended early, and exit non-zero so cron hears it.
 

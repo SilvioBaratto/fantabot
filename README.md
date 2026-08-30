@@ -139,12 +139,7 @@ fantabot db-check        # database health + per-table row counts and sizes
 fantabot db-import       # seed Postgres from data/ — needs --all or --table
 fantabot news-fetch      # weekly sentiment run; --write stores it
 fantabot mantra-grid     # one-off, collects the Mantra schema grid
-fantabot lineup-submit   # single run — blocked until data source + DOM selectors are in
 ```
-
-`auction.watch_and_bid(...)` isn't wired into the CLI yet (needs a
-`StatsSource` and the auction DOM). Once both exist, add a `fantabot
-auction-watch` command that calls it.
 
 ## Safety
 
@@ -154,19 +149,9 @@ verifying selectors against the live site in a low-stakes matchday.
 
 ## Scheduling
 
-- **Weekly lineup**: a single cron/launchd tick per matchday is enough —
-  `fantabot lineup-submit` checks the deadline and no-ops if already
-  submitted or too early. Run it a few times daily in the days before each
-  deadline.
-- **Auctions (iniziale / riparazione)**: these are live sessions, not a single
-  point in time — `auction.watch_and_bid` is a long-lived polling loop
-  (5s interval) meant to be started shortly before the scheduled auction and
-  left running for its duration, not fired once from cron.
+- **Auctions (iniziale / riparazione)**: live sessions, not a point in time.
+  `fantabot asta-bid` is a long-lived polling loop, started shortly before the
+  scheduled auction and left running for its duration — not fired once from cron.
 
 Example crontab. cron gets no shell profile, so the conda env's binary is named
 in full rather than relying on an activated environment:
-
-```cron
-# check for an open lineup deadline 3x/day
-0 8,14,20 * * * cd "/Volumes/External SSD/fantabot" && /path/to/conda-env/bin/fantabot lineup-submit >> data/cron.log 2>&1
-```
