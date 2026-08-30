@@ -48,6 +48,20 @@ class _SentimentSource(Protocol):
     ) -> dict[str, SentimentRow]: ...
 
 
+def _today() -> date:
+    """The one wall-clock read in the asta path. The golden harness patches exactly this.
+
+    `sentiment.py` takes `as_of` as a parameter and never reads a clock, on purpose. This
+    is the shell that supplies it — and it is a named function rather than three inline
+    `date.today()` calls because the harness has to freeze it. `sentiment.py:153` decays
+    confidence on a 7-day half-life, and every row shares one `data_run`, so one day of
+    drift rescales every reading: the same inputs printed `obj 2273.1` today, `2209.1`
+    tomorrow, `1936.5` in a week, with roster membership changing too. Three reads would
+    be three things to freeze in lockstep, and `tests/test_asta_clock.py` keeps it at one.
+    """
+    return date.today()
+
+
 def parse_run_date(run: str) -> date | None:
     """``--sentiment-run`` as a date; empty means "each player's newest". Pure."""
     if not run:
@@ -125,7 +139,7 @@ def asta_optimize(
         {pid: row.fvm for pid, row in quotazioni.items()},
         priced_ids=set(prices),
         sentiment=rows,
-        as_of=date.today() if rows else None,
+        as_of=_today() if rows else None,
         weights=SentimentWeights(k=tilt_k),
     )
     legality = build_legality(load_compat())
@@ -246,7 +260,7 @@ def asta_live(
             fvm,
             priced_ids=set(prices),
             sentiment=rows,
-            as_of=date.today() if rows else None,
+            as_of=_today() if rows else None,
             weights=weights,
         )
 
@@ -345,7 +359,7 @@ def asta_bid(
         {pid: row.fvm for pid, row in quotazioni.items()},
         priced_ids=set(prices),
         sentiment=rows,
-        as_of=date.today() if rows else None,
+        as_of=_today() if rows else None,
         weights=SentimentWeights(k=tilt_k),
     )
     legality = build_legality(load_compat())
