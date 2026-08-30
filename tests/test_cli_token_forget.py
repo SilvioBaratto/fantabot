@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from fantabot.cli import app
 from fantabot.domain.tokens.status import TokenStatus
+from fantabot.interface.app import app
 
 runner = CliRunner()
 NOW = datetime(2026, 8, 26, tzinfo=UTC)

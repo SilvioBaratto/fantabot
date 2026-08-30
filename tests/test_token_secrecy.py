@@ -184,8 +184,12 @@ def test_decrypt_is_confined_to_its_allowed_files() -> None:
     )
 
 
+#: The module holding `config-check`. Resolved through the import system, like the two
+#: below: W6 moved it from `fantabot/cli.py` to `interface/app.py`.
+ROOT_APP = "fantabot.interface.app"
+
 #: Modules outside `tokens/` that hold a plaintext token at some point.
-LOOSE_TOKEN_HANDLERS = ("fantabot.adapters.http.apileague", "fantabot.login")
+LOOSE_TOKEN_HANDLERS = ("fantabot.adapters.http.apileague", "fantabot.application.auth_login")
 
 
 def _scanned_sources() -> list[Path]:
@@ -288,7 +292,7 @@ def test_config_check_excludes_the_encryption_key() -> None:
     which is every CI machine, and the one place this would matter least to
     catch. So the exclude-set literal itself is parsed out of `cli.py`.
     """
-    tree = ast.parse((PACKAGE / "cli.py").read_text())
+    tree = ast.parse(module_file(ROOT_APP).read_text())
     excluded: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(
@@ -301,7 +305,7 @@ def test_config_check_excludes_the_encryption_key() -> None:
             }
 
     assert "fantabot_encryption_key" in excluded, (
-        f"cli.py's config-check exclude set is {sorted(excluded)} — without the "
+        f"{ROOT_APP}'s config-check exclude set is {sorted(excluded)} — without the "
         "key in it, `model_dump` prints the key into every cron log. "
         "`Field(repr=False)` does not suppress `model_dump`."
     )

@@ -15,6 +15,17 @@ parameters are written in terms of a repository belongs to the repository's laye
 three copies before this module existed — ``news/store.py::_SCORES``,
 ``news_sentiment.py::SCORES`` and ``db/models/sentiment.py::SCORE_COLUMNS`` —
 which is three places for the order to disagree.
+
+**There is no stats-source interface here, and that is deliberate.** A ``StatsSource``
+Protocol — ``projected_scores`` / ``player_pool`` / ``target_price`` — used to sit beside
+these types, declared against a per-matchday provider that was never chosen. It went with
+the Classic lineup scaffolding it was written for (``lineup.py``, ``auction.py``,
+``strategy.py``): an interface with no implementation and no caller is a guess about a
+shape, and this one had been guessed three phases before anything would consume it. The
+asta engine does not need it — it prices from ``quotazioni.fvm``, the observed clearing
+prices in ``asta_assignment`` and the sentiment feed, none of which that Protocol
+described. When a per-matchday source is picked, the interface gets written against the
+consumer that exists at the time.
 """
 
 from __future__ import annotations

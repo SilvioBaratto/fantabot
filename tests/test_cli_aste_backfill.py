@@ -15,7 +15,7 @@ from pathlib import Path
 from _paths import ONE_AUCTION
 from typer.testing import CliRunner
 
-from fantabot.cli import app
+from fantabot.interface.app import app
 
 runner = CliRunner()
 

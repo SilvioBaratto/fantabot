@@ -166,7 +166,7 @@ class TestTeamsSeed:
     def test_a_prefix_collision_refuses_and_writes_nothing(self, db_session: Session) -> None:
         """Fail closed. A partial mapping leaves NULLs that later joins drop."""
         from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
-        from fantabot.club_names import TeamMappingError
+        from fantabot.domain.shared.club_names import TeamMappingError
 
         digest = "SELECT md5(string_agg(stagione||codice||nome_completo, ',' ORDER BY stagione, codice)) FROM teams"
         before = db_session.execute(text(digest)).scalar()

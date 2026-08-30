@@ -14,9 +14,9 @@ from typing import Any
 import _tokens
 import pytest
 
-from fantabot import login
+from fantabot.application import auth_login as login
+from fantabot.application.auth_login import LoginAborted
 from fantabot.domain.tokens.status import TokenStatus
-from fantabot.login import LoginAborted
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 GOOD_KEY = "8B7z0LQ1cVQ0yZ0Xh3n4WQ1mJ5rT2vK8sN6pA9dF0cE="
@@ -631,7 +631,7 @@ def test_every_printed_line_is_derivable_without_a_decrypt(
 def test_fantabot_auth_is_gone() -> None:
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     result = CliRunner().invoke(app, ["auth"])
 
@@ -641,7 +641,7 @@ def test_fantabot_auth_is_gone() -> None:
 def test_login_is_registered_with_all_four_flags() -> None:
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     output = CliRunner().invoke(app, ["auth", "login", "--help"]).output
 
@@ -656,7 +656,7 @@ def test_a_missing_key_exits_two_through_the_command(
     from typer.testing import CliRunner
 
     from fantabot import config
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     monkeypatch.setattr(config.settings, "fantabot_encryption_key", "")
     result = CliRunner().invoke(app, ["auth", "login"])
@@ -671,7 +671,7 @@ def test_a_malformed_key_exits_two_through_the_command(
     from typer.testing import CliRunner
 
     from fantabot import config
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     monkeypatch.setattr(config.settings, "fantabot_encryption_key", "not-a-key")
     result = CliRunner().invoke(app, ["auth", "login"])

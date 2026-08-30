@@ -275,7 +275,7 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
 
         from typer.testing import CliRunner
 
-        from fantabot.cli import app
+        from fantabot.interface.app import app
 
         landing = tmp_path / "live.jsonl"
         _zone(landing, 400)
@@ -321,7 +321,7 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
 
         from typer.testing import CliRunner
 
-        from fantabot.cli import app
+        from fantabot.interface.app import app
 
         landing = tmp_path / "live.jsonl"
         _zone(landing, 400)
@@ -422,7 +422,7 @@ def _seed_file(path: Path) -> Path:
 def _load(landing: Path, seed: Path, tmp_path: Path, *extra: str) -> object:
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     return CliRunner().invoke(
         app,

@@ -130,7 +130,7 @@ def test_the_command_is_registered_with_its_flags() -> None:
 
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     result = CliRunner().invoke(app, ["harvest", "load", "--help"])
     assert result.exit_code == 0
@@ -144,7 +144,7 @@ def test_a_dry_run_reports_progress_without_a_database(tmp_path: Path) -> None:
 
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     landing = tmp_path / "events.jsonl"
     _write(landing, _record(1), _record(2))
@@ -173,7 +173,7 @@ def test_a_missing_landing_zone_is_named_not_reported_as_quiet(tmp_path: Path) -
 
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     seed = tmp_path / "seed.json"
     seed.write_text(json.dumps([["a-1", "4", 8, 500, 25, 25, "random", "free", 8, 8, "x"]]))
@@ -195,7 +195,7 @@ def test_an_empty_landing_zone_reads_differently_from_a_missing_one(tmp_path: Pa
 
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     seed = tmp_path / "seed.json"
     seed.write_text(json.dumps([["a-1", "4", 8, 500, 25, 25, "random", "free", 8, 8, "x"]]))

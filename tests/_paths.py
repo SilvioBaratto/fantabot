@@ -51,7 +51,7 @@ _PACKAGES: dict[str, tuple[Path, ...]] = {
     "fantalab": (PACKAGE / "adapters" / "http" / "fantalab",),
     "mantra_grid": (PACKAGE / "domain" / "mantra",),
     "news": (PACKAGE / "domain" / "news",),
-    "scrapers": (PACKAGE / "scrapers",),
+    "scrapers": (PACKAGE / "adapters" / "scraping",),
     "tokens": (PACKAGE / "domain" / "tokens", PACKAGE / "adapters" / "tokens"),
 }
 

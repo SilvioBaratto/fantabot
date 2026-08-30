@@ -19,7 +19,7 @@ from __future__ import annotations
 import click
 import typer
 
-from fantabot.cli import app
+from fantabot.interface.app import app
 
 #: Every command reachable from the root, as the user types it. Sub-app commands
 #: appear space-separated (`asta optimize`) once the groups land.

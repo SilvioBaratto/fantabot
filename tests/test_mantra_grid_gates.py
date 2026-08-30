@@ -412,7 +412,7 @@ def test_gates_return_a_list_rather_than_raising(checker: object) -> None:
 
 def _load(name: str) -> dict[str, object]:
     """The shipped copy, resolved the way production resolves it."""
-    from fantabot.resources import data_dir
+    from fantabot.domain.shared.resources import data_dir
 
     path = data_dir() / name
     return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]

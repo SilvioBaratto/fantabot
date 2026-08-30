@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner
 
-from fantabot.cli import app
+from fantabot.interface.app import app
 
 runner = CliRunner()
 

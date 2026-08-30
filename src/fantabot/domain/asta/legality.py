@@ -25,7 +25,7 @@ from typing import Literal
 
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.mantra.models import ROLE_ORDER, CompatMatrix
-from fantabot.resources import COMPAT_FILENAME, data_dir
+from fantabot.domain.shared.resources import COMPAT_FILENAME, data_dir
 
 Mode = Literal["submission", "substitution"]
 
@@ -142,7 +142,7 @@ def load_compat(source: Path | None = None) -> CompatMatrix:
     """Read the shipped compat matrix. The data-load edge — no DB, no network.
 
     The default is package-anchored rather than CWD-relative, so this works from any
-    directory. See ``fantabot.resources``.
+    directory. See ``fantabot.domain.shared.resources``.
     """
     path = (source or data_dir()) / COMPAT_FILENAME
     return CompatMatrix.model_validate(json.loads(path.read_text(encoding="utf-8")))

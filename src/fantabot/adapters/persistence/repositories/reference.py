@@ -14,8 +14,8 @@ from sqlalchemy.dialects.postgresql import insert
 from fantabot.adapters.persistence.models.matches import MatchGrain
 from fantabot.adapters.persistence.models.reference import Player, Quotazione, Statistica, Team
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
-from fantabot.club_names import build_mapping
-from fantabot.data_sources.models import QuotazioneRow
+from fantabot.domain.shared.club_names import build_mapping
+from fantabot.domain.shared.values import QuotazioneRow
 
 if TYPE_CHECKING:
     from sqlalchemy import CursorResult

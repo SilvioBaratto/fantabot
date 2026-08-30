@@ -29,7 +29,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence.repositories.sentiment import SentimentReadRepository
-from fantabot.data_sources.models import (
+from fantabot.domain.shared.values import (
     SCORES,
     RoleDrift,
     SentimentRow,

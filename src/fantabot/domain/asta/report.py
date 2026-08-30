@@ -12,11 +12,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from typing import Any
 
-from fantabot.data_sources.models import SentimentRow
 from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
 from fantabot.domain.asta.sentiment import SentimentWeights, effect_by_id, variance_by_id
 from fantabot.domain.asta.state import Roster
 from fantabot.domain.asta.value import NaiveValueModel
+from fantabot.domain.shared.values import SentimentRow
 
 
 def parse_ids(raw: str) -> tuple[str, ...]:

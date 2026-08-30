@@ -21,9 +21,9 @@ from typer.testing import CliRunner
 
 from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.tokens.store import TokenStore
-from fantabot.cli import app, token_status_rows
 from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.status import TokenStatus
+from fantabot.interface.app import app, token_status_rows
 
 runner = CliRunner()
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
@@ -341,8 +341,8 @@ def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyP
     request at all. Found by running the real binary against a real database,
     not by the suite.
     """
-    from fantabot import cli
     from fantabot.adapters.persistence import database_manager
+    from fantabot.interface import app as cli
 
     seen: dict[str, Any] = {}
 

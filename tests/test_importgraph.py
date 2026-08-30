@@ -136,7 +136,7 @@ class TestAgainstTheRealTree:
 
     def test_it_finds_every_module(self) -> None:
         found = set(G.modules())
-        assert "fantabot.cli" in found
+        assert "fantabot.interface.app" in found
         assert "fantabot.domain.asta.optimizer" in found
         assert len(found) > 90
 
@@ -170,5 +170,5 @@ class TestAgainstTheRealTree:
         depends on execution order, measuring the process rather than the code.
         """
         before = set(sys.modules)
-        G.reachable("fantabot.cli")  # reaches playwright, sqlalchemy and the agent SDK
+        G.reachable("fantabot.interface.app")  # reaches playwright, sqlalchemy and the agent SDK
         assert set(sys.modules) - before == set()

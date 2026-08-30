@@ -48,7 +48,7 @@ def test_the_browser_chain_does_not_import_the_database(module: str) -> None:
     """SPEC's Never list names **both** files, and only one was ever checked.
 
     `browser.py` was covered by nothing: this test read `state.py` alone, and
-    after `fantabot auth login` replaces `auth`, `fantabot.cli` no longer pulls in
+    after `fantabot auth login` replaces `auth`, `fantabot.interface.app` no longer pulls in
     `browser` at all — so no other test catches it incidentally either, while
     `login.py` legitimately imports both `browser` and `fantabot.adapters.persistence`.
 
@@ -75,7 +75,7 @@ def test_the_browser_chain_can_be_imported_with_no_database() -> None:
     without a database, so `fantabot --help` never becomes a connection attempt
     (SPEC assumption 6).
 
-    `fantabot.login` is deliberately **not** imported here. It imports
+    `fantabot.application.auth_login` is deliberately **not** imported here. It imports
     `fantabot.adapters.persistence`, legitimately — which is precisely what this test forbids on
     this chain.
     """

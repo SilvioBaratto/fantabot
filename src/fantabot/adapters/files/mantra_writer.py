@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from fantabot.resources import COMPAT_FILENAME, SCHEMI_FILENAME
+from fantabot.domain.shared.resources import COMPAT_FILENAME, SCHEMI_FILENAME
 
 __all__ = ["COMPAT_FILENAME", "SCHEMI_FILENAME", "write_json"]
 

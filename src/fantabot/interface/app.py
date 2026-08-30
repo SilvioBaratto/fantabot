@@ -376,7 +376,7 @@ def mantra_grid(
     from fantabot.adapters.files.mantra_writer import write_json
     from fantabot.application.mantra_collector import CollectError, collect
     from fantabot.config import settings
-    from fantabot.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
+    from fantabot.domain.shared.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
 
     try:
         model = settings.resolve_agent_model(model)
@@ -473,7 +473,7 @@ def db_scrape(
 
     from importlib import import_module
 
-    module = import_module(f"fantabot.scrapers.{table}")
+    module = import_module(f"fantabot.adapters.scraping.{table}")
     if seasons:
         module.run(seasons)
     else:
@@ -492,7 +492,7 @@ def db_price(
     if system not in ("classic", "mantra"):
         raise typer.BadParameter(f"{system!r} is not a listone. Pick classic or mantra.")
 
-    from fantabot import pricing
+    from fantabot.application import pricing as pricing
 
     pricing.run(system=system, top_n=top_n)
 
@@ -735,7 +735,7 @@ def login(
 
     Running it again when every token is still valid opens no browser at all.
     """
-    from fantabot import login as login_module
+    from fantabot.application import auth_login as login_module
     from fantabot.domain.tokens.errors import TokenError
 
     try:

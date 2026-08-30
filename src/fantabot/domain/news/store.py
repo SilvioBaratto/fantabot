@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from fantabot.data_sources.models import SCORES
 from fantabot.domain.news.mantra import drift, parse_codes
 from fantabot.domain.news.models import PlayerSentiment
 from fantabot.domain.news.pool import PoolPlayer
+from fantabot.domain.shared.values import SCORES
 
 COLUMNS: tuple[str, ...] = (
     "data_run",

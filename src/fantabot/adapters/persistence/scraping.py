@@ -15,7 +15,7 @@ anyone could see.
 The no-data handling that used to be ``if raw not in ("", "0,0")`` is now
 ``media_fantavoto IS NOT NULL``. Both of the site's no-data spellings — an
 empty cell and the literal ``"0,0"`` — are collapsed to NULL on the way in by
-``fantabot.parsing.italian_decimal``, which is the distinction those string
+``fantabot.domain.shared.parsing.italian_decimal``, which is the distinction those string
 comparisons were protecting.
 
 Prerequisites this module adds to every script that imports it:
@@ -36,7 +36,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence import database_manager
-from fantabot.parsing import split_codes, split_flags
+from fantabot.domain.shared.parsing import split_codes, split_flags
 
 #: The bonus/malus half of a `match_grain` row. NOT NULL every one: zero is a value.
 _COUNTER_COLUMNS = (
@@ -439,7 +439,7 @@ def resolve_team_names_or_report() -> int:
     operator's remedy is the standalone entry point below, once that season's
     fixtures exist.
     """
-    from fantabot.club_names import TeamMappingError
+    from fantabot.domain.shared.club_names import TeamMappingError
 
     try:
         with session() as handle:

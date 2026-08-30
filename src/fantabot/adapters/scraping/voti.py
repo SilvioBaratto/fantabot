@@ -47,7 +47,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from fantabot.adapters.persistence import scraping as _db
-from fantabot.parsing import italian_decimal, parse_date, parse_time
+from fantabot.domain.shared.parsing import italian_decimal, parse_date, parse_time
 
 BASE_URL = "https://www.fantacalcio.it/voti-fantacalcio-serie-a"
 USER_AGENT = (

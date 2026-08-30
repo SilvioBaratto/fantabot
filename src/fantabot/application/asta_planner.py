@@ -50,7 +50,7 @@ from fantabot.domain.asta.value import ValueModel
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from fantabot.data_sources.models import QuotazioneRow, SentimentRow
+    from fantabot.domain.shared.values import QuotazioneRow, SentimentRow
 
 
 @dataclass(frozen=True)

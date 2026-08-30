@@ -21,7 +21,6 @@ from datetime import date
 
 import pytest
 
-from fantabot.data_sources.models import SentimentRow
 from fantabot.domain.asta.sentiment import (
     NEUTRAL,
     SentimentWeights,
@@ -29,6 +28,7 @@ from fantabot.domain.asta.sentiment import (
     raw_effect,
     variance_by_id,
 )
+from fantabot.domain.shared.values import SentimentRow
 
 AS_OF = date(2026, 8, 28)
 

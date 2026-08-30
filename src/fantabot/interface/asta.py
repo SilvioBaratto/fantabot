@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import typer
 
 if TYPE_CHECKING:
-    from fantabot.data_sources.models import SentimentRow
+    from fantabot.domain.shared.values import SentimentRow
 
 from fantabot.application.asta_planner import read_plan_inputs
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
@@ -105,7 +105,7 @@ def asta_optimize(
 ) -> None:
     """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
     from fantabot.adapters.persistence import database_manager
-    from fantabot.data_sources.news_sentiment import NewsSentimentSource
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
 
     with database_manager.get_session() as session:
         rows = sentiment_rows(
@@ -208,7 +208,7 @@ def asta_live(
             f"those players, so they cannot be valued[/yellow]"
         )
 
-    from fantabot.data_sources.news_sentiment import NewsSentimentSource
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
 
     # One reading per invocation, on both paths.
     #
@@ -280,7 +280,7 @@ def asta_bid(
 
     from fantabot.adapters.http.fantalab import feed, room, rtdb
     from fantabot.adapters.persistence import database_manager
-    from fantabot.data_sources.news_sentiment import NewsSentimentSource
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.domain.asta.bid import Seat
 
     # The same value model asta optimize planned with, by construction now rather than by

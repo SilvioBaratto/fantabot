@@ -30,12 +30,12 @@ LAYERS: dict[str, str] = {
     "fantabot.domain.harvest": "domain",
     "fantabot.domain.news": "domain",
     "fantabot.domain.mantra": "domain",
-    "fantabot.club_names": "domain",
-    "fantabot.parsing": "domain",
+    "fantabot.domain.shared.club_names": "domain",
+    "fantabot.domain.shared.parsing": "domain",
     # Where the packaged JSON artefacts are. A constant location, not a setting, so
     # a pure module may ask it without acquiring a dependency on the environment.
-    "fantabot.resources": "domain",
-    "fantabot.data_sources.models": "domain",
+    "fantabot.domain.shared.resources": "domain",
+    "fantabot.domain.shared.values": "domain",
     "fantabot.domain.tokens.claims": "domain",
     "fantabot.domain.tokens.errors": "domain",
     "fantabot.domain.tokens.capture": "domain",
@@ -51,15 +51,15 @@ LAYERS: dict[str, str] = {
     "fantabot.application.harvest_supervisor": "application",
     "fantabot.application.news_fetcher": "application",
     "fantabot.application.mantra_collector": "application",
-    "fantabot.pricing": "application",
-    "fantabot.login": "application",
-    "fantabot.fantalab_login": "application",
+    "fantabot.application.pricing": "application",
+    "fantabot.application.auth_login": "application",
+    "fantabot.application.fantalab_login": "application",
     "fantabot.application": "application",
     # -- adapters: everything that talks to the world.
     "fantabot.adapters.persistence": "adapters",
     "fantabot.adapters.agent": "adapters",
     "fantabot.adapters.http.fantalab": "adapters",
-    "fantabot.scrapers": "adapters",
+    "fantabot.adapters.scraping": "adapters",
     "fantabot.adapters.http.apileague": "adapters",
     "fantabot.adapters.browser.capture": "adapters",
     "fantabot.config": "adapters",
@@ -79,10 +79,10 @@ LAYERS: dict[str, str] = {
     # `store.py` holds only `build_row`, which is pure — it reached the database
     # solely by importing `PoolPlayer` from a module that did.
     "fantabot.adapters.persistence.news_pool": "adapters",
-    "fantabot.data_sources.news_sentiment": "adapters",
+    "fantabot.adapters.persistence.news_sentiment": "adapters",
     "fantabot.adapters": "adapters",
     # -- interface: the CLI, and only the CLI.
-    "fantabot.cli": "interface",
+    "fantabot.interface.app": "interface",
     "fantabot.interface": "interface",
     "fantabot.interface.asta": "interface",
     "fantabot.interface.harvest": "interface",
@@ -96,7 +96,7 @@ UNPLACED = {"fantabot.domain", "fantabot.application", "fantabot.adapters",
             "fantabot", "fantabot.domain.asta", "fantabot.domain.harvest", "fantabot.domain.news",
             "fantabot.domain.tokens", "fantabot.adapters.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
             "fantabot.adapters.persistence.repositories", "fantabot.adapters.agent", "fantabot.adapters.http.fantalab",
-            "fantabot.scrapers", "fantabot.domain.mantra", "fantabot.data_sources"}
+            "fantabot.adapters.scraping", "fantabot.domain.mantra", "fantabot.data_sources"}
 
 
 def layer_of(module: str) -> str:

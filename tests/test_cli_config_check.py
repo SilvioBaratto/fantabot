@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from fantabot.cli import app
+from fantabot.interface.app import app
 
 runner = CliRunner()
 

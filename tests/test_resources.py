@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fantabot.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
+from fantabot.domain.shared.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
 
 
 def test_both_artefacts_live_inside_the_package() -> None:

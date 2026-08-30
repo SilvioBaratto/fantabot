@@ -57,7 +57,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 
-from fantabot.data_sources.models import SentimentRow
+from fantabot.domain.shared.values import SentimentRow
 
 #: What "no opinion" is worth. A silent row and an absent player both land here.
 NEUTRAL = 1.0

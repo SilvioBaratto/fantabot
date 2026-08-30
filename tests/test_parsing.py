@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from fantabot.parsing import (
+from fantabot.domain.shared.parsing import (
     italian_decimal,
     parse_date,
     parse_time,
@@ -111,7 +111,7 @@ class TestSplitCodes:
 def test_the_parsers_do_not_reach_for_a_database() -> None:
     """These run at scrape time now, on the hot path of every write, so they
     must stay pure — and their tests never need the db marker."""
-    from fantabot import parsing as module
+    from fantabot.domain.shared import parsing as module
 
     assert module.__file__ is not None
     text = Path(module.__file__).read_text()

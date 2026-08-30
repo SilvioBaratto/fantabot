@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from fantabot.fantalab_login import FantalabLoginResult, run
+from fantabot.application.fantalab_login import FantalabLoginResult, run
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -74,7 +74,7 @@ def _clean_session(db_session: Any) -> None:  # pragma: no cover - db tier only
 
 def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: _FakeContext) -> Any:
     """Run the flow with the database and cipher stubbed out."""
-    import fantabot.fantalab_login as module
+    import fantabot.application.fantalab_login as module
 
     saved: list[Any] = []
 

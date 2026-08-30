@@ -63,7 +63,7 @@ def test_importing_the_cli_opens_no_connection() -> None:
         socket.socket.connect_ex = boom
         socket.create_connection = boom
 
-        import fantabot.cli
+        import fantabot.interface.app
 
         # Checked here, BEFORE fantabot.adapters.persistence is imported below — otherwise this
         # test would be asserting against its own import.

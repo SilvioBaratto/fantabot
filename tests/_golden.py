@@ -38,7 +38,7 @@ from unittest.mock import patch
 
 from _paths import GOLDEN
 
-from fantabot.data_sources.models import QuotazioneRow, SentimentRow
+from fantabot.domain.shared.values import QuotazioneRow, SentimentRow
 
 GOLDEN = GOLDEN
 
@@ -150,7 +150,7 @@ def pinned_world(*, today: date | None = None) -> Iterator[None]:
                 ("fantabot.adapters.persistence.database_manager", _FakeDatabaseManager()),
                 ("fantabot.adapters.persistence.repositories.reference.ReferenceRepository", _FakeReferenceRepository),
                 ("fantabot.adapters.persistence.repositories.aste.AsteRepository", _FakeAsteRepository),
-                ("fantabot.data_sources.news_sentiment.NewsSentimentSource", _FakeSentimentSource),
+                ("fantabot.adapters.persistence.news_sentiment.NewsSentimentSource", _FakeSentimentSource),
                 ("fantabot.interface.asta._today", lambda: today or PINNED_TODAY),
             ):
                 stack.enter_context(patch(target, replacement))
@@ -173,7 +173,7 @@ def run(argv: list[str], *, today: date | None = None) -> str:
     """
     from typer.testing import CliRunner
 
-    from fantabot.cli import app
+    from fantabot.interface.app import app
 
     with pinned_world(today=today):
         result = CliRunner().invoke(app, argv)

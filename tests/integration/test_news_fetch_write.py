@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 from fantabot.adapters.persistence import database_manager
 from fantabot.application.news_fetcher import FetchResult
-from fantabot.cli import app
+from fantabot.interface.app import app
 
 pytestmark = pytest.mark.db
 

@@ -25,9 +25,10 @@ import re
 import subprocess
 import sys
 
-from _paths import PACKAGE
+from _paths import module_file
 
-CLI_PATH = PACKAGE / "cli.py"
+#: The root app, resolved through the import system: what W6 changes is its name.
+CLI_PATH = module_file("fantabot.interface.app")
 
 # Wide enough that Typer's box never wraps a command name onto a second row.
 _WIDE = {**os.environ, "COLUMNS": "200", "TERM": "dumb"}
@@ -51,7 +52,7 @@ def _help(*argv: str) -> str:
 
 def test_direct_execution_exposes_the_same_commands_as_the_entry_point() -> None:
     # Exactly what the `fantabot` console script does.
-    via_entry_point = _commands(_help("-c", "from fantabot.cli import app; app()"))
+    via_entry_point = _commands(_help("-c", "from fantabot.interface.app import app; app()"))
     direct = _commands(_help(str(CLI_PATH)))
 
     assert via_entry_point, "parsed no commands at all — the help format changed"

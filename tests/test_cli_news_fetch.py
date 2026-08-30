@@ -9,7 +9,7 @@ from pathlib import Path
 import _importgraph as G
 from typer.testing import CliRunner
 
-from fantabot.cli import app
+from fantabot.interface.app import app
 
 #: The persistence package, spelled once. Its name moves in W6.
 PERSISTENCE = "fantabot.adapters.persistence"

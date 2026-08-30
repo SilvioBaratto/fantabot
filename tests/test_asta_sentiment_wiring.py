@@ -15,13 +15,13 @@ import pytest
 import typer
 from _paths import module_file, pkg
 
-from fantabot.data_sources.models import SentimentRow
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule, fieldable_schemi
 from fantabot.domain.asta.optimizer import optimize_roster
 from fantabot.domain.asta.report import build_pool, build_value, format_roster
 from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
 from fantabot.domain.asta.state import AstaState, Roster, RosterRules
 from fantabot.domain.asta.value import NaiveValueModel
+from fantabot.domain.shared.values import SentimentRow
 from fantabot.interface.asta import parse_run_date, sentiment_rows
 
 AS_OF = date(2026, 8, 28)

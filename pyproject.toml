@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-fantabot = "fantabot.cli:app"
+fantabot = "fantabot.interface.app:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fantabot"]

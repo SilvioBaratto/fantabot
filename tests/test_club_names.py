@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.club_names import TeamMappingError, build_mapping, code_for
+from fantabot.domain.shared.club_names import TeamMappingError, build_mapping, code_for
 
 
 class TestTeamMappingIsFailClosed:

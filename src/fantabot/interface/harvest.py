@@ -109,8 +109,8 @@ def fantalab_login(
     No `storage_state.json` is written. That file would hold three credentials
     in the clear; they go from browser memory through Fernet into Postgres.
     """
-    from fantabot.fantalab_login import LoginAborted
-    from fantabot.fantalab_login import run as run_login
+    from fantabot.application.fantalab_login import LoginAborted
+    from fantabot.application.fantalab_login import run as run_login
 
     try:
         run_login(force=force, channel=browser or None)
