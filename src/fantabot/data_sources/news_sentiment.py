@@ -11,8 +11,8 @@ it yet; wiring ``disponibilita``/``rigorista`` into ``decide_bid`` and
 ``titolarita`` into ``pick_starting_lineup`` is a later phase.
 
 **No longer a snapshot.** The CSV version slurped the whole file at construction
-and answered from that dict forever. ``auction.py``'s ``watch_and_bid`` polls for
-hours, so it would have held a frozen reading for the whole duration of an asta.
+and answered from that dict forever. ``asta-bid`` polls a live room for hours, so
+it would have held a frozen reading for the whole duration of an asta.
 Every call is a query now, and a row written after construction is visible to the
 next one.
 

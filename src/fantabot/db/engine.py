@@ -52,9 +52,10 @@ class DatabaseManager:
                 pool_size=5,
                 max_overflow=10,
                 pool_recycle=3600,
-                # auction.py's watch_and_bid polls for hours; without pre-ping a
-                # connection the server has since dropped surfaces as a failed
-                # bid rather than a reconnect.
+                # `asta-bid` polls a live room for hours and `harvest load
+                # --follow` runs all evening; without pre-ping a connection the
+                # server has since dropped surfaces as a failed bid or a lost
+                # pass rather than a reconnect.
                 pool_pre_ping=True,
                 future=True,
                 connect_args={

@@ -51,9 +51,10 @@ fantabot mantra-grid --write  # write only if every gate passes
 Scaffold + decision engine done and tested. **Not yet live-capable** — see
 "Known unknowns" in `CLAUDE.md`. Two things block real autonomy:
 
-1. `leghe.fantacalcio.it`'s DOM isn't mapped (login form, roster page, asta
-   room) — `lineup.py` / `auction.py` raise `NotImplementedError` at the
-   site-touching functions until that's done.
+1. `leghe.fantacalcio.it`'s DOM isn't mapped (login form, roster page) —
+   `lineup.py` raises `NotImplementedError` at the site-touching functions
+   until that's done. The asta path no longer needs it: `asta-bid` drives
+   FantaLab's unauthenticated RTDB directly.
 2. No stats/injuries/probable-lineup source is wired in yet — implement
    `data_sources.StatsSource` once one is picked.
 
