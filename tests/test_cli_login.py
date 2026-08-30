@@ -15,8 +15,8 @@ import _tokens
 import pytest
 
 from fantabot import login
+from fantabot.domain.tokens.status import TokenStatus
 from fantabot.login import LoginAborted
-from fantabot.tokens.status import TokenStatus
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 GOOD_KEY = "8B7z0LQ1cVQ0yZ0Xh3n4WQ1mJ5rT2vK8sN6pA9dF0cE="
@@ -82,7 +82,7 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Any:
         def mark_verified(self, league_id: int, at: Any) -> None:
             verified.append(league_id)
 
-    import fantabot.tokens.store as store_module
+    import fantabot.adapters.tokens.store as store_module
 
     monkeypatch.setattr(store_module, "TokenStore", _Store)
 
@@ -381,7 +381,7 @@ def test_both_leghe_are_stored(stub_db: Any, with_key: None) -> None:
 
 def test_a_crossed_l_id_stores_nothing(stub_db: Any, with_key: None) -> None:
     """SC 10, end to end: the gate refuses the whole capture."""
-    from fantabot.tokens.errors import LeagueMismatch
+    from fantabot.domain.tokens.errors import LeagueMismatch
 
     crossed = _tokens.storage_state(
         leagues=[

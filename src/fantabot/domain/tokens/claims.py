@@ -22,7 +22,7 @@ from typing import Any
 import jwt
 from jwt.types import Options
 
-from fantabot.tokens.errors import TokenUnreadable
+from fantabot.domain.tokens.errors import TokenUnreadable
 
 # The `Options` annotation is load-bearing, not decoration: PyJWT 2.13 types this
 # parameter as a TypedDict, and `mypy --strict` rejects a bare `dict[str, bool]`

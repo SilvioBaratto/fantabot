@@ -12,8 +12,8 @@ import _tokens
 import pytest
 from cryptography.fernet import Fernet
 
-from fantabot.tokens.crypto import FINGERPRINT_LENGTH, TokenCipher
-from fantabot.tokens.errors import KeyMalformed, KeyMissing, TokenUndecryptable
+from fantabot.domain.tokens.crypto import FINGERPRINT_LENGTH, TokenCipher
+from fantabot.domain.tokens.errors import KeyMalformed, KeyMissing, TokenUndecryptable
 
 PLAINTEXT = _tokens.make_token(l_id=_tokens.LEGA_MANTRA, t_id=_tokens.TEAM_MANTRA)
 

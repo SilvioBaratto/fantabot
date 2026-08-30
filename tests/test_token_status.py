@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from fantabot.tokens.status import TokenStatus, orphaned, render_state
+from fantabot.domain.tokens.status import TokenStatus, orphaned, render_state
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 FINGERPRINT = "4f2a1c8e"

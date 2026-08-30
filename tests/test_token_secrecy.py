@@ -33,7 +33,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from _paths import REPO
+from _paths import REPO, pkgs
 
 REPO = REPO
 PACKAGE = REPO / "src" / "fantabot"
@@ -48,14 +48,14 @@ JWT_LITERAL = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.")
 # `decrypt(` — but it is allowed here so that a later change there fails
 # deliberately, at review, rather than by surprise.
 DECRYPT_ALLOWED = {
-    "tokens/crypto.py",
-    "tokens/store.py",
+    "domain/tokens/crypto.py",
+    "adapters/tokens/store.py",
     "apileague.py",
     # Phase 5. A second service, so a second store — a lega token is a JWT whose
     # claims we read, a FantaLab session is three opaque strings. Listed here
     # rather than the assertion being widened to `tokens/*`: this test exists to
     # make each new decryption site a deliberate entry, and it did its job.
-    "tokens/fantalab_store.py",
+    "adapters/tokens/fantalab_store.py",
 }
 
 # argv is visible in `ps` and persists in shell history. SPEC's Never list.
@@ -154,10 +154,18 @@ def test_decrypt_is_confined_to_its_allowed_files() -> None:
 
 
 def _scanned_sources() -> list[Path]:
-    """The modules that will handle a plaintext token."""
-    paths = list((PACKAGE / "tokens").rglob("*.py")) if (PACKAGE / "tokens").is_dir() else []
+    """The modules that will handle a plaintext token.
+
+    Both halves of `tokens/`, asked for by name. It was `PACKAGE / "tokens"` guarded by
+    `if ... is_dir() else []`, which fails open: after P12-4 split the package across two
+    layers the guard silently reduced this scan from nine modules to two, and every
+    secrecy assertion below still reported green.
+    """
+    paths = [p for directory in pkgs("tokens") for p in directory.rglob("*.py")]
     paths += [PACKAGE / name for name in ("apileague.py", "login.py")]
-    return [p for p in paths if p.is_file()]
+    found = [p for p in paths if p.is_file()]
+    assert len(found) >= 9, f"only {len(found)} token modules scanned; the table is stale"
+    return found
 
 
 def _base_identifier(node: ast.expr) -> str | None:
@@ -266,7 +274,7 @@ def test_the_league_token_repr_leaks_neither_plaintext_nor_ciphertext() -> None:
     from cryptography.fernet import Fernet
 
     from fantabot.adapters.persistence.models.tokens import LeagueToken
-    from fantabot.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.crypto import TokenCipher
 
     plaintext = _tokens.make_token(l_id=_tokens.LEGA_MANTRA)
     cipher = TokenCipher(Fernet.generate_key().decode())

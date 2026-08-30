@@ -15,8 +15,8 @@ import re
 
 import pytest
 
-from fantabot.tokens.errors import TokenError
-from fantabot.tokens.fantalab import FantalabSession, parse_fantalab_storage
+from fantabot.domain.tokens.errors import TokenError
+from fantabot.domain.tokens.fantalab import FantalabSession, parse_fantalab_storage
 
 STORAGE = {
     "origins": [

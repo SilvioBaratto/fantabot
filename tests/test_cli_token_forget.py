@@ -16,7 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 from fantabot.cli import app
-from fantabot.tokens.status import TokenStatus
+from fantabot.domain.tokens.status import TokenStatus
 
 runner = CliRunner()
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
@@ -52,7 +52,7 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Any:
             rows[:] = [r for r in rows if r.league_id != league_id]
             return True
 
-    import fantabot.tokens.store as store_module
+    import fantabot.adapters.tokens.store as store_module
 
     monkeypatch.setattr(store_module, "TokenStore", _Store)
 

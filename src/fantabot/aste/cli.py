@@ -46,11 +46,11 @@ def aste_scan(
     import json
 
     from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.fantalab_store import FantalabStore
     from fantabot.aste.client import AuthExpired, LiveAuctionsClient, ScanEmpty
     from fantabot.aste.registry import from_seed_row, merge, to_seed_rows
     from fantabot.config import settings
-    from fantabot.tokens.crypto import TokenCipher
-    from fantabot.tokens.fantalab_store import FantalabStore
+    from fantabot.domain.tokens.crypto import TokenCipher
 
     cipher = TokenCipher(settings.fantabot_encryption_key)
     with database_manager.get_session() as session:

@@ -20,10 +20,10 @@ from cryptography.fernet import Fernet
 from typer.testing import CliRunner
 
 from fantabot.adapters.persistence.models.tokens import LeagueToken
+from fantabot.adapters.tokens.store import TokenStore
 from fantabot.cli import app, token_status_rows
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.status import TokenStatus
-from fantabot.tokens.store import TokenStore
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.status import TokenStatus
 
 runner = CliRunner()
 NOW = datetime(2026, 8, 26, tzinfo=UTC)

@@ -43,6 +43,13 @@ OVERRIDE: dict[str, str] = {
     "parsing": "domain/shared/parsing.py",
     "club_names": "domain/shared/club_names.py",
     "resources": "domain/shared/resources.py",
+    # A package whose modules split across layers needs its `__init__.py` placed by
+    # hand, as an entry here, and the entry is removed once the move is done -- a map
+    # naming something that no longer exists moves nothing and says nothing.
+    # `tokens/` was the first: its `__init__.py` went to `domain/tokens/` because it
+    # re-exports from `errors` and `status` only, both domain, and its own docstring
+    # records why `TokenStore` is deliberately not among them -- re-exporting the
+    # shell from the pure half is a real import cycle.
     # interface
     "cli": "interface/app.py",
     "asta_engine.cli": "interface/asta.py",
@@ -69,8 +76,19 @@ FEATURE: dict[str, str] = {
 }
 
 
+#: The four layer roots. A module already under one of them has arrived.
+LAYERS = ("domain", "application", "adapters", "interface")
+
+
 def destination(module: str, layer: str) -> str:
-    """The path `module` moves to. `module` is dotted and package-relative."""
+    """The path `module` moves to. `module` is dotted and package-relative.
+
+    Idempotent: a module already inside a layer is its own destination. Without that,
+    re-deriving the map after a move sends `domain.tokens` to `domain/shared/tokens.py`,
+    because the feature table knows `tokens` and not `domain`.
+    """
+    if module.split(".")[0] in LAYERS:
+        return module.replace(".", "/") + ".py"
     if module in OVERRIDE:
         return OVERRIDE[module]
     head, _, tail = module.partition(".")

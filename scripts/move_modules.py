@@ -34,11 +34,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+STUB = '"""Layer package. See tests/test_layers.py."""\n'
+
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "src" / "fantabot"
 sys.path.insert(0, str(ROOT / "tests"))
 
-from _destinations import destination  # noqa: E402
+from _destinations import OVERRIDE, destination  # noqa: E402
 from test_layers import UNPLACED, layer_of  # noqa: E402
 
 
@@ -58,7 +60,10 @@ def _selected(prefixes: list[str]) -> list[str]:
         m
         for m in _modules()
         if any(m == p or m.startswith(f"{p}.") for p in prefixes)
-        and f"fantabot.{m}" not in UNPLACED
+        # Namespace packages belong to no layer and have no computed destination -- but
+        # one with an explicit entry in the map has been placed deliberately, and leaving
+        # it behind strands its re-exports in an empty directory.
+        and (f"fantabot.{m}" not in UNPLACED or m in OVERRIDE)
     ]
     if not chosen:
         raise SystemExit(f"nothing matches {prefixes}; known: {_modules()}")
@@ -115,7 +120,7 @@ def move(prefixes: list[str]) -> dict[str, str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         init = target.parent / "__init__.py"
         if target.parent != PACKAGE and not init.exists():
-            init.write_text('"""Layer package. See tests/test_layers.py."""\n')
+            init.write_text(STUB)
             _git("add", str(init))
         _git("mv", str(PACKAGE / prefix.replace(".", "/")), str(target))
         # One entry, not one per module. The rewrite is a prefix substitution, so
@@ -129,11 +134,12 @@ def move(prefixes: list[str]) -> dict[str, str]:
     for module in members:
         source = PACKAGE / (module.replace(".", "/") + ".py")
         if not source.is_file():
-            raise SystemExit(
-                f"{module} is a package whose modules do not share one destination "
-                "directory; move its modules individually and decide where its "
-                "__init__.py re-exports belong."
-            )
+            # A package: its source is its `__init__.py`. Several of these carry real
+            # re-exports, so where they land is a decision, not a default -- hence an
+            # explicit entry in the destination map rather than a computed one.
+            source = PACKAGE / module.replace(".", "/") / "__init__.py"
+        if not source.is_file():
+            raise SystemExit(f"{module}: neither a module nor a package")
         target = PACKAGE / destination(module, layer_of(f"fantabot.{module}"))
         target.parent.mkdir(parents=True, exist_ok=True)
         for parent in [target.parent, *target.parent.parents]:
@@ -141,13 +147,23 @@ def move(prefixes: list[str]) -> dict[str, str]:
                 break
             init = parent / "__init__.py"
             if not init.exists():
-                init.write_text('"""Layer package. See tests/test_layers.py."""\n')
+                init.write_text(STUB)
                 _git("add", str(init))
-        # Never `git mv` onto an existing directory: it nests instead of renaming.
+        # A stub this script wrote is not a conflict: a package whose modules split
+        # across layers has its own `__init__.py` placed by hand, and the first child to
+        # move creates a stub at that very path. Anything else is a real collision.
+        if target.exists() and target.read_text() == STUB:
+            _git("rm", "-q", "-f", str(target))
         if target.exists():
             raise SystemExit(f"{target} already exists — refusing to nest")
         _git("mv", str(source), str(target))
-        new = ".".join(target.relative_to(PACKAGE).with_suffix("").parts)
+        parts = target.relative_to(PACKAGE).with_suffix("").parts
+        # A package's module name is the directory, not `<pkg>.__init__` -- which as a
+        # rename-map value rewrote every `fantabot.tokens` into
+        # `fantabot.domain.tokens.__init__`.
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        new = ".".join(parts)
         renames[f"fantabot.{module}"] = f"fantabot.{new}"
     return renames
 

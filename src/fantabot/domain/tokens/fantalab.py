@@ -33,7 +33,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from fantabot.tokens.errors import TokenError
+from fantabot.domain.tokens.errors import TokenError
 
 ORIGIN = "https://app.fantalab.it"
 

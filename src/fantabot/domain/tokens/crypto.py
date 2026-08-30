@@ -16,7 +16,7 @@ import hashlib
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from fantabot.tokens.errors import KeyMalformed, KeyMissing, TokenUndecryptable
+from fantabot.domain.tokens.errors import KeyMalformed, KeyMissing, TokenUndecryptable
 
 FINGERPRINT_LENGTH = 8
 

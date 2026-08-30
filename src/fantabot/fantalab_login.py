@@ -25,10 +25,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.errors import KeyMissing, TokenError
+from fantabot.domain.tokens.fantalab import FantalabSession, parse_fantalab_storage
 from fantabot.interface.console import console
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.errors import KeyMissing, TokenError
-from fantabot.tokens.fantalab import FantalabSession, parse_fantalab_storage
 
 LOGIN_URL = "https://app.fantalab.it/aste-live"
 EXIT_PREFLIGHT = 2
@@ -126,7 +126,7 @@ def run(
 ) -> FantalabLoginResult:
     """One login. Collaborators are injected so the flow is testable with fakes."""
     from fantabot.adapters.persistence import database_manager
-    from fantabot.tokens.fantalab_store import FantalabStore
+    from fantabot.adapters.tokens.fantalab_store import FantalabStore
 
     moment = now or datetime.now(UTC)
 

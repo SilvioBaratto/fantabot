@@ -31,8 +31,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from fantabot.tokens.claims import TokenClaims, decode_claims
-from fantabot.tokens.errors import LeagueMismatch, NoLeaguesFound
+from fantabot.domain.tokens.claims import TokenClaims, decode_claims
+from fantabot.domain.tokens.errors import LeagueMismatch, NoLeaguesFound
 
 ORIGIN = "https://leghe.fantacalcio.it"
 STORAGE_KEY = "LEAGUES2024_LOCAL"

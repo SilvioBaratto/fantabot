@@ -104,7 +104,7 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: _FakeContext) -> 
     monkeypatch.setattr(module, "_preflight_key", lambda: _Cipher())
     monkeypatch.setattr(module, "_preflight_database", lambda: None)
     monkeypatch.setitem(
-        __import__("sys").modules, "fantabot.tokens.fantalab_store",
+        __import__("sys").modules, "fantabot.adapters.tokens.fantalab_store",
         type("m", (), {"FantalabStore": _Store})(),
     )
     import fantabot.adapters.persistence as db_module

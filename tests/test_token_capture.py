@@ -17,8 +17,8 @@ from typing import Any
 import _tokens
 import pytest
 
-from fantabot.tokens.capture import ORIGIN, CapturedToken, parse_storage_state
-from fantabot.tokens.errors import (
+from fantabot.domain.tokens.capture import ORIGIN, CapturedToken, parse_storage_state
+from fantabot.domain.tokens.errors import (
     LeagueMismatch,
     NoLeaguesFound,
     TokenError,

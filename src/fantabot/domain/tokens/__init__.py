@@ -19,10 +19,10 @@ partially initialised. The test suite caught it the moment it was tried.
 
 The cycle is the pure/shell boundary asserting itself: `db` may depend on the
 pure half of `tokens`, so the pure half must not reach back through a package
-import. Callers say `from fantabot.tokens.store import TokenStore`.
+import. Callers say `from fantabot.adapters.tokens.store import TokenStore`.
 """
 
-from fantabot.tokens.errors import (
+from fantabot.domain.tokens.errors import (
     ApiTimeout,
     ApiUnavailable,
     AppKeyRejected,
@@ -37,7 +37,7 @@ from fantabot.tokens.errors import (
     TokenUndecryptable,
     TokenUnreadable,
 )
-from fantabot.tokens.status import TokenStatus, orphaned, render_state
+from fantabot.domain.tokens.status import TokenStatus, orphaned, render_state
 
 __all__ = [
     "ApiTimeout",

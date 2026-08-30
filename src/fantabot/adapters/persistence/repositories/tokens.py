@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.adapters.persistence.models.tokens import FantalabSession, LeagueToken
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
-from fantabot.tokens.status import TokenStatus
+from fantabot.domain.tokens.status import TokenStatus
 
 if TYPE_CHECKING:
     from sqlalchemy import CursorResult

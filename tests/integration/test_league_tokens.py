@@ -20,9 +20,9 @@ from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.errors import TokenUndecryptable
-from fantabot.tokens.store import TokenStore
+from fantabot.adapters.tokens.store import TokenStore
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.errors import TokenUndecryptable
 
 pytestmark = pytest.mark.db
 
@@ -78,7 +78,7 @@ def test_a_token_survives_a_real_bytea_round_trip(db_session: Session) -> None:
 
 def test_expires_at_equals_the_tokens_own_exp_claim(db_session: Session) -> None:
     """SC 4. The column and the claim must not drift apart."""
-    from fantabot.tokens.claims import decode_claims
+    from fantabot.domain.tokens.claims import decode_claims
 
     cipher = a_cipher()
     token = _tokens.make_token(l_id=LEGA)

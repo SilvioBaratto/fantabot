@@ -37,22 +37,25 @@ SSE_FIXTURES = FIXTURES / "sse"
 #: Logical package name -> its directory today. W6 edits the values here and nothing else.
 #: Keep every name a test asks for, including ones whose location has not changed: the
 #: value of the indirection is that no test spells a directory itself.
-_PACKAGES: dict[str, Path] = {
-    "agentkit": PACKAGE / "agentkit",
-    "asta_engine": PACKAGE / "asta_engine",
-    "aste": PACKAGE / "aste",
-    "data_sources": PACKAGE / "data_sources",
-    "db": PACKAGE / "adapters" / "persistence",
-    "fantalab": PACKAGE / "fantalab",
-    "mantra_grid": PACKAGE / "mantra_grid",
-    "news": PACKAGE / "news",
-    "scrapers": PACKAGE / "scrapers",
-    "tokens": PACKAGE / "tokens",
+#: A tuple, because W6 splits some of these across layers: `tokens/` is half domain and
+#: half adapters, and a test about "everything that handles a token" needs both halves or
+#: it quietly checks a fraction of what it claims.
+_PACKAGES: dict[str, tuple[Path, ...]] = {
+    "agentkit": (PACKAGE / "agentkit",),
+    "asta_engine": (PACKAGE / "asta_engine",),
+    "aste": (PACKAGE / "aste",),
+    "data_sources": (PACKAGE / "data_sources",),
+    "db": (PACKAGE / "adapters" / "persistence",),
+    "fantalab": (PACKAGE / "fantalab",),
+    "mantra_grid": (PACKAGE / "mantra_grid",),
+    "news": (PACKAGE / "news",),
+    "scrapers": (PACKAGE / "scrapers",),
+    "tokens": (PACKAGE / "domain" / "tokens", PACKAGE / "adapters" / "tokens"),
 }
 
 
-def pkg(name: str) -> Path:
-    """The directory of one source package.
+def pkgs(name: str) -> tuple[Path, ...]:
+    """Every directory a logical package occupies. All of them must exist.
 
     Raises on an unknown name, and on a known name whose directory has gone. Both are
     the same failure -- a scan over a directory that is not there examines no files and
@@ -60,15 +63,26 @@ def pkg(name: str) -> Path:
     nowhere is worse than one that fails.
     """
     try:
-        path = _PACKAGES[name]
+        paths = _PACKAGES[name]
     except KeyError:
         raise KeyError(
             f"no source package named {name!r}; known: {sorted(_PACKAGES)}. "
             "If it was renamed, update the table in tests/_paths.py."
         ) from None
-    if not path.is_dir():
-        raise FileNotFoundError(
-            f"tests/_paths.py maps {name!r} to {path}, which does not exist. "
-            "A scan over a missing directory finds nothing and passes; fix the table."
+    for path in paths:
+        if not path.is_dir():
+            raise FileNotFoundError(
+                f"tests/_paths.py maps {name!r} to {path}, which does not exist. "
+                "A scan over a missing directory finds nothing and passes; fix the table."
+            )
+    return paths
+
+
+def pkg(name: str) -> Path:
+    """The single directory of one source package. Raises if it has more than one."""
+    paths = pkgs(name)
+    if len(paths) != 1:
+        raise ValueError(
+            f"{name!r} spans {len(paths)} directories; use pkgs() and scan all of them."
         )
-    return path
+    return paths[0]

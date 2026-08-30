@@ -22,7 +22,8 @@ from typing import Any
 
 import httpx
 
-from fantabot.tokens.errors import (
+from fantabot.adapters.tokens.store import TokenStore
+from fantabot.domain.tokens.errors import (
     ApiTimeout,
     ApiUnavailable,
     AppKeyRejected,
@@ -30,7 +31,6 @@ from fantabot.tokens.errors import (
     TokenMissing,
     TokenRejected,
 )
-from fantabot.tokens.store import TokenStore
 
 # Static and public: shipped in the frontend's JS bundle, identical for every
 # user, and `docs/leghe-api.md` is explicit that it is not a secret. A module

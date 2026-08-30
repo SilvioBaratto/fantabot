@@ -19,10 +19,10 @@ from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.persistence.repositories.tokens import LeagueTokenRepository
-from fantabot.tokens.capture import CapturedToken
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.errors import KeyMissing, TokenExpired, TokenMissing, TokenUndecryptable
-from fantabot.tokens.status import TokenStatus
+from fantabot.domain.tokens.capture import CapturedToken
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.errors import KeyMissing, TokenExpired, TokenMissing, TokenUndecryptable
+from fantabot.domain.tokens.status import TokenStatus
 
 
 class TokenStore:

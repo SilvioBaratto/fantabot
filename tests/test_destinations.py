@@ -50,7 +50,14 @@ def test_no_two_modules_land_on_the_same_path() -> None:
     assert clashes == [], clashes
 
 
-def test_every_override_names_a_module_that_exists() -> None:
-    """An override for a module that was renamed or deleted moves nothing, silently."""
-    known = set(_modules())
+def test_every_override_names_something_that_exists() -> None:
+    """An override for a name that was renamed or deleted moves nothing, silently.
+
+    Packages count. A package whose modules split across layers -- `tokens/` -- has to
+    have its `__init__.py` placed by hand, and those names are absent from `_modules()`
+    because a namespace package belongs to no layer.
+    """
+    known = set(_modules()) | {m for m in G.modules() if m in UNPLACED}
+    known |= {m[len("fantabot."):] for m in G.modules() if m in UNPLACED}
+
     assert sorted(set(OVERRIDE) - known) == []

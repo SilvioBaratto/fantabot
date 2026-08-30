@@ -17,8 +17,8 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
 
     import httpx
 
+    from fantabot.adapters.tokens.store import TokenStore
     from fantabot.news.pipeline import FetchResult
-    from fantabot.tokens.store import TokenStore
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -603,8 +603,8 @@ def token_status_rows(
     request per stored row; without it, nothing is built at all.
     """
     from fantabot import apileague
-    from fantabot.tokens.errors import TokenError
-    from fantabot.tokens.status import orphaned, render_state
+    from fantabot.domain.tokens.errors import TokenError
+    from fantabot.domain.tokens.status import orphaned, render_state
 
     rows = store.status()
     stale = orphaned(rows)
@@ -660,11 +660,11 @@ def token_status(
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
     from fantabot.config import settings
-    from fantabot.tokens.crypto import TokenCipher
-    from fantabot.tokens.errors import TokenError
-    from fantabot.tokens.status import MISSING
-    from fantabot.tokens.store import TokenStore
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+    from fantabot.domain.tokens.status import MISSING
 
     # No key is not an error here. The whole point of the plaintext expiry
     # columns is that this command still answers without one.
@@ -736,7 +736,7 @@ def login(
     Running it again when every token is still valid opens no browser at all.
     """
     from fantabot import login as login_module
-    from fantabot.tokens.errors import TokenError
+    from fantabot.domain.tokens.errors import TokenError
 
     try:
         login_module.run(
@@ -765,8 +765,8 @@ def token_forget(
     from datetime import UTC, datetime
 
     from fantabot.adapters.persistence import database_manager
-    from fantabot.tokens.status import render_state
-    from fantabot.tokens.store import TokenStore
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.domain.tokens.status import render_state
 
     if not league:
         console.print("[red]--league is required. There is no --all.[/red]")

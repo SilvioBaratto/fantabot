@@ -36,11 +36,14 @@ LAYERS: dict[str, str] = {
     # a pure module may ask it without acquiring a dependency on the environment.
     "fantabot.resources": "domain",
     "fantabot.data_sources.models": "domain",
-    "fantabot.tokens.claims": "domain",
-    "fantabot.tokens.errors": "domain",
-    "fantabot.tokens.capture": "domain",
-    "fantabot.tokens.fantalab": "domain",
-    "fantabot.tokens.status": "domain",
+    "fantabot.domain.tokens.claims": "domain",
+    "fantabot.domain.tokens.errors": "domain",
+    "fantabot.domain.tokens.capture": "domain",
+    "fantabot.domain.tokens.fantalab": "domain",
+    # Fernet encrypt/decrypt over a key passed in as an argument. `tokens/__init__.py`
+    # lists it among the three pure modules; only `store` and `fantalab_store` do I/O.
+    "fantabot.domain.tokens.crypto": "domain",
+    "fantabot.domain.tokens.status": "domain",
     "fantabot.domain": "domain",
     # -- application: orchestration. May use adapters; may not be a user interface.
     "fantabot.asta_engine.plan": "application",
@@ -65,7 +68,7 @@ LAYERS: dict[str, str] = {
     # to name a file on disk is infrastructure, and placing it in the domain layer
     # would have made `.env` a dependency of every pure test that touched it.
     "fantabot.state": "adapters",
-    "fantabot.tokens": "adapters",
+    "fantabot.domain.tokens": "domain",
     "fantabot.aste.stream": "adapters",
     "fantabot.aste.transport": "adapters",
     "fantabot.aste.landing": "adapters",
@@ -85,12 +88,15 @@ LAYERS: dict[str, str] = {
     "fantabot.aste.cli": "interface",
 }
 
-#: Namespace packages carry no code and belong to no layer.
-UNPLACED = {"fantabot", "fantabot.asta_engine", "fantabot.aste", "fantabot.news",
-            "fantabot.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
+#: Packages that carry no code and belong to no layer. The four layer roots are here
+#: too: they are directories the move creates, holding a one-line stub, and a rule about
+#: a directory would be a rule about nothing.
+UNPLACED = {"fantabot.domain", "fantabot.application", "fantabot.adapters",
+            "fantabot.interface",
+            "fantabot", "fantabot.asta_engine", "fantabot.aste", "fantabot.news",
+            "fantabot.domain.tokens", "fantabot.adapters.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
             "fantabot.adapters.persistence.repositories", "fantabot.agentkit", "fantabot.fantalab",
-            "fantabot.scrapers", "fantabot.mantra_grid", "fantabot.data_sources",
-            "fantabot.interface"}
+            "fantabot.scrapers", "fantabot.mantra_grid", "fantabot.data_sources"}
 
 
 def layer_of(module: str) -> str:

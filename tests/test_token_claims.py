@@ -15,8 +15,8 @@ from datetime import UTC, datetime, timedelta
 import _tokens
 import pytest
 
-from fantabot.tokens.claims import TokenClaims, decode_claims
-from fantabot.tokens.errors import TokenUnreadable
+from fantabot.domain.tokens.claims import TokenClaims, decode_claims
+from fantabot.domain.tokens.errors import TokenUnreadable
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 

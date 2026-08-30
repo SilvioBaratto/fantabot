@@ -20,11 +20,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fantabot.domain.tokens.capture import CapturedToken, parse_storage_state
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.errors import KeyMissing, NoLeaguesFound, TokenError
+from fantabot.domain.tokens.status import TokenStatus
 from fantabot.interface.console import console
-from fantabot.tokens.capture import CapturedToken, parse_storage_state
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.errors import KeyMissing, NoLeaguesFound, TokenError
-from fantabot.tokens.status import TokenStatus
 
 LOGIN_URL = "https://leghe.fantacalcio.it"
 EXIT_PREFLIGHT = 2
@@ -124,7 +124,7 @@ def run(
     Chromium and open a socket.
     """
     from fantabot.adapters.persistence import database_manager
-    from fantabot.tokens.store import TokenStore
+    from fantabot.adapters.tokens.store import TokenStore
 
     moment = now or datetime.now(UTC)
 
@@ -205,7 +205,7 @@ def _capture(
 ) -> LoginResult:
     """The browser step, the parse, and the encrypted write."""
     from fantabot.adapters.persistence import database_manager
-    from fantabot.tokens.store import TokenStore
+    from fantabot.adapters.tokens.store import TokenStore
 
     # The site root, deliberately — NOT `settings.lega_url`.
     #
@@ -295,7 +295,7 @@ def _verify(
 
     from fantabot import apileague
     from fantabot.adapters.persistence import database_manager
-    from fantabot.tokens.store import TokenStore
+    from fantabot.adapters.tokens.store import TokenStore
 
     console.print("\nVerifying:")
     verified: list[int] = []

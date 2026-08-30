@@ -15,17 +15,17 @@ import pytest
 from cryptography.fernet import Fernet
 
 from fantabot.adapters.persistence.models.tokens import LeagueToken
-from fantabot.tokens.capture import CapturedToken
-from fantabot.tokens.claims import decode_claims
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.errors import (
+from fantabot.adapters.tokens.store import TokenStore
+from fantabot.domain.tokens.capture import CapturedToken
+from fantabot.domain.tokens.claims import decode_claims
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.errors import (
     KeyMissing,
     TokenExpired,
     TokenMissing,
     TokenUndecryptable,
 )
-from fantabot.tokens.status import TokenStatus
-from fantabot.tokens.store import TokenStore
+from fantabot.domain.tokens.status import TokenStatus
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 

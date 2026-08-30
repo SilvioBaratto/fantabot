@@ -23,8 +23,9 @@ from cryptography.fernet import Fernet
 
 from fantabot import apileague
 from fantabot.adapters.persistence.models.tokens import LeagueToken
-from fantabot.tokens.crypto import TokenCipher
-from fantabot.tokens.errors import (
+from fantabot.adapters.tokens.store import TokenStore
+from fantabot.domain.tokens.crypto import TokenCipher
+from fantabot.domain.tokens.errors import (
     ApiTimeout,
     ApiUnavailable,
     AppKeyRejected,
@@ -32,7 +33,6 @@ from fantabot.tokens.errors import (
     TokenMissing,
     TokenRejected,
 )
-from fantabot.tokens.store import TokenStore
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 PLAINTEXT = _tokens.make_token(l_id=_tokens.LEGA_MANTRA, t_id=_tokens.TEAM_MANTRA)
