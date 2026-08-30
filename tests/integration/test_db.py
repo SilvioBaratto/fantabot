@@ -720,7 +720,7 @@ class TestPoolFromPostgres:
     def test_the_season_produces_the_whole_current_listone(self, db_session: Session) -> None:
         """Not a fixed 523. The listone grew to 544 on 2026-08-26 when a scrape
         picked up 21 signings, and the pool has to follow the table."""
-        from fantabot.news.pool import load_pool
+        from fantabot.news.read import load_pool
 
         expected = db_session.execute(
             text(
@@ -732,12 +732,13 @@ class TestPoolFromPostgres:
 
     def test_the_query_filters_by_season(self, db_session: Session) -> None:
         """Five seasons are stored; asking for one must not return the union."""
-        from fantabot.news.pool import load_pool
+        from fantabot.news.read import load_pool
 
         assert len(load_pool(db_session, "2025/26")) < 523 * 2
 
     def test_a_season_with_no_rows_raises(self, db_session: Session) -> None:
-        from fantabot.news.pool import PoolJoinError, load_pool
+        from fantabot.news.pool import PoolJoinError
+        from fantabot.news.read import load_pool
 
         with pytest.raises(PoolJoinError, match="no players"):
             load_pool(db_session, "2099/00")

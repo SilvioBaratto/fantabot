@@ -37,8 +37,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from fantabot.data_sources.models import SentimentRow
-from fantabot.db.repositories.reference import QuotazioneRow
+from fantabot.data_sources.models import QuotazioneRow, SentimentRow
 
 GOLDEN = Path(__file__).resolve().parent / "golden"
 

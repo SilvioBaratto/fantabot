@@ -6,33 +6,19 @@ the scrapers, and move into this package as they are ported.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select, union
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.club_names import build_mapping
+from fantabot.data_sources.models import QuotazioneRow
 from fantabot.db.models.matches import MatchGrain
 from fantabot.db.models.reference import Player, Quotazione, Statistica, Team
 from fantabot.db.repositories._base import RepositoryBase
 
 if TYPE_CHECKING:
     from sqlalchemy import CursorResult
-
-
-@dataclass(frozen=True)
-class QuotazioneRow:
-    """One valuation, joined to the player's name. Pure value type."""
-
-    player_id: str
-    nome: str
-    squadra: str
-    ruoli_codice: tuple[str, ...]
-    ruoli: tuple[str, ...]
-    #: Fantavalore di mercato — the market's value estimate. Defaulted so older callers
-    #: that build this row without it keep working.
-    fvm: int = 0
 
 
 class ReferenceRepository(RepositoryBase):

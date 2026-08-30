@@ -73,7 +73,9 @@ LAYERS: dict[str, str] = {
     "fantabot.aste.transport": "adapters",
     "fantabot.aste.landing": "adapters",
     "fantabot.aste.client": "adapters",
-    "fantabot.news.store": "adapters",
+    # `store.py` holds only `build_row`, which is pure — it reached the database
+    # solely by importing `PoolPlayer` from a module that did.
+    "fantabot.news.read": "adapters",
     "fantabot.data_sources.news_sentiment": "adapters",
     "fantabot.adapters": "adapters",
     # -- interface: the CLI, and only the CLI.
@@ -138,11 +140,6 @@ def _violations(rule: object) -> set[tuple[str, str]]:
 #: not a subset: a violation someone fixed without deleting its line here would leave
 #: the list looking like it still protects something.
 EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = {
-    # P11-4 — `pool.py:87`, and the two modules that import it for its pure half.
-    ("fantabot.news.pool", "fantabot.db"),
-    ("fantabot.news.pool", "sqlalchemy"),
-    ("fantabot.news.prompt", "fantabot.db"),
-    ("fantabot.news.prompt", "sqlalchemy"),
     # P11-5 — the agent call that parses a typed line lives in the decision layer.
     # `config` rides the same import: `agentkit.options` builds its options from
     # Settings, so both edges are cut by the one split.

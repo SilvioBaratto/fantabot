@@ -135,7 +135,7 @@ def _already_stored_pool_player() -> Any:
     the run day it lands on must be one no real run can ever occupy — see RUN_DAY.
     """
     from fantabot.db.repositories.sentiment import SentimentRepository
-    from fantabot.news.pool import load_pool
+    from fantabot.news.read import load_pool
 
     with database_manager.get_session() as session:
         player_id = str(load_pool(session, "2026/27")[0].id)

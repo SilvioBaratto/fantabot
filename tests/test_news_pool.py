@@ -15,7 +15,7 @@ database produces the same 523 players in the same order.
 
 import pytest
 
-from fantabot.db.repositories.reference import QuotazioneRow
+from fantabot.data_sources.models import QuotazioneRow
 from fantabot.news.pool import PoolJoinError, PoolPlayer, build_pool
 
 

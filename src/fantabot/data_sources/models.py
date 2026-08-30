@@ -1,8 +1,15 @@
-"""Value types for the sentiment read side. Pure: no I/O, no SQLAlchemy.
+"""Value types shared across the read side. Pure: no I/O, no SQLAlchemy.
 
 They live here rather than beside either consumer because both the repository
 that produces them and the source that serves them need them, and importing
 either from the other would be a cycle.
+
+``QuotazioneRow`` arrived for the second reason. It was defined in
+``db/repositories/reference.py`` and named in the signatures of ``news.build_pool``
+and ``asta_engine.build_plan_inputs`` — both pure functions, both consequently
+importing the repository module to spell their own arguments. A ``TYPE_CHECKING``
+guard hid that from the interpreter but not from the design: a function whose
+parameters are written in terms of a repository belongs to the repository's layer.
 
 ``SCORES`` is the single definition of the eight model-produced scores. It had
 three copies before this module existed — ``news/store.py::_SCORES``,
@@ -24,6 +31,20 @@ SCORES: tuple[str, ...] = (
     "piazzati",
     "confidenza",
 )
+
+
+@dataclass(frozen=True)
+class QuotazioneRow:
+    """One valuation, joined to the player's name."""
+
+    player_id: str
+    nome: str
+    squadra: str
+    ruoli_codice: tuple[str, ...]
+    ruoli: tuple[str, ...]
+    #: Fantavalore di mercato — the market's value estimate. Defaulted so older callers
+    #: that build this row without it keep working.
+    fvm: int = 0
 
 
 @dataclass(frozen=True)

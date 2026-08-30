@@ -128,8 +128,9 @@ def news_fetch(
     from fantabot.agentkit.env import strip_dangerous_env
     from fantabot.config import settings
     from fantabot.news.pipeline import Progress, fetch_all, format_cost_line
-    from fantabot.news.pool import PoolPlayer, load_pool
+    from fantabot.news.pool import PoolPlayer
     from fantabot.news.prompt import build_prompt
+    from fantabot.news.read import load_pool
     from fantabot.news.sink import SentimentSink
 
     if scope != "pool":

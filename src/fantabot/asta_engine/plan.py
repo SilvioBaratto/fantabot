@@ -50,8 +50,7 @@ from .value import ValueModel
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from fantabot.data_sources.models import SentimentRow
-    from fantabot.db.repositories.reference import QuotazioneRow
+    from fantabot.data_sources.models import QuotazioneRow, SentimentRow
 
 
 @dataclass(frozen=True)

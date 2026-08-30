@@ -13,7 +13,13 @@ entire Mantra half of the feature. A broken join must look like a broken join.
 The pool comes from the ``quotazioni`` table now rather than the two CSVs.
 ``build_pool`` keeps every rule — the two raises and the ``(squadra, nome)``
 ordering — and stays pure, so the join logic is still testable with dictionaries
-and no database. ``load_pool`` is the thin shell that fetches.
+and no database.
+
+**The two reads that feed it live in ``pipeline.py``.** They were a ``load_pool``
+shell here, with its repository import inside the function body, which made this
+module read as pure while reaching Postgres — and, because ``prompt.py`` and
+``store.py`` import ``PoolPlayer`` from here, dragged them into the database's
+import graph too for the sake of one dataclass.
 """
 
 from __future__ import annotations
@@ -22,9 +28,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
-
-    from fantabot.db.repositories.reference import QuotazioneRow
+    from fantabot.data_sources.models import QuotazioneRow
 
 
 class PoolJoinError(RuntimeError):
@@ -80,13 +84,3 @@ def build_pool(
         for player_id, row in classic.items()
     ]
     return sorted(players, key=lambda p: (p.squadra, p.nome))
-
-
-def load_pool(session: Session, season: str) -> list[PoolPlayer]:
-    """Fetch both listoni for one season and join them. The I/O shell."""
-    from fantabot.db.repositories.reference import ReferenceRepository
-
-    repo = ReferenceRepository(session)
-    return build_pool(
-        repo.quotazioni(season, "classic"), repo.quotazioni(season, "mantra"), season
-    )
