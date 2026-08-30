@@ -20,9 +20,10 @@ guaranteed to contain them; every other file is a verbatim capture.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-FIXTURES = Path(__file__).parent / "fixtures"
+from _paths import FIXTURES
+
+FIXTURES = FIXTURES
 SSE = FIXTURES / "sse"
 STATES = FIXTURES / "states"
 

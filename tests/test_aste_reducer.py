@@ -8,12 +8,13 @@ evening stops being a regression test for anything.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+
+from _paths import ONE_AUCTION, SSE_FIXTURES
 
 from fantabot.aste.reducer import apply_frame, fold
 from fantabot.aste.sse import parse
 
-SSE = Path(__file__).parent / "fixtures" / "sse"
+SSE = SSE_FIXTURES
 LIVE = (SSE / "live_auction.txt").read_text(encoding="utf-8")
 NULL_PATCH = (SSE / "null_patch.txt").read_text(encoding="utf-8")
 
@@ -59,7 +60,7 @@ def test_the_folded_state_is_what_reconstruct_expects() -> None:
     from fantabot.aste.reconstruct import reconstruct
 
     recorded = json.loads(
-        (Path(__file__).parent / "fixtures" / "states" / "one_auction.jsonl")
+        ONE_AUCTION
         .read_text(encoding="utf-8")
         .splitlines()[0]
     )["state"]

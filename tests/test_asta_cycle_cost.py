@@ -22,13 +22,8 @@ from __future__ import annotations
 import cProfile
 import io
 import pstats
-import sys
-from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from _golden import (
     PINNED_TODAY,
     load_clearing_sales,

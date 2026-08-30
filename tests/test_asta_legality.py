@@ -154,21 +154,10 @@ def test_matcher_honours_the_mode_on_a_star_only_slot() -> None:
 
 
 # --- the boundary: L1 is pure ------------------------------------------------------------
-
-
-def test_pure_modules_reach_no_database_or_network() -> None:
-    import ast
-    import pathlib
-
-    pkg = pathlib.Path(__file__).resolve().parents[1] / "src" / "fantabot" / "asta_engine"
-    forbidden = ("fantabot.db", "playwright", "claude_agent_sdk", "socket", "httpx", "sqlalchemy")
-    for name in ("roles.py", "legality.py"):
-        tree = ast.parse((pkg / name).read_text(encoding="utf-8"))
-        modules: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                modules.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.add(node.module)
-        bad = [m for m in modules for f in forbidden if m == f or m.startswith(f + ".")]
-        assert not bad, f"{name} reaches I/O: {bad}"
+#
+# `test_pure_modules_reach_no_database_or_network` was here: an AST scan of `roles.py` and
+# `legality.py` for a forbidden-import list. Deleted in P11-7, and not because it was
+# wrong -- because it was the third copy of the same idea, each hand-rolled, each reading
+# a fixed pair of files and following no imports. `tests/test_layers.py` makes the claim
+# for every module in the package, transitively, and would have caught what these could
+# not: an import one hop away behind a re-export.

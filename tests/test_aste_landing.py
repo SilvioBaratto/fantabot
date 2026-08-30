@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from _paths import ONE_AUCTION
+
 from fantabot.aste.landing import LandingZone, read_records
 
 
@@ -38,7 +40,7 @@ def test_the_shape_matches_what_the_backfill_already_reads(tmp_path: Path) -> No
     """The live path and the recorded evening must be the same file format, or
     the loader needs two readers and one of them stays untested."""
     recorded = json.loads(
-        (Path(__file__).parent / "fixtures" / "states" / "one_auction.jsonl")
+        ONE_AUCTION
         .read_text(encoding="utf-8")
         .splitlines()[0]
     )

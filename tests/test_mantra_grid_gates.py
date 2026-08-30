@@ -11,6 +11,7 @@ A gate with no failing fixture is not a gate, so every invariant here has one.
 import json
 
 import pytest
+from _paths import pkg
 
 from fantabot.mantra_grid.gates import check_compat, check_schemi
 from fantabot.mantra_grid.models import (
@@ -358,15 +359,38 @@ def test_rows_that_do_not_match_the_grids_slots_are_rejected() -> None:
 
 
 def test_the_gates_touch_neither_the_sdk_nor_the_filesystem() -> None:
-    from pathlib import Path as _Path
+    """A gate that could read the disk could be handed the file it is judging.
 
-    source = (
-        _Path(__file__).resolve().parent.parent / "src" / "fantabot" / "mantra_grid" / "gates.py"
-    ).read_text()
+    Asked of the syntax tree, not of the file's text. It was three substring checks --
+    `claude_agent_sdk`, `open(`, `Path` -- and each would fire on a sentence: the word
+    `Path` in a docstring failed the check, and the SDK one had the same shape as
+    `test_only_agentkit_imports_the_sdk`, which broke in P11-5 for exactly that reason.
 
-    assert "claude_agent_sdk" not in source
-    assert "open(" not in source
-    assert "Path" not in source
+    The SDK half is gone from here; that boundary is enforced once, over every module,
+    in `tests/test_agentkit_runner.py`. What is left is the claim only this module makes.
+    """
+    import ast
+
+    tree = ast.parse((pkg("mantra_grid") / "gates.py").read_text(encoding="utf-8"))
+
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not imported & {"pathlib", "os", "io", "shutil", "tempfile"}, sorted(imported)
+
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "open" not in called
 
 
 def test_gates_report_every_problem_not_just_the_first() -> None:

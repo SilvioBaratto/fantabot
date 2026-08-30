@@ -22,10 +22,11 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from _paths import PACKAGE
 
 from fantabot.db.engine import DatabaseManager
 
-PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot"
+PACKAGE = PACKAGE
 FORBIDDEN = "create_engine"
 
 #: The asta engine's decision layer. These modules hold every rule that decides what a

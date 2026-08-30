@@ -16,11 +16,12 @@ import json
 from pathlib import Path
 
 import pytest
+from _paths import ONE_AUCTION, REPO
 
 from fantabot.aste.reconstruct import reconstruct
 
-FIXTURE = Path(__file__).parent / "fixtures" / "states" / "one_auction.jsonl"
-EVENING = Path(__file__).parent.parent / "data" / "aste_live" / "events_2026-08-26.jsonl"
+FIXTURE = ONE_AUCTION
+EVENING = REPO / "data" / "aste_live" / "events_2026-08-26.jsonl"
 
 # Ground truth from scripts/resolve_aste_live.py, the poller-era resolver, run
 # against this exact file on 2026-08-27. This module must not silently disagree

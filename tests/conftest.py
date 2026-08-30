@@ -16,13 +16,22 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
+
+# The suite's own helper modules -- `_paths`, `_golden`, `_importgraph` -- are not a
+# package and `tests/` is not on `sys.path`. Six files carried their own
+# `sys.path.insert` to reach them, and `tests/integration/` could not reach them at all.
+# conftest is loaded before collection in both directories, so one line here is the whole
+# arrangement.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 @pytest.fixture(autouse=True)

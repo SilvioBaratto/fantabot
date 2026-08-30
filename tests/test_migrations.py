@@ -14,13 +14,13 @@ from __future__ import annotations
 import subprocess
 import sys
 from collections.abc import Generator
-from pathlib import Path
 
 import pytest
+from _paths import REPO
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = REPO
 SCRATCH_DB = "fantabot_migration_scratch"
 
 pytestmark = pytest.mark.db

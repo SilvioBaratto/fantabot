@@ -19,10 +19,11 @@ import json
 from pathlib import Path
 
 import pytest
+from _paths import pkg
 
 from fantabot.aste.loader import Checkpoint, read_from
 
-PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "aste"
+PACKAGE = pkg("aste")
 
 #: The capture path: from a socket to a line on disk. Nothing here may import
 #: the database, directly or transitively through a sibling.

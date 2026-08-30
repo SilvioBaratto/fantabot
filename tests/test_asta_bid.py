@@ -8,8 +8,9 @@ The payload it emits must match ``docs/fantalab/06-asta-write-path.md`` §5 to t
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 from typing import Any
+
+from _paths import pkg
 
 from fantabot.asta_engine.bid import SERVER_TIMESTAMP, Seat, decide_bid, pass_reason
 
@@ -106,7 +107,7 @@ def test_pass_reason_names_the_guard_that_refuses() -> None:
 
 
 def test_bid_module_imports_no_io() -> None:
-    path = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "asta_engine" / "bid.py"
+    path = pkg("asta_engine") / "bid.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     imported: set[str] = set()
     for node in ast.walk(tree):

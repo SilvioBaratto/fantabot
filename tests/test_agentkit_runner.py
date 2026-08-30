@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from _paths import PACKAGE
 from claude_agent_sdk import RateLimitEvent, ResultMessage
 from claude_agent_sdk.types import RateLimitInfo
 from pydantic import BaseModel, ConfigDict, Field
@@ -273,9 +274,8 @@ def test_the_repo_has_exactly_one_message_loop() -> None:
     The sibling optimizer-theory repo had to undo five copies of this loop. The
     cheapest moment to stop the second one is before it is written.
     """
-    from pathlib import Path
 
-    src = Path(__file__).resolve().parent.parent / "src" / "fantabot"
+    src = PACKAGE
     loops = [
         f"{path.relative_to(src)}:{n}"
         for path in sorted(src.rglob("*.py"))
@@ -299,10 +299,7 @@ def test_only_agentkit_imports_the_sdk() -> None:
     Direct imports, deliberately: transitively, every caller of `agentkit` reaches the
     SDK, which is the arrangement rather than a violation of it.
     """
-    import sys
-    from pathlib import Path
 
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     import _importgraph as G
 
     offenders = sorted(

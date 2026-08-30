@@ -12,14 +12,14 @@ remembered not to filter today" is not a property.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
+from _paths import pkg
 
 from fantabot.aste.client import LiveAuctionsClient
 from fantabot.aste.registry import from_card
 
-PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "aste"
+PACKAGE = pkg("aste")
 
 #: Modules that run while collecting. A format comparison in any of them is a
 #: filter, whatever it is called.

@@ -33,13 +33,14 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import fields
 from datetime import date
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from _paths import GOLDEN
+
 from fantabot.data_sources.models import QuotazioneRow, SentimentRow
 
-GOLDEN = Path(__file__).resolve().parent / "golden"
+GOLDEN = GOLDEN
 
 #: The day the captured `player_sentiment` rows were produced. Freezing `_today` here makes
 #: the confidence decay exactly zero, which is the only value that does not drift.

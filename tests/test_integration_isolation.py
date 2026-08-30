@@ -19,8 +19,9 @@ import ast
 from pathlib import Path
 
 import pytest
+from _paths import INTEGRATION
 
-INTEGRATION = Path(__file__).resolve().parent / "integration"
+INTEGRATION = INTEGRATION
 
 #: The borrow: *selecting ids* out of the table to use as test subjects. Whichever ids come
 #: back are real players with real readings, so the test collides with production rows on

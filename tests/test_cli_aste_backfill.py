@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 
+from _paths import ONE_AUCTION
 from typer.testing import CliRunner
 
 from fantabot.cli import app
@@ -28,7 +29,7 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 def _plain(output: str) -> str:
     return ANSI.sub("", output)
 
-STATES = Path(__file__).parent / "fixtures" / "states" / "one_auction.jsonl"
+STATES = ONE_AUCTION
 
 
 def _seed(tmp_path: Path) -> Path:

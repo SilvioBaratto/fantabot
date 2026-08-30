@@ -8,12 +8,13 @@ and asserted here rather than at the far end of a load.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+
+from _paths import ONE_AUCTION
 
 from fantabot.aste.backfill import assignment_rows, auction_rows, build, event_rows
 from fantabot.aste.reconstruct import reconstruct
 
-FIXTURE = Path(__file__).parent / "fixtures" / "states" / "one_auction.jsonl"
+FIXTURE = ONE_AUCTION
 STATES = [json.loads(line) for line in FIXTURE.read_text(encoding="utf-8").splitlines()]
 AUCTION_ID = STATES[0]["auction_id"]
 

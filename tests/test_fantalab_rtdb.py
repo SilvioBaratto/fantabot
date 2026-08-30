@@ -16,10 +16,11 @@ from pathlib import Path
 
 import httpx
 import pytest
+from _paths import pkg
 
 from fantabot.fantalab import rtdb
 
-PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "fantalab"
+PACKAGE = pkg("fantalab")
 CAPTURE = ("rest.py", "rtdb.py", "feed.py", "room.py")
 
 

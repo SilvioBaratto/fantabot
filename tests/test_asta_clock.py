@@ -21,9 +21,10 @@ explain a week later.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
-PACKAGE = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "asta_engine"
+from _paths import pkg
+
+PACKAGE = pkg("asta_engine")
 
 #: The single function allowed to read the calendar.
 SEAM = "_today"

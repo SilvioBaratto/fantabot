@@ -23,8 +23,9 @@ import ast
 from pathlib import Path
 
 import pytest
+from _paths import REPO
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+SCRIPTS = REPO / "scripts"
 
 #: Modules a script may import as a bare sibling name, and where the real file lives.
 #: Empty since 2026-08-30, and the directory it guards is nearly empty too: the four

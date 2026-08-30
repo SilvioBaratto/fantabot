@@ -10,11 +10,12 @@ events as noise.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+
+from _paths import SSE_FIXTURES
 
 from fantabot.aste.sse import FrameBuffer, parse
 
-SSE = Path(__file__).parent / "fixtures" / "sse"
+SSE = SSE_FIXTURES
 LIVE = (SSE / "live_auction.txt").read_text(encoding="utf-8")
 
 

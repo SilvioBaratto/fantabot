@@ -53,9 +53,9 @@ from __future__ import annotations
 import ast
 import re
 from collections.abc import Generator
-from pathlib import Path
 
 import pytest
+from _paths import pkg
 from sqlalchemy import Engine, create_engine, text
 
 pytestmark = pytest.mark.db
@@ -283,7 +283,7 @@ def _db_script_source() -> str:
     check`` cannot see, because it compares models to migrations and never reads them.
     """
     return (
-        Path(__file__).resolve().parents[2] / "src" / "fantabot" / "db" / "scraping.py"
+        pkg("db") / "scraping.py"
     ).read_text()
 
 

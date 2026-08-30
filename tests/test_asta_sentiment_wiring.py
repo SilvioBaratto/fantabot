@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date
-from pathlib import Path
 
 import pytest
 import typer
+from _paths import REPO, pkg
 
 from fantabot.asta_engine.cli import parse_run_date, sentiment_rows
 from fantabot.asta_engine.legality import SchemaLegality, SlotRule, fieldable_schemi
@@ -360,7 +360,7 @@ def test_the_observed_role_never_reaches_a_decision_module() -> None:
 
     Checked as text over the whole package so it holds for edits nobody thought to test.
     """
-    engine = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "asta_engine"
+    engine = pkg("asta_engine")
     allowed = {"report.py", "sentiment.py"}
 
     offenders = sorted(
@@ -375,7 +375,7 @@ def test_the_observed_role_never_reaches_a_decision_module() -> None:
 def test_legality_cannot_see_the_sentiment_feed_at_all() -> None:
     """Not "does not use it" — cannot. L1 reads quotazioni, and only quotazioni."""
     legality = (
-        Path(__file__).resolve().parent.parent
+        REPO
         / "src" / "fantabot" / "asta_engine" / "legality.py"
     ).read_text(encoding="utf-8")
 

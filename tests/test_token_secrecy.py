@@ -33,7 +33,9 @@ import re
 import subprocess
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+from _paths import REPO
+
+REPO = REPO
 PACKAGE = REPO / "src" / "fantabot"
 SELF = Path(__file__).resolve()
 
@@ -259,9 +261,7 @@ def test_config_check_excludes_the_encryption_key() -> None:
 
 def test_the_league_token_repr_leaks_neither_plaintext_nor_ciphertext() -> None:
     """A repr reaches tracebacks, pytest output and cron logs."""
-    import sys
 
-    sys.path.insert(0, str(REPO / "tests"))
     import _tokens
     from cryptography.fernet import Fernet
 
@@ -325,7 +325,6 @@ def test_league_tokens_has_no_text_column_that_could_hold_a_jwt() -> None:
                 f"league_tokens.{column.name} is String({length}) — long enough "
                 "to hold something it should not"
             )
-
 
 
 # The instruction surface: files that tell a human what to run. `tasks/` and

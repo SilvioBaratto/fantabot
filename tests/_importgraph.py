@@ -26,7 +26,9 @@ from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent.parent / "src"
+from _paths import REPO
+
+SRC = REPO / "src"
 PACKAGE = SRC / "fantabot"
 
 

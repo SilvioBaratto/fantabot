@@ -24,9 +24,10 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
 
-CLI_PATH = Path(__file__).resolve().parent.parent / "src" / "fantabot" / "cli.py"
+from _paths import PACKAGE
+
+CLI_PATH = PACKAGE / "cli.py"
 
 # Wide enough that Typer's box never wraps a command name onto a second row.
 _WIDE = {**os.environ, "COLUMNS": "200", "TERM": "dumb"}

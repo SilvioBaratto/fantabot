@@ -11,17 +11,17 @@ overwrites the complete one.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+from _paths import ONE_AUCTION
 
 from fantabot.aste import incremental as I
 from fantabot.aste.compare import equivalent
 from fantabot.aste.models import Bid
 from fantabot.aste.reconstruct import reconstruct
 
-FIXTURE = Path(__file__).parent / "fixtures" / "states" / "one_auction.jsonl"
+FIXTURE = ONE_AUCTION
 
 
 def _records() -> list[dict[str, Any]]:
