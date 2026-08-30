@@ -269,19 +269,21 @@ def fit_fades(
     return fades
 
 
-def fit_role_fades(system: str) -> dict[str, RoleFade]:
-    """The I/O shell over `fit_fades`: two reads, then the pure fit."""
-    return fit_fades(*_training_data(system), system)
-
-
-def _training_data(
+def _read(
     system: str,
-) -> tuple[list[BiasRow], dict[tuple[str, str], PriorStats]]:
-    """The two tables every stage of the model reads. One session, both reads."""
+) -> tuple[list[BiasRow], dict[tuple[str, str], PriorStats], list[PlayerQuote]]:
+    """Everything a pricing run reads, in one session.
+
+    Three tables, and every stage needs some of them: the fit needs the drift rows and
+    the priors, the discounts need the drift rows, the pricing needs the priors and the
+    target universe. Reading them together is why `run` holds one connection instead of
+    the six the model used to open between its shells.
+    """
     with _db.session() as handle:
         return (
             _db.load_bias_rows(handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI),
             _db.load_prior_stats(handle, system),
+            _db.load_quotes(handle, system, seasons={TARGET_SEASON}),
         )
 
 
@@ -303,11 +305,6 @@ def discount_factors(bias_rows: Sequence[BiasRow]) -> dict[str, float]:
         median_pct = statistics.median(pcts)
         factors[team] = 1.0 + median_pct / 100.0
     return factors
-
-
-def team_discount_factors(system: str) -> dict[str, float]:
-    """The I/O shell over `discount_factors`."""
-    return discount_factors(_training_data(system)[0])
 
 
 @dataclass(frozen=True)
@@ -390,21 +387,6 @@ def price_universe(
     return out
 
 
-def compute_target_prices(system: str) -> list[TargetPriceRow]:
-    """The I/O shell: read once, then fit, discount and price. All pure from here."""
-    bias_rows, prior_stats = _training_data(system)
-    with _db.session() as handle:
-        universe = _db.load_quotes(handle, system, seasons={TARGET_SEASON})
-
-    return price_universe(
-        universe,
-        prior_stats,
-        fit_fades(bias_rows, prior_stats, system),
-        discount_factors(bias_rows),
-        system,
-    )
-
-
 @dataclass(frozen=True)
 class FadeSummary:
     """One fitted fade, with the number of observations behind it.
@@ -472,15 +454,12 @@ def build_report(
 def run(system: str = "classic", top_n: int = 15) -> PricingReport:
     """Fit, price, upsert, and report. No presentation: see `interface/app.py`.
 
-    The three stages read the training tables once between them, and the fade counts come
-    from the same rows the fit used rather than from two more queries.
+    The three stages read their tables once between them, and the fade counts come from
+    the same rows the fit used rather than from two more queries.
     """
-    bias_rows, prior_stats = _training_data(system)
+    bias_rows, prior_stats, universe = _read(system)
     fades = fit_fades(bias_rows, prior_stats, system)
     team_factors = discount_factors(bias_rows)
-
-    with _db.session() as handle:
-        universe = _db.load_quotes(handle, system, seasons={TARGET_SEASON})
     rows = price_universe(universe, prior_stats, fades, team_factors, system)
 
     # Database only. The CSV writer was removed on 2026-08-26, once the port had been

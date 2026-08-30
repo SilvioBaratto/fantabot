@@ -290,15 +290,33 @@ class TestBuildReport:
     returns this instead, and `interface/app.py` renders it.
     """
 
+    #: `(qi, target, flags)`. Two expensive players carry a *small* move, so ranking by
+    #: price and ranking by the credit difference disagree -- which is the whole claim of
+    #: `test_the_biggest_movers_are_ranked_by_credits_not_by_ratio`. Every row used to
+    #: have `qi=10`, so the two orderings coincided and that test passed against a
+    #: `build_report` sorting by either. Found by mutation.
+    SHAPE: ClassVar[list[tuple[int, int, str]]] = [
+        (10, 30, ""),                      # +20
+        (10, 20, "floor_qi"),              # +10
+        (200, 205, ""),                    # +5,  and the second-highest price
+        (10, 10, ""),                      # 0
+        (10, 5, "team_discount(NAP)"),     # -5
+        (10, 1, "floor_qi"),               # -9
+        (300, 290, ""),                    # -10, and the highest price
+    ]
+
     ROWS: ClassVar[list[TargetPriceRow]] = [
         TargetPriceRow(
             id=str(i), nome=f"P{i}", squadra="NAP", role="c", macro_role="MID",
-            qi=10, prior_media_fantavoto=6.0, predicted_pct_delta=0.0,
+            qi=qi, prior_media_fantavoto=6.0, predicted_pct_delta=0.0,
             team_factor=1.0, target_price=target, flags=flags,
         )
-        for i, (target, flags) in enumerate([(30, ""), (20, "floor_qi"), (10, ""),
-                                             (5, "team_discount(NAP)"), (1, "floor_qi")])
+        for i, (qi, target, flags) in enumerate(SHAPE)
     ]
+
+    #: Deliberately not `len(ROWS)`. The report carries what the upsert returned, and a
+    #: test that passes the two in equal cannot tell them apart.
+    STORED = 999
 
     def _report(self, top_n: int = 2) -> PricingReport:
         return build_report(
@@ -307,7 +325,7 @@ class TestBuildReport:
             observations={"MID": 42},
             team_factors={"NAP": 0.9},
             rows=self.ROWS,
-            stored=len(self.ROWS),
+            stored=self.STORED,
             top_n=top_n,
         )
 
@@ -316,12 +334,18 @@ class TestBuildReport:
         table is the only place an operator sees the difference."""
         assert [(f.role, f.observations) for f in self._report().fades] == [("MID", 42)]
 
-    def test_the_biggest_movers_are_ranked_by_credits_not_by_ratio(self) -> None:
-        """+20 on a qi of 10 and +20 on a qi of 200 cost the same at the auction."""
+    def test_the_biggest_movers_are_ranked_by_the_credit_difference(self) -> None:
+        """Not by the price, and not by the ratio.
+
+        What an operator is looking for is where the model disagrees with the platform by
+        the most *credits* -- that is what a wrong number costs at the auction. The 200
+        and 300 credit players in the fixture are the two most expensive and move the
+        least, so ranking by price would put them first in both lists.
+        """
         report = self._report()
 
-        assert [r.target_price for r in report.biggest_bumps] == [30, 20]
-        assert [r.target_price for r in report.biggest_cuts] == [1, 5]
+        assert [(r.qi, r.target_price) for r in report.biggest_bumps] == [(10, 30), (10, 20)]
+        assert [(r.qi, r.target_price) for r in report.biggest_cuts] == [(300, 290), (10, 1)]
 
     def test_top_n_bounds_both_lists(self) -> None:
         assert len(self._report(top_n=1).biggest_bumps) == 1
@@ -335,8 +359,12 @@ class TestBuildReport:
         assert self._report().flag_counts == {"floor_qi": 2, "team_discount": 1}
 
     def test_it_reports_what_was_stored_rather_than_what_was_computed(self) -> None:
-        """The upsert's return value. A row computed and not written is the bug this shows."""
-        assert self._report().stored == 5
+        """The upsert's return value. A row computed and not written is the bug this shows,
+        so the fixture stores a count that is deliberately not `len(rows)`."""
+        report = self._report()
+
+        assert report.stored == 999
+        assert report.stored != len(self.ROWS)
 
 
 class TestObservationCounts:
