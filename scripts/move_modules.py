@@ -204,6 +204,14 @@ def main() -> None:
     _sweep_pycache()
     renames = move(prefixes)
     touched = rewrite(renames, [ROOT / "src", ROOT / "tests", ROOT / "alembic"])
+    # `git mv` leaves the source directory behind once it is empty of tracked files, and
+    # an empty directory is still importable as a namespace package -- so a stale one
+    # makes `(PACKAGE / "tokens").is_dir()` true after the package has moved, which is
+    # exactly the condition a fail-open scan checks.
+    for directory in sorted(PACKAGE.rglob("*"), key=lambda p: -len(p.parts)):
+        if directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
+            print(f"  removed empty {directory.relative_to(PACKAGE)}")
     for old, new in sorted(renames.items()):
         print(f"  {old}  ->  {new}")
     print(f"\n{len(renames)} modules moved, {touched} files rewritten.")
