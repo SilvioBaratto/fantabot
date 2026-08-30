@@ -43,6 +43,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from fantabot.aste import incremental
 from fantabot.aste.models import Assignment
 
 #: Where a checkpoint lives: beside its landing zone, so moving one moves both.
@@ -176,6 +177,44 @@ class Checkpoint:
         self.path.write_text(str(offset), encoding="utf-8")
 
 
+class FoldCheckpoint:
+    """The reducer's state, beside the byte offset and written with it.
+
+    Both describe the same position in the same file, so they are kept in the same
+    place and written in the same step. A state ahead of the offset would re-fold
+    records it already holds and append a ladder's rungs twice; a state behind it
+    would rebuild a ladder from nothing. Neither is recoverable after the fact,
+    which is why `read` fails to `None` — meaning *re-fold from the beginning* —
+    rather than to anything cleverer.
+
+    198 KB for the real 1.22 GB zone, so it is written every pass. The planning
+    estimate was 161 MB and would have needed a `--state-every`; the measurement
+    removed the flag along with the problem.
+    """
+
+    def __init__(self, landing: Path) -> None:
+        self.path = landing.with_name(landing.name + ".state")
+
+    def read(self) -> incremental.FoldState | None:
+        try:
+            blob = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return incremental.from_json(blob)
+
+    def write(self, state: incremental.FoldState) -> None:
+        # Written whole, then moved into place: a follower killed mid-write must
+        # find either the old state or the new one, never half of one. A truncated
+        # file parses to None and costs a re-fold, but the same crash between the
+        # offset and the state would leave them describing different positions.
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(json.dumps(incremental.to_json(state)), encoding="utf-8")
+        tmp.replace(self.path)
+
+    def clear(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+
 def read_from(
     path: Path, offset: int, max_bytes: int = DEFAULT_WINDOW_BYTES
 ) -> tuple[list[dict[str, Any]], int]:
@@ -266,7 +305,7 @@ def assignments_for_pass(
         return []
     from fantabot.aste.reconstruct import reconstruct
 
-    return _rows(reconstruct(iter_records(landing)))
+    return assignment_rows(reconstruct(iter_records(landing)))
 
 
 def iter_records(path: Path) -> Iterator[dict[str, Any]]:
@@ -316,7 +355,7 @@ def read_records(path: Path) -> list[dict[str, Any]]:
     return list(iter_records(path))
 
 
-def _rows(assignments: Iterable[Assignment]) -> list[dict[str, Any]]:
+def assignment_rows(assignments: Iterable[Assignment]) -> list[dict[str, Any]]:
     """Assignment value types as the rows the repository writes.
 
     The listone bridge is applied by the caller, which holds it; this only

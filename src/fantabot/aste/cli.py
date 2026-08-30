@@ -160,14 +160,16 @@ def aste_load(
     import json
     import time
 
+    from fantabot.aste import incremental
     from fantabot.aste.backfill import auction_rows, event_rows
     from fantabot.aste.loader import (
         DEFAULT_WINDOW_BYTES,
         CachedPlayerIds,
         Checkpoint,
+        FoldCheckpoint,
         LandingZoneMissing,
         SeedRows,
-        assignments_for_pass,
+        assignment_rows,
         catching_up,
         read_from,
     )
@@ -186,6 +188,20 @@ def aste_load(
     # able it is to start, and a 1.14 GB backlog could not be loaded at all.
     pass_window = window or DEFAULT_WINDOW_BYTES
     checkpoint = Checkpoint(landing)
+    fold_checkpoint = FoldCheckpoint(landing)
+
+    # The fold's position in the same file the byte offset describes. `None` from a
+    # missing, truncated or older-version state file means re-fold from the
+    # beginning, so the offset is reset with it — the two must describe the same
+    # position or a ladder is rebuilt from nothing, or has its rungs appended twice.
+    fold_state = fold_checkpoint.read()
+    if fold_state is None and checkpoint.read():
+        console.print(
+            "[yellow]no usable reducer state — re-reading the landing zone from the "
+            "start so the ladders are rebuilt whole[/yellow]"
+        )
+        checkpoint.write(0)
+    fold = fold_state if fold_state is not None else incremental.empty()
     # Re-read every pass, not once: the collector adopts auctions that open
     # after it started, and a loader holding the startup seed calls their events
     # unknown and advances its checkpoint past them.
@@ -210,9 +226,14 @@ def aste_load(
     target = None if follow else (landing.stat().st_size if landing.exists() else 0)
 
     def pass_once() -> tuple[int, int, bool]:
-        """Records carried, bytes still behind the writer, and whether the
-        ladder rebuild was deferred — which is also the answer to *is another
-        pass coming*, and the only thing the loop below needs to know."""
+        """Records carried, bytes still behind the writer, and whether another pass
+        is coming — the only thing the loop below asks of the third value.
+
+        (It used to mean "the ladder rebuild was deferred". Nothing is deferred now:
+        the fold runs every pass, because the byte offset advances every pass and a
+        skipped fold would never see those records again.)
+        """
+        nonlocal fold
         offset = checkpoint.read()
         records, new_offset = read_from(landing, offset, max_bytes=pass_window)
         size = landing.stat().st_size if landing.exists() else new_offset
@@ -228,6 +249,13 @@ def aste_load(
         # would drift, and the drift would leave the ladders behind the events.
         # A dry run never has one: its checkpoint does not move, so a second
         # pass would re-read the same window for ever.
+        # Still the answer to "is another pass coming", which is all the loop below
+        # asks of it. It no longer gates the assignment work: that deferral existed
+        # because rebuilding assignments meant re-reading the whole landing zone —
+        # 9.4 s and ~880 MB, thirty-four times over on the 2026-08-28 backlog. The
+        # incremental fold costs O(window), so there is nothing left to defer, and
+        # deferring it now would be worse than pointless: the byte offset advances
+        # on every pass, so records skipped here would never be folded at all.
         deferring = not dry_run and (
             new_offset < target
             if target is not None
@@ -241,23 +269,23 @@ def aste_load(
         # Events from the window: they are append-only, so re-reading would
         # re-upload the whole evening every pass.
         events, dropped = event_rows(records, known)
-        # Assignments from the WHOLE landing zone. A window that starts mid-turn
-        # rebuilds a ladder from nothing, and the upsert is DO UPDATE — the short
-        # ladder would overwrite the complete one and the checkpoint would never
-        # come back for the rungs it skipped.
-        #
-        # Which is exactly why a pass in the middle of a catch-up need not do it:
-        # the pass that lands rebuilds from the whole file anyway, including
-        # every record the deferred passes carried. Measured on the 2026-08-28
-        # backlog, paying it per window cost 9.4 s and ~880 MB thirty-four times
-        # over, plus ~160,000 rows re-upserted each time, for a result thrown
-        # away by the next pass. Events stay incremental — they are append-only,
-        # so re-reading them would re-upload the evening.
-        assignments = (
-            []
-            if deferring
-            else [r for r in assignments_for_pass(landing, records) if r["asta_id"] in known]
-        )
+
+        # Fold every pass, unconditionally. `advance` returns a NEW state, which is
+        # bound below only after the write commits: a failed write leaves the byte
+        # offset where it was, so the same window is re-read, and folding it onto a
+        # state that already holds it appends the same rungs again — a ladder that
+        # steps downwards, which is the corruption an opponent model reads as a
+        # bidding war.
+        next_fold, closed = incremental.advance(fold, records)
+
+        # `drain` before writing, always. The node keeps returning a closed state
+        # until the next call begins, so one window routinely carries the same sale
+        # twice — and a single INSERT whose VALUES repeat a conflict key raises
+        # "ON CONFLICT DO UPDATE command cannot affect row a second time", which the
+        # handler below would report as a database outage and retry for ever.
+        assignments = [
+            r for r in assignment_rows(incremental.drain(closed)) if r["asta_id"] in known
+        ]
         unlinked = 0
         for row in assignments:
             entry = bridge.get(row["player_uuid"])
@@ -276,7 +304,12 @@ def aste_load(
                 repo.upsert_events(events)
                 repo.upsert_assignments(assignments)
                 session.commit()
+            # Order matters: the write commits, then the two checkpoints move
+            # together, then the state is bound. Anything else lets the fold and the
+            # offset describe different positions in the same file.
             checkpoint.write(new_offset)
+            fold_checkpoint.write(next_fold)
+            fold = next_fold
 
         if unlinked:
             console.print(f"[yellow]{unlinked} assignment(s) carry no player link[/yellow]")

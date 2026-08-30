@@ -360,8 +360,11 @@ class _FakeDatabase:
     def __init__(self) -> None:
         self.assignment_batches: list[int] = []
         self.event_batches: list[int] = []
+        #: Every assignment row written, in order — the union a multi-pass run
+        #: produces, which is what the equivalence oracle compares.
+        self.assignment_rows: list[dict] = []
 
-    def install(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    def install(self, monkeypatch, keep_rows: bool = False) -> None:  # type: ignore[no-untyped-def]
         import contextlib
 
         from fantabot.db import database_manager
@@ -390,6 +393,8 @@ class _FakeDatabase:
 
             def upsert_assignments(self, rows: list) -> int:  # type: ignore[type-arg]
                 record.assignment_batches.append(len(rows))
+                if keep_rows:
+                    record.assignment_rows.extend(rows)
                 return len(rows)
 
             def known_player_ids(self) -> frozenset[int]:
@@ -488,81 +493,107 @@ class TestAOneShotLoadCarriesTheWholeBacklog:
         assert _carried(result.output) == [0]
 
 
-class TestTheLadderRebuildIsNotPaidOncePerWindow:
-    """Assignments are rebuilt from the *whole* landing zone every pass — the
-    only shape that cannot truncate a ladder. That was one rebuild per interval;
-    removing the interval made it one per window.
+class TestTheLadderIsCarriedRatherThanRebuilt:
+    """**This class replaced one whose subject no longer exists.**
 
-    Measured on the 2026-08-28 backlog: 9.4 s and ~880 MB for 2,242,083 records,
-    and ~160,000 rows re-upserted, thirty-four times back to back — for a result
-    that the pass which lands rebuilds in full anyway.
+    It used to assert that the whole-file rebuild ran *once* per catch-up rather than
+    once per window — 9.4 s and ~880 MB for 2,242,083 records, thirty-four times back
+    to back on the 2026-08-28 backlog, each result thrown away by the next pass. The
+    fix then was to defer the rebuild while another pass was certain.
 
-    Deferring is only safe while another pass is *certain*, so the condition that
-    defers is the same value the loop uses to continue. One value, one place, no
-    path that defers and then returns.
+    The incremental fold removes the rebuild, so the deferral has nothing left to
+    defer — and keeping it would now be *harmful*: the byte offset advances on every
+    pass, so a pass that skipped the fold would never see those records again. Every
+    pass folds and writes its own sales.
+
+    So the property inverts. It was "the expensive thing happens once"; it is now
+    "every pass carries its own share, and the union is exactly what one whole-file
+    pass would have produced". That is strictly stronger, and it is checked against
+    `reconstruct` rather than against a call count.
     """
 
-    def _count_rebuilds(self, monkeypatch) -> list[int]:  # type: ignore[no-untyped-def]
-        from fantabot.aste import loader
-
-        calls: list[int] = []
-        real = loader.assignments_for_pass
-
-        def counting(landing: Path, records: object) -> object:
-            calls.append(1)
-            return real(landing, records)  # type: ignore[arg-type]
-
-        monkeypatch.setattr(loader, "assignments_for_pass", counting)
-        return calls
-
-    def test_a_multi_window_catch_up_rebuilds_once(
+    def test_every_pass_writes_its_own_assignments(
         self, tmp_path: Path, monkeypatch
     ) -> None:  # type: ignore[no-untyped-def]
-        landing = tmp_path / "live.jsonl"
-        _zone(landing, 400)
-        _FakeDatabase().install(monkeypatch)
-        rebuilds = self._count_rebuilds(monkeypatch)
-
-        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
-
-        assert result.exit_code == 0, result.output
-        assert len(_carried(result.output)) >= 8, "the fixture did not span several windows"
-        assert len(rebuilds) == 1, f"the whole-file rebuild ran {len(rebuilds)} times"
-
-    def test_a_single_pass_still_rebuilds(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:  # type: ignore[no-untyped-def]
-        """Nothing is deferred when no further pass is coming."""
-        landing = tmp_path / "live.jsonl"
-        _zone(landing, 5)
-        _FakeDatabase().install(monkeypatch)
-        rebuilds = self._count_rebuilds(monkeypatch)
-
-        _load(landing, _seed_file(tmp_path), tmp_path)
-
-        assert len(rebuilds) == 1
-
-    def test_the_deferral_is_reported_rather_than_silent(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:  # type: ignore[no-untyped-def]
-        landing = tmp_path / "live.jsonl"
-        _zone(landing, 400)
-        _FakeDatabase().install(monkeypatch)
-
-        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
-
-        assert "deferred" in result.output, "work skipped without a word is work nobody counts"
-
-    def test_the_pass_that_lands_writes_the_assignments_and_the_others_do_not(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:  # type: ignore[no-untyped-def]
-        """Events stay incremental on every pass; only the ladders wait."""
         landing = tmp_path / "live.jsonl"
         _zone(landing, 400)
         database = _FakeDatabase()
         database.install(monkeypatch)
 
+        result = _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        assert result.exit_code == 0, result.output
+        assert len(_carried(result.output)) >= 8, "the fixture did not span several windows"
+        assert len(database.event_batches) >= 8, "events were never deferred"
+        assert sum(1 for n in database.assignment_batches if n) > 1, (
+            "only one pass wrote sales — the fold is being skipped, and the offset "
+            "advances anyway, so those records are gone"
+        )
+
+    def test_the_whole_file_is_never_re_read(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        """The thing this whole exercise was for.
+
+        `assignments_for_pass` is the whole-file rebuild. It still exists for
+        `harvest backfill`, which genuinely reads a finished recording, but the
+        follower must never call it.
+        """
+        from fantabot.aste import loader
+
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 400)
+        _FakeDatabase().install(monkeypatch)
+
+        calls: list[int] = []
+        real = loader.assignments_for_pass
+        monkeypatch.setattr(
+            loader,
+            "assignments_for_pass",
+            lambda *a, **k: (calls.append(1), real(*a, **k))[1],
+        )
+
         _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
 
-        assert len(database.event_batches) >= 8, "events must not be deferred with the ladders"
-        assert sum(1 for n in database.assignment_batches if n) <= 1
+        assert calls == [], f"the whole-file rebuild ran {len(calls)} times"
+
+    def test_the_union_across_passes_equals_one_whole_file_fold(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Ladders included — a short ladder overwrites a complete one, silently.
+
+        `compare.equivalent` is the oracle rather than a row count, because a count
+        cannot see a truncated ladder and that is the failure the whole-file rebuild
+        existed to prevent.
+        """
+        from fantabot.aste.compare import equivalent
+        from fantabot.aste.loader import iter_records
+        from fantabot.aste.models import Assignment, Bid
+        from fantabot.aste.reconstruct import reconstruct
+
+        landing = tmp_path / "live.jsonl"
+        _zone(landing, 400)
+        database = _FakeDatabase()
+        database.install(monkeypatch, keep_rows=True)
+
+        _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
+
+        # What the database ends up holding, last write winning per key.
+        final: dict[tuple[str, str], Assignment] = {}
+        for row in database.assignment_rows:
+            final[(row["asta_id"], row["player_uuid"])] = Assignment(
+                auction_id=row["asta_id"],
+                player_id=row["player_uuid"],
+                price=row["price"],
+                buyer_team_id=row["buyer_team_id"],
+                closed_at_ms=row["closed_at_ms"],
+                ladder=tuple(
+                    Bid(price=b["price"], team_id=b["team_id"], at_ms=b["at_ms"])
+                    for b in row["ladder"]
+                ),
+            )
+
+        whole = reconstruct(iter_records(landing))
+        assert whole, "the fixture produced no sales; this test would prove nothing"
+        verdict = equivalent(whole, list(final.values()))
+        assert verdict.ok, verdict.reason
