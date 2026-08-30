@@ -1,4 +1,4 @@
-"""Reads and writes over `league_tokens`. Stores bytes; knows nothing about keys.
+"""Reads and writes over `league_tokens` and `fantalab_session`. Bytes only.
 
 This module imports no cipher, and no decryption happens here.
 That is the store's job (`tokens/store.py`), which is the single decryption site
@@ -9,6 +9,7 @@ source scan, so this file must not even name the call.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -16,7 +17,7 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from fantabot.db.models.tokens import LeagueToken
+from fantabot.db.models.tokens import FantalabSession, LeagueToken
 from fantabot.db.repositories._base import RepositoryBase
 from fantabot.tokens.status import TokenStatus
 
@@ -142,3 +143,89 @@ class LeagueTokenRepository(RepositoryBase):
             .where(LeagueToken.league_id == league_id)
             .values(last_verified_at=at)
         )
+
+
+@dataclass(frozen=True)
+class FantalabSessionRecord:
+    """One stored FantaLab session as the store reads it back.
+
+    Carries the ciphertext, because the store is the thing that decrypts it — the
+    same division `LeagueTokenRepository` already keeps. What it deliberately does
+    not carry is anything derived from the plaintext.
+    """
+
+    user_id: str
+    ciphertext: bytes
+    key_fingerprint: str
+
+
+class FantalabSessionRepository(RepositoryBase):
+    """Every query over `fantalab_session`.
+
+    `FantalabStore` used to issue these itself, which made it the only credential
+    path in the repo that reached SQLAlchemy directly — against this package's own
+    rule that every query the application makes lives behind a repository. The
+    cipher stays in the store; only the SQL moved.
+    """
+
+    def upsert(self, *, user_id: str, ciphertext: bytes, fingerprint: str, at: datetime) -> None:
+        """Store or replace. Replaced rather than versioned.
+
+        A superseded refresh token stays valid at the provider until it is rotated
+        there, so keeping old rows would mean keeping live credentials with no way
+        to say which is current.
+        """
+        statement = insert(FantalabSession).values(
+            user_id=user_id,
+            ciphertext=ciphertext,
+            key_fingerprint=fingerprint,
+            captured_at=at,
+        )
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "ciphertext": statement.excluded.ciphertext,
+                    "key_fingerprint": statement.excluded.key_fingerprint,
+                    "captured_at": statement.excluded.captured_at,
+                    # Cleared on re-capture: a new session has not been used yet,
+                    # and carrying the old stamp forward would claim otherwise.
+                    "last_used_at": None,
+                },
+            )
+        )
+
+    def newest(self, user_id: str | None = None) -> FantalabSessionRecord | None:
+        """The most recently captured session, optionally for one account."""
+        statement = select(FantalabSession).order_by(FantalabSession.captured_at.desc())
+        if user_id is not None:
+            statement = statement.where(FantalabSession.user_id == user_id)
+        row = self.session.execute(statement).scalars().first()
+        if row is None:
+            return None
+        return FantalabSessionRecord(
+            user_id=row.user_id,
+            ciphertext=row.ciphertext,
+            key_fingerprint=row.key_fingerprint,
+        )
+
+    def mark_used(self, user_id: str, at: datetime) -> None:
+        row = self.session.get(FantalabSession, user_id)
+        if row is not None:
+            row.last_used_at = at
+
+    def describe(self) -> list[tuple[str, datetime, datetime | None]]:
+        """`(user_id, captured_at, last_used_at)` per stored session.
+
+        Selects no ciphertext and no fingerprint, so a status command can be written
+        without a decrypt — the same property `all_rows` has for lega tokens, and a
+        test asserts both.
+        """
+        rows = self.session.execute(
+            select(
+                FantalabSession.user_id,
+                FantalabSession.captured_at,
+                FantalabSession.last_used_at,
+            ).order_by(FantalabSession.captured_at.desc())
+        ).all()
+        return [(r.user_id, r.captured_at, r.last_used_at) for r in rows]

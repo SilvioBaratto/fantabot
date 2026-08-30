@@ -9,7 +9,7 @@ before any SQL is built at all.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -423,3 +423,60 @@ class TestClearingSalesAreReadInAStableOrder:
         order_by = sql.split("ORDER BY", 1)[1]
         assert "asta_assignment.fantacalcio_id" in order_by
         assert "asta_assignment.price" in order_by
+
+
+class TestTheFantalabSessionRepositoryHandlesBytesOnly:
+    """The SQL half of `FantalabStore`, extracted so it stops being the one
+    credential path that reached SQLAlchemy directly.
+
+    The division is the same one `LeagueTokenRepository` keeps and
+    `tests/test_token_secrecy.py` enforces: the repository moves ciphertext as
+    bytes and never names a cipher; the store decrypts. Both halves are asserted
+    here because a repository that quietly grew a `decrypt` would still pass every
+    behavioural test in the suite.
+    """
+
+    def test_describe_selects_no_ciphertext(self) -> None:
+        """A status command must be writable without a decrypt."""
+        session = _session([])
+        from fantabot.db.repositories.tokens import FantalabSessionRepository
+
+        FantalabSessionRepository(session).describe()
+
+        sql = session.statements[0]
+        assert "ciphertext" not in sql
+        assert "key_fingerprint" not in sql
+
+    def test_describe_orders_newest_first(self) -> None:
+        """`load()` with no user_id promises the most recent row wins."""
+        session = _session([])
+        from fantabot.db.repositories.tokens import FantalabSessionRepository
+
+        FantalabSessionRepository(session).describe()
+
+        assert "ORDER BY fantalab_session.captured_at DESC" in session.statements[0]
+
+    def test_upsert_clears_last_used_at(self) -> None:
+        """A re-captured session has not been used yet.
+
+        Carrying the old stamp forward would claim otherwise, which is the kind of
+        thing a status table states confidently and wrongly.
+        """
+        session = _session([])
+        from fantabot.db.repositories.tokens import FantalabSessionRepository
+
+        FantalabSessionRepository(session).upsert(
+            user_id="u1", ciphertext=b"x", fingerprint="fp", at=datetime(2026, 8, 30)
+        )
+
+        set_clause = session.statements[0].split("DO UPDATE SET", 1)[1]
+        assert "last_used_at" in set_clause
+
+    def test_the_repository_never_imports_the_cipher(self) -> None:
+        """Decryption is the store's job, and the store is the only site."""
+        from pathlib import Path
+
+        source = Path("src/fantabot/db/repositories/tokens.py").read_text()
+
+        assert "tokens.crypto" not in source
+        assert "decrypt(" not in source
