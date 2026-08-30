@@ -189,7 +189,7 @@ def aste_load(
     # after it started, and a loader holding the startup seed calls their events
     # unknown and advances its checkpoint past them.
     seed_source = SeedRows(seed)
-    # `players`, by contrast, only moves when someone runs `db-import`, and
+    # `players`, by contrast, only moves when the quotazioni scraper runs, and
     # reading it is a session and 1,492 ids across the wire.
 
     def fetch_known_players() -> frozenset[int]:

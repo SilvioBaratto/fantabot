@@ -23,7 +23,6 @@ playwright install chromium
 
 docker compose up -d         # Postgres on 54321, Adminer on 18082
 alembic upgrade head
-fantabot db-import --all     # one-time seed from the CSVs in data/
 fantabot db-check            # health, per-table row counts and sizes
 
 fantabot login               # interactive login → encrypted tokens in league_tokens
@@ -95,7 +94,7 @@ alembic check                # models and migrations agree?
 13. **`db/`** — the persistence shell. `engine.py` builds the Engine lazily on
    first `get_session()`, never at import; `base.py` carries the naming
    convention that makes `alembic downgrade` work; `models/` is the schema,
-   `repositories/` every query, `importers/` the one-time CSV seed. Everything
+   `repositories/` every query. Everything
    here is I/O — decision logic stays in the pure modules. A test enforces that
    `create_engine` appears nowhere outside this package.
 10. **`agentkit/`** — the Claude Agent SDK plumbing, shared by every command

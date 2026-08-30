@@ -13,9 +13,10 @@ because a key check on `player_id` reported 3,039 rows missing. Those are coach
 rows, which carry no player id and are stored with `player_id` NULL; both tables
 hold 50,634 rows, exactly the file totals. Nothing was dropped.
 
-`fantabot db-import` still works and still refuses to guess: with the sources
-gone it reports `missing <file> — skipped` per importer and writes nothing. To
-re-seed from scratch, re-run the scrapers in `scripts/` — they read the live
+`fantabot db-import` and the eleven importers behind it were **removed on
+2026-08-30**. They read CSVs that are not on disk and are not in git, so
+`db-import --all` already reported `missing <file> — skipped` for every table and
+wrote nothing. To re-seed from scratch, run the scrapers — they read the live
 site, so the counts below are floors from the capture day, not fixtures.
 
 ```bash

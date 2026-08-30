@@ -87,7 +87,7 @@ class CachedPlayerIds:
     `known_player_ids()` was called inside the pass body, so following a
     landing zone at the default ten-second interval opened a session and pulled
     1,492 ids six times a minute — for a table that only changes when someone
-    runs `db-import`.
+    re-runs the quotazioni scraper.
 
     Not cached for the life of the process, though. A follow left running for a
     day would keep nulling `fantacalcio_id` for a player imported that morning,

@@ -214,7 +214,7 @@ class TestCachedPlayerIds:
 
     Following a landing zone at the default ten-second interval, that is a
     session opened and 1,492 ids pulled across the wire six times a minute, for
-    a table that changes when someone runs `db-import` — which is to say
+    a table that changes when the quotazioni scraper runs — which is to say
     almost never, but not never, so the answer cannot simply be cached for the
     life of the process.
     """
@@ -238,7 +238,7 @@ class TestCachedPlayerIds:
         cache = CachedPlayerIds(lambda: answers.pop(0), ttl=300.0)
         assert cache.get(now=0.0) == frozenset({7})
         assert cache.get(now=300.0) == frozenset({7, 8}), (
-            "a db-import during a long follow must eventually be seen"
+            "a scrape during a long follow must eventually be seen"
         )
 
     def test_a_failed_fetch_does_not_poison_the_cache(self) -> None:

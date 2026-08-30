@@ -229,12 +229,16 @@ def test_the_league_pool_has_no_foreign_key_to_players() -> None:
     assert Base.metadata.tables["league_player_pool"].foreign_keys == set()
 
 
-def test_the_snapshot_tables_have_no_importer_and_say_why() -> None:
+def test_the_snapshot_tables_ship_empty_and_say_why() -> None:
     """They ship empty on purpose. SPEC open question 5 decides the producer,
     and adding an HTTP client is on SPEC's Ask-first list — so the absence is a
-    decision, and the docstring has to be the thing that says so."""
-    from fantabot.db import importers
+    decision, and the docstring has to be the thing that says so.
+
+    This used to assert the absence against `importers.names()`. That package was
+    retired on 2026-08-30 — the CSVs it read are not on disk and `db-import --all`
+    already wrote nothing — so the check is now that the docstring still carries
+    the reason, which is the half that was ever load-bearing.
+    """
     from fantabot.db.models import league
 
-    assert "league_snapshot" not in importers.names()
     assert "open question 5" in league.__doc__.lower()  # type: ignore[union-attr]

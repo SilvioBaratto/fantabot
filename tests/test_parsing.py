@@ -2,7 +2,8 @@
 
 Moved verbatim from ``tests/test_importers.py`` when the parsers moved out of
 ``db/importers/_csv.py``: the rules they pin are facts about how the site renders
-numbers, not about how a CSV was stored, so they outlive the importers.
+numbers, not about how a CSV was stored, so they outlived the importers — that
+package was retired on 2026-08-30 and these rules did not move again.
 """
 
 from __future__ import annotations

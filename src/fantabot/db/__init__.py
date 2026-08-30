@@ -1,4 +1,4 @@
-"""The database shell: engine, models, repositories, importers.
+"""The database shell: engine, models, repositories.
 
 Everything in this package is I/O. Decision logic stays in the pure modules —
 ``asta_engine/optimizer|sentiment|value``, ``news/models|mantra|prompt``,

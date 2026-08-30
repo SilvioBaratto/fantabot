@@ -124,8 +124,6 @@ each departure from the file layout was made.
 docker compose up -d              # db + adminer, nothing else
 alembic upgrade head              # apply migrations
 alembic check                     # do models and migrations still agree?
-fantabot db-import --all          # idempotent; safe to re-run
-fantabot db-import --table voti --dry-run
 ```
 
 ## Commands
@@ -136,7 +134,6 @@ fantabot token-status    # stored / expires / state, per lega — works with no 
 fantabot token-forget    # remove one lega's row; --league required, no --all
 fantabot config-check    # print resolved settings, secrets masked
 fantabot db-check        # database health + per-table row counts and sizes
-fantabot db-import       # seed Postgres from data/ — needs --all or --table
 fantabot news-fetch      # weekly sentiment run; --write stores it
 fantabot mantra-grid     # one-off, collects the Mantra schema grid
 ```

@@ -1,7 +1,7 @@
 """Queries over the reference tables.
 
 Everything here is a read of data the scrapers produced. Writes belong to the
-importers, and to the scripts once they are ported.
+the scrapers, and move into this package as they are ported.
 """
 
 from __future__ import annotations

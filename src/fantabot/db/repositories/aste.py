@@ -1,6 +1,6 @@
 """Every query against the three auction tables. Upserts only.
 
-A killed collector is restarted, never repaired — the same rule the importers
+A killed collector is restarted, never repaired — the same rule every writer
 follow, and here it is not a preference. On 2026-08-26 the collector was killed
 eleven times in eight hours; each restart re-emitted the current state of every
 auction it was watching. If a write could duplicate, the ladder reconstructed
