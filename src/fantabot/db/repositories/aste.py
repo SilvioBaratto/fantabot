@@ -88,6 +88,17 @@ class AsteRepository(RepositoryBase):
 
         ``last_seen_at`` moves forward and ``first_seen_at`` does not: a rescan
         that finds an auction still running must not rewrite when we first met it.
+
+        **The exclusion set is an allowlist by omission, and that is a trap.** The
+        ``SET`` clause is built by iterating the model, so *any column added to*
+        ``Asta`` is enrolled automatically — and ``auction_rows`` supplies neither
+        ``key`` nor ``fantaleague_id``, so a rescan would set both to NULL.
+        ``harvest load`` calls this before ``upsert_events`` on every ten-second
+        pass, so the damage would be continuous, silent and green: ``key``
+        renumbered under the events pointing at it, ``fantaleague_id`` blanked on the
+        row the payload reconstruction joins back to. Both are excluded, and
+        ``test_re_registering_an_auction_keeps_its_key_and_its_league`` fails without
+        it — verified by removing the exclusion and watching the key change.
         """
         if not rows:
             return 0
@@ -97,7 +108,14 @@ class AsteRepository(RepositoryBase):
             updatable = {
                 c.name: statement.excluded[c.name]
                 for c in Asta.__table__.columns
-                if c.name not in {"id", "created_at", "first_seen_at"}
+                if c.name not in {
+                    "id",
+                    "created_at",
+                    "first_seen_at",
+                    # Neither is in `auction_rows`; see the docstring.
+                    "key",
+                    "fantaleague_id",
+                }
             }
             self.session.execute(
                 statement.on_conflict_do_update(index_elements=["id"], set_=updatable)

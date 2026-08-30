@@ -106,6 +106,42 @@ def test_re_registering_an_auction_does_not_rewrite_when_we_first_met_it(
     assert stored.name == "renamed"
 
 
+def test_re_registering_an_auction_keeps_its_key_and_its_league(
+    db_session: Session,
+) -> None:
+    """The production break `upsert_auctions` would have shipped green.
+
+    That method builds its `ON CONFLICT SET` by iterating the model, so every column
+    added to `Asta` is enrolled automatically. `auction_rows` supplies neither `key`
+    nor `fantaleague_id`, so without an explicit exclusion a rescan sets both to
+    NULL — and `harvest load` calls this before `upsert_events` on every ten-second
+    pass. The key would be renumbered under the events pointing at it and the league
+    blanked on the row the payload reconstruction joins back to, continuously, on a
+    green suite. Nothing else in the tree notices: the assertions above are about
+    `first_seen_at` and `name`.
+    """
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    db_session.flush()
+
+    first = db_session.get(Asta, AUCTION)
+    assert first is not None
+    first.fantaleague_id = "fl-42"
+    db_session.flush()
+    original_key = first.key
+
+    # A rescan, exactly as `harvest scan` issues it.
+    repo.upsert_auctions([_auction(name="renamed")])
+    db_session.flush()
+    db_session.expire_all()
+
+    after = db_session.get(Asta, AUCTION)
+    assert after is not None
+    assert after.name == "renamed", "the rescan did happen"
+    assert after.key == original_key, "the surrogate key was renumbered under its events"
+    assert after.fantaleague_id == "fl-42", "the league was blanked by a rescan"
+
+
 def test_a_reconstruction_can_be_corrected_by_rerunning_it(db_session: Session) -> None:
     """Assignments are derived. A fixed reducer must be able to overwrite what a
     broken one wrote, which is why this path is DO UPDATE and events are not."""

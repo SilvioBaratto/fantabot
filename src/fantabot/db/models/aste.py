@@ -28,6 +28,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Text,
@@ -56,6 +57,18 @@ class Asta(Base, TimestampMixin):
     __tablename__ = "asta"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
+
+    #: A surrogate, so `asta_event` can carry a 4-byte integer instead of 486,803
+    #: copies of a 36-character UUID. `id` stays the primary key: it is the
+    #: platform's own identifier, `asta_assignment`'s 43,298 rows point at it, and
+    #: it is what a human matches against FantaLab. This is storage, not identity.
+    key: Mapped[int] = mapped_column(BigInteger, Identity(always=False), unique=True)
+
+    #: Lifted out of every event's payload. Measured strictly bijective with `id`
+    #: over 486,803 rows and 224 auctions — no auction under two leagues, no league
+    #: under two auctions — so on `asta_event` it was 486,803 copies of 224 things.
+    fantaleague_id: Mapped[str | None] = mapped_column(Text)
+
     db_shard: Mapped[str] = mapped_column(Text, nullable=False)
     asta_type: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
