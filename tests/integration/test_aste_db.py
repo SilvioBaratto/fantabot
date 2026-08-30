@@ -62,11 +62,32 @@ def _count(session: Session, model: type) -> int:
     database happened to be empty. Loading the recorded evening turned all five
     of these red at once — the tests were reading state they did not create, and
     the rollback fixture cannot undo what another process committed.
+
+    **The model→filter map is explicit, and used to be a `hasattr` fallback.**
+    ``model.asta_id if hasattr(model, "asta_id") else model.id`` fails *open*: when
+    `asta_event.asta_id` became `asta_key` the filter silently degraded to
+    ``id IN (<uuids>)``. Here that raised, because text and bigint are incompatible —
+    but between two compatible types it would have matched nothing and made every
+    idempotence assertion below pass vacuously, on the one table that cannot be
+    re-collected. A KeyError on an unmapped model is the failure this wants.
     """
-    column = model.asta_id if hasattr(model, "asta_id") else model.id
+    filters = {
+        "Asta": lambda m: m.id,
+        "AstaEvent": lambda m: m.asta_key,
+        "AstaAssignment": lambda m: m.asta_id,
+    }
+    column = filters[model.__name__](model)
     return int(
         session.execute(
-            select(func.count()).select_from(model).where(column.in_(OURS))
+            select(func.count())
+            .select_from(model)
+            .where(
+                column.in_(
+                    select(Asta.key).where(Asta.id.in_(OURS))
+                    if model.__name__ == "AstaEvent"
+                    else OURS
+                )
+            )
         ).scalar_one()
     )
 

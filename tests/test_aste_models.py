@@ -49,6 +49,20 @@ def test_an_assignment_keeps_its_ladder() -> None:
 
 
 @pytest.mark.parametrize("table", sorted(TABLES))
-def test_every_auction_table_is_timestamped(table: str) -> None:
+def test_every_auction_table_records_when_it_was_written(table: str) -> None:
+    """`created_at` on all three; `updated_at` on all but the append-only one.
+
+    `asta_event` dropped `updated_at` on 2026-08-30 because it differed from
+    `created_at` on **0 of 486,803 rows** — the table is append-only, so the second
+    timestamp was 3.8 MB restating the first. The other two are upserted and their
+    `updated_at` moves, so they keep it.
+    """
     columns = set(Base.metadata.tables[table].columns.keys())
-    assert {"created_at", "updated_at"} <= columns
+    assert "created_at" in columns
+    if table != "asta_event":
+        assert "updated_at" in columns, f"{table} is upserted; it must record the update"
+    else:
+        assert "updated_at" not in columns, (
+            "asta_event is append-only — updated_at was measured identical to "
+            "created_at on every row and dropped"
+        )

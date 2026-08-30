@@ -22,6 +22,7 @@ exactly by ``GET /v2/listone`` — no fuzzy name matching anywhere.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import (
     BigInteger,
@@ -31,7 +32,9 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    SmallInteger,
     Text,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -93,10 +96,10 @@ class Asta(Base, TimestampMixin):
         return f"<Asta id={self.id[:8]} type={self.asta_type} {self.num_teams}x{self.num_credits}>"
 
 
-class AstaEvent(Base, TimestampMixin):
+class AstaEvent(Base):
     """One observed state of an auction node, kept verbatim.
 
-    **Why a surrogate key.** The natural identity is ``(asta_id, last_update)``,
+    **Why a surrogate key.** The natural identity is ``(asta_key, last_update)``,
     but ``last_update`` is absent from a few states and Postgres forbids a
     nullable column in a primary key. ``voti`` solved the same problem the same
     way — a surrogate plus a partial unique index — and copying that precedent
@@ -111,27 +114,82 @@ class AstaEvent(Base, TimestampMixin):
     __tablename__ = "asta_event"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    asta_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("asta.id", ondelete="CASCADE"), nullable=False
+
+    #: `TimestampMixin` is deliberately not used here, and this is the only model that
+    #: opts out. It supplies `created_at` *and* `updated_at`, and `updated_at` differed
+    #: from `created_at` on **0 of 486,803 rows** — this table is append-only, so the
+    #: second timestamp was 3.8 MB saying what the first already said. `created_at`
+    #: stays: its lag from `seen_at` runs 0.098 s to 12h29m, median 7h55m, so it
+    #: records when the loader wrote a row as distinct from when the collector saw it,
+    #: and nothing else in the schema holds that.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    #: `asta.key`, not `asta.id`. The UUID was 36 characters repeated 486,803 times
+    #: over 224 distinct auctions, in the heap and in both indexes. Writers still pass
+    #: `asta_id`; `AsteRepository.upsert_events` resolves it, so nothing on the
+    #: collection path knows this changed.
+    asta_key: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("asta.key", ondelete="CASCADE"), nullable=False
     )
     last_update: Mapped[int | None] = mapped_column(BigInteger)
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     update_type: Mapped[str | None] = mapped_column(Text)
+
+    #: Promoted out of `payload`. JSON keys were 38.6% of every payload's bytes, and
+    #: these three are the ones present on 83–100% of rows with a single JSON type
+    #: each. `last_update` and `update_type` were *already* columns and duplicated in
+    #: the payload on every row with zero mismatches, so they are simply stripped;
+    #: `fantaleague_id` moved to `asta`, being bijective with it.
+    last_update_asta: Mapped[int | None] = mapped_column(BigInteger)
+    last_bid_time: Mapped[int | None] = mapped_column(BigInteger)
+    timer_in_sec: Mapped[int | None] = mapped_column(SmallInteger)
+
+    #: Everything not promoted. Still verbatim, still the irreplaceable part.
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
 
     __table_args__ = (
         Index(
-            "uq_asta_event_asta_id_last_update",
-            "asta_id",
+            "uq_asta_event_asta_key_last_update",
+            "asta_key",
             "last_update",
             unique=True,
             postgresql_where=last_update.isnot(None),
         ),
-        Index("ix_asta_event_asta_id_seen_at", "asta_id", "seen_at"),
+        Index("ix_asta_event_asta_key_seen_at", "asta_key", "seen_at"),
     )
 
+    #: The keys this table promoted out of `payload`, and where each went. The
+    #: reconstruction below is derived from it, so the two cannot drift.
+    PROMOTED: ClassVar[dict[str, str]] = {
+        "last_update_asta": "last_update_asta",
+        "last_bid_time": "last_bid_time",
+        "timer_in_sec": "timer_in_sec",
+        "last_update": "last_update",
+        "update_type": "update_type",
+    }
+
+    def full_payload(self, fantaleague_id: str | None = None) -> dict[str, object]:
+        """The payload as it was collected, promoted keys folded back in.
+
+        **This is why the split is safe rather than merely small.** A reconstruction
+        that exists only inside a migration is one nobody can run afterwards, and
+        `models/aste.py` already records that storing only the reconstruction would
+        lose the thing worth keeping. `fantaleague_id` is passed in because it lives
+        on `asta` now — one value per auction rather than one per event.
+        """
+        restored = dict(self.payload)
+        for key, attribute in self.PROMOTED.items():
+            value = getattr(self, attribute)
+            if value is not None:
+                restored[key] = value
+        if fantaleague_id is not None:
+            restored["fantaleague_id"] = fantaleague_id
+        return restored
+
     def __repr__(self) -> str:
-        return f"<AstaEvent asta={self.asta_id[:8]} {self.update_type} @{self.last_update}>"
+        return f"<AstaEvent asta={self.asta_key} {self.update_type} @{self.last_update}>"
 
 
 class AstaAssignment(Base, TimestampMixin):

@@ -127,26 +127,57 @@ class AsteRepository(RepositoryBase):
         """Append observed states, absorbing the repeats a restart produces.
 
         The conflict target is the *partial* index, so the statement has to
-        repeat its predicate — a bare ``ON CONFLICT (asta_id, last_update)``
+        repeat its predicate — a bare ``ON CONFLICT (asta_key, last_update)``
         raises ``there is no unique or exclusion constraint matching the
-        ON CONFLICT specification``. ``voti`` hit the same wall first.
+        ON CONFLICT specification``. The match-grain tables hit the same wall first.
 
         Rows without a ``last_update`` cannot conflict and are inserted plainly:
         there is no key on which to call them the same observation.
+
+        **Callers still pass ``asta_id``, the platform UUID, and that is deliberate.**
+        The surrogate ``asta.key`` is a storage detail; ``aste/loader.py`` and
+        ``aste/backfill.py`` know auctions by the id FantaLab gives them, and a test
+        walks the capture modules' imports to prove none of them can reach the
+        database at all. So the translation happens here, in the one place that is
+        already talking to Postgres, and the collection path is unchanged.
         """
         if not rows:
             return 0
+
+        keys = self._keys_for(sorted({str(r["asta_id"]) for r in rows}))
+        translated = [
+            {k: v for k, v in row.items() if k != "asta_id"} | {"asta_key": keys[str(row["asta_id"])]}
+            for row in rows
+            if str(row["asta_id"]) in keys
+        ]
+        if not translated:
+            return 0
+
         written = 0
-        for chunk in _chunks(rows, AstaEvent):
+        for chunk in _chunks(translated, AstaEvent):
             statement = insert(AstaEvent).values(list(chunk))
             self.session.execute(
                 statement.on_conflict_do_nothing(
-                    index_elements=["asta_id", "last_update"],
+                    index_elements=["asta_key", "last_update"],
                     index_where=AstaEvent.__table__.c.last_update.isnot(None),
                 )
             )
             written += len(chunk)
         return written
+
+    def _keys_for(self, asta_ids: Sequence[str]) -> dict[str, int]:
+        """``asta.id`` -> ``asta.key`` for the auctions named, ids absent omitted.
+
+        An unknown auction is dropped rather than raising, matching what the loader
+        already does with events for auctions its seed has not heard of — and the
+        loader counts those drops, which is why they are not silent.
+        """
+        if not asta_ids:
+            return {}
+        rows = self.session.execute(
+            select(Asta.id, Asta.key).where(Asta.id.in_(list(asta_ids)))
+        ).all()
+        return {row.id: row.key for row in rows}
 
     def upsert_assignments(self, rows: Sequence[dict[str, Any]]) -> int:
         """Write reconstructions, replacing any earlier one for the same sale.
