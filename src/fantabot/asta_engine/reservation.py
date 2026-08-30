@@ -15,7 +15,12 @@ from dataclasses import replace
 
 from .legality import SchemaLegality
 from .live import AssignmentEvent
-from .optimizer import DEFAULT_SAME_TEAM_RHO, InfeasibleRoster, optimize_roster
+from .optimizer import (
+    DEFAULT_SAME_TEAM_RHO,
+    InfeasibleRoster,
+    build_index,
+    optimize_roster,
+)
 from .roles import MantraPlayer
 from .state import AstaState, OptimizationResult, RosterRules
 from .value import ValueModel
@@ -53,11 +58,17 @@ def reservations(
     the remaining budget. A target whose removal makes the roster infeasible is essential and
     reserves the whole budget.
     """
+    # Built once for the whole cycle. Every solve below is over the same pool, the
+    # same prices and the same value model, so the per-player facts and the slot
+    # eligibility cache are the same each time — computing them per solve was most of
+    # what one cycle spent.
+    index = build_index(pool, prices, value, rules)
+
     # n_fallbacks=0: this call's fallbacks are unused — the walk-aways below replace them,
     # so computing them would waste one optimizer build per target on every sale.
     result = optimize_roster(
         state, pool, value=value, prices=prices, teams=teams, legality=legality,
-        rules=rules, lam=lam, rho=rho, n_fallbacks=0,
+        rules=rules, lam=lam, rho=rho, n_fallbacks=0, index=index,
     )
     base = result.optimal.objective
     owned = set(state.owned)
@@ -73,7 +84,7 @@ def reservations(
         try:
             alt = optimize_roster(
                 without, pool, value=value, prices=prices, teams=teams, legality=legality,
-                rules=rules, lam=lam, rho=rho, n_fallbacks=0,
+                rules=rules, lam=lam, rho=rho, n_fallbacks=0, index=index,
             ).optimal.objective
             # Clamp to >= 0: the greedy builder is a heuristic, so a roster without the target
             # can occasionally score higher (base - alt < 0). A negative walk-away is meaningless

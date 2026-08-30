@@ -89,10 +89,18 @@ def can_field(
 
     Kuhn's augmenting-path algorithm over the slot→eligible-players bipartite graph.
     """
-    eligible: list[list[int]] = [
-        [p for p, player in enumerate(players) if any(slot_allows(r, slot, mode) for r in player.roles)]
-        for slot in schema.slots
-    ]
+    # The mode is hoisted out of the player loop, not out of the *test*. Replacing
+    # `slot_allows(r, slot, mode)` with `slot.submission.isdisjoint(...)` would drop
+    # `mode` entirely and collapse the `-1*` distinction — a role placeable only after
+    # a forced substitution would become placeable at submission, and the platform
+    # rejects those lineups. Selecting `allowed` once per slot keeps the semantics
+    # exactly and does the work 11 times instead of 11 x len(players).
+    eligible: list[list[int]] = []
+    for slot in schema.slots:
+        allowed = slot.submission if mode == "submission" else slot.substitution
+        eligible.append(
+            [p for p, player in enumerate(players) if not allowed.isdisjoint(player.roles)]
+        )
     player_to_slot: dict[int, int] = {}
 
     def augment(slot_idx: int, seen: set[int]) -> bool:
