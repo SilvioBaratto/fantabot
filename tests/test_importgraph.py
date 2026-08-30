@@ -165,7 +165,13 @@ class TestAgainstTheRealTree:
         assert leaks or split, "neither module leaks and neither was split — check the walker"
 
     def test_it_does_not_import_what_it_reads(self) -> None:
-        """The point of the AST walk. Importing would run `Settings()` and open sockets."""
-        G.reachable("fantabot.cli")
-        assert "playwright" not in sys.modules
-        assert "claude_agent_sdk" not in sys.modules
+        """The point of the AST walk. Importing would run `Settings()` and open sockets.
+
+        The claim is about the *walk*, so the measurement is a delta. Asserting on
+        `sys.modules` outright passed alone and failed in the suite, where the agentkit
+        tests have legitimately imported the SDK long before this runs — a test that
+        depends on execution order, measuring the process rather than the code.
+        """
+        before = set(sys.modules)
+        G.reachable("fantabot.cli")  # reaches playwright, sqlalchemy and the agent SDK
+        assert set(sys.modules) - before == set()
