@@ -273,14 +273,18 @@ def test_the_club_vocabularies_are_a_bijection(engine: Engine) -> None:
 
 
 def _db_script_source() -> str:
-    """``scripts/_db.py`` as text. Read, never imported.
+    """``db/scraping.py`` as text. Read, never imported.
 
     Importing it would execute the module and pull in its Session machinery; the
     property under test is what the file *says*, which is a syntax-level fact.
-    ``scripts/`` is not a package and has no ``__init__.py``, so there is nothing
-    importable here anyway.
+
+    It lived at ``scripts/_db.py`` until 2026-08-30. The path moved; the reason this
+    test exists did not — these are hand-written SQL column lists that ``alembic
+    check`` cannot see, because it compares models to migrations and never reads them.
     """
-    return (Path(__file__).resolve().parents[2] / "scripts" / "_db.py").read_text()
+    return (
+        Path(__file__).resolve().parents[2] / "src" / "fantabot" / "db" / "scraping.py"
+    ).read_text()
 
 
 # The class handed to ``upsert_two_passes`` as its second positional argument.
@@ -289,6 +293,18 @@ def _db_script_source() -> str:
 # cannot reach their ``updatable`` tuples and would silently cover nothing.
 # Asserted exhaustive below: a third call site with an unmapped class fails.
 MODEL_TO_TABLE: dict[str, str] = {"Voto": "voti", "BonusMalus": "bonus_malus"}
+
+# How many hand-written INSERT statements each table gets, exactly. Measured, not
+# guessed: writing this map is what surfaced that `teams` is written twice — by the
+# quotazioni path and by the statistiche path — where a floor of nine had never had to
+# say so. `players` three times for the same reason, once per scraper that meets a new id.
+EXPECTED_INSERTS: dict[str, int] = {
+    "players": 3,
+    "teams": 2,
+    "quotazioni": 1,
+    "statistiche": 1,
+    "target_price": 1,
+}
 
 # Deliberate divergences, each with the reason beside it. This is the escape
 # hatch that ``test_full_seed.py:49-67`` spelled RENAMED/DROPPED. A column that
@@ -354,7 +370,19 @@ def test_every_insert_names_only_real_columns(engine: Engine) -> None:
     hand-written SQL strings in a script that neither one reads.
     """
     inserts = _insert_column_lists(_db_script_source())
-    assert len(inserts) >= 9, f"expected the known INSERT statements, found {len(inserts)}"
+
+    # An explicit per-table count, not a floor. `>= 9` could only fail when a
+    # statement was *added*; a statement that disappeared — a table quietly no
+    # longer written — passed it. That is the drift this file exists to catch, and
+    # the floor was blind to exactly half of it. `upsert_qi_bias` was removed on
+    # 2026-08-30 (its only caller was deleted), taking the count from 9 to 8.
+    counted: dict[str, int] = {}
+    for table, _columns, _line in inserts:
+        counted[table] = counted.get(table, 0) + 1
+    assert counted == EXPECTED_INSERTS, (
+        f"the INSERT statements changed: {counted} != {EXPECTED_INSERTS}. "
+        "A removed statement is as much a finding as an added one."
+    )
 
     problems: list[str] = []
     for table, columns, line in inserts:

@@ -112,9 +112,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import _db
+from fantabot.db import scraping as _db
 
 console = Console()
 

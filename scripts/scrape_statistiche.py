@@ -44,9 +44,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import _db
+from fantabot.db import scraping as _db
 
 from fantabot.parsing import italian_decimal
 
