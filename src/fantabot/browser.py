@@ -1,36 +1,16 @@
+"""Playwright contexts. One of them, now: the headed window the login flows open.
+
+``context()`` — a headless context that reused a saved ``storage_state.json`` — was
+removed with its only two callers, ``lineup.py`` and ``auction.py``. Both raised
+``NotImplementedError`` on the line after they opened it, so the path had never run.
+The saved-session file it depended on is still written under ``login --save-session``
+and is still read by nothing; that is recorded at ``state.py``.
+"""
+
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 from playwright.sync_api import BrowserContext, sync_playwright
-
-from fantabot import state
-
-
-@contextmanager
-def context(headless: bool = True) -> Iterator[BrowserContext]:
-    """Playwright context reusing a saved login session, if one was kept.
-
-    The session file is opt-in now: `fantabot login` writes it only under
-    `--save-session`, because as of 2026-08-26 nothing reads it. Both callers of
-    this function — `lineup.py` and `auction.py` — raise `NotImplementedError`
-    on their next line, so this path is not exercised by anything yet.
-    """
-    storage_state = state.storage_state_path()
-    if not storage_state.exists():
-        raise RuntimeError(
-            f"No saved session at {storage_state}. Run "
-            "`fantabot login --save-session` — but check first whether this code "
-            "path needs cookies at all: as of 2026-08-26 nothing reads them."
-        )
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless)
-        ctx = browser.new_context(storage_state=str(storage_state))
-        try:
-            yield ctx
-        finally:
-            ctx.close()
-            browser.close()
 
 
 @contextmanager

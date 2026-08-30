@@ -6,11 +6,16 @@ Runtime state lives in Postgres now: ``bot_state`` for what has been done and
 ``auction_bids`` for what has been spent, both keyed by lega, which the flat file
 could not represent.
 
-What is left is one path. It stays a plain function over ``settings`` and imports
-nothing from ``fantabot.db`` on purpose: ``browser.py`` sits on this import
-chain, and ``fantabot --help`` has to work before a database exists. ``login.py``
-does reach the database — deliberately — but only inside its command body, so it
-can *report* an unreachable one rather than fail to import.
+What is left is one path, read by ``login.py`` alone. It stays a plain function
+over ``settings`` and imports nothing from ``fantabot.db`` on purpose: ``login.py``
+sits on this import chain and ``cli.py`` sits on that one, so ``fantabot --help``
+has to work before a database exists. ``login.py`` does reach the database —
+deliberately — but only inside its command body, so it can *report* an unreachable
+one rather than fail to import.
+
+(Until 2026-08-30 the chain named here ran through ``browser.py``, which imported
+this module for ``context()``. That function and its two callers are gone; the
+constraint is unchanged, only the route to it.)
 """
 
 from pathlib import Path
