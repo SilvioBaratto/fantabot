@@ -33,30 +33,33 @@ import re
 import subprocess
 from pathlib import Path
 
-from _paths import REPO, pkgs
+from _paths import PACKAGE, REPO, module_file, pkgs
 
-REPO = REPO
-PACKAGE = REPO / "src" / "fantabot"
 SELF = Path(__file__).resolve()
 
 # Every JWT header segment is base64 of `{"`, so it starts `eyJ`. Requiring the
 # dot after the segment keeps the pattern from matching prose about JWTs.
 JWT_LITERAL = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.")
 
-# SPEC's allowlist, verbatim. The implementation routes `auth_headers` through
-# `store.load_plaintext`, so `apileague.py` is expected to stay empty of
-# `decrypt(` — but it is allowed here so that a later change there fails
-# deliberately, at review, rather than by surprise.
-DECRYPT_ALLOWED = {
+# SPEC's allowlist, split in two so both halves are checkable. The set is one thing —
+# where `decrypt(` may appear — but its entries mean two different things, and a single
+# set cannot say which, so a dead entry and a deliberate reservation look identical.
+DECRYPT_SITES = {
     "domain/tokens/crypto.py",
     "adapters/tokens/store.py",
-    "apileague.py",
     # Phase 5. A second service, so a second store — a lega token is a JWT whose
     # claims we read, a FantaLab session is three opaque strings. Listed here
     # rather than the assertion being widened to `tokens/*`: this test exists to
     # make each new decryption site a deliberate entry, and it did its job.
     "adapters/tokens/fantalab_store.py",
 }
+
+#: Allowed, and expected to stay empty. The implementation routes `auth_headers`
+#: through `store.load_plaintext`, so `apileague.py` does not decrypt — it is listed so
+#: that a later change there fails deliberately, at review, rather than by surprise.
+DECRYPT_RESERVED = {"adapters/http/apileague.py"}
+
+DECRYPT_ALLOWED = DECRYPT_SITES | DECRYPT_RESERVED
 
 # argv is visible in `ps` and persists in shell history. SPEC's Never list.
 FORBIDDEN_OPTIONS = ("--key", "--encryption-key", "--fernet-key", "--secret", "--token")
@@ -134,6 +137,34 @@ def test_no_command_accepts_a_key_on_argv() -> None:
     )
 
 
+def test_the_allowlist_names_files_that_exist() -> None:
+    """An entry pointing at nothing allows nothing, and says so to no one.
+
+    All four moved in P12-4 and P12-6, and an allowlist is only ever read when something
+    fails -- so a set of paths that had all gone stale would have kept passing.
+    """
+    missing = sorted(name for name in DECRYPT_ALLOWED if not (PACKAGE / name).is_file())
+
+    assert missing == [], f"the allowlist names files that do not exist: {missing}"
+
+
+def test_each_half_of_the_allowlist_means_what_it_says() -> None:
+    """A live site that stopped decrypting, or a reservation that started.
+
+    Either is a real change worth seeing: the first is an allowance nothing uses, which
+    is a hole waiting for whatever lands at that path next; the second is a new
+    decryption site that arrived without anyone deciding it should.
+    """
+    silent = sorted(n for n in DECRYPT_SITES if "decrypt(" not in (PACKAGE / n).read_text())
+    woken = sorted(n for n in DECRYPT_RESERVED if "decrypt(" in (PACKAGE / n).read_text())
+
+    assert silent == [], f"listed as decryption sites and do not decrypt: {silent}"
+    assert woken == [], (
+        f"reserved but now decrypting: {woken}. If that is intended, move it to "
+        "DECRYPT_SITES in the same commit and say why in the message."
+    )
+
+
 def test_decrypt_is_confined_to_its_allowed_files() -> None:
     """Assertion 4 — *(deferred, proved red at T13)*.
 
@@ -153,6 +184,10 @@ def test_decrypt_is_confined_to_its_allowed_files() -> None:
     )
 
 
+#: Modules outside `tokens/` that hold a plaintext token at some point.
+LOOSE_TOKEN_HANDLERS = ("fantabot.adapters.http.apileague", "fantabot.login")
+
+
 def _scanned_sources() -> list[Path]:
     """The modules that will handle a plaintext token.
 
@@ -162,10 +197,15 @@ def _scanned_sources() -> list[Path]:
     secrecy assertion below still reported green.
     """
     paths = [p for directory in pkgs("tokens") for p in directory.rglob("*.py")]
-    paths += [PACKAGE / name for name in ("apileague.py", "login.py")]
-    found = [p for p in paths if p.is_file()]
-    assert len(found) >= 9, f"only {len(found)} token modules scanned; the table is stale"
-    return found
+    # Named as modules and resolved through the import system. They were
+    # `PACKAGE / "apileague.py"` and `PACKAGE / "login.py"`, filtered by `is_file()` --
+    # so when `apileague.py` moved to `adapters/http/` it was dropped from every
+    # assertion in this file without one of them going red. The floor below counts token
+    # modules, which alone cleared it.
+    paths += [module_file(m) for m in LOOSE_TOKEN_HANDLERS]
+    missing = [p for p in paths if not p.is_file()]
+    assert not missing, f"named but not found: {missing}"
+    return paths
 
 
 def _base_identifier(node: ast.expr) -> str | None:

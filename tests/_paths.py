@@ -86,3 +86,19 @@ def pkg(name: str) -> Path:
             f"{name!r} spans {len(paths)} directories; use pkgs() and scan all of them."
         )
     return paths[0]
+
+
+def module_file(dotted: str) -> Path:
+    """The file a dotted module name resolves to, via the import system.
+
+    Move-proof in a way a path is not: what changes in W6 is a module's *name*, and a
+    test that names the module rather than the file needs no path arithmetic at all.
+    Raises rather than returning None, because the alternative -- a scan quietly skipping
+    a file it could not find -- is what this module exists to prevent.
+    """
+    from importlib.util import find_spec
+
+    spec = find_spec(dotted)
+    if spec is None or spec.origin is None:
+        raise FileNotFoundError(f"{dotted} does not resolve to a file")
+    return Path(spec.origin)
