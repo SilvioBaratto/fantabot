@@ -242,7 +242,7 @@ src/fantabot/
   at the archived path in the same commit. Those two filenames are reused by
   every phase, so an inbound link to them silently starts describing different
   work — four references had rotted this way by 2026-08-28, in
-  `tokens/status.py`, `test_token_secrecy.py` and two older specs. A spec is a
+  `domain/tokens/status.py`, `tests/adapters/tokens/test_token_secrecy.py` and two older specs. A spec is a
   record and is not amended to rewrite history; a link that no longer resolves
   is a different thing, and is repaired.
 
