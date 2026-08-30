@@ -107,10 +107,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from rich.table import Table
-
 from fantabot.adapters.persistence import scraping as _db
-from fantabot.application.reporting import Reporter
 from fantabot.domain.shared.values import BiasRow, PlayerQuote, PriorStats
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]
@@ -182,49 +179,93 @@ class RoleFade:
         return math.exp(self.predict_log_ratio(prior_fantamedia))
 
 
+def training_pairs(
+    bias_rows: Sequence[BiasRow],
+    prior_stats: Mapping[tuple[str, str], PriorStats],
+    system: str,
+) -> dict[str, list[tuple[float, float]]]:
+    """`(prior fantamedia, log(qa/qi))` per macro role -- what a fade is fitted on. Pure.
+
+    The single definition of which observations qualify. It was inline in `fit_fades`,
+    and `run` kept a second, looser copy to label the `n` column of its table: that copy
+    applied the appearance filter and neither of the other two, so a player written down
+    to `qa == 0` was counted beside a slope he had not contributed to.
+
+    Three kinds of row are refused:
+    """
+    by_role: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for row in bias_rows:
+        role = macro_role(row.role, system)
+
+        # Goalkeepers do not fade with fantamedia the way outfielders do, and are priced
+        # at qi by the fallback path.
+        if role == GOALKEEPER_MACRO:
+            continue
+
+        # `log_ratio` is log(qa/qi) and log(0) is undefined, so this would raise
+        # `ValueError: math domain error` from inside a property.
+        #
+        # It is not merely a crash guard. A player the platform has marked worthless
+        # mid-season is a data artefact, not evidence about how quotazioni fade, and the
+        # appearance filter below cannot catch him: he is excluded on *this* season's qa
+        # while that filter reads his *prior* season. Goglichidze (6537, UDI) is the live
+        # case -- qa 0 in 2025/26 with 33 appearances in 2024/25, squarely inside the
+        # 25-38 cohort. He still gets priced by the fallback path; he just does not teach
+        # the fade.
+        if row.qa <= 0:
+            continue
+
+        # The regression-to-mean correlation was measured at -0.191 across 25-38
+        # appearances and between -0.007 and -0.073 for thinner samples. Outside the
+        # range there is no signal to fit.
+        prior = prior_stats.get((row.id, PREV_OF_TRAIN[row.stagione]))
+        if prior is None or not (
+            REGULAR_APPEARANCES_LO <= prior.partite_giocate <= REGULAR_APPEARANCES_HI
+        ):
+            continue
+
+        by_role[role].append((prior.media_fantavoto, row.log_ratio))
+    return by_role
+
+
+def count_observations(
+    bias_rows: Sequence[BiasRow],
+    prior_stats: Mapping[tuple[str, str], PriorStats],
+    system: str,
+) -> dict[str, int]:
+    """How many observations each role's fade was fitted from. Pure.
+
+    Derived from `training_pairs`, so it cannot disagree with the fit -- which the
+    version it replaces did.
+    """
+    return {role: len(pairs) for role, pairs in training_pairs(bias_rows, prior_stats, system).items()}
+
+
+#: Below this a slope is noise, and a noisy slope moves real credits.
+MIN_OBSERVATIONS = 20
+
+
 def fit_fades(
     bias_rows: Sequence[BiasRow],
     prior_stats: Mapping[tuple[str, str], PriorStats],
     system: str,
 ) -> dict[str, RoleFade]:
-    """One fade per macro role, fitted on the observations that qualify. Pure.
-
-    Four kinds of row are refused, and each refusal has a reason recorded below.
-    """
-    by_role: dict[str, list[tuple[float, float]]] = defaultdict(list)
-    for row in bias_rows:
-        role = macro_role(row.role, system)
-        if role == GOALKEEPER_MACRO:
-            continue
-        if row.qa <= 0:
-            # `log_ratio` is log(qa/qi) and log(0) is undefined, so this would
-            # raise `ValueError: math domain error` from inside a property.
-            #
-            # It is not merely a crash guard. A player the platform has marked
-            # worthless mid-season is a data artefact, not evidence about how
-            # quotazioni fade, and the appearance filter below cannot catch him:
-            # he is excluded on *this* season's qa while that filter reads his
-            # *prior* season. Goglichidze (6537, UDI) is the live case — qa 0 in
-            # 2025/26 with 33 appearances in 2024/25, squarely inside the
-            # 25-38 cohort. He still gets priced by the fallback path; he just
-            # does not teach the fade.
-            continue
-        prior = prior_stats.get((row.id, PREV_OF_TRAIN[row.stagione]))
-        if prior is None or not (REGULAR_APPEARANCES_LO <= prior.partite_giocate <= REGULAR_APPEARANCES_HI):
-            continue
-        by_role[role].append((prior.media_fantavoto, row.log_ratio))
-
+    """One fade per macro role, fitted on the observations that qualify. Pure."""
     fades: dict[str, RoleFade] = {}
-    for role, pairs in by_role.items():
-        if len(pairs) < 20:
+    for role, pairs in training_pairs(bias_rows, prior_stats, system).items():
+        if len(pairs) < MIN_OBSERVATIONS:
             continue
         xs = [p[0] for p in pairs]
         ys = [p[1] for p in pairs]
         slope, intercept = statistics.linear_regression(xs, ys)
         sorted_ys = sorted(ys)
+        # The 5th and 95th percentile of the observed ratios: a clamp keeps one breakout
+        # season from repricing a whole role.
         clamp_lo = sorted_ys[int(0.05 * len(sorted_ys))]
         clamp_hi = sorted_ys[int(0.95 * len(sorted_ys)) - 1]
-        fades[role] = RoleFade(slope=slope, intercept=intercept, clamp_lo=clamp_lo, clamp_hi=clamp_hi)
+        fades[role] = RoleFade(
+            slope=slope, intercept=intercept, clamp_lo=clamp_lo, clamp_hi=clamp_hi
+        )
     return fades
 
 
@@ -364,50 +405,86 @@ def compute_target_prices(system: str) -> list[TargetPriceRow]:
     )
 
 
-def run(system: str = "classic", top_n: int = 15, *, report: Reporter) -> None:
-    """Fit the role fades, apply the team factors, and upsert target_price."""
-    fades = fit_role_fades(system)
-    report.print(f"[bold]{system}: fitted role fades (log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]")
-    fade_table = Table()
-    fade_table.add_column("macro role")
-    fade_table.add_column("n", justify="right")
-    fade_table.add_column("slope", justify="right")
-    fade_table.add_column("intercept", justify="right")
-    fade_table.add_column("clamp range (as %)", justify="right")
-    # RoleFade doesn't carry n; recompute just for display
+@dataclass(frozen=True)
+class FadeSummary:
+    """One fitted fade, with the number of observations behind it.
+
+    `RoleFade` does not carry the count, and `run` used to recover it by re-running both
+    training queries and re-applying the appearance filter -- two extra full reads of the
+    database, for one column of one table. It is carried now.
+    """
+
+    role: str
+    observations: int
+    fade: RoleFade
+
+
+@dataclass(frozen=True)
+class PricingReport:
+    """Everything a pricing run has to say, assembled without saying it."""
+
+    system: str
+    fades: tuple[FadeSummary, ...]
+    team_factors: Mapping[str, float]
+    #: What the upsert returned. Not `len(rows)` -- a row computed and not written is
+    #: exactly the failure this number exists to show.
+    stored: int
+    biggest_bumps: tuple[TargetPriceRow, ...]
+    biggest_cuts: tuple[TargetPriceRow, ...]
+    flag_counts: Mapping[str, int]
+
+
+def build_report(
+    *,
+    system: str,
+    fades: Mapping[str, RoleFade],
+    observations: Mapping[str, int],
+    team_factors: Mapping[str, float],
+    rows: Sequence[TargetPriceRow],
+    stored: int,
+    top_n: int,
+) -> PricingReport:
+    """Assemble the report. Pure.
+
+    Movers are ranked by the credit difference rather than the ratio: +20 on a qi of 10
+    and +20 on a qi of 200 cost the same at the auction.
+    """
+    counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        for flag in row.flags.split(";"):
+            if flag:
+                counts[flag.split("(")[0]] += 1
+
+    return PricingReport(
+        system=system,
+        fades=tuple(
+            FadeSummary(role=role, observations=observations.get(role, 0), fade=fade)
+            for role, fade in fades.items()
+        ),
+        team_factors=dict(team_factors),
+        stored=stored,
+        biggest_bumps=tuple(sorted(rows, key=lambda r: -(r.target_price - r.qi))[:top_n]),
+        biggest_cuts=tuple(sorted(rows, key=lambda r: (r.target_price - r.qi))[:top_n]),
+        flag_counts=dict(counts),
+    )
+
+
+def run(system: str = "classic", top_n: int = 15) -> PricingReport:
+    """Fit, price, upsert, and report. No presentation: see `interface/app.py`.
+
+    The three stages read the training tables once between them, and the fade counts come
+    from the same rows the fit used rather than from two more queries.
+    """
+    bias_rows, prior_stats = _training_data(system)
+    fades = fit_fades(bias_rows, prior_stats, system)
+    team_factors = discount_factors(bias_rows)
+
     with _db.session() as handle:
-        prior_stats_dbg = _db.load_prior_stats(handle, system)
-    with _db.session() as handle:
-        bias_rows_dbg = _db.load_bias_rows(
-            handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
-        )
-    n_by_role: dict[str, int] = defaultdict(int)
-    for row in bias_rows_dbg:
-        role = macro_role(row.role, system)
-        prior = prior_stats_dbg.get((row.id, PREV_OF_TRAIN[row.stagione]))
-        if prior is not None and REGULAR_APPEARANCES_LO <= prior.partite_giocate <= REGULAR_APPEARANCES_HI:
-            n_by_role[role] += 1
-    for role, fade in fades.items():
-        pct_lo = (math.exp(fade.clamp_lo) - 1.0) * 100.0
-        pct_hi = (math.exp(fade.clamp_hi) - 1.0) * 100.0
-        fade_table.add_row(
-            role,
-            str(n_by_role[role]),
-            f"{fade.slope:+.3f}",
-            f"{fade.intercept:+.3f}",
-            f"[{pct_lo:+.0f}%, {pct_hi:+.0f}%]",
-        )
-    report.print(fade_table)
+        universe = _db.load_quotes(handle, system, seasons={TARGET_SEASON})
+    rows = price_universe(universe, prior_stats, fades, team_factors, system)
 
-    team_factors = team_discount_factors(system)
-    report.print(f"\n[bold]Team discount factors applied:[/bold] {team_factors}\n")
-
-    rows = compute_target_prices(system)
-
-
-    # Database only. The CSV writer was removed on 2026-08-26, once the port
-    # had been verified row-for-row against the pre-port capture. The
-    # target_price table is the record from here on.
+    # Database only. The CSV writer was removed on 2026-08-26, once the port had been
+    # verified row-for-row against the pre-port capture. `target_price` is the record.
     with _db.session() as handle:
         stored = _db.upsert_target_price(
             handle,
@@ -429,30 +506,13 @@ def run(system: str = "classic", top_n: int = 15, *, report: Reporter) -> None:
                 for r in rows
             ],
         )
-    report.print(f"wrote {stored} target_price rows for {system}\n")
 
-    biggest_bumps = sorted(rows, key=lambda r: -(r.target_price - r.qi))[: top_n]
-    biggest_cuts = sorted(rows, key=lambda r: (r.target_price - r.qi))[: top_n]
-
-    report.print(f"Top {top_n} biggest UPWARD adjustments (target > qi):", markup=False)
-    for r in biggest_bumps:
-        report.print(
-            f"  {r.nome:20s} {r.squadra:4s} {r.role:8s}({r.macro_role:7s}) qi={r.qi:>3d} -> target={r.target_price:>3d}  flags={r.flags}",
-            markup=False,
-        )
-
-    report.print(f"\nTop {top_n} biggest DOWNWARD adjustments (target < qi):", markup=False)
-    for r in biggest_cuts:
-        report.print(
-            f"  {r.nome:20s} {r.squadra:4s} {r.role:8s}({r.macro_role:7s}) qi={r.qi:>3d} -> target={r.target_price:>3d}  flags={r.flags}",
-            markup=False,
-        )
-
-    flag_counts: dict[str, int] = defaultdict(int)
-    for r in rows:
-        for flag in r.flags.split(";"):
-            if flag:
-                flag_counts[flag.split("(")[0]] += 1
-    report.print(f"\nFlag counts: {dict(flag_counts)}")
-
-
+    return build_report(
+        system=system,
+        fades=fades,
+        observations=count_observations(bias_rows, prior_stats, system),
+        team_factors=team_factors,
+        rows=rows,
+        stored=stored,
+        top_n=top_n,
+    )

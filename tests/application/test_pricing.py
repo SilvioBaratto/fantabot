@@ -21,11 +21,16 @@ import pytest
 from fantabot.application.pricing import (
     GOALKEEPER_MACRO,
     MIN_QI,
+    PricingReport,
     RoleFade,
+    TargetPriceRow,
+    build_report,
+    count_observations,
     discount_factors,
     fit_fades,
     macro_role,
     price_universe,
+    training_pairs,
 )
 from fantabot.domain.shared.values import BiasRow, PlayerQuote, PriorStats
 
@@ -275,3 +280,111 @@ class TestPriceUniverse:
         difference is observable: one row differed at exactly .5 and an EXCEPT caught it."""
         row = self._price(self._quote(qi=5, role="p"), factors={"NAP": 0.5})
         assert row.target_price == 2  # 2.5 -> 2, not 3
+
+
+class TestBuildReport:
+    """What a run has to say, assembled without saying it.
+
+    `run` printed as it went: fitted the fades and printed a Rich table, priced and
+    printed two more, which is why the application layer reached `rich` at all. It
+    returns this instead, and `interface/app.py` renders it.
+    """
+
+    ROWS: ClassVar[list[TargetPriceRow]] = [
+        TargetPriceRow(
+            id=str(i), nome=f"P{i}", squadra="NAP", role="c", macro_role="MID",
+            qi=10, prior_media_fantavoto=6.0, predicted_pct_delta=0.0,
+            team_factor=1.0, target_price=target, flags=flags,
+        )
+        for i, (target, flags) in enumerate([(30, ""), (20, "floor_qi"), (10, ""),
+                                             (5, "team_discount(NAP)"), (1, "floor_qi")])
+    ]
+
+    def _report(self, top_n: int = 2) -> PricingReport:
+        return build_report(
+            system="mantra",
+            fades={"MID": RoleFade(slope=0.1, intercept=0.0, clamp_lo=-1.0, clamp_hi=1.0)},
+            observations={"MID": 42},
+            team_factors={"NAP": 0.9},
+            rows=self.ROWS,
+            stored=len(self.ROWS),
+            top_n=top_n,
+        )
+
+    def test_each_fade_carries_the_count_it_was_fitted_from(self) -> None:
+        """A slope from 20 observations and one from 400 are not the same claim, and the
+        table is the only place an operator sees the difference."""
+        assert [(f.role, f.observations) for f in self._report().fades] == [("MID", 42)]
+
+    def test_the_biggest_movers_are_ranked_by_credits_not_by_ratio(self) -> None:
+        """+20 on a qi of 10 and +20 on a qi of 200 cost the same at the auction."""
+        report = self._report()
+
+        assert [r.target_price for r in report.biggest_bumps] == [30, 20]
+        assert [r.target_price for r in report.biggest_cuts] == [1, 5]
+
+    def test_top_n_bounds_both_lists(self) -> None:
+        assert len(self._report(top_n=1).biggest_bumps) == 1
+        assert len(self._report(top_n=1).biggest_cuts) == 1
+
+    def test_asking_for_more_than_exist_returns_what_there_is(self) -> None:
+        assert len(self._report(top_n=99).biggest_bumps) == len(self.ROWS)
+
+    def test_flags_are_counted_by_kind_with_the_argument_stripped(self) -> None:
+        """`team_discount(NAP)` and `team_discount(MIL)` are one kind of thing."""
+        assert self._report().flag_counts == {"floor_qi": 2, "team_discount": 1}
+
+    def test_it_reports_what_was_stored_rather_than_what_was_computed(self) -> None:
+        """The upsert's return value. A row computed and not written is the bug this shows."""
+        assert self._report().stored == 5
+
+
+class TestObservationCounts:
+    """The `n` beside a slope must be the rows that produced the slope.
+
+    It was not. `run` recovered the count by re-running both training queries and
+    re-applying the appearance filter -- but not the other two filters `fit_fades`
+    applies, so a player written down to `qa == 0` was counted in `n` and excluded from
+    the fit. A count that does not match its fit is worse than no count: it is the number
+    an operator uses to decide whether to trust the slope.
+    """
+
+    @staticmethod
+    def _rows_and_priors() -> tuple[list[BiasRow], dict[tuple[str, str], PriorStats]]:
+        rows = [_bias(id=str(i), qi=10, qa=12) for i in range(25)]
+        priors = {
+            (str(i), "2023/24"): PriorStats(partite_giocate=30, media_fantavoto=6.0)
+            for i in range(25)
+        }
+        return rows, priors
+
+    def test_the_count_is_the_number_of_pairs_the_fit_used(self) -> None:
+        rows, priors = self._rows_and_priors()
+        assert count_observations(rows, priors, "classic") == {"MID": 25}
+
+    def test_a_worthless_player_is_absent_from_the_count_as_he_is_from_the_fit(self) -> None:
+        rows, priors = self._rows_and_priors()
+        rows.append(_bias(id="zero", qa=0))
+        priors[("zero", "2023/24")] = PriorStats(partite_giocate=33, media_fantavoto=6.0)
+
+        assert count_observations(rows, priors, "classic") == {"MID": 25}
+
+    def test_a_goalkeeper_is_absent_from_the_count_as_he_is_from_the_fit(self) -> None:
+        rows, priors = self._rows_and_priors()
+        rows.append(_bias(id="keeper", role="p"))
+        priors[("keeper", "2023/24")] = PriorStats(partite_giocate=30, media_fantavoto=6.0)
+
+        assert GOALKEEPER_MACRO not in count_observations(rows, priors, "classic")
+
+    def test_it_agrees_with_the_fit_on_the_same_input(self) -> None:
+        """The property that matters, asserted directly: one filter, not two."""
+        rows, priors = self._rows_and_priors()
+        rows.append(_bias(id="zero", qa=0))
+        rows.append(_bias(id="thin", qa=30))
+        priors[("zero", "2023/24")] = PriorStats(partite_giocate=33, media_fantavoto=6.0)
+        priors[("thin", "2023/24")] = PriorStats(partite_giocate=2, media_fantavoto=9.0)
+
+        counts = count_observations(rows, priors, "classic")
+        pairs = training_pairs(rows, priors, "classic")
+
+        assert counts == {role: len(ps) for role, ps in pairs.items()}

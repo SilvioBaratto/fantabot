@@ -12,12 +12,15 @@ from fantabot.interface.asta import register as register_asta_engine_commands
 from fantabot.interface.console import console
 from fantabot.interface.harvest import register as register_aste_commands
 
-if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
+if TYPE_CHECKING:
     from datetime import datetime
 
     import httpx
 
     from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application import (
+        pricing as pricing_module,  # annotations only — cli.py must stay import-light
+    )
     from fantabot.application.news_fetcher import FetchResult
 
 app = typer.Typer(no_args_is_help=True)
@@ -494,7 +497,56 @@ def db_price(
 
     from fantabot.application import pricing as pricing
 
-    pricing.run(system=system, top_n=top_n, report=console)
+    render_pricing(pricing.run(system=system, top_n=top_n), top_n)
+
+
+def render_pricing(report: pricing_module.PricingReport, top_n: int) -> None:
+    """Print a pricing run. The only part of `db price` that knows what a terminal is.
+
+    It lived inside `pricing.run`, which is why the application layer imported
+    `rich.table` -- and why the layer test carried an expected violation for it. The
+    numbers are the same; where they are formatted is not.
+    """
+    import math
+
+    from rich.table import Table
+
+    console.print(
+        f"[bold]{report.system}: fitted role fades "
+        "(log(qa/qi) ~ prior_media_fantavoto, OLS):[/bold]"
+    )
+    fades = Table()
+    for column, justify in (("macro role", "left"), ("n", "right"), ("slope", "right"),
+                            ("intercept", "right"), ("clamp range (as %)", "right")):
+        fades.add_column(column, justify=justify)  # type: ignore[arg-type]
+    for summary in report.fades:
+        low = (math.exp(summary.fade.clamp_lo) - 1.0) * 100.0
+        high = (math.exp(summary.fade.clamp_hi) - 1.0) * 100.0
+        fades.add_row(
+            summary.role,
+            str(summary.observations),
+            f"{summary.fade.slope:+.3f}",
+            f"{summary.fade.intercept:+.3f}",
+            f"[{low:+.0f}%, {high:+.0f}%]",
+        )
+    console.print(fades)
+
+    console.print(f"\n[bold]Team discount factors applied:[/bold] {report.team_factors}\n")
+    console.print(f"wrote {report.stored} target_price rows for {report.system}\n")
+
+    for heading, rows in (
+        (f"Top {top_n} biggest UPWARD adjustments (target > qi):", report.biggest_bumps),
+        (f"\nTop {top_n} biggest DOWNWARD adjustments (target < qi):", report.biggest_cuts),
+    ):
+        console.print(heading, markup=False)
+        for row in rows:
+            console.print(
+                f"  {row.nome:20s} {row.squadra:4s} {row.role:8s}({row.macro_role:7s}) "
+                f"qi={row.qi:>3d} -> target={row.target_price:>3d}  flags={row.flags}",
+                markup=False,
+            )
+
+    console.print(f"\nFlag counts: {report.flag_counts}")
 
 
 def db_dump() -> None:

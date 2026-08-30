@@ -160,15 +160,7 @@ EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = set()
 
 EXPECTED_CLI_VIOLATIONS: set[tuple[str, str]] = set()
 
-#: `pricing.run` builds `rich.table.Table` objects and prints them. It arrived from
-#: `scripts/` as a debugging tool and its `run` is computation, presentation and an
-#: upsert in one function -- the computation is already separated as
-#: `compute_target_prices`, so the fix is for the interface to render what that returns.
-#: Recorded rather than done here: P12-11's scope was the two login modules, and a
-#: half-done presentation split is worse than a named one.
-EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = {
-    ("fantabot.application.pricing", "rich"),
-}
+EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = set()
 
 
 def _report(actual: set[tuple[str, str]], expected: set[tuple[str, str]]) -> str:
