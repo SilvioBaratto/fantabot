@@ -68,21 +68,64 @@ def objective(
 
 def _marginal_gain(
     player_id: str,
-    picked: Sequence[str],
+    by_team: Mapping[str, list[float]],
     value: ValueModel,
     teams: Mapping[str, str],
     lam: float,
     rho: float,
 ) -> float:
+    """What adding this player is worth, given who is already picked.
+
+    ``by_team`` maps a club to the ``sqrt(variance)`` of every already-picked player
+    from it, **in pick order**. It replaces a scan over the whole picked list, which
+    made this O(|picked|) and called ``value.value`` once per pair — 86,831 lookups a
+    cycle.
+
+    **A bucket, not a running sum, and the difference is not stylistic.** SPEC
+    prescribed keeping a running per-club total of ``sqrt(variance)`` and multiplying
+    once. That is a different computation in IEEE-754: the loop below accumulates
+    ``((2*rho)*sigma) * sqrt(var_i)`` term by term, and ``a*x + a*y`` is not
+    ``a*(x+y)``. Measured over the real pool, the running sum moved 6,640 floats at
+    ``lam 0.3`` and 9,018 at ``lam 1.0``. Same terms in the same order is what makes
+    this bit-identical, and the golden harness is what proves it.
+
+    The expression is left inline rather than hoisted to a constant for the same
+    reason: the loop is now short enough that it costs nothing, and hoisting is one
+    more thing a reader would have to check for float-equivalence.
+    """
     v = value.value(player_id)
     penalty = v.variance
     team = teams.get(player_id)
     if team is not None:
         sigma = math.sqrt(v.variance)
-        for other in picked:
-            if teams.get(other) == team:
-                penalty += 2 * rho * sigma * math.sqrt(value.value(other).variance)
+        for other_sigma in by_team.get(team, ()):
+            penalty += 2 * rho * sigma * other_sigma
     return v.mean - lam * penalty
+
+
+def _sigma_by_team(
+    player_ids: Sequence[str], value: ValueModel, teams: Mapping[str, str]
+) -> dict[str, list[float]]:
+    """`club -> sqrt(variance)` per picked player, in pick order.
+
+    Order is load-bearing: it is the summation order `_marginal_gain` depends on.
+    """
+    buckets: dict[str, list[float]] = {}
+    for player_id in player_ids:
+        team = teams.get(player_id)
+        if team is not None:
+            buckets.setdefault(team, []).append(math.sqrt(value.value(player_id).variance))
+    return buckets
+
+
+def _remember(
+    buckets: dict[str, list[float]], player_id: str, value: ValueModel,
+    teams: Mapping[str, str],
+) -> None:
+    """Append one pick to its club's bucket, preserving order."""
+    team = teams.get(player_id)
+    if team is not None:
+        buckets.setdefault(team, []).append(math.sqrt(value.value(player_id).variance))
 
 
 def _submission_eligible(player: MantraPlayer, slot: SlotRule) -> bool:
@@ -113,6 +156,7 @@ def _seed_schema(
     owned_ids = [p.id for p in owned_players]
     used: set[str] = set()
     seed: list[str] = []
+    buckets = _sigma_by_team(owned_ids, value, teams)
     budget = budget_left
     ordered = sorted(
         schema.slots,
@@ -133,12 +177,12 @@ def _seed_schema(
         ]
         if not candidates:
             return None
-        picked_now = [*owned_ids, *seed]
         best = max(
             candidates,
-            key=lambda p: _marginal_gain(p.id, picked_now, value, teams, lam, rho),
+            key=lambda p: _marginal_gain(p.id, buckets, value, teams, lam, rho),
         )
         seed.append(best.id)
+        _remember(buckets, best.id, value, teams)
         used.add(best.id)
         budget -= _cost(best.id, prices)
     return seed, budget
@@ -180,6 +224,7 @@ def _build(
     picked: list[str] = list(state.owned)
     picked_set = set(picked)
     budget_left = state.remaining_budget
+    buckets = _sigma_by_team(picked, value, teams)
 
     # Guarantee a legal XI by construction: seed one schema's slots unless what we already
     # own can field a schema on its own. Value-first greedy alone neglects role coverage and
@@ -194,6 +239,8 @@ def _build(
         seed_ids, budget_left = seeded
         picked.extend(seed_ids)
         picked_set.update(seed_ids)
+        for seeded_id in seed_ids:
+            _remember(buckets, seeded_id, value, teams)
 
     goalkeepers = sum(1 for pid in picked if _is_goalkeeper(by_id[pid], rules))
 
@@ -225,10 +272,11 @@ def _build(
 
         best = max(
             candidates,
-            key=lambda p: _marginal_gain(p.id, picked, value, teams, lam, rho),
+            key=lambda p: _marginal_gain(p.id, buckets, value, teams, lam, rho),
         )
         picked.append(best.id)
         picked_set.add(best.id)
+        _remember(buckets, best.id, value, teams)
         budget_left -= _cost(best.id, prices)
         if _is_goalkeeper(best, rules):
             goalkeepers += 1
