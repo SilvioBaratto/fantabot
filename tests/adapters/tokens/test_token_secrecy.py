@@ -394,7 +394,10 @@ INSTRUCTION_SURFACE = (
     "data/README.md",
     "docs/lega-legamiallerotaie2.md",
     "docs/leghe-api.md",
-    ":!tests/test_token_secrecy.py",
+    # This file quotes the names it is looking for, so it excludes itself. Derived
+    # rather than spelled: it was `:!tests/test_token_secrecy.py`, and moving the file
+    # into the mirrored tree turned the check red against its own docstring.
+    f":!{SELF.relative_to(REPO)}",
 )
 
 
