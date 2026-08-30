@@ -288,13 +288,28 @@ def test_the_repo_has_exactly_one_message_loop() -> None:
 
 
 def test_only_agentkit_imports_the_sdk() -> None:
+    """One package owns the SDK, so swapping backends is one package's problem.
+
+    Asked of *imports*, not of the file's text. This was a substring scan for
+    `claude_agent_sdk` anywhere in a module, which cannot tell an import from a
+    sentence — P11-5 deleted the last offending import and the same commit turned the
+    check red, because the docstring explaining the deletion named the package.
+    A comment about a dependency is not a dependency.
+
+    Direct imports, deliberately: transitively, every caller of `agentkit` reaches the
+    SDK, which is the arrangement rather than a violation of it.
+    """
+    import sys
     from pathlib import Path
 
-    src = Path(__file__).resolve().parent.parent / "src" / "fantabot"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import _importgraph as G
+
     offenders = sorted(
-        str(path.relative_to(src))
-        for path in src.rglob("*.py")
-        if path.parent.name != "agentkit" and "claude_agent_sdk" in path.read_text()
+        module
+        for module in G.modules()
+        if not module.startswith("fantabot.agentkit")
+        and any(name.startswith("claude_agent_sdk") for name in G.direct_imports(module))
     )
 
     assert offenders == [], offenders

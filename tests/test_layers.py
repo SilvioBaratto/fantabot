@@ -136,16 +136,11 @@ def _violations(rule: object) -> set[tuple[str, str]]:
     return found
 
 
-#: Measured on 2026-08-30, and every entry has a task that removes it. Exact equality,
-#: not a subset: a violation someone fixed without deleting its line here would leave
-#: the list looking like it still protects something.
-EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = {
-    # P11-5 — the agent call that parses a typed line lives in the decision layer.
-    # `config` rides the same import: `agentkit.options` builds its options from
-    # Settings, so both edges are cut by the one split.
-    ("fantabot.asta_engine.stateentry", "claude_agent_sdk"),
-    ("fantabot.asta_engine.stateentry", "fantabot.config"),
-}
+#: Empty as of P11-5, and it started at seven. Kept rather than replaced by a bare
+#: `assert not actual`, because the next module to break a layer will need somewhere to
+#: be recorded while its fix is written, and the exact-equality comparison is what stops
+#: that record from outliving the fix.
+EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = set()
 
 EXPECTED_CLI_VIOLATIONS: set[tuple[str, str]] = set()
 

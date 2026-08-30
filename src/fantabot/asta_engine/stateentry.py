@@ -1,24 +1,29 @@
 """Fast state entry: turn a typed line like 'malen a luca 192' into a resolved sale.
 
 Data entry is the real adoption risk — if logging a sale costs more than a few seconds the
-tool stops being used mid-evening — so the live LLM parses the free text and a pure resolver
-matches the fuzzy name against the listone. The schema and the resolver are pure; the async
-agentkit call is a thin shell (the parse itself), verified on the real backend.
+tool stops being used mid-evening — so an LLM parses the free text into ``StateEntry`` and a
+pure resolver matches the fuzzy name against the listone.
 
 An ambiguous or unmatched name resolves to ``None`` — surfaced, never guessed. A wrong player
 id entered under time pressure is worse than being asked to retype.
+
+**The agent call that produces a ``StateEntry`` is not here, and is not anywhere.** It was an
+18-line ``parse_entry`` shell over ``agentkit.runner``, written as Task 8 of the asta-copilota
+phase and never wired to a command — no caller in ``src/``, no test, and the only import of
+``claude_agent_sdk`` and ``config`` anywhere in the decision layer. Deleted rather than moved
+to an adapter, because moving it would have created a module for a function nothing calls.
+Recover it from ``01712f2`` if the interactive entry path is built; re-wiring is a request
+plus a runner call, the same shape ``news/pipeline.py`` and ``mantra_grid/collect.py`` use.
+
+What survives is the half with tests: the schema, the prompt and the resolver.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from ..agentkit.options import AgentRequest
-from ..agentkit.runner import Outcome
-from ..agentkit.runner import run as sdk_run
 
 
 class StateEntry(BaseModel):
@@ -57,23 +62,3 @@ def resolve(entry: StateEntry, names_by_id: Mapping[str, str]) -> ResolvedEntry 
     if len(matches) != 1:
         return None  # zero or ambiguous — surfaced, never guessed
     return ResolvedEntry(player_id=matches[0], price=entry.price, team=entry.team)
-
-
-Runner = Callable[[AgentRequest, type[StateEntry]], Awaitable[Outcome[StateEntry]]]
-
-
-async def parse_entry(
-    text: str,
-    *,
-    model: str,
-    runner: Runner = sdk_run,
-) -> Outcome[StateEntry]:
-    """Parse one typed line via the agent. Thin shell; the runner is injected for testing."""
-    request = AgentRequest(
-        prompt=build_prompt(text),
-        label="state-entry",
-        model=model,
-        allowed_tools=(),  # no search: the parse is offline
-        max_turns=1,
-    )
-    return await runner(request, StateEntry)

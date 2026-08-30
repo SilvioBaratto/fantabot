@@ -3,7 +3,9 @@
 The LLM turns the free-text entry into a `StateEntry` (player name, price, team); `resolve`
 matches the fuzzy name against the listone. An ambiguous or unmatched name is surfaced as
 ``None`` — never guessed — because a wrong player id at 21:47 is worse than asking again.
-The async agentkit call is a thin shell verified on the real backend.
+
+The agent call that produces the `StateEntry` was deleted in P11-5: it had no caller and no
+test. These four cover everything the module still has.
 """
 
 from __future__ import annotations
