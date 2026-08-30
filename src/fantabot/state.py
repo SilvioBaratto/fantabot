@@ -1,10 +1,10 @@
 """Where the browser session is stored.
 
 This module used to hold ``data/state.json`` — an untyped ``dict[str, Any]`` with
-three keys, loaded with a defaults-first merge and saved with ``default=str``.
-Runtime state lives in Postgres now: ``bot_state`` for what has been done and
-``auction_bids`` for what has been spent, both keyed by lega, which the flat file
-could not represent.
+three keys, loaded with a defaults-first merge and saved with ``default=str``. That
+was ported to two Postgres tables, ``bot_state`` and ``auction_bids``, and both were
+dropped on 2026-08-30 with the Classic lineup and auction code that were their only
+writers. Neither ever held a row.
 
 What is left is one path, read by ``login.py`` alone. It stays a plain function
 over ``settings`` and imports nothing from ``fantabot.db`` on purpose: ``login.py``

@@ -4,7 +4,7 @@ The eleven tests that pinned ``load``, ``save``, the defaults-first merge, the
 ``default=str`` asymmetry and the shallow-copy aliasing did their job — they
 described the behaviour precisely enough that replacing it was a decision rather
 than an accident — and they retired with the code they covered. Runtime state is
-``bot_state`` and ``auction_bids`` now, tested in tests/integration/.
+``bot_state`` and ``auction_bids``, both since dropped — they never held a row.
 
 What survives is the one function that must keep working before a database
 exists, and the reason it must.

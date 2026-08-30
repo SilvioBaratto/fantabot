@@ -187,8 +187,6 @@ SCHEMA_TABLES = frozenset(
         "voti",
         "bonus_malus",
         "player_sentiment",
-        "bot_state",
-        "auction_bids",
         "league_snapshot",
         "league_team_snapshot",
         "league_player_pool",
