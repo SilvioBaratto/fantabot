@@ -1,5 +1,24 @@
 """Resolve collected FantaLab auction events into named assignments.
 
+**Kept when the rest of the poller went** (2026-08-30), for two reasons that have
+nothing to do with polling:
+
+1. It is the **independent oracle** for ``tests/test_aste_reconstruct.py``. The
+   EVENING_ASSIGNMENTS / EVENING_SPEND constants there were produced by *this*
+   resolver against ``events_2026-08-26.jsonl``, and the test exists to make
+   ``fantabot.aste.reconstruct`` disagree loudly rather than silently. Deleting this
+   would leave the oracle unreproducible and that test asserting against numbers
+   nobody could re-derive — its own failure message says to re-run this script.
+2. It holds the **UUID -> fantacalcio_id bridge** (``GET /v2/listone``, below) that
+   ``asta_engine`` still lacks. That gap is a live defect: ``asta-bid`` raises
+   ``InfeasibleRoster`` the first time it wins a lot, because owned ids arrive as
+   FantaLab UUIDs and the pool is keyed by fantacalcio id. This is the reference
+   implementation of the fix. See tasks/todo.md P10.
+
+Its collecting counterparts ``collect_aste_live.py`` and ``scan_aste_live.py`` were
+deleted -- superseded by ``aste-collect`` / ``aste-scan``, which the 2026-08-27 shadow
+run measured seeing 224 rungs this generation could not.
+
 The live stream identifies players by FantaLab UUID. ``GET /v2/listone`` maps
 those to names — and, decisively, to ``fantacalcio_id``, which is the same
 integer key our ``players`` table already uses. So the bridge is an exact join,

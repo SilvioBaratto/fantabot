@@ -180,7 +180,7 @@ alembic check                # models and migrations agree?
    it runs** (hence the `live / expected` heartbeat — the summary it printed at
    exit was never reached).
    **`scripts/*_aste_live.py` is the retired poller.** Kept as a fallback and as
-   the thing `scripts/compare_collectors.py` measures against; it reads merged
+   the thing `aste/compare.py` measured it against; it read merged
    snapshots, so two raises inside one interval collapse into one. The shadow run
    of 2026-08-27 put numbers on that: same 23 rooms, 105 shared sales, and **224
    rungs the poller could not see.** Use `aste-collect`.
