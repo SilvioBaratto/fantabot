@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ..mantra_grid.models import ROLE_ORDER
+from fantabot.mantra_grid.models import ROLE_ORDER
 
 #: The 12 Mantra role codes, canonical (uppercase).
 MANTRA_ROLES: frozenset[str] = frozenset(code.upper() for code in ROLE_ORDER)

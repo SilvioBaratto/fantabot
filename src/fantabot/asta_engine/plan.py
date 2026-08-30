@@ -40,12 +40,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
-from .legality import SchemaLegality, build_legality, load_compat
-from .prices import Sale, mean_prices
-from .report import build_pool, build_value
-from .roles import MantraPlayer
-from .sentiment import SentimentWeights
-from .value import ValueModel
+from fantabot.asta_engine.legality import SchemaLegality, build_legality, load_compat
+from fantabot.asta_engine.prices import Sale, mean_prices
+from fantabot.asta_engine.report import build_pool, build_value
+from fantabot.asta_engine.roles import MantraPlayer
+from fantabot.asta_engine.sentiment import SentimentWeights
+from fantabot.asta_engine.value import ValueModel
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

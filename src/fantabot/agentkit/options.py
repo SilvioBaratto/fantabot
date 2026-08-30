@@ -61,7 +61,7 @@ def agent_env() -> dict[str, str]:
     Anthropic-compatible shim (Ollama, LiteLLM, a gateway). options.env is the
     only channel used either way, so a stripped os.environ still cannot leak.
     """
-    from ..config import settings
+    from fantabot.config import settings
 
     if not settings.fantabot_agent_base_url:
         return {}

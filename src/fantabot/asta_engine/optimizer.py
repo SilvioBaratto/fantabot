@@ -21,10 +21,10 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 
-from .legality import SchemaLegality, SlotRule, fieldable_schemi
-from .roles import MantraPlayer
-from .state import AstaState, OptimizationResult, Roster, RosterRules
-from .value import ValueModel
+from fantabot.asta_engine.legality import SchemaLegality, SlotRule, fieldable_schemi
+from fantabot.asta_engine.roles import MantraPlayer
+from fantabot.asta_engine.state import AstaState, OptimizationResult, Roster, RosterRules
+from fantabot.asta_engine.value import ValueModel
 
 #: The same-club correlation the naive variance uses. A placeholder until the covariance is
 #: measured from the four seasons of voti (or supplied by the skfolio value layer).

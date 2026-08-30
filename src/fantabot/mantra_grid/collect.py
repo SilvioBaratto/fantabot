@@ -12,12 +12,12 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from ..agentkit.options import AgentRequest
-from ..agentkit.runner import Outcome
-from ..agentkit.runner import run as sdk_run
-from .gates import check_compat, check_schemi
-from .models import CompatMatrix, SchemaGrid
-from .prompt import COMPAT_PROMPT, SCHEMI_PROMPT
+from fantabot.agentkit.options import AgentRequest
+from fantabot.agentkit.runner import Outcome
+from fantabot.agentkit.runner import run as sdk_run
+from fantabot.mantra_grid.gates import check_compat, check_schemi
+from fantabot.mantra_grid.models import CompatMatrix, SchemaGrid
+from fantabot.mantra_grid.prompt import COMPAT_PROMPT, SCHEMI_PROMPT
 
 M = TypeVar("M", bound=BaseModel)
 

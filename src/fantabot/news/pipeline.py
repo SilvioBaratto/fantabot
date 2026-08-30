@@ -28,13 +28,13 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-from ..agentkit.options import AgentRequest
-from ..agentkit.runner import Outcome, Usage
-from ..agentkit.runner import run as sdk_run
-from .models import PlayerSentiment
-from .pool import PoolPlayer
-from .prompt import build_system_prompt, build_user_prompt
-from .store import build_row
+from fantabot.agentkit.options import AgentRequest
+from fantabot.agentkit.runner import Outcome, Usage
+from fantabot.agentkit.runner import run as sdk_run
+from fantabot.news.models import PlayerSentiment
+from fantabot.news.pool import PoolPlayer
+from fantabot.news.prompt import build_system_prompt, build_user_prompt
+from fantabot.news.store import build_row
 
 log = logging.getLogger(__name__)
 

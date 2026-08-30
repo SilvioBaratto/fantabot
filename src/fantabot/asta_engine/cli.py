@@ -16,24 +16,23 @@ import typer
 if TYPE_CHECKING:
     from fantabot.data_sources.models import SentimentRow
 
-from fantabot.interface.console import console
-from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
-
-from .legality import build_legality, fieldable_schemi, load_compat
-from .live import normalize, resolve_ids
-from .opponents import format_advisory, format_opponents, track_opponents
-from .optimizer import InfeasibleRoster, optimize_roster
-from .plan import read_plan_inputs
-from .report import (
+from fantabot.asta_engine.legality import build_legality, fieldable_schemi, load_compat
+from fantabot.asta_engine.live import normalize, resolve_ids
+from fantabot.asta_engine.opponents import format_advisory, format_opponents, track_opponents
+from fantabot.asta_engine.optimizer import InfeasibleRoster, optimize_roster
+from fantabot.asta_engine.plan import read_plan_inputs
+from fantabot.asta_engine.report import (
     build_pool,
     format_legality,
     format_roster,
     parse_ids,
     parse_replay_lines,
 )
-from .reservation import apply_event, reservations, rolling_advisory
-from .sentiment import SentimentWeights
-from .state import AstaState
+from fantabot.asta_engine.reservation import apply_event, reservations, rolling_advisory
+from fantabot.asta_engine.sentiment import SentimentWeights
+from fantabot.asta_engine.state import AstaState
+from fantabot.interface.console import console
+from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
 
 
 class _SentimentSource(Protocol):

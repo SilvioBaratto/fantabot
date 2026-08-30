@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .pool import PoolPlayer, build_pool
+from fantabot.news.pool import PoolPlayer, build_pool
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

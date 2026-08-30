@@ -23,9 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from ..mantra_grid.models import ROLE_ORDER, CompatMatrix
-from ..resources import COMPAT_FILENAME, data_dir
-from .roles import MantraPlayer
+from fantabot.asta_engine.roles import MantraPlayer
+from fantabot.mantra_grid.models import ROLE_ORDER, CompatMatrix
+from fantabot.resources import COMPAT_FILENAME, data_dir
 
 Mode = Literal["submission", "substitution"]
 

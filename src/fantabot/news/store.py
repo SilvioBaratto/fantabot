@@ -19,10 +19,9 @@ from __future__ import annotations
 from datetime import date
 
 from fantabot.data_sources.models import SCORES
-
-from .mantra import drift, parse_codes
-from .models import PlayerSentiment
-from .pool import PoolPlayer
+from fantabot.news.mantra import drift, parse_codes
+from fantabot.news.models import PlayerSentiment
+from fantabot.news.pool import PoolPlayer
 
 COLUMNS: tuple[str, ...] = (
     "data_run",

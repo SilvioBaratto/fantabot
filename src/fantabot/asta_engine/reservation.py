@@ -13,17 +13,17 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
 
-from .legality import SchemaLegality
-from .live import AssignmentEvent
-from .optimizer import (
+from fantabot.asta_engine.legality import SchemaLegality
+from fantabot.asta_engine.live import AssignmentEvent
+from fantabot.asta_engine.optimizer import (
     DEFAULT_SAME_TEAM_RHO,
     InfeasibleRoster,
     build_index,
     optimize_roster,
 )
-from .roles import MantraPlayer
-from .state import AstaState, OptimizationResult, RosterRules
-from .value import ValueModel
+from fantabot.asta_engine.roles import MantraPlayer
+from fantabot.asta_engine.state import AstaState, OptimizationResult, RosterRules
+from fantabot.asta_engine.value import ValueModel
 
 
 def apply_event(state: AstaState, event: AssignmentEvent, *, our_team_id: str) -> AstaState:

@@ -109,7 +109,7 @@ def assert_auth(options_env: Mapping[str, str]) -> None:
     ``Settings`` at import, and this module sits on the import chain of every
     agent command.
     """
-    from ..config import settings
+    from fantabot.config import settings
 
     if settings.fantabot_agent_base_url:
         assert_byo_backend(options_env)

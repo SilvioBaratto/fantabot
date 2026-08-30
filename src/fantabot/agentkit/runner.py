@@ -22,8 +22,8 @@ from typing import Any, Generic, Protocol, TypeVar, cast
 from claude_agent_sdk import RateLimitEvent, query
 from pydantic import BaseModel, ValidationError
 
-from .env import assert_auth
-from .options import AgentRequest, build_options
+from fantabot.agentkit.env import assert_auth
+from fantabot.agentkit.options import AgentRequest, build_options
 
 log = logging.getLogger(__name__)
 
