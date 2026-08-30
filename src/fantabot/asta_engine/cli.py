@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from fantabot.data_sources.models import SentimentRow
 
 from fantabot.interface.console import console
+from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
 
 from .legality import build_legality, fieldable_schemi, load_compat
 from .live import normalize
@@ -35,8 +36,6 @@ from .reservation import apply_event, reservations, rolling_advisory
 from .sentiment import SentimentWeights
 from .state import AstaState
 from .value import ValueModel
-
-_SEASON = "2026/27"
 
 
 class _SentimentSource(Protocol):
@@ -102,22 +101,10 @@ def asta_optimize(
     budget: float = typer.Option(500.0, help="Remaining credits to spend."),
     lam: float = typer.Option(0.0, "--lam", help="Risk aversion; higher diversifies across clubs."),
     fallbacks: int = typer.Option(3, help="How many next-best plans to show."),
-    season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
-    sentiment: bool = typer.Option(
-        True,
-        "--sentiment/--no-sentiment",
-        help="Adjust values by the news feed. --no-sentiment is the fvm-only ablation.",
-    ),
-    sentiment_run: str = typer.Option(
-        "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
-    ),
-    tilt_k: float = typer.Option(
-        SentimentWeights().k,
-        "--tilt-k",
-        min=0.0,
-        max=1.0,
-        help="Strength of the quality tilt. 0 uses the playing-time gate alone.",
-    ),
+    season: Season = SEASON,
+    sentiment: Sentiment = True,
+    sentiment_run: SentimentRun = "",
+    tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
     """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
@@ -168,7 +155,7 @@ def asta_optimize(
 
 def asta_legality(
     rosa: str = typer.Option(..., help="Player ids in the rosa, comma/space separated."),
-    season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
+    season: Season = SEASON,
 ) -> None:
     """Print which of the 11 Mantra schemi a rosa can field. Read-only."""
     from fantabot.db import database_manager
@@ -192,22 +179,10 @@ def asta_live(
     team: str = typer.Option(..., help="Our team id in the room."),
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
-    season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
-    sentiment: bool = typer.Option(
-        True,
-        "--sentiment/--no-sentiment",
-        help="Adjust values by the news feed. On by default, matching asta-optimize.",
-    ),
-    sentiment_run: str = typer.Option(
-        "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
-    ),
-    tilt_k: float = typer.Option(
-        SentimentWeights().k,
-        "--tilt-k",
-        min=0.0,
-        max=1.0,
-        help="Strength of the quality tilt. 0 = gate only.",
-    ),
+    season: Season = SEASON,
+    sentiment: Sentiment = True,
+    sentiment_run: SentimentRun = "",
+    tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
     ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
@@ -305,23 +280,11 @@ def asta_bid(
     user: str = typer.Option(..., help="Our user id — rides on every bid."),
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
-    season: str = typer.Option(_SEASON, help="Which stagione's Mantra listone."),
+    season: Season = SEASON,
     poll: float = typer.Option(2.0, help="Seconds between polls."),
-    sentiment: bool = typer.Option(
-        True,
-        "--sentiment/--no-sentiment",
-        help="Adjust values by the news feed. On by default, matching asta-optimize.",
-    ),
-    sentiment_run: str = typer.Option(
-        "", help="Pin sentiment to one data_run (YYYY-MM-DD); default is each player's newest."
-    ),
-    tilt_k: float = typer.Option(
-        SentimentWeights().k,
-        "--tilt-k",
-        min=0.0,
-        max=1.0,
-        help="Strength of the quality tilt. 0 = gate only.",
-    ),
+    sentiment: Sentiment = True,
+    sentiment_run: SentimentRun = "",
+    tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
