@@ -106,12 +106,10 @@ import statistics
 from collections import defaultdict
 from dataclasses import dataclass
 
-from rich.console import Console
 from rich.table import Table
 
 from fantabot.db import scraping as _db
-
-console = Console()
+from fantabot.interface.console import console
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]
 PREV_OF_TRAIN = dict(zip(TRAIN_SEASONS, ["2022/23", "2023/24", "2024/25"], strict=True))
