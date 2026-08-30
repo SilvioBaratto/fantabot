@@ -4,6 +4,13 @@ They live here rather than beside either consumer because both the repository
 that produces them and the source that serves them need them, and importing
 either from the other would be a cycle.
 
+``PriorStats``, ``BiasRow`` and ``PlayerQuote`` arrived for the first, and by the worse
+route: each was defined **twice**, in ``adapters/persistence/scraping.py`` and again in
+``application/pricing.py``, and the two copies had already drifted -- the repository's
+``BiasRow`` carries a ``delta`` field the pricing copy never had. Nothing caught it
+because nothing tested the pricing model at all. Same shape as ``SCORES`` below, which
+had three copies of one ordering.
+
 ``QuotazioneRow`` arrived for the second reason. It was defined in
 ``db/repositories/reference.py`` and named in the signatures of ``news.build_pool``
 and ``asta_engine.build_plan_inputs`` — both pure functions, both consequently
@@ -30,6 +37,7 @@ consumer that exists at the time.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 SCORES: tuple[str, ...] = (
@@ -42,6 +50,53 @@ SCORES: tuple[str, ...] = (
     "piazzati",
     "confidenza",
 )
+
+
+@dataclass(frozen=True)
+class PriorStats:
+    """One player's previous season, averaged across the three fonte."""
+
+    partite_giocate: int
+    media_fantavoto: float
+
+
+@dataclass(frozen=True)
+class BiasRow:
+    """One season's quote-to-price drift for one player: what the fade is fitted on."""
+
+    stagione: str
+    id: str
+    nome: str
+    squadra: str
+    role: str
+    qi: int
+    qa: int
+    delta: int
+    pct_delta: float
+
+    @property
+    def log_ratio(self) -> float:
+        """``log(qa / qi)`` -- the scale the role fades are fitted on.
+
+        Not ``pct_delta``. That is structurally asymmetric: capped near -100% below and
+        unbounded above, so a cheap player doubling reads +100% while halving reads only
+        -50%, and a handful of breakout players dominate an OLS fit. See ``RoleFade``.
+        """
+        return math.log(self.qa / self.qi)
+
+
+@dataclass(frozen=True)
+class PlayerQuote:
+    """One row of a listone: what the platform asks for a player this season."""
+
+    stagione: str
+    id: str
+    nome: str
+    squadra: str
+    role: str
+    qi: int
+    qa: int
+    fvm: int
 
 
 @dataclass(frozen=True)

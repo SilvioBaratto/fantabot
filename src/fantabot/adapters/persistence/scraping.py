@@ -24,12 +24,10 @@ Prerequisites this module adds to every script that imports it:
 
 from __future__ import annotations
 
-import math
 import statistics
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
@@ -37,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence import database_manager
 from fantabot.domain.shared.parsing import split_codes, split_flags
+from fantabot.domain.shared.values import BiasRow, PlayerQuote, PriorStats
 
 #: The bonus/malus half of a `match_grain` row. NOT NULL every one: zero is a value.
 _COUNTER_COLUMNS = (
@@ -50,42 +49,6 @@ def session() -> Iterator[Session]:
     """A read session. Same engine and pooling the CLI uses."""
     with database_manager.get_session() as handle:
         yield handle
-
-
-@dataclass(frozen=True)
-class PriorStats:
-    partite_giocate: int
-    media_fantavoto: float
-
-
-@dataclass(frozen=True)
-class BiasRow:
-    stagione: str
-    id: str
-    nome: str
-    squadra: str
-    role: str
-    qi: int
-    qa: int
-    delta: int
-    pct_delta: float
-
-    @property
-    def log_ratio(self) -> float:
-        """``log(qa / qi)`` — what target_price fits its role fades on."""
-        return math.log(self.qa / self.qi)
-
-
-@dataclass(frozen=True)
-class PlayerQuote:
-    stagione: str
-    id: str
-    nome: str
-    squadra: str
-    role: str
-    qi: int
-    qa: int
-    fvm: int
 
 
 def load_prior_stats(

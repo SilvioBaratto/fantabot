@@ -104,12 +104,14 @@ from __future__ import annotations
 import math
 import statistics
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from rich.table import Table
 
 from fantabot.adapters.persistence import scraping as _db
 from fantabot.application.reporting import Reporter
+from fantabot.domain.shared.values import BiasRow, PlayerQuote, PriorStats
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]
 PREV_OF_TRAIN = dict(zip(TRAIN_SEASONS, ["2022/23", "2023/24", "2024/25"], strict=True))
@@ -149,28 +151,6 @@ TEAM_DISCOUNT_ALLOWLIST = {"NAP", "MIL"}
 
 
 @dataclass(frozen=True)
-class PriorStats:
-    partite_giocate: int
-    media_fantavoto: float
-
-
-@dataclass(frozen=True)
-class BiasRow:
-    stagione: str
-    id: str
-    nome: str
-    squadra: str
-    role: str
-    qi: int
-    qa: int
-    pct_delta: float
-
-    @property
-    def log_ratio(self) -> float:
-        return math.log(self.qa / self.qi)
-
-
-@dataclass(frozen=True)
 class RoleFade:
     """Fits log(qa/qi) ~ prior_media_fantavoto, not raw pct_delta.
 
@@ -202,13 +182,15 @@ class RoleFade:
         return math.exp(self.predict_log_ratio(prior_fantamedia))
 
 
-def fit_role_fades(system: str) -> dict[str, RoleFade]:
-    with _db.session() as handle:
-        prior_stats = _db.load_prior_stats(handle, system)
-        bias_rows = _db.load_bias_rows(
-            handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
-        )
+def fit_fades(
+    bias_rows: Sequence[BiasRow],
+    prior_stats: Mapping[tuple[str, str], PriorStats],
+    system: str,
+) -> dict[str, RoleFade]:
+    """One fade per macro role, fitted on the observations that qualify. Pure.
 
+    Four kinds of row are refused, and each refusal has a reason recorded below.
+    """
     by_role: dict[str, list[tuple[float, float]]] = defaultdict(list)
     for row in bias_rows:
         role = macro_role(row.role, system)
@@ -246,11 +228,28 @@ def fit_role_fades(system: str) -> dict[str, RoleFade]:
     return fades
 
 
-def team_discount_factors(system: str) -> dict[str, float]:
+def fit_role_fades(system: str) -> dict[str, RoleFade]:
+    """The I/O shell over `fit_fades`: two reads, then the pure fit."""
+    return fit_fades(*_training_data(system), system)
+
+
+def _training_data(
+    system: str,
+) -> tuple[list[BiasRow], dict[tuple[str, str], PriorStats]]:
+    """The two tables every stage of the model reads. One session, both reads."""
     with _db.session() as handle:
-        bias_rows = _db.load_bias_rows(
-            handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI
+        return (
+            _db.load_bias_rows(handle, system, seasons=set(TRAIN_SEASONS), min_qi=MIN_QI),
+            _db.load_prior_stats(handle, system),
         )
+
+
+def discount_factors(bias_rows: Sequence[BiasRow]) -> dict[str, float]:
+    """One factor per allowlisted club, from the median drift of its players. Pure.
+
+    The median rather than the mean, for the same reason `RoleFade` fits on a log ratio:
+    one breakout season must not reprice a whole club.
+    """
     by_team: dict[str, list[float]] = defaultdict(list)
     for row in bias_rows:
         by_team[row.squadra].append(row.pct_delta)
@@ -263,6 +262,11 @@ def team_discount_factors(system: str) -> dict[str, float]:
         median_pct = statistics.median(pcts)
         factors[team] = 1.0 + median_pct / 100.0
     return factors
+
+
+def team_discount_factors(system: str) -> dict[str, float]:
+    """The I/O shell over `discount_factors`."""
+    return discount_factors(_training_data(system)[0])
 
 
 @dataclass(frozen=True)
@@ -280,15 +284,22 @@ class TargetPriceRow:
     flags: str
 
 
-def compute_target_prices(system: str) -> list[TargetPriceRow]:
-    fades = fit_role_fades(system)
-    team_factors = team_discount_factors(system)
-    with _db.session() as handle:
-        prior_stats = _db.load_prior_stats(handle, system)
-        target_universe = _db.load_quotes(handle, system, seasons={TARGET_SEASON})
+def price_universe(
+    universe: Sequence[PlayerQuote],
+    prior_stats: Mapping[tuple[str, str], PriorStats],
+    fades: Mapping[str, RoleFade],
+    team_factors: Mapping[str, float],
+    system: str,
+) -> list[TargetPriceRow]:
+    """A target price for every player in `universe`. Pure.
 
+    The flag chain is an `elif`, so the order is the precedence: a cheap goalkeeper reads
+    `floor_qi`, not `goalkeeper_no_fade`. Every branch that sets a flag also leaves
+    `adjustment_factor` at 1.0, so a flagged player is priced at `qi` times his club's
+    factor and nothing else.
+    """
     out: list[TargetPriceRow] = []
-    for row in target_universe:
+    for row in universe:
         player_id = row.id
         role = row.role
         role_bucket = macro_role(role, system)
@@ -336,6 +347,21 @@ def compute_target_prices(system: str) -> list[TargetPriceRow]:
             )
         )
     return out
+
+
+def compute_target_prices(system: str) -> list[TargetPriceRow]:
+    """The I/O shell: read once, then fit, discount and price. All pure from here."""
+    bias_rows, prior_stats = _training_data(system)
+    with _db.session() as handle:
+        universe = _db.load_quotes(handle, system, seasons={TARGET_SEASON})
+
+    return price_universe(
+        universe,
+        prior_stats,
+        fit_fades(bias_rows, prior_stats, system),
+        discount_factors(bias_rows),
+        system,
+    )
 
 
 def run(system: str = "classic", top_n: int = 15, *, report: Reporter) -> None:
