@@ -183,7 +183,6 @@ SCHEMA_TABLES = frozenset(
         "teams",
         "quotazioni",
         "statistiche",
-        "qi_bias",
         "target_price",
         "voti",
         "bonus_malus",
@@ -208,7 +207,13 @@ SCHEMA_TABLES = frozenset(
 
 def test_every_table_spec_names_exists_and_nothing_else_does() -> None:
     """SPEC criterion 4's first half, checked against the metadata rather than
-    a database: the schema is complete, and it has not grown anything extra."""
+    a database: the schema is complete, and it has not grown anything extra.
+
+    `qi_bias` is absent since 2026-08-30 and that is correct: it is a **view** now,
+    with no model, because mapping one would make `alembic check` want to build it
+    as a table. That it still answers queries is covered in the `db` tier — this
+    file is about the metadata, and a view is not in it.
+    """
     assert set(Base.metadata.tables) == SCHEMA_TABLES
 
 

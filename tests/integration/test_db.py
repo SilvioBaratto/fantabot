@@ -264,6 +264,33 @@ class TestStatisticheSeed:
 
 
 class TestQiBiasSeed:
+    """`qi_bias` is a view over `quotazioni` since 2026-08-30.
+
+    These assertions are unchanged and that is the point: the migration is a no-op
+    for every reader, proven by an `EXCEPT` in both directions against the
+    pre-migration dump returning 0 rows. What used to check a table now checks that
+    the derivation reproduces it.
+    """
+
+    def test_it_is_a_view_not_a_table(self, db_session: Session) -> None:
+        kind = db_session.execute(
+            text("SELECT table_type FROM information_schema.tables WHERE table_name='qi_bias'")
+        ).scalar()
+        assert kind == "VIEW"
+
+    def test_the_season_predicate_still_matches_what_the_table_held(
+        self, db_session: Session
+    ) -> None:
+        """The view encodes an artefact, not a fact — see migration a1c4e77b3f01.
+
+        `quotazioni` covers five seasons; the retired producer fetched four. If a
+        fifth is ever added to the view without updating this, it fails here.
+        """
+        seasons = db_session.execute(
+            text("SELECT DISTINCT stagione FROM qi_bias ORDER BY 1")
+        ).scalars().all()
+        assert seasons == ["2022/23", "2023/24", "2024/25", "2025/26"]
+
     def test_both_listoni_hold_2678_rows(self, db_session: Session) -> None:
         rows = db_session.execute(
             text("SELECT listone, count(*) FROM qi_bias GROUP BY 1 ORDER BY 1")

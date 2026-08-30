@@ -45,7 +45,7 @@ column tells them apart.
 | `teams` | one club per season | 100 | derived, gated |
 | `quotazioni` | player × season × listone | 6,402 | `fantabot db scrape quotazioni` |
 | `statistiche` | player × season × listone × fonte | 16,068 | `fantabot db scrape statistiche` |
-| `qi_bias` | player × season × listone | 5,356 | derived from `quotazioni`; becomes a view |
+| `qi_bias` | player × season × listone | 5,356 | **a view** over `quotazioni` (migration `a1c4e77b3f01`) |
 | `target_price` | player × season × listone | 1,046 → 1,088 | `fantabot db price` |
 | `voti` | player × matchday | 50,634 | `fantabot db scrape voti` |
 | `bonus_malus` | player × matchday | 50,634 | `fantabot db scrape voti` |
