@@ -78,18 +78,33 @@ def test_the_docs_between_them_show_the_whole_command_surface() -> None:
     assert len(_commands("CLAUDE.md") | _commands("README.md")) >= 18
 
 
+def _resolve(path: list[str]) -> bool:
+    """Walk the click command tree the console script exposes."""
+    import typer
+
+    from fantabot.interface.app import app
+
+    node = typer.main.get_command(app)
+    for name in path:
+        commands = getattr(node, "commands", None)
+        if not commands or name not in commands:
+            return False
+        node = commands[name]
+    return True
+
+
 @pytest.mark.parametrize("doc", DOCS)
 def test_every_command_shown_resolves(doc: str) -> None:
-    """`--help` only. Running them would need a database, a browser and an agent."""
+    """Resolved against the command tree, not by running `fantabot --help` per command.
+
+    Nineteen subprocess launches cost four seconds, which put the default tier at 9.8 s
+    against SC 24's ten-second ceiling -- a gate that close to its limit flakes on a busy
+    machine, and a flaky gate gets ignored. The tree is the same object the console
+    script dispatches on, so it answers the same question in milliseconds.
+    """
     shown = sorted(_commands(doc))
     assert len(shown) >= 5, f"only found {len(shown)} commands; the regex has stopped matching"
 
-    broken = [
-        command
-        for command in shown
-        if subprocess.run(
-            ["fantabot", *command.split(), "--help"], cwd=REPO, capture_output=True
-        ).returncode
-    ]
+    broken = [command for command in shown if not _resolve(command.split())]
 
     assert broken == [], f"documented but do not resolve: {broken}"
