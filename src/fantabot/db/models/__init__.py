@@ -17,7 +17,7 @@ from fantabot.db.models.league import (
     LeagueSnapshot,
     LeagueTeamSnapshot,
 )
-from fantabot.db.models.matches import COACH_ROLE, BonusMalus, Voto
+from fantabot.db.models.matches import COACH_ROLE, MatchGrain
 from fantabot.db.models.reference import (
     FONTI,
     LISTONI,
@@ -42,12 +42,12 @@ __all__ = [
     "AstaAssignment",
     "AstaEvent",
     "Base",
-    "BonusMalus",
     "FantalabSession",
     "LeaguePlayerPool",
     "LeagueSnapshot",
     "LeagueTeamSnapshot",
     "LeagueToken",
+    "MatchGrain",
     "Player",
     "PlayerSentiment",
     "Quotazione",
@@ -55,5 +55,4 @@ __all__ = [
     "TargetPrice",
     "Team",
     "TimestampMixin",
-    "Voto",
 ]

@@ -38,6 +38,12 @@ from sqlalchemy.orm import Session
 from fantabot.db import database_manager
 from fantabot.parsing import split_codes, split_flags
 
+#: The bonus/malus half of a `match_grain` row. NOT NULL every one: zero is a value.
+_COUNTER_COLUMNS = (
+    "ammonizione", "espulsione", "gol_segnati", "gol_subiti", "autoreti",
+    "rigori_segnati", "rigori_sbagliati", "rigori_parati", "assist", "mvp",
+)
+
 
 @contextmanager
 def session() -> Iterator[Session]:
@@ -354,14 +360,22 @@ def upsert_statistiche(handle: Session, rows: list[dict[str, object]]) -> int:
 def upsert_match_grain(
     handle: Session, voti: list[dict[str, Any]], bonus: list[dict[str, Any]]
 ) -> tuple[int, int]:
-    """Write one matchday's rows to both match-grain tables.
+    """Write one matchday's rows to `match_grain`.
 
-    Two passes per table, one per partial unique index: a single INSERT names
-    exactly one conflict target, and these tables have two — rows with a player
-    and coach rows, which are disjoint. Repeating each index's predicate is what
-    makes the statement legal, not an optimisation.
+    The scraper still produces two payloads — the page gives grades and counters in
+    separate tables — so they are zipped on `(stagione, giornata, nome)` here rather
+    than in SQL. That key is what the partial unique indexes enforce, and the merge
+    migration proved it matches 50,634 for 50,634 with zero orphans.
+
+    Two passes, one per partial unique index: a single INSERT names exactly one
+    conflict target and this table has two — rows with a player and coach rows,
+    which are disjoint. Repeating each index's predicate is what makes the statement
+    legal, not an optimisation.
+
+    Returns `(voti_rows, bonus_rows)` still, because the scraper reports both counts
+    and they are the two halves it built.
     """
-    from fantabot.db.models.matches import BonusMalus, Voto
+    from fantabot.db.models.matches import MatchGrain
     from fantabot.db.upserts import upsert_two_passes
 
     if voti:
@@ -376,27 +390,30 @@ def upsert_match_grain(
                 if r["player_id"] is not None
             ],
         )
+
+    counters = {
+        (r["stagione"], r["giornata"], r["nome"]): r for r in bonus
+    }
+    merged: list[dict[str, Any]] = []
+    for row in voti:
+        key = (row["stagione"], row["giornata"], row["nome"])
+        other = counters.get(key)
+        if other is None:
+            # The page gave a grade with no counters. Zeroes are the honest value:
+            # every counter column is NOT NULL because zero goals is zero goals.
+            other = dict.fromkeys(_COUNTER_COLUMNS, 0)
+        merged.append({**row, **{c: other[c] for c in _COUNTER_COLUMNS}})
+
+    if merged:
         upsert_two_passes(
             handle,
-            Voto,
-            voti,
+            MatchGrain,
+            merged,
             updatable=(
                 "data", "ora", "squadra_raw", "avversario_raw", "gol_squadra",
                 "gol_avversario", "nome", "ruolo_codice", "ruolo", "voto_fc",
                 "fantavoto_fc", "voto_stat", "fantavoto_stat", "voto_italia",
-                "fantavoto_italia",
-            ),
-        )
-    if bonus:
-        upsert_two_passes(
-            handle,
-            BonusMalus,
-            bonus,
-            updatable=(
-                "data", "squadra_raw", "avversario_raw", "nome", "ruolo_codice",
-                "ruolo", "ammonizione", "espulsione", "gol_segnati", "gol_subiti",
-                "autoreti", "rigori_segnati", "rigori_sbagliati", "rigori_parati",
-                "assist", "mvp",
+                "fantavoto_italia", *_COUNTER_COLUMNS,
             ),
         )
     return len(voti), len(bonus)

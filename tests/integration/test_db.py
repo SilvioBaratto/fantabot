@@ -158,8 +158,8 @@ class TestTeamsSeed:
         """
         from fantabot.db.repositories.reference import ReferenceRepository
 
-        db_session.execute(text("DELETE FROM voti"))
-        db_session.execute(text("DELETE FROM bonus_malus"))
+        db_session.execute(text("DELETE FROM match_grain"))
+        db_session.execute(text("DELETE FROM match_grain"))
 
         assert ReferenceRepository(db_session).backfill_team_names() == 0
 
@@ -173,10 +173,15 @@ class TestTeamsSeed:
         # "Milan" and "Milanese" both reduce to MIL.
         db_session.execute(
             text(
-                "INSERT INTO voti (stagione, giornata, data, squadra_raw, avversario_raw,"
-                " gol_squadra, gol_avversario, nome, ruolo_codice, ruolo)"
+                # Every counter is NOT NULL since the merge — zero goals is zero
+                # goals, and the column list has to say so.
+                "INSERT INTO match_grain (stagione, giornata, data, squadra_raw, avversario_raw,"
+                " gol_squadra, gol_avversario, nome, ruolo_codice, ruolo,"
+                " ammonizione, espulsione, gol_segnati, gol_subiti, autoreti,"
+                " rigori_segnati, rigori_sbagliati, rigori_parati, assist, mvp)"
                 " VALUES ('2025/26', 99, '2026-01-01', 'Milanese', 'Milanese',"
-                " 0, 0, 'Collisione', 'A', 'Attaccante')"
+                " 0, 0, 'Collisione', 'A', 'Attaccante',"
+                " 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)"
             )
         )
 
@@ -402,7 +407,7 @@ class TestVotiSeed:
 
     def test_all_50634_rows_land_with_3039_coach_rows(self, db_session: Session) -> None:
         total, coaches = db_session.execute(
-            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM voti")
+            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM match_grain")
         ).one()
         assert (total, coaches) == (50634, 3039)
 
@@ -411,7 +416,7 @@ class TestVotiSeed:
         would collide 3039 ways."""
         bad = db_session.execute(
             text(
-                "SELECT count(*) FROM voti WHERE player_id IS NULL "
+                "SELECT count(*) FROM match_grain WHERE player_id IS NULL "
                 "AND (nome IS NULL OR nome = '' OR ruolo_codice <> 'ALL')"
             )
         ).scalar()
@@ -422,7 +427,7 @@ class TestVotiSeed:
         seeded from the union rather than from quotazioni."""
         orphans = db_session.execute(
             text(
-                "SELECT count(*) FROM voti v LEFT JOIN players p ON p.id = v.player_id "
+                "SELECT count(*) FROM match_grain v LEFT JOIN players p ON p.id = v.player_id "
                 "WHERE v.player_id IS NOT NULL AND p.id IS NULL"
             )
         ).scalar()
@@ -431,7 +436,7 @@ class TestVotiSeed:
     def test_no_grade_exceeds_the_scale(self, db_session: Session) -> None:
         impossible = db_session.execute(
             text(
-                "SELECT count(*) FROM voti WHERE voto_fc > 10 OR voto_stat > 10 OR voto_italia > 10"
+                "SELECT count(*) FROM match_grain WHERE voto_fc > 10 OR voto_stat > 10 OR voto_italia > 10"
             )
         ).scalar()
         assert impossible == 0
@@ -442,7 +447,7 @@ class TestBonusMalusSeed:
         """Same grain, same coach rows, same count — which is why they share
         the two-conflict-target upsert instead of each restating it."""
         total, coaches = db_session.execute(
-            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM bonus_malus")
+            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM match_grain")
         ).one()
         assert (total, coaches) == (50634, 3039)
 
@@ -450,7 +455,7 @@ class TestBonusMalusSeed:
         """A player who scored no goals scored zero goals — a fact, not a gap."""
         nulls = db_session.execute(
             text(
-                "SELECT count(*) FROM bonus_malus WHERE ammonizione IS NULL "
+                "SELECT count(*) FROM match_grain WHERE ammonizione IS NULL "
                 "OR gol_segnati IS NULL OR assist IS NULL OR mvp IS NULL"
             )
         ).scalar()
@@ -459,7 +464,7 @@ class TestBonusMalusSeed:
     def test_every_player_row_resolves(self, db_session: Session) -> None:
         orphans = db_session.execute(
             text(
-                "SELECT count(*) FROM bonus_malus b "
+                "SELECT count(*) FROM match_grain b "
                 "LEFT JOIN players p ON p.id = b.player_id "
                 "WHERE b.player_id IS NOT NULL AND p.id IS NULL"
             )

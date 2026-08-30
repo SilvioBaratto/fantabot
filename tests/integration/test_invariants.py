@@ -74,10 +74,9 @@ MINIMUM_ROWS: dict[str, int] = {
     "teams": 100,
     "quotazioni": 6402,
     "statistiche": 16068,
-    "qi_bias": 5356,
+    "qi_bias": 5356,          # a view now, still 5,356
     "target_price": 1046,
-    "voti": 50634,
-    "bonus_malus": 50634,
+    "match_grain": 50634,   # was voti + bonus_malus, 50,634 each
 }
 
 
@@ -109,18 +108,19 @@ def test_every_table_holds_at_least_the_rows_the_seed_had(
 # --- the properties the CSVs used to witness ------------------------------
 
 
-def test_the_coach_rows_are_present_in_both_match_tables(engine: Engine) -> None:
-    """A NOT NULL foreign key would reject 3,039 rows per table and the totals
-    above would still look plausible. This is the check that notices."""
+def test_the_coach_rows_survive_in_the_merged_table(engine: Engine) -> None:
+    """A NOT NULL foreign key would reject 3,039 rows and the total above would
+    still look plausible. This is the check that notices.
+
+    It used to assert the count on both tables. The merge made that one table, and
+    the number is unchanged because the coach rows were identical on both sides —
+    which is the same fact the merge itself rests on.
+    """
     with engine.connect() as connection:
-        counts = connection.execute(
-            text(
-                "SELECT (SELECT count(*) FROM voti WHERE player_id IS NULL), "
-                "(SELECT count(*) FROM bonus_malus WHERE player_id IS NULL)"
-            )
-        ).one()
-    assert counts[0] >= 3039
-    assert counts[1] >= 3039
+        coaches = connection.execute(
+            text("SELECT count(*) FROM match_grain WHERE player_id IS NULL")
+        ).scalar()
+    assert coaches is not None and coaches >= 3039
 
 
 def test_the_no_data_marker_never_became_a_zero(engine: Engine) -> None:
@@ -142,7 +142,7 @@ def test_nothing_is_orphaned_anywhere(engine: Engine) -> None:
     inspected = _scalar(
         engine,
         "SELECT (SELECT count(*) FROM quotazioni) + (SELECT count(*) FROM statistiche) "
-        "+ (SELECT count(*) FROM voti) + (SELECT count(*) FROM bonus_malus)",
+        "+ (SELECT count(*) FROM match_grain) + (SELECT count(*) FROM match_grain)",
     )
     assert inspected > 0, "no rows to orphan; the check would pass vacuously"
 
@@ -152,9 +152,9 @@ def test_nothing_is_orphaned_anywhere(engine: Engine) -> None:
         "  LEFT JOIN players p ON p.id = q.player_id WHERE p.id IS NULL) "
         "+ (SELECT count(*) FROM statistiche s "
         "  LEFT JOIN players p ON p.id = s.player_id WHERE p.id IS NULL) "
-        "+ (SELECT count(*) FROM voti v LEFT JOIN players p ON p.id = v.player_id "
+        "+ (SELECT count(*) FROM match_grain v LEFT JOIN players p ON p.id = v.player_id "
         "  WHERE v.player_id IS NOT NULL AND p.id IS NULL) "
-        "+ (SELECT count(*) FROM bonus_malus b "
+        "+ (SELECT count(*) FROM match_grain b "
         "  LEFT JOIN players p ON p.id = b.player_id "
         "  WHERE b.player_id IS NOT NULL AND p.id IS NULL)",
     )
@@ -181,9 +181,9 @@ def test_role_labels_keep_their_casing_while_codes_normalise(engine: Engine) -> 
     with engine.connect() as connection:
         shouty_labels, lower_codes, inspected = connection.execute(
             text(
-                "SELECT (SELECT count(*) FROM voti WHERE ruolo <> '' AND ruolo = upper(ruolo)), "
-                "(SELECT count(*) FROM voti WHERE ruolo_codice <> upper(ruolo_codice)), "
-                "(SELECT count(*) FROM voti WHERE ruolo <> '')"
+                "SELECT (SELECT count(*) FROM match_grain WHERE ruolo <> '' AND ruolo = upper(ruolo)), "
+                "(SELECT count(*) FROM match_grain WHERE ruolo_codice <> upper(ruolo_codice)), "
+                "(SELECT count(*) FROM match_grain WHERE ruolo <> '')"
             )
         ).one()
     assert inspected > 0, "no labels to check; the check would pass vacuously"
@@ -292,7 +292,7 @@ def _db_script_source() -> str:
 # inside ``db/upserts.py`` from the model — so an AST walk keyed on table names
 # cannot reach their ``updatable`` tuples and would silently cover nothing.
 # Asserted exhaustive below: a third call site with an unmapped class fails.
-MODEL_TO_TABLE: dict[str, str] = {"Voto": "voti", "BonusMalus": "bonus_malus"}
+MODEL_TO_TABLE: dict[str, str] = {"MatchGrain": "match_grain"}
 
 # How many hand-written INSERT statements each table gets, exactly. Measured, not
 # guessed: writing this map is what surfaced that `teams` is written twice — by the
@@ -402,7 +402,10 @@ def test_every_updatable_tuple_names_only_real_columns(engine: Engine) -> None:
     and pass for the wrong reason.
     """
     tuples = _updatable_tuples(_db_script_source())
-    assert len(tuples) == 2, f"expected two upsert_two_passes call sites, found {len(tuples)}"
+    # One since the merge, not two. voti and bonus_malus were the same row twice and
+    # took an upsert each; match_grain takes one. A count that drifted down silently
+    # is the thing EXPECTED_INSERTS above exists to catch, so it is pinned here too.
+    assert len(tuples) == 1, f"expected one upsert_two_passes call site, found {len(tuples)}"
 
     unmapped = {model for model, _, _ in tuples} - set(MODEL_TO_TABLE)
     assert not unmapped, f"MODEL_TO_TABLE is not exhaustive: add {unmapped}"

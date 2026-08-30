@@ -13,7 +13,7 @@ from sqlalchemy import select, union
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.club_names import build_mapping
-from fantabot.db.models.matches import BonusMalus, Voto
+from fantabot.db.models.matches import MatchGrain
 from fantabot.db.models.reference import Player, Quotazione, Statistica, Team
 from fantabot.db.repositories._base import RepositoryBase
 
@@ -76,7 +76,7 @@ class ReferenceRepository(RepositoryBase):
         """Resolve ``teams.nome_completo`` from the two vocabularies in Postgres.
 
         The codes come from ``quotazioni``/``statistiche``; the full names from
-        ``voti``/``bonus_malus``. Nothing in the data states the correspondence,
+        ``match_grain``. Nothing in the data states the correspondence,
         so it is derived by ``club_names.build_mapping`` and **gated**: a partial
         mapping leaves ``nome_completo`` NULL, later joins silently drop those
         rows, and every table still looks populated.
@@ -98,10 +98,8 @@ class ReferenceRepository(RepositoryBase):
         names = set(
             self.session.execute(
                 union(
-                    select(Voto.squadra_raw).distinct(),
-                    select(Voto.avversario_raw).distinct(),
-                    select(BonusMalus.squadra_raw).distinct(),
-                    select(BonusMalus.avversario_raw).distinct(),
+                    select(MatchGrain.squadra_raw).distinct(),
+                    select(MatchGrain.avversario_raw).distinct(),
                 )
             ).scalars()
         )

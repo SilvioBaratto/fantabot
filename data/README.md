@@ -47,8 +47,7 @@ column tells them apart.
 | `statistiche` | player × season × listone × fonte | 16,068 | `fantabot db scrape statistiche` |
 | `qi_bias` | player × season × listone | 5,356 | **a view** over `quotazioni` (migration `a1c4e77b3f01`) |
 | `target_price` | player × season × listone | 1,046 → 1,088 | `fantabot db price` |
-| `voti` | player × matchday | 50,634 | `fantabot db scrape voti` |
-| `bonus_malus` | player × matchday | 50,634 | `fantabot db scrape voti` |
+| `match_grain` | player × matchday | 50,634 | `fantabot db scrape voti` |
 | `player_sentiment` | player × run day | 0 | `fantabot news fetch --write` |
 | `bot_state` | one lega | 0 | `lineup.py` |
 | `auction_bids` | one bid | 0 | `auction.py` |

@@ -18,7 +18,10 @@ from sqlalchemy import Index
 import fantabot.db.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.db.base import Base
 
-MATCH_TABLES = ("voti", "bonus_malus")
+#: One table since 2026-08-30. Kept as a tuple because the properties below are
+#: about the *shape* the two shared — a surrogate key over disjoint partial
+#: unique indexes — and that shape is what survived the merge, not the names.
+MATCH_TABLES = ("match_grain",)
 
 
 def test_naming_convention_covers_every_constraint_kind() -> None:
@@ -184,8 +187,7 @@ SCHEMA_TABLES = frozenset(
         "quotazioni",
         "statistiche",
         "target_price",
-        "voti",
-        "bonus_malus",
+        "match_grain",
         "player_sentiment",
         "league_snapshot",
         "league_team_snapshot",
