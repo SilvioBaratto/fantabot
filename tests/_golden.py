@@ -151,7 +151,7 @@ def pinned_world(*, today: date | None = None) -> Iterator[None]:
                 ("fantabot.adapters.persistence.repositories.reference.ReferenceRepository", _FakeReferenceRepository),
                 ("fantabot.adapters.persistence.repositories.aste.AsteRepository", _FakeAsteRepository),
                 ("fantabot.data_sources.news_sentiment.NewsSentimentSource", _FakeSentimentSource),
-                ("fantabot.asta_engine.cli._today", lambda: today or PINNED_TODAY),
+                ("fantabot.interface.asta._today", lambda: today or PINNED_TODAY),
             ):
                 stack.enter_context(patch(target, replacement))
             yield

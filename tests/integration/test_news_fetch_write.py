@@ -19,8 +19,8 @@ from sqlalchemy import text
 from typer.testing import CliRunner
 
 from fantabot.adapters.persistence import database_manager
+from fantabot.application.news_fetcher import FetchResult
 from fantabot.cli import app
-from fantabot.news.pipeline import FetchResult
 
 pytestmark = pytest.mark.db
 
@@ -134,8 +134,8 @@ def _already_stored_pool_player() -> Any:
     `database_manager.get_session()`. It writes with `force=True` and then hard-DELETEs, so
     the run day it lands on must be one no real run can ever occupy — see RUN_DAY.
     """
+    from fantabot.adapters.persistence.news_pool import load_pool
     from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
-    from fantabot.news.read import load_pool
 
     with database_manager.get_session() as session:
         player_id = str(load_pool(session, "2026/27")[0].id)
@@ -173,7 +173,7 @@ def _stored(player_id: str) -> list[str]:
 def test_the_same_day_twice_stores_one_row(
     monkeypatch: pytest.MonkeyPatch, canary_player: str
 ) -> None:
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "prima")]))
     assert _news_fetch("--write", "--limit", "1").exit_code == 0
@@ -189,7 +189,7 @@ def test_force_updates_in_place_rather_than_appending(
 ) -> None:
     """Today --force skips the resume filter and append_rows has no dedup, so
     it writes a duplicate the reader then keeps. This is the fix."""
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([_row(canary_player, "prima")]))
     _news_fetch("--write", "--limit", "1")
@@ -219,7 +219,7 @@ def test_print_prompt_with_no_run_spends_nothing(monkeypatch: pytest.MonkeyPatch
     and not one of its assertions. `_refuses` below makes the same point: the check ran
     unfaked once and queried a live model until it was killed.
     """
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     called: list[object] = []
 
@@ -238,7 +238,7 @@ def test_print_prompt_with_no_run_spends_nothing(monkeypatch: pytest.MonkeyPatch
 
 
 def _player(player_id: str) -> Any:
-    from fantabot.news.pool import PoolPlayer
+    from fantabot.domain.news.pool import PoolPlayer
 
     return PoolPlayer(
         id=player_id, nome="Canary", squadra="ATA", ruolo="Difensore", ruoli_mantra="B;DS"
@@ -246,7 +246,7 @@ def _player(player_id: str) -> Any:
 
 
 def _progress(player_id: str, row: dict[str, str] | None, failure: str | None) -> Any:
-    from fantabot.news.pipeline import PlayerOutcome, Progress
+    from fantabot.application.news_fetcher import PlayerOutcome, Progress
 
     return Progress(
         done=1,
@@ -266,7 +266,7 @@ def test_a_crash_mid_run_still_stores_what_had_been_fetched(
     the drain on the way out can save it. Everything after ``asyncio.run`` — the
     final extend, the drain, the report — is skipped when a coroutine raises.
     """
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     row = _row(canary_player, "salvata")
 
@@ -288,7 +288,7 @@ def test_a_failure_full_of_brackets_does_not_take_the_run_with_it(
     closing tag and raises MarkupError, which inside the gathered coroutine ends
     a run that may be hours old — and it eats the `[type=..., input_value=...]`
     tail of every pydantic rejection, which is the whole diagnostic."""
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     row = _row(canary_player, "sopravvissuta")
     hostile = "structured output failed the schema: [/serie-a/news] [type=float_parsing]"
@@ -312,7 +312,7 @@ def test_the_run_names_the_player_it_is_querying(
 ) -> None:
     """`on_start` fires inside the semaphore slot, so the name appears when the
     query actually begins. Two hours of silence was the whole complaint."""
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     async def announcing(players: object, **kwargs: Any) -> FetchResult:
         kwargs["on_start"](_player(canary_player))
@@ -330,7 +330,7 @@ def test_a_finished_player_reports_its_scores_and_the_running_stored_count(
 ) -> None:
     """The counter must move on the line itself. `player_sentiment` staying at
     zero for the whole run was indistinguishable from a stalled one."""
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     row = _row(canary_player, "vista")
 
@@ -361,7 +361,7 @@ def test_a_second_run_says_what_it_is_resuming_from(
     database happened to hold real readings for today and those were what got skipped. The
     assertion was real; the thing satisfying it was not the test's own doing.
     """
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     with _already_stored_pool_player():
         monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([]))
@@ -379,7 +379,7 @@ def test_a_database_that_fails_mid_run_is_named_and_the_run_exits_non_zero(
     counter, the scores and the ETA all go on looking healthy — and a run that
     stored nothing must not exit 0 and report the week as collected."""
     from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     row = _row(canary_player, "mai scritta")
 
@@ -490,7 +490,7 @@ def test_a_backend_failing_everything_stops_the_run_and_exits_non_zero(
     The order matters as much as the exit code: the readings that did succeed
     are the expensive part, and they must be stored before the command gives up.
     """
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     row = _row(canary_player, "prima del muro")
     reason = "agent returned no structured output"
@@ -533,7 +533,7 @@ def test_the_run_day_can_be_pinned_so_a_resume_lands_on_the_same_week(
     with 70 stored and the obvious recovery was to wait for the reset.
     """
 
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     seen: dict[str, object] = {}
 
@@ -557,7 +557,7 @@ def _refuses(monkeypatch: pytest.MonkeyPatch, day: str) -> Any:
     it was killed. CLAUDE.md's rule is that the suite spends nothing, and a test
     that holds only while the code is correct does not keep it.
     """
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     called: list[object] = []
 
@@ -607,7 +607,7 @@ def test_an_interrupt_stops_the_run_and_stores_what_it_had(
     """
     import signal
 
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     row = _row(canary_player, "salvata dall'interrupt")
     seen: dict[str, object] = {}
@@ -653,7 +653,7 @@ def test_the_command_forwards_its_options_to_the_fan_out(
     nothing looked wrong — the flag was simply inert, and `0` could not turn it
     off.
     """
-    from fantabot.news import pipeline
+    from fantabot.application import news_fetcher as pipeline
 
     seen: dict[str, Any] = {}
 

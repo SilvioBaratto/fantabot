@@ -13,8 +13,8 @@ import json
 import pytest
 from _paths import pkg
 
-from fantabot.mantra_grid.gates import check_compat, check_schemi
-from fantabot.mantra_grid.models import (
+from fantabot.domain.mantra.gates import check_compat, check_schemi
+from fantabot.domain.mantra.models import (
     ROLE_ORDER,
     CompatMatrix,
     FormationCompat,

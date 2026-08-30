@@ -6,14 +6,14 @@ live; the render turns that plus our target roster and walk-aways into the on-sc
 
 from __future__ import annotations
 
-from fantabot.asta_engine.live import AssignmentEvent
-from fantabot.asta_engine.opponents import (
+from fantabot.domain.asta.live import AssignmentEvent
+from fantabot.domain.asta.opponents import (
     OpponentState,
     format_advisory,
     format_opponents,
     track_opponents,
 )
-from fantabot.asta_engine.state import OptimizationResult, Roster
+from fantabot.domain.asta.state import OptimizationResult, Roster
 
 ROLES = {"a1": ("A",), "d1": ("DC", "B"), "p1": ("POR",), "a2": ("A", "W")}
 EVENTS = [

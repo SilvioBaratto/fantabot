@@ -42,13 +42,15 @@ SSE_FIXTURES = FIXTURES / "sse"
 #: it quietly checks a fraction of what it claims.
 _PACKAGES: dict[str, tuple[Path, ...]] = {
     "agentkit": (PACKAGE / "adapters" / "agent",),
-    "asta_engine": (PACKAGE / "asta_engine",),
-    "aste": (PACKAGE / "aste",),
+    # The decision layer only. `plan.py` went to `application/` and `cli.py` to
+    # `interface/`; a test scanning "the asta engine" means these.
+    "asta_engine": (PACKAGE / "domain" / "asta",),
+    "aste": (PACKAGE / "domain" / "harvest",),
     "data_sources": (PACKAGE / "data_sources",),
     "db": (PACKAGE / "adapters" / "persistence",),
     "fantalab": (PACKAGE / "adapters" / "http" / "fantalab",),
-    "mantra_grid": (PACKAGE / "mantra_grid",),
-    "news": (PACKAGE / "news",),
+    "mantra_grid": (PACKAGE / "domain" / "mantra",),
+    "news": (PACKAGE / "domain" / "news",),
     "scrapers": (PACKAGE / "scrapers",),
     "tokens": (PACKAGE / "domain" / "tokens", PACKAGE / "adapters" / "tokens"),
 }

@@ -16,21 +16,21 @@ import typer
 if TYPE_CHECKING:
     from fantabot.data_sources.models import SentimentRow
 
-from fantabot.asta_engine.legality import build_legality, fieldable_schemi, load_compat
-from fantabot.asta_engine.live import normalize, resolve_ids
-from fantabot.asta_engine.opponents import format_advisory, format_opponents, track_opponents
-from fantabot.asta_engine.optimizer import InfeasibleRoster, optimize_roster
-from fantabot.asta_engine.plan import read_plan_inputs
-from fantabot.asta_engine.report import (
+from fantabot.application.asta_planner import read_plan_inputs
+from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
+from fantabot.domain.asta.live import normalize, resolve_ids
+from fantabot.domain.asta.opponents import format_advisory, format_opponents, track_opponents
+from fantabot.domain.asta.optimizer import InfeasibleRoster, optimize_roster
+from fantabot.domain.asta.report import (
     build_pool,
     format_legality,
     format_roster,
     parse_ids,
     parse_replay_lines,
 )
-from fantabot.asta_engine.reservation import apply_event, reservations, rolling_advisory
-from fantabot.asta_engine.sentiment import SentimentWeights
-from fantabot.asta_engine.state import AstaState
+from fantabot.domain.asta.reservation import apply_event, reservations, rolling_advisory
+from fantabot.domain.asta.sentiment import SentimentWeights
+from fantabot.domain.asta.state import AstaState
 from fantabot.interface.console import console
 from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
 
@@ -280,8 +280,8 @@ def asta_bid(
 
     from fantabot.adapters.http.fantalab import feed, room, rtdb
     from fantabot.adapters.persistence import database_manager
-    from fantabot.asta_engine.bid import Seat
     from fantabot.data_sources.news_sentiment import NewsSentimentSource
+    from fantabot.domain.asta.bid import Seat
 
     # The same value model asta optimize planned with, by construction now rather than by
     # maintenance: a walk-away is "what is he worth to us", and this is the one command

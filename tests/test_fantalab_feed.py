@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from fantabot.adapters.http.fantalab import feed
-from fantabot.asta_engine.live import AssignmentEvent
+from fantabot.domain.asta.live import AssignmentEvent
 
 
 def _fake_reader(node: dict[str, Any] | None) -> feed.Reader:

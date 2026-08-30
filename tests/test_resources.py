@@ -47,7 +47,7 @@ def test_the_lookup_does_not_depend_on_the_working_directory() -> None:
     """
     result = subprocess.run(
         [sys.executable, "-c",
-         "from fantabot.asta_engine.legality import load_compat;"
+         "from fantabot.domain.asta.legality import load_compat;"
          " print(len(load_compat().formazioni))"],
         cwd="/", capture_output=True, text=True, env={**os.environ, "PYTHONPATH": ""},
     )

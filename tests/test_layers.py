@@ -26,10 +26,10 @@ import _importgraph as G
 
 LAYERS: dict[str, str] = {
     # -- domain: decisions. Pure by intent; the rules below are what make that true.
-    "fantabot.asta_engine": "domain",
-    "fantabot.aste": "domain",
-    "fantabot.news": "domain",
-    "fantabot.mantra_grid": "domain",
+    "fantabot.domain.asta": "domain",
+    "fantabot.domain.harvest": "domain",
+    "fantabot.domain.news": "domain",
+    "fantabot.domain.mantra": "domain",
     "fantabot.club_names": "domain",
     "fantabot.parsing": "domain",
     # Where the packaged JSON artefacts are. A constant location, not a setting, so
@@ -46,11 +46,11 @@ LAYERS: dict[str, str] = {
     "fantabot.domain.tokens.status": "domain",
     "fantabot.domain": "domain",
     # -- application: orchestration. May use adapters; may not be a user interface.
-    "fantabot.asta_engine.plan": "application",
+    "fantabot.application.asta_planner": "application",
     "fantabot.application.harvest_loader": "application",
     "fantabot.application.harvest_supervisor": "application",
-    "fantabot.news.pipeline": "application",
-    "fantabot.mantra_grid.collect": "application",
+    "fantabot.application.news_fetcher": "application",
+    "fantabot.application.mantra_collector": "application",
     "fantabot.pricing": "application",
     "fantabot.login": "application",
     "fantabot.fantalab_login": "application",
@@ -74,18 +74,18 @@ LAYERS: dict[str, str] = {
     "fantabot.adapters.files.landing": "adapters",
     # "The only module here that touches disk", says its own docstring. It was filed
     # under application until the W6 destination map contradicted it.
-    "fantabot.mantra_grid.writer": "adapters",
+    "fantabot.adapters.files.mantra_writer": "adapters",
     "fantabot.adapters.http.harvest.client": "adapters",
     # `store.py` holds only `build_row`, which is pure — it reached the database
     # solely by importing `PoolPlayer` from a module that did.
-    "fantabot.news.read": "adapters",
+    "fantabot.adapters.persistence.news_pool": "adapters",
     "fantabot.data_sources.news_sentiment": "adapters",
     "fantabot.adapters": "adapters",
     # -- interface: the CLI, and only the CLI.
     "fantabot.cli": "interface",
     "fantabot.interface": "interface",
-    "fantabot.asta_engine.cli": "interface",
-    "fantabot.aste.cli": "interface",
+    "fantabot.interface.asta": "interface",
+    "fantabot.interface.harvest": "interface",
 }
 
 #: Packages that carry no code and belong to no layer. The four layer roots are here
@@ -93,14 +93,14 @@ LAYERS: dict[str, str] = {
 #: a directory would be a rule about nothing.
 UNPLACED = {"fantabot.domain", "fantabot.application", "fantabot.adapters",
             "fantabot.interface",
-            "fantabot", "fantabot.asta_engine", "fantabot.aste", "fantabot.news",
+            "fantabot", "fantabot.domain.asta", "fantabot.domain.harvest", "fantabot.domain.news",
             "fantabot.domain.tokens", "fantabot.adapters.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
             "fantabot.adapters.persistence.repositories", "fantabot.adapters.agent", "fantabot.adapters.http.fantalab",
-            "fantabot.scrapers", "fantabot.mantra_grid", "fantabot.data_sources"}
+            "fantabot.scrapers", "fantabot.domain.mantra", "fantabot.data_sources"}
 
 
 def layer_of(module: str) -> str:
-    """Longest matching prefix. `fantabot.aste.cli` is interface, not domain."""
+    """Longest matching prefix. `fantabot.interface.harvest` is interface, not domain."""
     best = ""
     for prefix in LAYERS:
         if (module == prefix or module.startswith(f"{prefix}.")) and len(prefix) > len(best):
@@ -210,7 +210,7 @@ class TestTheTableItself:
         )
 
     def test_longest_prefix_wins(self) -> None:
-        """`fantabot.aste` is domain and `fantabot.aste.cli` is interface."""
+        """`fantabot.domain.harvest` is domain and `fantabot.interface.harvest` is interface."""
         assert layer_of("fantabot.domain.harvest.reducer") == "domain"
-        assert layer_of("fantabot.aste.cli") == "interface"
+        assert layer_of("fantabot.interface.harvest") == "interface"
         assert layer_of("fantabot.adapters.http.harvest.stream") == "adapters"

@@ -8,7 +8,7 @@ while enough rivals are still contesting to carry it past our cap.
 
 from __future__ import annotations
 
-from fantabot.asta_engine.drain import DrainSuggestion, safe_push_cap, suggest_push
+from fantabot.domain.asta.drain import DrainSuggestion, safe_push_cap, suggest_push
 
 
 def test_cap_is_strictly_below_our_value() -> None:

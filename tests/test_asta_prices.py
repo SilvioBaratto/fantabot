@@ -15,7 +15,7 @@ right direction.
 
 from __future__ import annotations
 
-from fantabot.asta_engine.prices import Sale, mean_prices
+from fantabot.domain.asta.prices import Sale, mean_prices
 
 
 def test_mean_price_per_player() -> None:

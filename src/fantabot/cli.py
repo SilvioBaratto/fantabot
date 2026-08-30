@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any
 import typer
 from rich.markup import escape
 
-from fantabot.asta_engine.cli import register as register_asta_engine_commands
-from fantabot.aste.cli import register as register_aste_commands
+from fantabot.interface.asta import register as register_asta_engine_commands
 from fantabot.interface.console import console
+from fantabot.interface.harvest import register as register_aste_commands
 
 if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     from datetime import datetime
@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # annotations only — cli.py must stay import-light
     import httpx
 
     from fantabot.adapters.tokens.store import TokenStore
-    from fantabot.news.pipeline import FetchResult
+    from fantabot.application.news_fetcher import FetchResult
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -126,12 +126,12 @@ def news_fetch(
     import time
 
     from fantabot.adapters.agent.env import strip_dangerous_env
+    from fantabot.adapters.persistence.news_pool import load_pool
+    from fantabot.application.news_fetcher import Progress, fetch_all, format_cost_line
     from fantabot.config import settings
-    from fantabot.news.pipeline import Progress, fetch_all, format_cost_line
-    from fantabot.news.pool import PoolPlayer
-    from fantabot.news.prompt import build_prompt
-    from fantabot.news.read import load_pool
-    from fantabot.news.sink import SentimentSink
+    from fantabot.domain.news.pool import PoolPlayer
+    from fantabot.domain.news.prompt import build_prompt
+    from fantabot.domain.news.sink import SentimentSink
 
     if scope != "pool":
         # Not deferred-and-half-built: reading a roster needs the league API
@@ -373,9 +373,9 @@ def mantra_grid(
 ) -> None:
     """Collect the 11 Mantra schemas and the out-of-position matrix. One-off, not cron."""
     from fantabot.adapters.agent.env import strip_dangerous_env
+    from fantabot.adapters.files.mantra_writer import write_json
+    from fantabot.application.mantra_collector import CollectError, collect
     from fantabot.config import settings
-    from fantabot.mantra_grid.collect import CollectError, collect
-    from fantabot.mantra_grid.writer import write_json
     from fantabot.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
 
     try:

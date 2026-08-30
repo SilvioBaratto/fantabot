@@ -55,7 +55,7 @@ def direct_imports(module: str) -> frozenset[str]:
     """Every module named by an import anywhere in `module`, at any nesting depth.
 
     Relative imports are resolved against the module's own package, because
-    `from .legality import ...` and `from fantabot.asta_engine.legality import ...`
+    `from .legality import ...` and `from fantabot.domain.asta.legality import ...`
     are the same edge and a graph that saw only one of them would have holes exactly
     where this package is densest.
     """

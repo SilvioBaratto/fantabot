@@ -9,7 +9,7 @@ never asked whether a tag is stale, because it does not know what tag we hold.
 
 import pytest
 
-from fantabot.news.mantra import MANTRA_CODES, UnknownRoleCode, drift, parse_codes
+from fantabot.domain.news.mantra import MANTRA_CODES, UnknownRoleCode, drift, parse_codes
 
 
 def test_there_are_twelve_role_codes() -> None:

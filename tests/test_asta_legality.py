@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.asta_engine.legality import (
+from fantabot.domain.asta.legality import (
     SchemaLegality,
     SlotRule,
     build_legality,
@@ -22,7 +22,7 @@ from fantabot.asta_engine.legality import (
     marginal_legality,
     slot_allows,
 )
-from fantabot.asta_engine.roles import MANTRA_ROLES, MantraPlayer, normalize_role, normalize_roles
+from fantabot.domain.asta.roles import MANTRA_ROLES, MantraPlayer, normalize_role, normalize_roles
 
 # Built once from the shipped, verified artefact — the real 1,452-cell matrix.
 LEGALITY = build_legality(load_compat())

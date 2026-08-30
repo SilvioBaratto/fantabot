@@ -8,7 +8,7 @@ source reads + reasoning + answer); it is a backstop, not a target.
 
 from __future__ import annotations
 
-from fantabot.news import pipeline
+from fantabot.application import news_fetcher as pipeline
 
 
 def test_max_turns_is_bounded_to_eight() -> None:

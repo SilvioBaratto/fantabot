@@ -13,7 +13,7 @@ silently rejects or penalises, every week, for a season.
 
 from __future__ import annotations
 
-from fantabot.mantra_grid.models import (
+from fantabot.domain.mantra.models import (
     CELL_VALUES,
     ROLE_ORDER,
     CompatMatrix,
@@ -21,7 +21,7 @@ from fantabot.mantra_grid.models import (
     MantraSchema,
     SchemaGrid,
 )
-from fantabot.news.mantra import MANTRA_CODES
+from fantabot.domain.news.mantra import MANTRA_CODES
 
 _ROLE_INDEX = {code.upper(): i for i, code in enumerate(ROLE_ORDER)}
 

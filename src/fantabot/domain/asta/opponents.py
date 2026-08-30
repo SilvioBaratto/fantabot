@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from fantabot.asta_engine.live import AssignmentEvent
-from fantabot.asta_engine.state import OptimizationResult
+from fantabot.domain.asta.live import AssignmentEvent
+from fantabot.domain.asta.state import OptimizationResult
 
 
 @dataclass(frozen=True)

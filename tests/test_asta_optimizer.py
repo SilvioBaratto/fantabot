@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.asta_engine.legality import SchemaLegality, SlotRule
-from fantabot.asta_engine.optimizer import InfeasibleRoster, objective, optimize_roster
-from fantabot.asta_engine.roles import MantraPlayer, normalize_roles
-from fantabot.asta_engine.state import AstaState, RosterRules
-from fantabot.asta_engine.value import NaiveValueModel
+from fantabot.domain.asta.legality import SchemaLegality, SlotRule
+from fantabot.domain.asta.optimizer import InfeasibleRoster, objective, optimize_roster
+from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
+from fantabot.domain.asta.state import AstaState, RosterRules
+from fantabot.domain.asta.value import NaiveValueModel
 
 # A tiny world: a 3-man roster (1 GK + 2 attackers), one schema Por/A/A.
 RULES = RosterRules(size=3, goalkeeper_roles=frozenset({"POR"}), min_goalkeepers=1, min_movement=2)
@@ -72,7 +72,7 @@ def test_optimal_roster_meets_every_invariant() -> None:
     assert r.total_cost <= 100.0                     # within budget
     assert sum(1 for pid in r.player_ids if pid == "gk") == 1  # min goalkeepers met
     # fields a legal XI (the schema exists in the fieldable set the builder guaranteed)
-    from fantabot.asta_engine.legality import fieldable_schemi
+    from fantabot.domain.asta.legality import fieldable_schemi
 
     players = {p.id: p for p in POOL}
     assert fieldable_schemi([players[pid] for pid in r.player_ids], MINI)

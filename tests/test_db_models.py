@@ -130,7 +130,7 @@ def test_player_sentiment_column_set_matches_the_csv_columns() -> None:
     becomes ``player_id`` so it can carry the foreign key — and nothing is
     dropped as derivable: n_fonti stays even though it is cardinality(fonti),
     because dropping it is a deviation to ask about rather than a free win."""
-    from fantabot.news.store import COLUMNS
+    from fantabot.domain.news.store import COLUMNS
 
     table = Base.metadata.tables["player_sentiment"]
     declared = {column.name for column in table.c} - {"created_at", "updated_at"}

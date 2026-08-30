@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from fantabot.asta_engine.bid import Seat, decide_bid, pass_reason
+from fantabot.domain.asta.bid import Seat, decide_bid, pass_reason
 
 Snapshot = Mapping[str, Any]
 

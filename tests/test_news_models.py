@@ -8,7 +8,7 @@ the parts the pipeline depends on.
 import pytest
 from pydantic import ValidationError
 
-from fantabot.news.models import PlayerSentiment
+from fantabot.domain.news.models import PlayerSentiment
 
 
 def _valid(**overrides: object) -> dict[str, object]:

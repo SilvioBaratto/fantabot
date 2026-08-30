@@ -13,16 +13,16 @@ from datetime import date
 
 import pytest
 import typer
-from _paths import REPO, pkg
+from _paths import module_file, pkg
 
-from fantabot.asta_engine.cli import parse_run_date, sentiment_rows
-from fantabot.asta_engine.legality import SchemaLegality, SlotRule, fieldable_schemi
-from fantabot.asta_engine.optimizer import optimize_roster
-from fantabot.asta_engine.report import build_pool, build_value, format_roster
-from fantabot.asta_engine.roles import MantraPlayer, normalize_roles
-from fantabot.asta_engine.state import AstaState, Roster, RosterRules
-from fantabot.asta_engine.value import NaiveValueModel
 from fantabot.data_sources.models import SentimentRow
+from fantabot.domain.asta.legality import SchemaLegality, SlotRule, fieldable_schemi
+from fantabot.domain.asta.optimizer import optimize_roster
+from fantabot.domain.asta.report import build_pool, build_value, format_roster
+from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
+from fantabot.domain.asta.state import AstaState, Roster, RosterRules
+from fantabot.domain.asta.value import NaiveValueModel
+from fantabot.interface.asta import parse_run_date, sentiment_rows
 
 AS_OF = date(2026, 8, 28)
 
@@ -374,10 +374,7 @@ def test_the_observed_role_never_reaches_a_decision_module() -> None:
 
 def test_legality_cannot_see_the_sentiment_feed_at_all() -> None:
     """Not "does not use it" — cannot. L1 reads quotazioni, and only quotazioni."""
-    legality = (
-        REPO
-        / "src" / "fantabot" / "asta_engine" / "legality.py"
-    ).read_text(encoding="utf-8")
+    legality = module_file("fantabot.domain.asta.legality").read_text(encoding="utf-8")
 
     assert "sentiment" not in legality
     assert "deriva_ruolo" not in legality

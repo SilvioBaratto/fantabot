@@ -10,7 +10,7 @@ test. These four cover everything the module still has.
 
 from __future__ import annotations
 
-from fantabot.asta_engine.stateentry import ResolvedEntry, StateEntry, build_prompt, resolve
+from fantabot.domain.asta.stateentry import ResolvedEntry, StateEntry, build_prompt, resolve
 
 NAMES = {"1": "Malen", "2": "Zaccagni", "3": "Malinovskyi"}
 

@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.asta_engine.legality import SchemaLegality, SlotRule
-from fantabot.asta_engine.live import normalize, parse_assignment
-from fantabot.asta_engine.optimizer import InfeasibleRoster, optimize_roster
-from fantabot.asta_engine.reservation import reservations
-from fantabot.asta_engine.roles import MantraPlayer, normalize_roles
-from fantabot.asta_engine.state import AstaState, RosterRules
-from fantabot.asta_engine.value import NaiveValueModel
+from fantabot.domain.asta.legality import SchemaLegality, SlotRule
+from fantabot.domain.asta.live import normalize, parse_assignment
+from fantabot.domain.asta.optimizer import InfeasibleRoster, optimize_roster
+from fantabot.domain.asta.reservation import reservations
+from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
+from fantabot.domain.asta.state import AstaState, RosterRules
+from fantabot.domain.asta.value import NaiveValueModel
 
 RULES = RosterRules(size=3, goalkeeper_roles=frozenset({"POR"}), min_goalkeepers=1, min_movement=2)
 MINI = {

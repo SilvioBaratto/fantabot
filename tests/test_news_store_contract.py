@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from fantabot.news.models import PlayerSentiment
-from fantabot.news.pool import PoolPlayer
-from fantabot.news.store import build_row
+from fantabot.domain.news.models import PlayerSentiment
+from fantabot.domain.news.pool import PoolPlayer
+from fantabot.domain.news.store import build_row
 
 AHANOR = PoolPlayer(
     id="6916", nome="Ahanor", squadra="ATA", ruolo="Difensore", ruoli_mantra="B;DS;E"

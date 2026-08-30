@@ -7,8 +7,8 @@ can pin the wording without being a time bomb.
 
 from datetime import date
 
-from fantabot.news.pool import PoolPlayer
-from fantabot.news.prompt import (
+from fantabot.domain.news.pool import PoolPlayer
+from fantabot.domain.news.prompt import (
     PREFERRED_DOMAINS,
     build_prompt,
     build_system_prompt,

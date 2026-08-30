@@ -31,10 +31,10 @@ from datetime import date
 from fantabot.adapters.agent.options import AgentRequest
 from fantabot.adapters.agent.runner import Outcome, Usage
 from fantabot.adapters.agent.runner import run as sdk_run
-from fantabot.news.models import PlayerSentiment
-from fantabot.news.pool import PoolPlayer
-from fantabot.news.prompt import build_system_prompt, build_user_prompt
-from fantabot.news.store import build_row
+from fantabot.domain.news.models import PlayerSentiment
+from fantabot.domain.news.pool import PoolPlayer
+from fantabot.domain.news.prompt import build_system_prompt, build_user_prompt
+from fantabot.domain.news.store import build_row
 
 log = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ feed path is still an open question), so nothing here opens a socket.
 
 from __future__ import annotations
 
-from fantabot.asta_engine.live import (
+from fantabot.domain.asta.live import (
     AssignmentEvent,
     normalize,
     parse_assignment,

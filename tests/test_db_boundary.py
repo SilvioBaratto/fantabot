@@ -21,7 +21,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
 from _paths import PACKAGE, pkg
 
 from fantabot.adapters.persistence.engine import DatabaseManager
@@ -29,18 +28,6 @@ from fantabot.adapters.persistence.engine import DatabaseManager
 PACKAGE = PACKAGE
 FORBIDDEN = "create_engine"
 
-#: The asta engine's decision layer. These modules hold every rule that decides what a
-#: player is worth and which XI is legal, and they are testable precisely because none of
-#: them can reach a database — the I/O lives in ``asta_engine/cli.py`` alone.
-PURE_ASTA_MODULES = (
-    "sentiment.py",
-    "value.py",
-    "optimizer.py",
-    "legality.py",
-    "roles.py",
-    "state.py",
-    "reservation.py",
-)
 
 
 def test_no_engine_is_constructed_outside_the_db_package() -> None:
@@ -174,16 +161,9 @@ def _imports(path: Path) -> set[str]:
     return found
 
 
-@pytest.mark.parametrize("module", PURE_ASTA_MODULES)
-def test_the_asta_decision_layer_cannot_reach_the_database(module: str) -> None:
-    """Not "does not today" — cannot.
-
-    Structural, for the same reason the collector's rule is: an assertion about the current
-    text of these files holds for every future edit, where running the suite once with the
-    stack down would only have proved it for one afternoon. It is also what keeps the
-    default tier socket-free, since the whole value layer is reachable from ``fantabot.cli``.
-    """
-    names = _imports(PACKAGE / "asta_engine" / module)
-    offenders = {n for n in names if n.startswith(("fantabot.adapters.persistence", "sqlalchemy"))}
-
-    assert offenders == set(), f"{module} can reach the database via {offenders}"
+# `test_the_asta_decision_layer_cannot_reach_the_database` was here, parametrized over
+# seven filenames under `asta_engine/`. Deleted in P12-8: `tests/test_layers.py` makes
+# that claim for every module in the domain layer rather than seven named ones, and makes
+# it transitively, which a scan of one file's own import statements cannot. Leaving it
+# would have meant maintaining a second list -- and the list was already reading a
+# directory the move had emptied, which is a scan over nothing that passes.

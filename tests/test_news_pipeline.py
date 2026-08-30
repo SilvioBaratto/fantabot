@@ -11,9 +11,9 @@ from typing import Any
 
 from fantabot.adapters.agent.options import AgentRequest
 from fantabot.adapters.agent.runner import Outcome
-from fantabot.news.models import PlayerSentiment
-from fantabot.news.pipeline import fetch_all
-from fantabot.news.pool import PoolPlayer
+from fantabot.application.news_fetcher import fetch_all
+from fantabot.domain.news.models import PlayerSentiment
+from fantabot.domain.news.pool import PoolPlayer
 
 RUN_DAY = date(2026, 10, 7)
 

@@ -9,7 +9,7 @@ band. The real Black-Litterman value layer slots in later behind the same Protoc
 
 from __future__ import annotations
 
-from fantabot.asta_engine.value import NaiveValueModel, PlayerValue, ValueModel
+from fantabot.domain.asta.value import NaiveValueModel, PlayerValue, ValueModel
 
 
 def _model(**overrides: object) -> NaiveValueModel:

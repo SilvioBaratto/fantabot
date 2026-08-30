@@ -137,7 +137,7 @@ class TestAgainstTheRealTree:
     def test_it_finds_every_module(self) -> None:
         found = set(G.modules())
         assert "fantabot.cli" in found
-        assert "fantabot.asta_engine.optimizer" in found
+        assert "fantabot.domain.asta.optimizer" in found
         assert len(found) > 90
 
     def test_the_two_known_leaks_are_seen(self) -> None:
@@ -149,12 +149,12 @@ class TestAgainstTheRealTree:
         """
         leaks = {
             m
-            for m in ("fantabot.asta_engine.prices", "fantabot.news.pool")
+            for m in ("fantabot.domain.asta.prices", "fantabot.domain.news.pool")
             if G.reaches(m, "fantabot.adapters.persistence")
         }
         split = {
             m
-            for m in ("fantabot.asta_engine.prices", "fantabot.news.pool")
+            for m in ("fantabot.domain.asta.prices", "fantabot.domain.news.pool")
             if "import" not in Path(
                 G.SRC.joinpath(*m.split("."))
             ).with_suffix(".py").read_text().split("def ")[-1]

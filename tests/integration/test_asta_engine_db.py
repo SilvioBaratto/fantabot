@@ -10,10 +10,10 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from fantabot.asta_engine.legality import fieldable_schemi
-from fantabot.asta_engine.optimizer import optimize_roster
-from fantabot.asta_engine.plan import PlanInputs, read_plan_inputs
-from fantabot.asta_engine.state import AstaState, RosterRules
+from fantabot.application.asta_planner import PlanInputs, read_plan_inputs
+from fantabot.domain.asta.legality import fieldable_schemi
+from fantabot.domain.asta.optimizer import optimize_roster
+from fantabot.domain.asta.state import AstaState, RosterRules
 
 pytestmark = pytest.mark.db
 

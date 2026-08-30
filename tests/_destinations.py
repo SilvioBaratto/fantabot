@@ -49,6 +49,7 @@ OVERRIDE: dict[str, str] = {
     "aste": "domain/harvest/__init__.py",
     "asta_engine": "domain/asta/__init__.py",
     "news": "domain/news/__init__.py",
+    "mantra_grid": "domain/mantra/__init__.py",
     # A package whose modules split across layers needs its `__init__.py` placed by
     # hand, as an entry here, and the entry is removed once the move is done -- a map
     # naming something that no longer exists moves nothing and says nothing.

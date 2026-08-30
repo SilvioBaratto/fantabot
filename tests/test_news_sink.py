@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from fantabot.news.sink import SentimentSink
+from fantabot.domain.news.sink import SentimentSink
 
 
 def _row(player_id: str, day: str = "2026-08-28") -> dict[str, str]:

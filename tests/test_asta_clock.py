@@ -21,10 +21,21 @@ explain a week later.
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 
-from _paths import pkg
+from _paths import PACKAGE, module_file, pkg
 
-PACKAGE = pkg("asta_engine")
+#: The asta feature: its decision modules and the command that drives them. The command
+#: is named as a module rather than swept up by a directory glob, because the seam this
+#: file is about lives in it and W6 puts it in a different layer -- a glob over
+#: `domain/asta/` alone finds no seam at all and the count assertion below fails open in
+#: the one direction that reads as "nothing to see".
+ASTA_CLI = "fantabot.interface.asta"
+
+
+def _asta_sources() -> list[Path]:
+    """Every file the rule covers. Raises if the CLI module cannot be resolved."""
+    return [*sorted(pkg("asta_engine").glob("*.py")), module_file(ASTA_CLI)]
 
 #: The single function allowed to read the calendar.
 SEAM = "_today"
@@ -65,10 +76,10 @@ def test_the_asta_package_reads_the_calendar_in_one_place() -> None:
     offenders: list[str] = []
     seams: list[str] = []
 
-    for path in sorted(PACKAGE.rglob("*.py")):
+    for path in _asta_sources():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for call in _calendar_reads(tree):
-            where = f"{path.relative_to(PACKAGE.parent.parent.parent)}:{call.lineno}"
+            where = f"{path.relative_to(PACKAGE)}:{call.lineno}"
             if _enclosing_function(tree, call) == SEAM:
                 seams.append(where)
             else:
@@ -84,8 +95,8 @@ def test_the_asta_package_reads_the_calendar_in_one_place() -> None:
 
 def test_the_seam_is_reachable_by_name() -> None:
     """The harness patches it by name; a rename must break here, not in a golden diff."""
-    from fantabot.asta_engine import cli
+    from fantabot.interface import asta as cli
 
     assert callable(getattr(cli, SEAM, None)), (
-        f"fantabot.asta_engine.cli.{SEAM} is the harness's patch target"
+        f"fantabot.interface.asta.{SEAM} is the harness's patch target"
     )

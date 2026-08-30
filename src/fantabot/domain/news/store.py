@@ -19,9 +19,9 @@ from __future__ import annotations
 from datetime import date
 
 from fantabot.data_sources.models import SCORES
-from fantabot.news.mantra import drift, parse_codes
-from fantabot.news.models import PlayerSentiment
-from fantabot.news.pool import PoolPlayer
+from fantabot.domain.news.mantra import drift, parse_codes
+from fantabot.domain.news.models import PlayerSentiment
+from fantabot.domain.news.pool import PoolPlayer
 
 COLUMNS: tuple[str, ...] = (
     "data_run",
@@ -63,7 +63,7 @@ def build_row(
 
     ``deriva_ruolo`` is computed here rather than asked of the model: it compares
     what the model observed against the tag we hold, and the model does not know
-    what tag we hold. See :mod:`fantabot.news.mantra`.
+    what tag we hold. See :mod:`fantabot.domain.news.mantra`.
     """
     row = {
         "data_run": data_run.isoformat(),

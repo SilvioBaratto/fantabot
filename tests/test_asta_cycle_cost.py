@@ -44,8 +44,8 @@ BASELINE_BEFORE_P10 = 2_069_696
 
 @pytest.fixture(scope="module")
 def world():  # type: ignore[no-untyped-def]
-    from fantabot.asta_engine.plan import build_plan_inputs
-    from fantabot.asta_engine.prices import Sale, mean_prices
+    from fantabot.application.asta_planner import build_plan_inputs
+    from fantabot.domain.asta.prices import Sale, mean_prices
 
     return build_plan_inputs(
         load_quotazioni(),
@@ -58,8 +58,8 @@ def world():  # type: ignore[no-untyped-def]
 
 def _cycle_calls(world) -> int:  # type: ignore[no-untyped-def]
     """Total Python calls in one `reservations` cycle over the pinned 548-player pool."""
-    from fantabot.asta_engine.reservation import reservations
-    from fantabot.asta_engine.state import AstaState
+    from fantabot.domain.asta.reservation import reservations
+    from fantabot.domain.asta.state import AstaState
 
     def cycle() -> None:
         reservations(

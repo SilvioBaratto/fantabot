@@ -9,9 +9,9 @@ asserted against the table that replaced them.
 
 from datetime import date
 
-from fantabot.news.models import PlayerSentiment
-from fantabot.news.pool import PoolPlayer
-from fantabot.news.store import COLUMNS, build_row
+from fantabot.domain.news.models import PlayerSentiment
+from fantabot.domain.news.pool import PoolPlayer
+from fantabot.domain.news.store import COLUMNS, build_row
 
 AHANOR = PoolPlayer(
     id="6916", nome="Ahanor", squadra="ATA", ruolo="Difensore", ruoli_mantra="B;DS;E"
@@ -114,7 +114,7 @@ def test_the_observed_role_is_stored_in_a_canonical_order() -> None:
 def test_an_unrecognised_observed_role_is_not_written_as_if_it_were_fine() -> None:
     import pytest as _pytest
 
-    from fantabot.news.mantra import UnknownRoleCode
+    from fantabot.domain.news.mantra import UnknownRoleCode
 
     with _pytest.raises(UnknownRoleCode):
         _row(ruolo_campo=["ZZ"])

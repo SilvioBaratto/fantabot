@@ -9,12 +9,12 @@ and reserves the whole budget.
 
 from __future__ import annotations
 
-from fantabot.asta_engine.legality import SchemaLegality, SlotRule
-from fantabot.asta_engine.live import AssignmentEvent
-from fantabot.asta_engine.reservation import apply_event, reservations, rolling_advisory
-from fantabot.asta_engine.roles import MantraPlayer, normalize_roles
-from fantabot.asta_engine.state import AstaState, RosterRules
-from fantabot.asta_engine.value import NaiveValueModel
+from fantabot.domain.asta.legality import SchemaLegality, SlotRule
+from fantabot.domain.asta.live import AssignmentEvent
+from fantabot.domain.asta.reservation import apply_event, reservations, rolling_advisory
+from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
+from fantabot.domain.asta.state import AstaState, RosterRules
+from fantabot.domain.asta.value import NaiveValueModel
 
 RULES = RosterRules(size=3, goalkeeper_roles=frozenset({"POR"}), min_goalkeepers=1, min_movement=2)
 MINI = {

@@ -6,7 +6,7 @@ worth a unit test is pure and lives here.
 
 from __future__ import annotations
 
-from fantabot.asta_engine.report import (
+from fantabot.domain.asta.report import (
     build_pool,
     build_value,
     format_legality,
@@ -14,7 +14,7 @@ from fantabot.asta_engine.report import (
     parse_ids,
     parse_replay_lines,
 )
-from fantabot.asta_engine.state import Roster
+from fantabot.domain.asta.state import Roster
 
 
 def test_parse_ids_splits_on_commas_and_whitespace() -> None:

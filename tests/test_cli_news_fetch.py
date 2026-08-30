@@ -39,7 +39,7 @@ def test_the_pipeline_never_writes() -> None:
     graph cannot see, and because being blunt is the point -- P11-4 tried to move a read
     in here and this is what stopped it.
     """
-    import fantabot.news.pipeline as pipeline
+    import fantabot.application.news_fetcher as pipeline
 
     source = Path(pipeline.__file__).read_text()
 

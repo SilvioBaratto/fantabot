@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from fantabot.news.pool import PoolPlayer
+from fantabot.domain.news.pool import PoolPlayer
 
 # A deliberately small set of high-value, *fetchable* fantacalcio sources: probabili
 # formazioni, injury/suspension lists with recovery times, and mercato. Narrowing the

@@ -12,7 +12,7 @@ from typing import Any
 
 from _paths import pkg
 
-from fantabot.asta_engine.bid import SERVER_TIMESTAMP, Seat, decide_bid, pass_reason
+from fantabot.domain.asta.bid import SERVER_TIMESTAMP, Seat, decide_bid, pass_reason
 
 SEAT = Seat(fantateam_id="seat2", user_id="me")
 NOW = 1_000_000

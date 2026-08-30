@@ -8,7 +8,7 @@ recoverable, a plausible fabrication is not.
 
 from __future__ import annotations
 
-from fantabot.mantra_grid.models import ROLE_ORDER
+from fantabot.domain.mantra.models import ROLE_ORDER
 
 RULES_URL = "https://www.fantacalcio.it/regolamenti/sistema-mantra"
 

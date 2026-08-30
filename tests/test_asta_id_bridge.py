@@ -14,7 +14,7 @@ The second one is the reason a crash was the lucky outcome: it failed loudly.
 from __future__ import annotations
 
 from fantabot.adapters.http.fantalab import listone
-from fantabot.asta_engine.live import AssignmentEvent, resolve_ids
+from fantabot.domain.asta.live import AssignmentEvent, resolve_ids
 
 
 def _event(player_id: str, price: int = 10) -> AssignmentEvent:

@@ -15,9 +15,9 @@ from pydantic import BaseModel
 from fantabot.adapters.agent.options import AgentRequest
 from fantabot.adapters.agent.runner import Outcome
 from fantabot.adapters.agent.runner import run as sdk_run
-from fantabot.mantra_grid.gates import check_compat, check_schemi
-from fantabot.mantra_grid.models import CompatMatrix, SchemaGrid
-from fantabot.mantra_grid.prompt import COMPAT_PROMPT, SCHEMI_PROMPT
+from fantabot.domain.mantra.gates import check_compat, check_schemi
+from fantabot.domain.mantra.models import CompatMatrix, SchemaGrid
+from fantabot.domain.mantra.prompt import COMPAT_PROMPT, SCHEMI_PROMPT
 
 M = TypeVar("M", bound=BaseModel)
 

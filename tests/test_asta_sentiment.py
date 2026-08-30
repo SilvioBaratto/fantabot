@@ -21,14 +21,14 @@ from datetime import date
 
 import pytest
 
-from fantabot.asta_engine.sentiment import (
+from fantabot.data_sources.models import SentimentRow
+from fantabot.domain.asta.sentiment import (
     NEUTRAL,
     SentimentWeights,
     effect_by_id,
     raw_effect,
     variance_by_id,
 )
-from fantabot.data_sources.models import SentimentRow
 
 AS_OF = date(2026, 8, 28)
 
