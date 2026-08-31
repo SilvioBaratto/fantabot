@@ -118,3 +118,38 @@ def test_bid_module_imports_no_io() -> None:
     forbidden = {"httpx", "socket", "playwright"}
     assert not (imported & forbidden), f"bid.py must stay pure; found {imported & forbidden}"
     assert not any(name.startswith("fantabot.adapters.persistence") for name in imported), "bid.py reaches the DB"
+
+
+class TestAZeroWalkAwayCannotSpendACredit:
+    """A walk-away of 0 means "freely replaceable" -- never "buy him for nothing".
+
+    `reservations` clamps a negative walk-away to 0, because the greedy builder is a
+    heuristic and a roster without a target can occasionally score higher. The advisory
+    then prints `chase <name> walk-away 0`, which reads as an instruction. It is the
+    opposite of one, and these pin that the bidder agrees: the lowest raise it can ever
+    shape is `current + step`, and with `current` at its floor of 0 that is 1, so any
+    ceiling below 1 refuses at every price.
+
+    Characterisation, not a fix: the guard was already correct. Written because nothing
+    covered it, and because the display suggests otherwise -- so a future change to
+    `_refusal`'s ordering would have moved real money with nothing to catch it.
+    """
+
+    def test_it_refuses_on_an_opening_lot(self) -> None:
+        assert _bid(_lot(price=0), walk_away=0) is None
+
+    def test_it_refuses_at_every_price_a_lot_can_hold(self) -> None:
+        assert [p for p in range(0, 40) if _bid(_lot(price=p), walk_away=0) is not None] == []
+
+    def test_the_refusal_names_the_ceiling_not_something_incidental(self) -> None:
+        """`walk_away`, not `budget` or `floor` -- the operator's counter has to be honest."""
+        assert pass_reason(
+            _lot(price=0), SEAT, target="kean", walk_away=0,
+            remaining_budget=100, now_ms=NOW, step=1,
+        ) == "walk_away"
+
+    def test_one_credit_is_the_smallest_ceiling_that_can_ever_buy(self) -> None:
+        """The boundary the platform sets: the minimum bid is 1, so 1 is the first
+        walk-away that can produce a payload at all."""
+        assert _bid(_lot(price=0), walk_away=1) is not None
+        assert _bid(_lot(price=0), walk_away=0) is None

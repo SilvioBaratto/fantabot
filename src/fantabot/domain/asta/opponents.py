@@ -65,13 +65,35 @@ def format_opponents(
     return "\n".join(lines)
 
 
+#: The platform will not take a bid below one credit, and the bidder's smallest
+#: possible raise is `current + step` with `current` floored at 0. So a walk-away
+#: under 1 can never produce a payload.
+MIN_BID = 1
+
+
 def format_advisory(
     result: OptimizationResult, walkaways: Mapping[str, float], names: Mapping[str, str]
 ) -> str:
-    """Our target roster and the walk-away for each target, highest first."""
+    """Our target roster and the walk-away for each target, highest first.
+
+    A walk-away of 0 is not a chase. `reservations` clamps a negative one to zero -- the
+    greedy builder is a heuristic, and a roster without a target can score higher, which
+    means only that he is freely replaceable -- and the bidder refuses at every price,
+    because its smallest possible raise is `current + step` and that is at least 1. This
+    said `chase <name> walk-away 0`, which reads as an instruction to do the one thing the
+    system will not do.
+
+    He stays on the list: he is in the target roster and the operator should see him.
+    """
     lines = [
         f"target roster: {len(result.optimal)} players | obj {result.optimal.objective:.1f}"
     ]
     for player_id, walkaway in sorted(walkaways.items(), key=lambda kv: kv[1], reverse=True):
-        lines.append(f"  chase {names.get(player_id, player_id):<20} walk-away {walkaway:.0f}")
+        name = names.get(player_id, player_id)
+        if walkaway < MIN_BID:
+            # `pass` is the bidder's own word: `room.run_bid_loop` logs
+            # `pass on <target>: walk_away` when this ceiling refuses.
+            lines.append(f"  pass  {name:<20} walk-away 0 — freely replaceable")
+        else:
+            lines.append(f"  chase {name:<20} walk-away {walkaway:.0f}")
     return "\n".join(lines)
