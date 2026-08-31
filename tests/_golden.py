@@ -94,6 +94,14 @@ class _FakeReferenceRepository:
     def __init__(self, session: Any) -> None:
         self._session = session
 
+    def excluded_player_ids(self) -> set[str]:
+        """The fixture pool is a snapshot, so nothing in it is excluded.
+
+        Pinned as empty on purpose: the golden output must not move when the live
+        exclusion table gains a row, or the gate stops meaning what it says.
+        """
+        return set()
+
     def quotazioni(self, stagione: str, listone: str) -> dict[str, QuotazioneRow]:
         assert (stagione, listone) == ("2026/27", "mantra"), (
             f"the fixture is the 2026/27 Mantra listone; got {stagione}/{listone}"

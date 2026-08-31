@@ -549,6 +549,55 @@ def render_pricing(report: pricing_module.PricingReport, top_n: int) -> None:
     console.print(f"\nFlag counts: {report.flag_counts}")
 
 
+def db_exclude(
+    player: int = typer.Option(..., help="Fantacalcio player id to keep out of every plan."),
+    reason: str = typer.Option(..., help="What happened. Say it in words, with a date."),
+    source: str = typer.Option("", help="Where the claim came from — a URL, a report."),
+) -> None:
+    """Keep a player out of every asta plan.
+
+    For a player the listone still carries but who cannot be bought — a transfer out of
+    Serie A, most often. Nothing else in the engine can do this: the scraper reproduces
+    the site, and the sentiment gate is floored so news tilts a value and never vetoes
+    it. See `adapters/persistence/models/exclusions.py`.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+
+    with database_manager.get_session() as session:
+        repo = ReferenceRepository(session)
+        repo.exclude_player(player, reason=reason, source=source)
+        session.commit()
+        console.print(f"[green]excluded {player}[/green]: {reason}")
+        console.print(f"[dim]{len(repo.exclusions())} exclusions in total[/dim]")
+
+
+def db_exclusions() -> None:
+    """List the players kept out of every plan, and why."""
+    from sqlalchemy import text
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+
+    with database_manager.get_session() as session:
+        rows = ReferenceRepository(session).exclusions()
+        names = {
+            str(pid): nome
+            for pid, nome in session.execute(
+                text("SELECT id, nome FROM players WHERE id = ANY(:ids)"),
+                {"ids": [pid for pid, _, _ in rows]},
+            )
+        } if rows else {}
+
+    if not rows:
+        console.print("[dim]no exclusions — every player on the listone is buyable[/dim]")
+        return
+    for player_id, reason, source in rows:
+        console.print(f"  {player_id:<7} {names.get(str(player_id), '?'):<20} {reason}")
+        if source:
+            console.print(f"  {'':<7} {'':<20} [dim]{source}[/dim]")
+
+
 def db_dump() -> None:
     """Dump the database to a timestamped file OUTSIDE the repository.
 
@@ -874,6 +923,8 @@ db_app.command("check")(db_check)
 db_app.command("backfill-teams")(db_backfill_teams)
 db_app.command("scrape")(db_scrape)
 db_app.command("price")(db_price)
+db_app.command("exclude")(db_exclude)
+db_app.command("exclusions")(db_exclusions)
 db_app.command("dump")(db_dump)
 auth_app.command("login")(login)
 auth_app.command("status")(token_status)

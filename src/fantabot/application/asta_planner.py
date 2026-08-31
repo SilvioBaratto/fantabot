@@ -35,7 +35,7 @@ one its imports say it belongs to.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
@@ -80,12 +80,25 @@ def build_plan_inputs(
     *,
     as_of: date | None,
     tilt_k: float,
+    excluded: Collection[str] = (),
 ) -> PlanInputs:
     """Derive the plan world from two already-read tables. Pure.
 
     Takes rows rather than a `Session` so the derivation is testable without a database,
     which is what lets the golden harness drive it from fixtures.
+
+    **`excluded` is dropped before anything is derived**, not filtered out afterwards.
+    Half of it would be worse than none: `format_roster` reads `names`, the opponent
+    tracker reads `roles`, the optimizer's variance term reads `teams`, and a player left
+    in any of them surfaces as a name with no row behind it. It also has to happen before
+    `build_value`, because the sentiment normalization pins the *pool* mean at exactly
+    1.0 -- a player who cannot be bought must not move everyone else's multiplier.
+
+    `prices` is deliberately not filtered. It comes from a different table and cannot put
+    anyone back: the pool is what gates selection.
     """
+    if excluded:
+        quotazioni = {pid: row for pid, row in quotazioni.items() if pid not in excluded}
     roles = {pid: row.ruoli_codice for pid, row in quotazioni.items()}
     return PlanInputs(
         pool=build_pool(roles),
@@ -113,7 +126,7 @@ def read_plan_inputs(
     as_of: date | None,
     tilt_k: float,
 ) -> PlanInputs:
-    """The I/O half: two reads on one session, then the pure derivation above.
+    """The I/O half: three reads on one session, then the pure derivation above.
 
     Sales are restricted to our exact league shape — 8 teams, 500 credits — so the prices
     are directly comparable and need no budget normalization.
@@ -121,11 +134,16 @@ def read_plan_inputs(
     from fantabot.adapters.persistence.repositories.aste import AsteRepository
     from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
+    reference = ReferenceRepository(session)
     sales = AsteRepository(session).mantra_clearing_sales(budget=500, num_teams=8)
     return build_plan_inputs(
-        ReferenceRepository(session).quotazioni(season, "mantra"),
+        reference.quotazioni(season, "mantra"),
         mean_prices(Sale(player_id, price) for player_id, price in sales),
         sentiment,
         as_of=as_of,
         tilt_k=tilt_k,
+        # Read every run, not cached: the listone lags reality and this is the only
+        # mechanism that can drop a player the site still lists. See
+        # `adapters/persistence/models/exclusions.py`.
+        excluded=reference.excluded_player_ids(),
     )

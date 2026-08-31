@@ -35,6 +35,8 @@ EXPECTED: set[str] = {
     "config-check",
     "db backfill-teams",
     "db check",
+    "db exclude",
+    "db exclusions",
     "db dump",
     "db price",
     "db scrape",

@@ -88,6 +88,7 @@ TREE: dict[str, str] = {
     "test_aste_outage.py": "application",
     "test_news_pipeline.py": "application",
     "test_news_pipeline_limits.py": "application",
+    "test_asta_planner.py": "application",
     "test_pricing.py": "application",
     # -- adapters -------------------------------------------------------------------------
     "test_agentkit_env.py": "adapters/agent",

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import select, union
 from sqlalchemy.dialects.postgresql import insert
 
+from fantabot.adapters.persistence.models.exclusions import PlayerExclusion
 from fantabot.adapters.persistence.models.matches import MatchGrain
 from fantabot.adapters.persistence.models.reference import Player, Quotazione, Statistica, Team
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
@@ -23,6 +24,37 @@ if TYPE_CHECKING:
 
 class ReferenceRepository(RepositoryBase):
     """Reads over players, teams and the season-scoped valuation tables."""
+
+    def excluded_player_ids(self) -> set[str]:
+        """Players who must never enter a plan. Ids as `str`, like every other id here.
+
+        Read on every planning run rather than cached: the whole point is that it is
+        editable between runs, and the table holds single digits of rows.
+        """
+        rows = self.session.execute(select(PlayerExclusion.player_id)).scalars().all()
+        return {str(player_id) for player_id in rows}
+
+    def exclude_player(self, player_id: int, *, reason: str, source: str = "") -> None:
+        """Record one exclusion, replacing any earlier reason for the same player.
+
+        An upsert, like every other write here: re-running a correction is not an error.
+        """
+        self.session.execute(
+            insert(PlayerExclusion)
+            .values(player_id=player_id, reason=reason, source=source)
+            .on_conflict_do_update(
+                index_elements=[PlayerExclusion.player_id],
+                set_={"reason": reason, "source": source},
+            )
+        )
+
+    def exclusions(self) -> list[tuple[int, str, str]]:
+        """`(player_id, reason, source)` for every exclusion, for the CLI to render."""
+        rows = self.session.execute(
+            select(PlayerExclusion.player_id, PlayerExclusion.reason, PlayerExclusion.source)
+            .order_by(PlayerExclusion.player_id)
+        ).all()
+        return [(pid, reason, source) for pid, reason, source in rows]
 
     def quotazioni(self, stagione: str, listone: str) -> dict[str, QuotazioneRow]:
         """One season's valuations for one listone, keyed by player id as a string.

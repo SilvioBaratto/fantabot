@@ -12,6 +12,7 @@ from fantabot.adapters.persistence.models.aste import (
     AstaAssignment,
     AstaEvent,
 )
+from fantabot.adapters.persistence.models.exclusions import PlayerExclusion
 from fantabot.adapters.persistence.models.league import (
     LeaguePlayerPool,
     LeagueSnapshot,
@@ -49,6 +50,7 @@ __all__ = [
     "LeagueToken",
     "MatchGrain",
     "Player",
+    "PlayerExclusion",
     "PlayerSentiment",
     "Quotazione",
     "Statistica",
