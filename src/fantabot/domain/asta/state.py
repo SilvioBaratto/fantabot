@@ -13,13 +13,24 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class RosterRules:
-    """League roster composition.
+    """League roster composition. **Two goalkeepers, confirmed twice.**
 
-    Two super-roles (Mantra ``sroles=2``): goalkeepers and everyone else. ``minrl=[2,28]``
-    for lega 4103937 → at least 2 goalkeepers and at least 28 movement players in a 30-man
-    rosa, which (since they sum to the size) pins it to exactly 2 + 28. The exact split is a
-    league setting still to be confirmed — see the plan's open questions — so it lives here
-    as data, not baked into the algorithm.
+    Two super-roles (Mantra ``sroles=2``): goalkeepers and everyone else.
+
+    * **The platform's rule.** A Mantra rosa is "minimum 23 players including 2
+      goalkeepers, no per-role slot constraints at all" —
+      ``rules/leghe-private.md`` §Mantra, from fantacalcio.it/regolamenti/leghe-private.
+      Two is the floor for every Mantra league, not a per-league choice.
+    * **This league's setting.** The roster settings endpoint returns
+      ``minrl = maxrl = [2, 28]`` for lega 4103937 (``docs/leghe-api.md``, fetched
+      2026-08-26). ``minrl`` and ``maxrl`` are *equal*, so the split is fixed rather than
+      ranged: exactly 2 goalkeepers and exactly 28 movement players in a 30-man rosa.
+
+    Either source alone gives 2, and they agree, so ``max_goalkeepers()`` deriving 2 from
+    ``size - min_movement`` is not a coincidence of the arithmetic — it is the setting.
+
+    It stays here as data rather than baked into the algorithm because the *other* lega
+    (3584692) is Classic with ``[3, 8, 8, 6]``, a different shape entirely.
     """
 
     size: int = 30
