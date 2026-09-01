@@ -1,9 +1,9 @@
 target roster: 30 players | obj 1270.4
   chase Leao                 walk-away 47
   chase Lukaku               walk-away 23
+  chase Carnesecchi          walk-away 22
   chase Cutrone              walk-away 20
-  chase Carnesecchi          walk-away 15
-  pass  Vasquez              walk-away 0 — freely replaceable
+  chase Vasquez              walk-away 7
 opponents:
   f9927161-caca-4f46-9c4f-a0f74052d17c  4 players | spent 385 | left 115
   aa9ec8bf-2bd4-49b6-9655-25321f2f5402  2 players | spent 384 | left 116

@@ -59,3 +59,24 @@ TiltK = Annotated[
         help="Strength of the quality tilt. 0 uses the playing-time gate alone.",
     ),
 ]
+
+#: The walk-away floor, as a fraction of a player's observed clearing price.
+#:
+#: The marginal walk-away collapses to zero over a pool of substitutes -- 10 of 30 measured
+#: on the live database -- and `decide_bid` refuses at every price when it is zero, so
+#: without a floor the bot refuses nearly everything it planned to buy.
+#:
+#: **0.0 is the ablation, not a disabled floor.** `price_floor` still clamps to the 1-credit
+#: minimum bid, because a floor under 1 truncates to 0 and removes the player from the
+#: biddable set entirely rather than merely pricing him low.
+#:
+#: The default is deliberately unverified until `asta calibrate` has run against the
+#: recorded corpus; see SPEC A6.
+FloorAlpha = Annotated[
+    float,
+    typer.Option(
+        "--floor-alpha",
+        min=0.0,
+        help="Walk-away floor as a fraction of the observed clearing price.",
+    ),
+]

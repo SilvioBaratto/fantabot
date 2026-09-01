@@ -28,11 +28,23 @@ from fantabot.domain.asta.report import (
     parse_ids,
     parse_replay_lines,
 )
-from fantabot.domain.asta.reservation import apply_event, reservations, rolling_advisory
+from fantabot.domain.asta.reservation import (
+    apply_event,
+    price_floor,
+    reservations,
+    rolling_advisory,
+)
 from fantabot.domain.asta.sentiment import SentimentWeights
 from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.interface.console import console
-from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
+from fantabot.interface.options import (
+    SEASON,
+    FloorAlpha,
+    Season,
+    Sentiment,
+    SentimentRun,
+    TiltK,
+)
 
 
 class _SentimentSource(Protocol):
@@ -238,6 +250,7 @@ def asta_live(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
+    floor_alpha: FloorAlpha = 0.80,
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
     ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
@@ -309,6 +322,9 @@ def asta_live(
         AstaState(total_budget=budget), world.pool, events,
         our_team_id=team, value_of=world.value_of, prices=world.prices, teams=world.teams,
         legality=world.legality, lam=lam,
+        # The same floor the bidder uses. An advisory that shows a different number from the
+        # command that spends the credits is the drift CLAUDE.md already records once.
+        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
     ):
         last = step
     if last is None:
@@ -336,6 +352,7 @@ def asta_bid(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
+    floor_alpha: FloorAlpha = 0.80,
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
@@ -453,6 +470,7 @@ def asta_bid(
             rules=rules,
             lam=lam,
             n_targets=None,
+            floor=price_floor(floor_alpha, world.prices),
         )
         lot = snapshot.get("player_id")
         if isinstance(lot, str) and lot not in bridge:
