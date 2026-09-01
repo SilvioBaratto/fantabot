@@ -26,6 +26,7 @@ from fantabot.interface.app import app
 EXPECTED: set[str] = {
     "asta bid",
     "asta calibrate",
+    "asta room",
     "asta legality",
     "asta live",
     "asta optimize",

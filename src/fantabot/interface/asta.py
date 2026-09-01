@@ -337,6 +337,81 @@ def asta_live(
     console.print(format_opponents(opponents, names={}, total_budget=int(budget)))
 
 
+def asta_room(
+    url: str = typer.Argument(..., help="The FantaLab room link, or its fantaleague id."),
+    resolve_only: bool = typer.Option(
+        False, "--resolve-only", help="Print the resolved room and exit. Touches no RTDB."
+    ),
+) -> None:
+    """Resolve a FantaLab room link into a room we can bid in. Read-only.
+
+    `fantabot asta room "https://app.fantalab.it/asta?asta=<uuid>"`.
+
+    Not `fantabot <url>`: a root callback with a positional argument makes Click consume the
+    first token as that argument, so `fantabot asta bid` would exit 2 with `No such command
+    'bid'` and all 22 commands would break. A shell alias recovers the ergonomics:
+    `fanta() { fantabot asta room "$1"; }`.
+
+    ⚠ **The authenticated fetch this runs has never been executed against a real room.** It
+    had no caller in `src/` at all before this phase. This command is where that is found out,
+    which is why `--resolve-only` exists: it prints what came back and stops.
+    """
+    from fantabot.adapters.http.fantalab import rest
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.fantalab_store import FantalabStore
+    from fantabot.application.asta_room import RoomRefused, resolve_room
+    from fantabot.config import settings
+    from fantabot.domain.asta.live import InvitationLink, parse_room_url
+    from fantabot.domain.tokens.crypto import TokenCipher
+
+    try:
+        fantaleague_id = parse_room_url(url)
+    except InvitationLink as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(code=2) from exc
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    cipher = TokenCipher(settings.fantabot_encryption_key)
+    with database_manager.get_session() as session:
+        stored = FantalabStore(session, cipher).load()
+    if stored is None or not stored.id_token or not stored.user_id:
+        console.print("[red]No FantaLab session stored. Run: fantabot auth fantalab-login[/red]")
+        raise typer.Exit(code=2)
+
+    # The token is bound here and goes no further: `resolve_room` takes a callable, so the
+    # application layer never holds a credential and cannot render one by accident.
+    try:
+        room = resolve_room(
+            fantaleague_id,
+            user_id=stored.user_id,
+            fetch=lambda fl: rest.fetch_league(fl, token=stored.id_token),
+        )
+    except RoomRefused as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"[bold]{room.fantaleague_id}[/bold] · shard {room.db} · {room.asta_mode}/"
+        f"{room.raise_mode} · {room.num_teams} teams x {room.num_credits} credits"
+    )
+    console.print(
+        f"our seat: {room.seat.team_name or room.seat.fantateam_id} ({room.seat.fantateam_id})"
+    )
+    console.print(
+        f"roster band: {room.min_player}-{room.max_player} · "
+        f"opens at {'the quotazione' if room.call_at_quotaz else '1 credit'} · "
+        f"timers {room.counter_time_first}s / {room.counter_time}s"
+    )
+
+    if not resolve_only:
+        console.print(
+            "[dim]the live room is not built yet — T9 onward. Use `asta bid` with the shard "
+            "and seat above, or `asta live` beside it.[/dim]"
+        )
+
+
 def asta_calibrate(
     alpha: list[float] = typer.Option(
         [], "--alpha", help="Repeatable. Default sweeps 0.6 0.7 0.8 0.9 1.0."
@@ -570,6 +645,7 @@ COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
     ("live", asta_live),
     ("bid", asta_bid),
     ("calibrate", asta_calibrate),
+    ("room", asta_room),
 )
 
 

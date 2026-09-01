@@ -39,6 +39,7 @@ TREE: dict[str, str] = {
     "test_asta_sentiment.py": "domain/asta",
     "test_asta_stateentry.py": "domain/asta",
     "test_asta_floor.py": "domain/asta",
+    "test_asta_room_url.py": "domain/asta",
     "test_asta_max_cap.py": "domain/asta",
     "test_asta_unvaluable.py": "domain/asta",
     "test_asta_value.py": "domain/asta",
@@ -86,6 +87,7 @@ TREE: dict[str, str] = {
     # -- application ----------------------------------------------------------------------
     "test_asta_calibrate.py": "application",
     "test_plan_inputs.py": "application",
+    "test_asta_room_resolve.py": "application",
     "test_aste_loader.py": "application",
     "test_aste_load_catchup.py": "application",
     "test_aste_load_windowing.py": "application",

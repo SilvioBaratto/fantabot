@@ -22,9 +22,11 @@ and a live ledger produce identically.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 #: The room state that closes a player's auction — i.e. a sale.
 CLOSE = "close_auction"
@@ -129,3 +131,60 @@ def resolve_ids(
             continue
         resolved.append(replace(event, player_id=str(fid)))
     return resolved, unknown
+
+
+class InvitationLink(ValueError):
+    """A `/join-asta?invitation_id=` link: the right room, one authenticated call away.
+
+    Its own type rather than a `ValueError` among others, because the caller has to tell
+    "wrong link" from "right link, resolvable" and say something different about each. This
+    one is what an admin actually sends, so refusing it flatly would hand the operator a dead
+    end holding the only link they had.
+    """
+
+    def __init__(self, invitation_id: str) -> None:
+        self.invitation_id = invitation_id
+        super().__init__(
+            f"that is an invitation link ({invitation_id}), not a room link. Its uuid is an "
+            "invitation, not a fantaleague id, and only POST /fantaleague/fetchByInvitation "
+            "with a Bearer can turn one into the other (docs/fantalab/06 §3). Open it in the "
+            "browser and paste the /asta?asta=... link the room shows."
+        )
+
+
+#: A uuid v4 as FantaLab writes them, and nothing else. Matching loosely here would let a
+#: typo through as an id and turn a paste error into a subscription that waits for ever.
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def parse_room_url(text: str) -> str:
+    """A pasted room link, or a bare uuid, as a fantaleague id. Pure — no network.
+
+    The `asta` query parameter **is** the fantaleague id rather than a separate handle
+    (`docs/fantalab/03-platform-map.md`), which is why this needs nothing but the string.
+
+    Raises `InvitationLink` for a `/join-asta` link — a different uuid entirely — and a plain
+    `ValueError` for anything else, naming what to paste instead.
+    """
+    candidate = text.strip()
+    if not candidate:
+        raise ValueError("nothing to parse: paste the room link or its fantaleague id")
+
+    if _UUID.match(candidate):
+        return candidate
+
+    parsed = urlsplit(candidate)
+    query = parse_qs(parsed.query)
+
+    invitation = query.get("invitation_id", [None])[0]
+    if invitation or "join-asta" in parsed.path:
+        raise InvitationLink(invitation or "unknown")
+
+    asta = query.get("asta", [None])[0]
+    if asta and _UUID.match(asta):
+        return asta
+
+    raise ValueError(
+        f"{candidate!r} is not a FantaLab room link. Paste the address of the room itself "
+        "(app.fantalab.it/asta?asta=...) or its fantaleague id."
+    )

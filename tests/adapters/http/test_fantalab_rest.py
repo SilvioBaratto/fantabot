@@ -127,3 +127,75 @@ def test_join_team_posts_only_seat_and_user() -> None:
     assert seen["path"] == "/fantaleague/join"
     # invitation_id is not required when the seat id is known (06 §3)
     assert seen["body"] == {"fantateam_id": "80c4-seat2", "user_id": "my-uid"}
+
+
+class TestOurSeatInTheRoom:
+    """Four id spaces are in play, and only one of them is our seat.
+
+    `docs/lega-legamiallerotaie2.md` records a leghe.fantacalcio.it team id (`10000003`) and
+    user id; FantaLab uses uuids for both. The RTDB validates neither — a bid naming a foreign
+    seat is accepted with a 200 (`docs/fantalab/06 §10.1`, test 7) — so a mistyped or
+    wrong-space id does not fail, it quietly drives somebody else's team.
+
+    That is why the seat is looked up rather than typed: our FantaLab uuid is already in the
+    stored session, and matching it against the room is the only step that cannot go wrong
+    silently.
+    """
+
+    def _room(self):  # type: ignore[no-untyped-def]
+        return rest.parse_league({
+            "fantaleague_id": "L",
+            "fantateams": [
+                {"fantateam_id": "t1", "user_id": "someone-else", "team_name": "Rivali"},
+                {"fantateam_id": "t2", "user_id": "us-uuid", "team_name": "Team C"},
+                {"fantateam_id": "t3", "user_id": None, "team_name": "Libera"},
+            ],
+        })
+
+    def test_it_finds_the_seat_holding_our_uuid(self) -> None:
+        seat = self._room().seat_of("us-uuid")
+
+        assert seat is not None
+        assert seat.fantateam_id == "t2"
+        assert seat.team_name == "Team C"
+
+    def test_an_unseated_user_gets_none_rather_than_a_guess(self) -> None:
+        assert self._room().seat_of("nobody") is None
+
+    def test_a_free_seat_is_never_returned_as_ours(self) -> None:
+        """`user_id is None` marks a free seat. Matching `None` against an absent uid would
+        hand us the first empty chair in the room."""
+        assert self._room().seat_of(None) is None  # type: ignore[arg-type]
+
+    def test_the_free_seats_are_still_listed_for_an_operator_who_is_not_in_yet(self) -> None:
+        assert [s.fantateam_id for s in self._room().free_seats()] == ["t3"]
+
+
+class TestTheRosterBandFields:
+    """`min_player` is what the MAX cap reserves against, and it is often absent.
+
+    Measured over today's live registry: 100 of 159 Mantra rooms carry no `min_player` at all.
+    Parsing it as `None` rather than defaulting is what lets the cap fail closed on a known
+    band instead of silently reserving nothing.
+    """
+
+    def test_the_band_and_the_opening_price_rule_are_parsed(self) -> None:
+        room = rest.parse_league({
+            "fantaleague_id": "L",
+            "min_player": 25,
+            "max_player": 30,
+            "call_at_quotaz": True,
+        })
+
+        assert (room.min_player, room.max_player) == (25, 30)
+        assert room.call_at_quotaz is True
+
+    def test_an_absent_band_is_none_not_a_default(self) -> None:
+        room = rest.parse_league({"fantaleague_id": "L"})
+
+        assert room.min_player is None
+        assert room.max_player is None
+
+    def test_call_at_quotaz_absent_reads_as_false(self) -> None:
+        """FantaLab's default is "start from 1". A room that does not say is that room."""
+        assert rest.parse_league({"fantaleague_id": "L"}).call_at_quotaz is False
