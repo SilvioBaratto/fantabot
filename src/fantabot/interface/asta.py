@@ -126,6 +126,42 @@ def _target_of(
     return (lot, int(walk_away)) if walk_away is not None else None
 
 
+def bid_writer(
+    *,
+    auto_act: bool,
+    arm: bool,
+    send: Callable[[dict[str, Any]], Any],
+    node: str = "auction",
+) -> Callable[[dict[str, Any]], Any]:
+    """``send`` if both locks are open, otherwise a write that goes nowhere.
+
+    **Why two.** ``FANTABOT_AUTO_ACT`` is read inside ``place_raise`` at call time and comes
+    from ``.env``, so flipping it arms every invocation at once — for the rest of that
+    process and every process after it. The operator who edits ``.env`` in the morning is
+    not necessarily the one running the command at 21:47.
+
+    ``--arm`` is therefore *positive* and defaults off. The asymmetry decides the direction:
+    forgetting an opt-in flag means watching, forgetting an opt-out flag means spending money.
+
+    The disarmed writer returns a real ``BidOutcome`` rather than ``None``. The loop reads
+    ``.sent`` through ``getattr``, so ``None`` would be accidentally right and would stop
+    being right the moment anything else is read off it.
+    """
+    from fantabot.adapters.http.fantalab.rtdb import BidOutcome
+
+    if auto_act and arm:
+        return send
+
+    def hold(payload: dict[str, Any]) -> BidOutcome:
+        price = payload.get("price")
+        # The same coercion `place_raise` applies: `True` is an `int` in Python and a
+        # price of `True` is not a price.
+        clean = price if isinstance(price, int) and not isinstance(price, bool) else 0
+        return BidOutcome(price=clean, node=node, dry_run=True, sent=False, status=None)
+
+    return hold
+
+
 def asta_optimize(
     owned: str = typer.Option("", help="Player ids already owned, comma/space separated."),
     budget: float = typer.Option(500.0, help="Remaining credits to spend."),
@@ -290,6 +326,9 @@ def asta_bid(
     db: int = typer.Option(..., help="The room's RTDB shard index (its `db` field; see docs/fantalab/06)."),
     team: str = typer.Option(..., help="Our fantateam id — the seat we bid from."),
     user: str = typer.Option(..., help="Our user id — rides on every bid."),
+    arm: bool = typer.Option(
+        False, "--arm", help="Second, positive lock. Bidding is OFF without it."
+    ),
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
@@ -300,8 +339,11 @@ def asta_bid(
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
-    Read → decide → write, **gated by FANTABOT_AUTO_ACT** — off (the default) logs the intended
-    bid and sends nothing. Participant only: it bids, it never settles a lot (that is the admin's
+    Read → decide → write, behind **two locks that must both be open**: ``FANTABOT_AUTO_ACT``
+    in the environment *and* ``--arm`` on this invocation. Either one shut logs the intended bid
+    and sends nothing. The env var is process-wide and comes from ``.env``, so on its own it arms
+    every run for the rest of the day; ``--arm`` is what makes arming a thing the operator does
+    now, deliberately, for this room. Participant only: it bids, it never settles a lot (that is the admin's
     close/confirm). The walk-aways re-plan each cycle off the live ``purchases/`` ledger, so they
     already account for what has been spent. Ctrl-C to stop.
 
@@ -320,6 +362,7 @@ def asta_bid(
     from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.config import settings
     from fantabot.domain.asta.bid import Seat
 
     bridge = listone.fetch()
@@ -353,6 +396,14 @@ def asta_bid(
         )
 
     seat = Seat(fantateam_id=team, user_id=user)
+
+    # Said before the first poll, not after: the operator has to be able to tell an armed run
+    # from a rehearsal at a glance, and the heartbeat that follows looks identical either way.
+    if settings.fantabot_auto_act and arm:
+        console.print("[bold red]● ARMED — bids are real credits[/bold red]")
+    else:
+        why = "--arm not given" if settings.fantabot_auto_act else "FANTABOT_AUTO_ACT is false"
+        console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
     # Said once per uuid rather than once per poll: at a 2 s cycle the same handful of
     # strangers would otherwise scroll the heartbeat off the screen within a minute, and
@@ -411,7 +462,11 @@ def asta_bid(
         remaining_budget=lambda: remaining[0],
         target_of=target_of,
         read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
-        write=lambda payload: rtdb.place_raise(db, league, payload),
+        write=bid_writer(
+            auto_act=settings.fantabot_auto_act,
+            arm=arm,
+            send=lambda payload: rtdb.place_raise(db, league, payload),
+        ),
         now=lambda: int(time.time() * 1000),
         sleep=time.sleep,
         keep_going=lambda _cycle: True,
