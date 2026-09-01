@@ -83,6 +83,23 @@ def load_sentiment() -> dict[str, SentimentRow]:
     }
 
 
+def load_listone_bridge() -> dict[str, int]:
+    """`uuid -> fantacalcio_id`, captured 2026-09-01. 530 entries.
+
+    Captured for the reason every other fixture here is captured: `listone.fetch` falls back
+    to `data/aste_live/listone_map.json`, which `.gitignore:8` ignores. The harness was
+    already reading it — `asta live` resolves the replay's UUIDs through it — so the two
+    replay goldens passed on this machine and would have failed on a clean clone with the
+    socket block on, which is exactly the "gate that does not run when it matters" this file
+    exists to avoid.
+
+    It is load-bearing for `asta optimize` too now: the pinned players *absent* from this map
+    are the ones the planner must stop planning around.
+    """
+    raw = json.loads((GOLDEN / "listone_map.json").read_text(encoding="utf-8"))
+    return {str(uuid): int(fid) for uuid, fid in raw.items()}
+
+
 def load_clearing_sales() -> list[tuple[str, int]]:
     """Every Mantra sale of our league shape, in the query's own `ORDER BY`."""
     with (GOLDEN / "clearing_sales.csv").open(encoding="utf-8", newline="") as handle:
@@ -143,7 +160,7 @@ class _FakeDatabaseManager:
 
 @contextmanager
 def pinned_world(*, today: date | None = None) -> Iterator[None]:
-    """The five patch points, plus the console environment. Nothing opens a socket.
+    """The six patch points, plus the console environment. Nothing opens a socket.
 
     `today` defaults to the captured `data_run`, which makes the confidence decay exactly
     1.0 — the only value that cannot drift. One case deliberately passes a later date, so
@@ -160,6 +177,11 @@ def pinned_world(*, today: date | None = None) -> Iterator[None]:
                 ("fantabot.adapters.persistence.repositories.aste.AsteRepository", _FakeAsteRepository),
                 ("fantabot.adapters.persistence.news_sentiment.NewsSentimentSource", _FakeSentimentSource),
                 ("fantabot.interface.asta._today", lambda: today or PINNED_TODAY),
+                # Sixth patch point. Without it the commands that narrow their pool
+                # read a gitignored cache — or, on a clean checkout, reach for the CDN
+                # and hit the socket block.
+                ("fantabot.adapters.http.fantalab.listone.fetch",
+                 lambda *args, **kwargs: load_listone_bridge()),
             ):
                 stack.enter_context(patch(target, replacement))
             yield

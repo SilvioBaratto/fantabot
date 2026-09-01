@@ -146,6 +146,7 @@ TREE: dict[str, str] = {
     "test_cli_token_forget.py": "interface",
     "test_cli_token_status.py": "interface",
     "test_asta_id_bridge.py": "interface",
+    "test_asta_callable_pool.py": "interface",
     "test_asta_arming.py": "interface",
     "test_room_view.py": "interface",
     # -- about the repository itself, not about one layer -------------------------------------

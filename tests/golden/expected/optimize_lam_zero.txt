@@ -1,4 +1,4 @@
-roster: 30 players | cost 500 | obj 2372.3
+roster: 30 players | cost 500 | obj 2286.7
   Svilar                      42
   Bremer                      31
   Rrahmani                    19
@@ -8,9 +8,9 @@ roster: 30 players | cost 500 | obj 2372.3
   Calhanoglu                  71
   McTominay                   76
   Paz N.                      96
-  Leao                         1
-  Colombo                     11
-  Lukaku                       1
+  Zambo Anguissa               8
+  Tourè E.                     2
+  David                        3
   Cutrone                      1
   Raimondo                     1
   Keita M.                     1
@@ -29,6 +29,6 @@ roster: 30 players | cost 500 | obj 2372.3
   Noslin                       1  ⚠ tagged A / played W
   Bracaglia                    1  ⚠ tagged DS;DC / played B;DS
   Thiam                        1
-fallback 1: cost 500 | obj 2184.1
-fallback 2: cost 500 | obj 2295.4
-fallback 3: cost 500 | obj 2468.3
+fallback 1: cost 500 | obj 2056.6
+fallback 2: cost 500 | obj 2166.1
+fallback 3: cost 500 | obj 2333.7

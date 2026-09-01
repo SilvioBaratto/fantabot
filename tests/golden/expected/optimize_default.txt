@@ -1,4 +1,4 @@
-roster: 30 players | cost 500 | obj 2251.8
+roster: 30 players | cost 500 | obj 2107.7
   Svilar                      42
   Bremer                      31
   Rrahmani                    19
@@ -8,27 +8,27 @@ roster: 30 players | cost 500 | obj 2251.8
   Calhanoglu                  71
   McTominay                   76
   Paz N.                      96
-  Leao                         1
-  Colombo                     11
+  Gaetano                     11
   Cutrone                      1
-  Lukaku                       1
   Raimondo                     1
   Keita M.                     1
   Rovella                      1
   Piotrowski                   1
   Gineitis                     1
-  Fatah                        1
   Musah                        1
+  Fatah                        1
+  Osmajic                      1
   Mota                         1
   Mendy P.                     1
   Cichella                     1
   El Aynaoui                   1
   Moro N.                      1
-  Ratkov                       1
   Ranieri L.                   1
+  Ratkov                       1
   Leysen F.                    1
-  Osmajic                      1
+  Akinsanmiro                  1
+  Unai Gomez                   1
   Thiam                        1
-fallback 1: cost 500 | obj 2061.1
-fallback 2: cost 500 | obj 2175.6
-fallback 3: cost 500 | obj 2344.1
+fallback 1: cost 500 | obj 1941.2
+fallback 2: cost 500 | obj 2053.2
+fallback 3: cost 500 | obj 2215.0

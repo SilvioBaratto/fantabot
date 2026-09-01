@@ -141,26 +141,79 @@ def bid_writer(
     return hold
 
 
+def _callable_ids(
+    warn: Callable[[str], None],
+    *,
+    _fetch: Callable[[], Mapping[str, int]] | None = None,
+) -> set[str] | None:
+    """The fantacalcio ids FantaLab's listone can actually call, or ``None`` if unknown.
+
+    ``None`` means "do not filter". It is deliberately not ``set()``: `read_plan_inputs` reads
+    an empty collection as a real, total exclusion — right for the bidder, where an unresolved
+    bridge means every lot would be unknown — and it would empty the pool here. A planner that
+    refuses to plan because a CDN was unreachable is worse than one that plans over a slightly
+    wider pool and says so, because this is the command an operator runs the night before, and
+    its output is the paper fallback for the evening.
+
+    Measured 2026-09-01: 41 of 570 pool players are absent from the listone. Lukaku (2531) is
+    one of them — priced at fvm 41 in `quotazioni`, so the optimiser sees him, and absent from
+    the listone, so the room can never call him. He took a slot in the printed 30-man plan,
+    which therefore had 29 fillable places and one that could not be filled.
+
+    ``_fetch`` is the injection seam, so the suite covers both degradations without a socket.
+    """
+    from fantabot.adapters.http.fantalab import listone
+
+    fetch = _fetch or listone.fetch
+    try:
+        bridge = fetch()
+    except Exception as exc:  # any transport failure degrades the same way
+        warn(f"listone unreachable ({type(exc).__name__}); planning over the whole pool")
+        return None
+    if not bridge:
+        warn("listone empty; planning over the whole pool")
+        return None
+    return {str(fid) for fid in bridge.values()}
+
+
 def asta_optimize(
     owned: str = typer.Option("", help="Player ids already owned, comma/space separated."),
     budget: float = typer.Option(500.0, help="Remaining credits to spend."),
     lam: float = typer.Option(0.0, "--lam", help="Risk aversion; higher diversifies across clubs."),
     fallbacks: int = typer.Option(3, help="How many next-best plans to show."),
+    callable_only: bool = typer.Option(
+        True,
+        "--callable/--no-callable",
+        help="Plan only over players FantaLab's listone can call. Cached; falls back open.",
+    ),
     season: Season = SEASON,
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
-    """Print the current optimal 30-man Mantra roster and next-best plans. Read-only."""
+    """Print the current optimal 30-man Mantra roster and next-best plans. Read-only.
+
+    The pool is narrowed to players FantaLab's listone can call, exactly as `asta bid` narrows
+    it. It is the same plan or it is not a plan: this is what the operator reads the night
+    before and bids from by hand, and a player who can never come up for auction is a slot the
+    evening cannot fill. `--no-callable` restores the old, wider plan.
+    """
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+
+    ids = (
+        _callable_ids(lambda note: console.print(f"[yellow]{note}[/yellow]"))
+        if callable_only
+        else None
+    )
 
     with database_manager.get_session() as session:
         rows = sentiment_rows(
             NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
         )
         world = read_plan_inputs(
-            session, season=season, sentiment=rows, as_of=_today(), tilt_k=tilt_k
+            session, season=season, sentiment=rows, as_of=_today(), tilt_k=tilt_k,
+            callable_ids=ids,
         )
 
     state = AstaState(owned=parse_ids(owned), total_budget=budget)
@@ -250,7 +303,8 @@ def asta_live(
     # `AstaState.owned` and `optimize_roster` raises for an id absent from the pool.
     from fantabot.adapters.http.fantalab import listone
 
-    events, unknown = resolve_ids(events, listone.fetch())
+    bridge = listone.fetch()
+    events, unknown = resolve_ids(events, bridge)
     if unknown:
         console.print(
             f"[yellow]{len(unknown)} sale(s) dropped — the listone does not know "
@@ -281,7 +335,11 @@ def asta_live(
             NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
         )
         world = read_plan_inputs(
-            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k
+            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k,
+            # The bridge is already in hand for `resolve_ids`; the same narrowing the bidder
+            # applies. This is the advisory an operator bids by hand from when the room view
+            # is gone, so it must not head its list with a player who cannot be called.
+            callable_ids={str(fid) for fid in bridge.values()} if bridge else None,
         )
 
     last = None

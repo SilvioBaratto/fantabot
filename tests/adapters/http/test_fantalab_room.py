@@ -230,7 +230,7 @@ class TestOneBadPollCostsOnePoll:
         assert report.errors == {"TimeoutError": 2}
 
     def test_the_failure_is_said_out_loud(self) -> None:
-        report, beats = self._flaky({2})
+        _report, beats = self._flaky({2})
 
         assert any("TimeoutError" in line or "timed out" in line for line in beats)
 
