@@ -85,6 +85,7 @@ TREE: dict[str, str] = {
     "test_fantalab_session.py": "domain/tokens",
     # -- application ----------------------------------------------------------------------
     "test_asta_calibrate.py": "application",
+    "test_plan_inputs.py": "application",
     "test_aste_loader.py": "application",
     "test_aste_load_catchup.py": "application",
     "test_aste_load_windowing.py": "application",
