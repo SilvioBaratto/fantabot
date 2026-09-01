@@ -30,7 +30,7 @@ from fantabot.domain.asta.report import (
 )
 from fantabot.domain.asta.reservation import apply_event, reservations, rolling_advisory
 from fantabot.domain.asta.sentiment import SentimentWeights
-from fantabot.domain.asta.state import AstaState
+from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.interface.console import console
 from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
 
@@ -375,6 +375,12 @@ def asta_bid(
         _report_once(unknown, "sale(s) dropped, uuid not in the listone")
         for event in events:
             state = apply_event(state, event, our_team_id=team)
+        # A player we won who is in FantaLab's listone but not in our `quotazioni` would make
+        # `optimize_roster` refuse the state — and refuse it again every cycle, because the
+        # ledger is re-read each time and a purchase is never withdrawn. Setting him aside
+        # here is what turns "stopped for the evening" into "held for one lot".
+        state, rules, unvaluable = drop_unvaluable(state, world.pool, RosterRules())
+        _report_once(unvaluable, "owned player(s) we cannot value; roster band shrunk")
         _, walkaways = reservations(
             state,
             world.pool,
@@ -382,6 +388,7 @@ def asta_bid(
             prices=world.prices,
             teams=world.teams,
             legality=world.legality,
+            rules=rules,
             lam=lam,
             n_targets=None,
         )
