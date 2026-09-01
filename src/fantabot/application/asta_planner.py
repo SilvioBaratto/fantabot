@@ -56,11 +56,19 @@ def read_plan_inputs(
     as_of: date | None,
     tilt_k: float,
     callable_ids: Collection[str] | None = None,
+    num_teams: int = 8,
+    num_credits: int = 500,
 ) -> PlanInputs:
     """The I/O half: three reads on one session, then the pure derivation above.
 
-    Sales are restricted to our exact league shape — 8 teams, 500 credits — so the prices
-    are directly comparable and need no budget normalization.
+    Sales are restricted to the league's shape so the prices are directly comparable and need
+    no budget normalization. **The shape is a parameter, not a constant.** It was written in
+    as 8x500, which is our room, so nothing looked wrong — and `docs/fantalab/00 §13` is
+    explicit that a rule written into the code is a bug, because the next asta is the
+    riparazione in January, or a friend's league. The corpus holds 68 recorded 10x500 rooms
+    that would otherwise have been priced off somebody else's game.
+
+    The defaults are our league, so no existing caller changes and the golden fixtures stand.
 
     `callable_ids` is forwarded untouched. It has to live here as well as on the pure half:
     this is the only door — `asta optimize`, `asta live` and `asta bid` all come through it —
@@ -71,7 +79,9 @@ def read_plan_inputs(
     from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     reference = ReferenceRepository(session)
-    sales = AsteRepository(session).mantra_clearing_sales(budget=500, num_teams=8)
+    sales = AsteRepository(session).mantra_clearing_sales(
+        budget=num_credits, num_teams=num_teams
+    )
     return build_plan_inputs(
         reference.quotazioni(season, "mantra"),
         mean_prices(Sale(player_id, price) for player_id, price in sales),

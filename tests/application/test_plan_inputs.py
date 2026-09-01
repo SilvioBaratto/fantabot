@@ -41,3 +41,31 @@ def test_the_old_home_still_re_exports_both_names() -> None:
 
     assert asta_planner.PlanInputs is not None
     assert asta_planner.build_plan_inputs is not None
+
+
+class TestTheLeagueShapeIsAParameter:
+    """`docs/fantalab/00 §13`: the tool is written for *any* Mantra asta, and our lega is a
+    saved profile. "Se un numero o una regola d'asta compare scritto nel codice, è un bug."
+
+    `mantra_clearing_sales(budget=500, num_teams=8)` was written into `read_plan_inputs`. Our
+    room happens to be 8x500, so nothing was visibly wrong — and a 10x500 room, of which the
+    corpus holds 68, would have been priced off sales from a different game.
+    """
+
+    def test_read_plan_inputs_takes_the_shape(self) -> None:
+        import inspect
+
+        from fantabot.application.asta_planner import read_plan_inputs
+
+        params = inspect.signature(read_plan_inputs).parameters
+        assert "num_teams" in params
+        assert "num_credits" in params
+
+    def test_the_defaults_are_our_league_so_no_caller_has_to_change(self) -> None:
+        import inspect
+
+        from fantabot.application.asta_planner import read_plan_inputs
+
+        params = inspect.signature(read_plan_inputs).parameters
+        assert params["num_teams"].default == 8
+        assert params["num_credits"].default == 500
