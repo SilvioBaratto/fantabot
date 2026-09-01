@@ -38,6 +38,13 @@ TREE: dict[str, str] = {
     "test_asta_reservation.py": "domain/asta",
     "test_asta_sentiment.py": "domain/asta",
     "test_asta_stateentry.py": "domain/asta",
+    "test_asta_floor.py": "domain/asta",
+    "test_asta_room_url.py": "domain/asta",
+    "test_asta_seconds_left.py": "domain/asta",
+    "test_asta_listone_rows.py": "domain/asta",
+    "test_asta_copilot.py": "domain/asta",
+    "test_asta_max_cap.py": "domain/asta",
+    "test_asta_unvaluable.py": "domain/asta",
     "test_asta_value.py": "domain/asta",
     # The rule is about the whole asta feature including its command, but what it
     # protects -- one calendar seam for the golden harness -- is a property of the
@@ -81,6 +88,11 @@ TREE: dict[str, str] = {
     "test_token_status.py": "domain/tokens",
     "test_fantalab_session.py": "domain/tokens",
     # -- application ----------------------------------------------------------------------
+    "test_asta_calibrate.py": "application",
+    "test_plan_inputs.py": "application",
+    "test_asta_room_resolve.py": "application",
+    "test_asta_room_tracker.py": "application",
+    "test_asta_copilot_worker.py": "application",
     "test_aste_loader.py": "application",
     "test_aste_load_catchup.py": "application",
     "test_aste_load_windowing.py": "application",
@@ -99,6 +111,7 @@ TREE: dict[str, str] = {
     "test_fantalab_feed.py": "adapters/http",
     "test_fantalab_rest.py": "adapters/http",
     "test_fantalab_room.py": "adapters/http",
+    "test_fantalab_lot_router.py": "adapters/http",
     "test_fantalab_rtdb.py": "adapters/http",
     "test_fantalab_write.py": "adapters/http",
     "test_aste_client.py": "adapters/http",
@@ -133,6 +146,8 @@ TREE: dict[str, str] = {
     "test_cli_token_forget.py": "interface",
     "test_cli_token_status.py": "interface",
     "test_asta_id_bridge.py": "interface",
+    "test_asta_arming.py": "interface",
+    "test_room_view.py": "interface",
     # -- about the repository itself, not about one layer -------------------------------------
     "test_layers.py": ".",
     "test_importgraph.py": ".",

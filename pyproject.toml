@@ -54,3 +54,8 @@ pythonpath = ["src"]
 # A command-line -m overrides this value, because the last -m wins.
 addopts = "-m 'not db'"
 markers = ["db: requires a live Postgres (docker compose up -d)"]
+# An exception in a worker thread is a *warning*, not a failure: a test that starts a thread
+# which raises passes green. The socket guard in conftest.py raises, so once anything in this
+# repo does work on a thread — the live room's copilot does — "zero sockets" becomes
+# unprovable exactly where it is asserted. Measured: the probe went 1 passed -> 1 failed.
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]

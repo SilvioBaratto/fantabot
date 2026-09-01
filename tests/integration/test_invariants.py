@@ -224,13 +224,36 @@ def test_a_missing_forecast_is_null_and_always_says_why(engine: Engine) -> None:
 def test_players_is_the_union_of_the_listone_and_the_match_data(engine: Engine) -> None:
     """``players`` is filled from two places — the listone insert and the
     match-grain insert — so it legitimately holds ids no ``quotazioni`` row
-    references. That union is why the count exceeds the listone's."""
-    only_in_matches = _scalar(
-        engine,
-        "SELECT count(*) FROM players p "
-        "WHERE NOT EXISTS (SELECT 1 FROM quotazioni q WHERE q.player_id = p.id)",
+    references. That union is why the count exceeds the listone's.
+
+    **Structural, not a floor.** This asserted ``>= 60`` until 2026-09-01, when a
+    routine ``db scrape quotazioni`` gave rows to players who until then existed
+    only in the match data and the count fell to 59. Nothing was wrong: a floor
+    over a live-scraped table measures the transfer window, not the invariant.
+    The claim worth keeping is that ``players`` really is a *union* — each of the
+    two writers contributes ids the other does not — and that is what is checked.
+    """
+    with engine.connect() as connection:
+        only_in_matches, only_in_listone, orphans = connection.execute(
+            text(
+                "SELECT (SELECT count(*) FROM players p WHERE NOT EXISTS "
+                "        (SELECT 1 FROM quotazioni q WHERE q.player_id = p.id)), "
+                "       (SELECT count(*) FROM players p WHERE EXISTS "
+                "        (SELECT 1 FROM quotazioni q WHERE q.player_id = p.id)), "
+                "       (SELECT count(*) FROM quotazioni q WHERE NOT EXISTS "
+                "        (SELECT 1 FROM players p WHERE p.id = q.player_id))"
+            )
+        ).one()
+
+    assert only_in_matches > 0, (
+        "no player is match-data-only, so `players` is not a union of two writers — "
+        "either the voti scrape never ran or it now writes only listone players"
     )
-    assert only_in_matches >= 60
+    assert only_in_listone > 0, "no player carries a quotazioni row; the listone scrape is missing"
+    assert orphans == 0, (
+        f"{orphans} quotazioni rows reference a player_id that is not in `players` — "
+        "the dimension write that is supposed to precede the fact write did not"
+    )
 
 
 def test_the_two_listoni_stay_in_step(engine: Engine) -> None:

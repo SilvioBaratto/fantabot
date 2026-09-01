@@ -47,6 +47,13 @@ def _world(excluded: set[str] | None = None):  # type: ignore[no-untyped-def]
     )
 
 
+def _callable_world(callable_ids: set[str] | None):  # type: ignore[no-untyped-def]
+    return build_plan_inputs(
+        QUOTAZIONI, PRICES, None, as_of=date(2026, 8, 31), tilt_k=0.25,
+        callable_ids=callable_ids,
+    )
+
+
 class TestAnExcludedPlayerIsAbsentFromEveryDerivedMap:
     """Not merely unpickable -- absent. A half-excluded player is worse than none.
 
@@ -97,3 +104,45 @@ class TestExclusionIsIndependentOfTheOtherInputs:
 
         assert "2" not in world.value.signals
         assert "1" in world.value.signals
+
+
+class TestOnlyCallablePlayersAreDerived:
+    """A player FantaLab's listone does not carry can never come up for auction.
+
+    Measured 2026-09-01: 41 of 570 pool players — Lukaku, Nkunku, Morata, Perin,
+    Angelino among them — are absent from the platform's listone, and the optimizer
+    put three of them in the plan. In a simulated mid-auction state Lukaku was the
+    top walk-away of all twelve targets: the bot's headline target was a player who
+    could not appear on the block.
+
+    An allowlist rather than a difference. The obvious spelling —
+    `pool_ids - set(bridge.values())` — subtracts `set[int]` from `set[str]`
+    (`listone.parse` keeps ints, `resolve_ids` stringifies), removes nothing, and
+    therefore excludes the entire pool.
+    """
+
+    def test_a_player_outside_the_listone_is_absent_from_every_map(self) -> None:
+        world = _callable_world({"1", "3"})
+
+        assert [p.id for p in world.pool] == ["1", "3"]
+        assert "2" not in world.names
+        assert "2" not in world.teams
+        assert "2" not in world.roles
+
+    def test_none_means_no_filtering_at_all(self) -> None:
+        """Absent is not empty. The golden fixtures pass nothing and must be untouched."""
+        assert [p.id for p in _callable_world(None).pool] == ["1", "2", "3"]
+
+    def test_an_empty_allowlist_empties_the_pool_rather_than_ignoring_itself(self) -> None:
+        """`callable_ids=set()` means the bridge resolved nothing, which is a real and
+        loud failure — `asta bid` already refuses to start on an empty bridge. Treating
+        it as "no filter" would silently plan on players none of which can be called."""
+        assert list(_callable_world(set()).pool) == []
+
+    def test_it_composes_with_exclusions_rather_than_replacing_them(self) -> None:
+        world = build_plan_inputs(
+            QUOTAZIONI, PRICES, None, as_of=date(2026, 8, 31), tilt_k=0.25,
+            excluded={"1"}, callable_ids={"1", "2"},
+        )
+
+        assert [p.id for p in world.pool] == ["2"], "excluded wins, and uncallable is dropped"

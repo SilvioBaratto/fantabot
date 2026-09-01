@@ -25,6 +25,8 @@ from fantabot.interface.app import app
 #: appear space-separated (`asta optimize`) once the groups land.
 EXPECTED: set[str] = {
     "asta bid",
+    "asta calibrate",
+    "asta room",
     "asta legality",
     "asta live",
     "asta optimize",

@@ -63,10 +63,34 @@ class RoomConfig:
     is_live: bool
     auction_running: bool
     seats: tuple[Seat, ...]
+    #: The roster band. `min_player` is what the MAX cap reserves against, and it is often
+    #: absent — 100 of 159 Mantra rooms in today's live registry carry no value. `None` rather
+    #: than a default, so the cap can fail closed on a band it knows instead of quietly
+    #: reserving nothing (`docs/fantalab/01:142`: the cap has no server backstop).
+    min_player: int | None = None
+    max_player: int | None = None
+    #: "Start from the quotazione" instead of from 1. It deletes the whole 1-3 credit tail, so
+    #: every price model downstream has to know. FantaLab's default is false.
+    call_at_quotaz: bool = False
 
     def free_seats(self) -> tuple[Seat, ...]:
         """The seats nobody holds — a bot claims one of these to bid legitimately."""
         return tuple(seat for seat in self.seats if seat.user_id is None)
+
+    def seat_of(self, user_id: str) -> Seat | None:
+        """Our seat, matched on the FantaLab uuid we already hold. `None` if we are not in.
+
+        Looked up rather than typed because four id spaces are in play and the platform
+        validates none of them: a raise naming a foreign seat is accepted with a 200
+        (`docs/fantalab/06 §10.1`, test 7). A leghe.fantacalcio.it team id pasted here would
+        not error — it would drive somebody else's team all evening.
+
+        A falsy `user_id` never matches, or an absent uid would be handed the first free chair
+        in the room, every one of which carries `user_id: None`.
+        """
+        if not user_id:
+            return None
+        return next((seat for seat in self.seats if seat.user_id == user_id), None)
 
 
 def shard_of(db: Any) -> int | None:
@@ -134,6 +158,9 @@ def parse_league(body: Mapping[str, Any]) -> RoomConfig:
         is_live=bool(body.get("is_live")),
         auction_running=bool(body.get("auction_running")),
         seats=seats,
+        min_player=_as_int(body.get("min_player")),
+        max_player=_as_int(body.get("max_player")),
+        call_at_quotaz=bool(body.get("call_at_quotaz")),
     )
 
 

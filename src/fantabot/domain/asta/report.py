@@ -9,14 +9,15 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from fantabot.domain.asta.optimizer import planning_cost
 from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
 from fantabot.domain.asta.sentiment import SentimentWeights, effect_by_id, variance_by_id
-from fantabot.domain.asta.state import Roster
-from fantabot.domain.asta.value import NaiveValueModel
+from fantabot.domain.asta.state import AstaState, Roster
+from fantabot.domain.asta.value import NaiveValueModel, ValueModel
 from fantabot.domain.shared.values import SentimentRow
 
 
@@ -152,3 +153,62 @@ def format_legality(schemi: frozenset[str]) -> str:
     if not schemi:
         return "fields NO legal XI"
     return "fields: " + ", ".join(sorted(schemi))
+
+
+@dataclass(frozen=True)
+class ListoneRow:
+    """One line of the LISTONE pane."""
+
+    player_id: str
+    name: str
+    team: str
+    roles: tuple[str, ...]
+    value: float
+    #: What the plan budgets for him — `planning_cost`, so a player with no observed sale
+    #: costs 1 rather than 0. The platform will not sell at 0 and the roster report agrees.
+    price: int
+    #: The plan's ceiling for him, when he is one of its members. `None` otherwise: a
+    #: walk-away for a player the optimiser did not choose is a number nobody should act on.
+    walk_away: int | None
+    #: `ours` | `taken` | `open`
+    status: str
+
+
+def listone_rows(
+    pool: Sequence[MantraPlayer],
+    state: AstaState,
+    *,
+    names: Mapping[str, str],
+    teams: Mapping[str, str],
+    prices: Mapping[str, float],
+    value: ValueModel,
+    walkaways: Mapping[str, float],
+    limit: int,
+) -> list[ListoneRow]:
+    """The whole listone, ranked by value, as rows. Pure.
+
+    Primitives rather than the application layer's `PlanInputs`: importing that here would
+    give `domain/` a transitive path to `adapters.persistence` — it is defined beside a
+    function-body import of `AsteRepository` — and break the layer ratchet. Every other call
+    site in this package already destructures at the boundary.
+    """
+    owned = set(state.owned)
+    ranked = sorted(pool, key=lambda player: value.value(player.id).mean, reverse=True)
+
+    rows: list[ListoneRow] = []
+    for player in ranked[:limit]:
+        pid = player.id
+        walk = walkaways.get(pid)
+        rows.append(
+            ListoneRow(
+                player_id=pid,
+                name=names.get(pid, pid),
+                team=teams.get(pid, "?"),
+                roles=tuple(sorted(player.roles)),
+                value=value.value(pid).mean,
+                price=planning_cost(pid, prices),
+                walk_away=int(walk) if walk is not None else None,
+                status="ours" if pid in owned else "taken" if pid in state.taken else "open",
+            )
+        )
+    return rows

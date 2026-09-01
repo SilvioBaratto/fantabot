@@ -159,6 +159,38 @@ src/fantabot/
 - ~~**Asta mechanics**~~ **Resolved.** Not the leghe.fantacalcio.it room at all —
   the asta runs on FantaLab, and `asta bid` drives its unauthenticated RTDB
   directly. See `docs/fantalab/06-asta-write-path.md`, verified live 2026-08-28.
+- ~~**The bot could not actually bid**~~ **Resolved 2026-09-01** by the asta-room
+  phase ([`tasks/archive/asta-room-spec.md`](tasks/archive/asta-room-spec.md)).
+  Three defects, none visible from reading the code:
+  **B1** — the lot arrives from `auction/<fl>` as a FantaLab uuid while every
+  walk-away is keyed by fantacalcio id, so `asta bid` answered "not a target,
+  hold" every two seconds for a whole evening. No bid, no error, nothing to
+  notice. **B2** — the walk-away is `objective − objective without him`, a
+  correct marginal value and a wrong reservation price: over a pool of
+  substitutes it collapses, and 10 of 30 measured exactly 0.0 while the same plan
+  budgeted 96 credits for one of them. It is now floored at
+  `max(MIN_BID, α · planning_cost)`. **B3** — 41 of 570 pool players are absent
+  from FantaLab's listone and can never be called, yet the optimizer planned
+  around them.
+- **α is 1.00, and the reason is arithmetic, not taste.** The plan is built to
+  cost exactly the budget at `planning_cost` (measured: 500 of 500), so a floor
+  of `1.0 × planning_cost` makes the bidder's ceiling agree with the plan's own
+  budget; at 0.8 it would cap us at 400 for a plan we priced at 500. `asta
+  calibrate` replays 45 recorded 8×500 rooms and is the evidence. ⚠ Its
+  acceptance threshold was wrong **twice** — once measuring corpus overlap
+  instead of the floor, once from a denominator that reported `won %` above
+  100% — and was removed rather than lowered a third time. Both versions are
+  recorded in the archived spec.
+- **The MAX cap has no server backstop.** `docs/fantalab/01:142` calls it
+  client-enforced and `06:389-412` shows the RTDB rules validating only that a
+  raise exceeds the current price and names the right lot. `domain/asta/bid.py`'s
+  `max_cap` guard is the only thing between a "pay anything" walk-away — which is
+  what `reservations` returns for an essential player — and a rosa that cannot be
+  fielded.
+- **Arming needs two locks and a record.** `FANTABOT_AUTO_ACT` **and** `--arm`,
+  both opt-in, because the env var is process-wide `.env` state and the operator
+  who edits it in the morning is not the one at the keyboard at 21:47. First
+  Ctrl-C disarms and keeps drawing; second exits.
 - **Stats source**: still unchosen. News sentiment is covered by
   `fantabot news fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores. When one

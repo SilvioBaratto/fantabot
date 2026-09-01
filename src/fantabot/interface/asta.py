@@ -16,6 +16,8 @@ import typer
 if TYPE_CHECKING:
     from fantabot.domain.shared.values import SentimentRow
 
+from pathlib import Path
+
 from fantabot.application.asta_planner import read_plan_inputs
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.live import normalize, resolve_ids
@@ -28,11 +30,21 @@ from fantabot.domain.asta.report import (
     parse_ids,
     parse_replay_lines,
 )
-from fantabot.domain.asta.reservation import apply_event, reservations, rolling_advisory
+from fantabot.domain.asta.reservation import (
+    price_floor,
+    rolling_advisory,
+)
 from fantabot.domain.asta.sentiment import SentimentWeights
-from fantabot.domain.asta.state import AstaState
+from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.interface.console import console
-from fantabot.interface.options import SEASON, Season, Sentiment, SentimentRun, TiltK
+from fantabot.interface.options import (
+    SEASON,
+    FloorAlpha,
+    Season,
+    Sentiment,
+    SentimentRun,
+    TiltK,
+)
 
 
 class _SentimentSource(Protocol):
@@ -91,6 +103,42 @@ def sentiment_rows(
             "Run `fantabot news fetch --write`, or pass --no-sentiment."
         )
     return rows
+
+
+def bid_writer(
+    *,
+    auto_act: bool,
+    arm: bool,
+    send: Callable[[dict[str, Any]], Any],
+    node: str = "auction",
+) -> Callable[[dict[str, Any]], Any]:
+    """``send`` if both locks are open, otherwise a write that goes nowhere.
+
+    **Why two.** ``FANTABOT_AUTO_ACT`` is read inside ``place_raise`` at call time and comes
+    from ``.env``, so flipping it arms every invocation at once — for the rest of that
+    process and every process after it. The operator who edits ``.env`` in the morning is
+    not necessarily the one running the command at 21:47.
+
+    ``--arm`` is therefore *positive* and defaults off. The asymmetry decides the direction:
+    forgetting an opt-in flag means watching, forgetting an opt-out flag means spending money.
+
+    The disarmed writer returns a real ``BidOutcome`` rather than ``None``. The loop reads
+    ``.sent`` through ``getattr``, so ``None`` would be accidentally right and would stop
+    being right the moment anything else is read off it.
+    """
+    from fantabot.adapters.http.fantalab.rtdb import BidOutcome
+
+    if auto_act and arm:
+        return send
+
+    def hold(payload: dict[str, Any]) -> BidOutcome:
+        price = payload.get("price")
+        # The same coercion `place_raise` applies: `True` is an `int` in Python and a
+        # price of `True` is not a price.
+        clean = price if isinstance(price, int) and not isinstance(price, bool) else 0
+        return BidOutcome(price=clean, node=node, dry_run=True, sent=False, status=None)
+
+    return hold
 
 
 def asta_optimize(
@@ -169,6 +217,7 @@ def asta_live(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
+    floor_alpha: FloorAlpha = 1.00,
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
     ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
@@ -240,6 +289,9 @@ def asta_live(
         AstaState(total_budget=budget), world.pool, events,
         our_team_id=team, value_of=world.value_of, prices=world.prices, teams=world.teams,
         legality=world.legality, lam=lam,
+        # The same floor the bidder uses. An advisory that shows a different number from the
+        # command that spends the credits is the drift CLAUDE.md already records once.
+        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
     ):
         last = step
     if last is None:
@@ -252,11 +304,327 @@ def asta_live(
     console.print(format_opponents(opponents, names={}, total_budget=int(budget)))
 
 
+def asta_room(
+    url: str = typer.Argument(..., help="The FantaLab room link, or its fantaleague id."),
+    arm: bool = typer.Option(
+        False, "--arm", help="Second, positive lock. Bidding is OFF without it."
+    ),
+    resolve_only: bool = typer.Option(
+        False, "--resolve-only", help="Print the resolved room and exit. Touches no RTDB."
+    ),
+    budget: float = typer.Option(
+        0.0, help="Our starting credits. 0 reads the room's own num_credits."
+    ),
+    limit: int = typer.Option(40, help="Listone rows rendered."),
+    lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    poll: float = typer.Option(2.0, help="Seconds between polls."),
+    season: Season = SEASON,
+    sentiment: Sentiment = True,
+    sentiment_run: SentimentRun = "",
+    tilt_k: TiltK = SentimentWeights().k,
+    floor_alpha: FloorAlpha = 1.00,
+    copilot: bool = typer.Option(True, "--copilot/--no-copilot", help="The LLM pane."),
+    brief_top: int = typer.Option(40, help="How many of the plan's targets to pre-brief."),
+) -> None:
+    """The live room: the listone, the lot, the model's bidding and the rosa, on one screen.
+
+    `fantabot asta room "https://app.fantalab.it/asta?asta=<uuid>"`.
+
+    Not `fantabot <url>`: a root callback with a positional argument makes Click consume the
+    first token as that argument, so `fantabot asta bid` would exit 2 with `No such command
+    'bid'` and all 22 commands would break. A shell alias recovers the ergonomics:
+    `fanta() { fantabot asta room "$1"; }`.
+
+    **Two locks before a credit is spent** — `FANTABOT_AUTO_ACT` *and* `--arm`, both opt-in.
+    Ctrl-C once disarms and keeps watching; twice exits. Mid-auction "stop bidding, keep
+    showing me the room" is far more often what is wanted than "quit".
+
+    ⚠ The authenticated fetch behind `--resolve-only` had no caller in `src/` before this
+    phase. If it fails, `harvest scan --seed` still yields the shard and the room's settings.
+    """
+    import contextlib
+    import signal
+    import time
+
+    from fantabot.adapters.files.room_journal import RoomJournal
+    from fantabot.adapters.http.fantalab import feed, listone, rest, room, rtdb
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.adapters.tokens.fantalab_store import FantalabStore
+    from fantabot.application.asta_copilot import CopilotWorker, briefs_for
+    from fantabot.application.asta_room import RoomFrame, RoomRefused, RoomTracker, resolve_room
+    from fantabot.config import settings
+    from fantabot.domain.asta.bid import Seat, max_bid
+    from fantabot.domain.asta.live import InvitationLink, parse_room_url
+    from fantabot.domain.asta.report import listone_rows
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.interface.room_view import render
+
+    try:
+        fantaleague_id = parse_room_url(url)
+    except InvitationLink as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(code=2) from exc
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    cipher = TokenCipher(settings.fantabot_encryption_key)
+    with database_manager.get_session() as session:
+        stored = FantalabStore(session, cipher).load()
+    if stored is None or not stored.id_token or not stored.user_id:
+        console.print("[red]No FantaLab session stored. Run: fantabot auth fantalab-login[/red]")
+        raise typer.Exit(code=2)
+
+    # The token is bound here and goes no further: `resolve_room` takes a callable, so the
+    # application layer never holds a credential and cannot render one by accident.
+    try:
+        resolved = resolve_room(
+            fantaleague_id,
+            user_id=stored.user_id,
+            fetch=lambda fl: rest.fetch_league(fl, token=stored.id_token),
+        )
+    except RoomRefused as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"[bold]{resolved.fantaleague_id}[/bold] · shard {resolved.db} · "
+        f"{resolved.asta_mode}/{resolved.raise_mode} · "
+        f"{resolved.num_teams} teams x {resolved.num_credits} credits · "
+        f"seat {resolved.seat.team_name or resolved.seat.fantateam_id}"
+    )
+    if resolve_only:
+        return
+
+    bridge = listone.fetch()
+    if not bridge:
+        console.print("[red]no uuid -> fantacalcio_id bridge; every lot would be unknown[/red]")
+        raise typer.Exit(code=1)
+
+    credits = budget or resolved.budget
+    with database_manager.get_session() as session:
+        readings = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
+        world = read_plan_inputs(
+            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k,
+            callable_ids={str(fid) for fid in bridge.values()},
+            num_teams=resolved.num_teams or 8,
+            num_credits=int(resolved.num_credits or 500),
+        )
+
+    # Arming is a positive act twice over: the env var alone arms every run for the rest of
+    # the day, and the operator who edits `.env` in the morning is not the one at the keyboard
+    # at 21:47. `armed` is a list so the SIGINT handler can disarm it without a global.
+    armed = [bool(settings.fantabot_auto_act and arm)]
+    if armed[0] and not typer.confirm(
+        f"Bid REAL CREDITS in {resolved.fantaleague_id} as "
+        f"{resolved.seat.team_name or resolved.seat.fantateam_id}, budget {credits:.0f}?"
+    ):
+        raise typer.Abort
+
+    router = room.LotRouter(
+        read=lambda node: rtdb.read_snapshot(resolved.db, f"{node}/{resolved.fantaleague_id}"),
+        write=lambda payload, node: rtdb.place_raise(
+            resolved.db, resolved.fantaleague_id, payload, node=node
+        ),
+    )
+    journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    tracker = RoomTracker(
+        seat=Seat(
+            fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id
+        ),
+        bridge=bridge,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, names=world.names,
+        rules=RosterRules(),
+        budget=credits,
+        lam=lam,
+        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
+        journal=journal.write,
+        counter_time=resolved.counter_time,
+        counter_time_first=resolved.counter_time_first,
+    )
+
+    # First Ctrl-C disarms and keeps drawing; second exits. Mid-auction the operator far more
+    # often wants "stop bidding, keep showing me the room" than "quit" — the pattern is
+    # `news fetch`'s, for the same reason.
+    previous_sigint = signal.getsignal(signal.SIGINT)
+
+    def _disarm(_signum: int, _frame: Any) -> None:
+        if not armed[0]:
+            signal.signal(signal.SIGINT, previous_sigint)
+            raise KeyboardInterrupt
+        armed[0] = False
+        console.print("[yellow]disarmed — still watching. Ctrl-C again to exit.[/yellow]")
+
+    # Not the main thread means no signal handler, which costs the graceful disarm and
+    # nothing else. Refusing to run the room over that would be the worse trade.
+    with contextlib.suppress(ValueError):
+        signal.signal(signal.SIGINT, _disarm)
+
+    # One slot, not a log: only `latest[-1]` is ever read, and a frame per poll for three
+    # hours is thousands of walk-away dicts held by a process that must not die mid-auction.
+    latest: list[RoomFrame] = []
+
+    # Out of band, on a daemon thread. `counter_time` is 7-10 s and a query takes seconds, so
+    # asking about the lot on the block would answer about a lot that has already closed —
+    # the targets are briefed ahead and looked up when they come up.
+    worker = CopilotWorker() if copilot else None
+    briefed: set[str] = set()
+    if worker is not None:
+        worker.start()
+
+    def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
+        frame = tracker.cycle(
+            snapshot, now_ms=int(time.time() * 1000), node=router.node
+        )
+        latest[:] = [frame]
+
+        advice = None
+        if worker is not None:
+            fresh = [pid for pid in list(frame.walkaways)[:brief_top] if pid not in briefed]
+            if fresh:
+                briefed.update(fresh)
+                worker.brief(
+                    briefs_for(
+                        fresh,
+                        names=dict(world.names), teams=dict(world.teams),
+                        roles={k: list(v) for k, v in world.roles.items()},
+                        walkaways=dict(frame.walkaways), prices=dict(world.prices),
+                        credits_left=frame.credits_left,
+                        slots_left=RosterRules().size - len(frame.owned),
+                        schemi_open=frame.schemi_open,
+                        recent=frame.recent,
+                    )
+                )
+            lot_fid = bridge.get(frame.lot_id) if frame.lot_id else None
+            advice = worker.advice_for(str(lot_fid)) if lot_fid else None
+
+        rows = listone_rows(
+            world.pool, AstaState(owned=frame.owned, total_budget=credits),
+            names=world.names, teams=world.teams, prices=world.prices, value=world.value,
+            walkaways=frame.walkaways, limit=limit,
+        )
+        live.update(
+            render(
+                frame, rows, room=resolved, armed=armed[0], advice=advice,
+                copilot_offline=worker is not None and worker.offline,
+            )
+        )
+        if frame.target is None or frame.walk_away is None:
+            return None
+        return (frame.target, frame.walk_away)
+
+    from rich.live import Live
+
+    with Live(console=console, screen=True, refresh_per_second=4) as live:
+        report = room.run_bid_loop(
+            seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
+            fantaleague_id=resolved.fantaleague_id,
+            remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
+            max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), RosterRules().size),
+            target_of=target_of,
+            read=lambda: router.read_lot()[0],
+            # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
+            # writer captured at loop start would keep bidding after the operator disarmed.
+            write=lambda payload: bid_writer(
+                auto_act=settings.fantabot_auto_act,
+                arm=armed[0],
+                send=router.write_raise,
+                node=router.node,
+            )(payload),
+            now=lambda: int(time.time() * 1000),
+            sleep=time.sleep,
+            keep_going=lambda _cycle: True,
+            # The room's heartbeat has nowhere to go — the screen is the frame. Errors are
+            # the exception: a silently retrying room is the failure the counting exists for,
+            # so they print above the Live and stay on the scrollback.
+            heartbeat=lambda line: console.print(f"[yellow]{line}[/yellow]")
+            if any(k in line for k in ("Error", "error", "timed out"))
+            else None,
+            poll_seconds=poll,
+        )
+
+    if worker is not None:
+        worker.stop()
+    journal.close()
+    signal.signal(signal.SIGINT, previous_sigint)
+    console.print(
+        f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
+        f"refused {report.refused}[/dim]"
+    )
+
+
+def asta_calibrate(
+    alpha: list[float] = typer.Option(
+        [], "--alpha", help="Repeatable. Default sweeps 0.6 0.7 0.8 0.9 1.0."
+    ),
+    teams: int = typer.Option(8, help="Recorded league shape: number of teams."),
+    credits: int = typer.Option(500, help="Recorded league shape: credits per team."),
+    season: Season = SEASON,
+    lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
+) -> None:
+    """Replay recorded aste at several walk-away floors. Read-only, no network.
+
+    The evidence SPEC A6 gates arming on. `--floor-alpha` decides what the bot pays and is
+    hand-set; this replays it against auctions that really happened and prints what each
+    value would have spent. Pick the alpha whose spend lands near the budget with a rosa that
+    can still field a schema, and paste the table into `tasks/todo.md`.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.adapters.persistence.repositories.aste import AsteRepository
+    from fantabot.application.asta_calibrate import HEADER, Lot, RecordedAuction, sweep
+
+    alphas = list(alpha) or [0.6, 0.7, 0.8, 0.9, 1.0]
+
+    with database_manager.get_session() as session:
+        rows = sentiment_rows(NewsSentimentSource(session), enabled=True, run="")
+        world = read_plan_inputs(
+            session, season=season, sentiment=rows, as_of=_today(), tilt_k=SentimentWeights().k
+        )
+        corpus = AsteRepository(session).recorded_auctions(
+            num_teams=teams, num_credits=credits
+        )
+
+    auctions = [
+        RecordedAuction(
+            asta_id=asta_id,
+            lots=tuple(Lot(player_id=pid, price=price, closed_at_ms=at) for pid, price, at in lots),
+        )
+        for asta_id, lots in corpus
+    ]
+
+    table = sweep(
+        auctions, alphas,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, budget=float(credits), lam=lam,
+    )
+    if not table:
+        console.print("[red]no alphas to sweep[/red]")
+        raise typer.Exit(code=1)
+
+    first = table[0]
+    console.print(
+        f"corpus: {first.auctions} of {first.auctions + first.dropped} auctions admitted "
+        f"({first.dropped} dropped: fewer lots than the roster band needs)"
+    )
+    console.print(f"[dim]{HEADER}[/dim]")
+    for row in table:
+        console.print(row.line())
+
+
 def asta_bid(
     league: str = typer.Option(..., help="Fantaleague id of the live room."),
     db: int = typer.Option(..., help="The room's RTDB shard index (its `db` field; see docs/fantalab/06)."),
     team: str = typer.Option(..., help="Our fantateam id — the seat we bid from."),
     user: str = typer.Option(..., help="Our user id — rides on every bid."),
+    arm: bool = typer.Option(
+        False, "--arm", help="Second, positive lock. Bidding is OFF without it."
+    ),
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
@@ -264,11 +632,15 @@ def asta_bid(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
+    floor_alpha: FloorAlpha = 1.00,
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
-    Read → decide → write, **gated by FANTABOT_AUTO_ACT** — off (the default) logs the intended
-    bid and sends nothing. Participant only: it bids, it never settles a lot (that is the admin's
+    Read → decide → write, behind **two locks that must both be open**: ``FANTABOT_AUTO_ACT``
+    in the environment *and* ``--arm`` on this invocation. Either one shut logs the intended bid
+    and sends nothing. The env var is process-wide and comes from ``.env``, so on its own it arms
+    every run for the rest of the day; ``--arm`` is what makes arming a thing the operator does
+    now, deliberately, for this room. Participant only: it bids, it never settles a lot (that is the admin's
     close/confirm). The walk-aways re-plan each cycle off the live ``purchases/`` ledger, so they
     already account for what has been spent. Ctrl-C to stop.
 
@@ -278,27 +650,20 @@ def asta_bid(
     """
     import time
 
-    from fantabot.adapters.http.fantalab import feed, room, rtdb
-    from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
-    from fantabot.domain.asta.bid import Seat
-
-    # The same value model asta optimize planned with, by construction now rather than by
-    # maintenance: a walk-away is "what is he worth to us", and this is the one command
-    # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
-    # credits with a metatarsal fracture reported by three sources.
-    with database_manager.get_session() as session:
-        readings = sentiment_rows(
-            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
-        )
-        world = read_plan_inputs(
-            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k
-        )
+    from fantabot.adapters.files.room_journal import RoomJournal
 
     # Fetched once for the run, not per poll: the mapping changes only when the
     # platform adds a player, and a live room does not want an HTTP round trip it
     # can avoid. See `fantalab/listone.py` for why this exists at all.
-    from fantabot.adapters.http.fantalab import listone
+    #
+    # Before the plan, not after: it is now an *input* to the plan, not only a translation
+    # for the ledger. The pool has to be narrowed to players the room can actually call.
+    from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.application.asta_room import RoomFrame, RoomTracker
+    from fantabot.config import settings
+    from fantabot.domain.asta.bid import Seat, max_bid
 
     bridge = listone.fetch()
     if not bridge:
@@ -308,41 +673,106 @@ def asta_bid(
         )
         raise typer.Exit(code=1)
 
+    # The same value model asta optimize planned with, by construction now rather than by
+    # maintenance: a walk-away is "what is he worth to us", and this is the one command
+    # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
+    # credits with a metatarsal fracture reported by three sources.
+    #
+    # `callable_ids` narrows the pool to what FantaLab's listone carries. 41 of 570 players
+    # are absent from it and can never come up for auction, yet the optimizer planned around
+    # them; in one simulated mid-auction state the top walk-away of all twelve targets was
+    # Lukaku, who could not appear on the block at all.
+    with database_manager.get_session() as session:
+        readings = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
+        world = read_plan_inputs(
+            session,
+            season=season,
+            sentiment=readings,
+            as_of=_today(),
+            tilt_k=tilt_k,
+            callable_ids={str(fid) for fid in bridge.values()},
+        )
+
     seat = Seat(fantateam_id=team, user_id=user)
 
+    # Said before the first poll, not after: the operator has to be able to tell an armed run
+    # from a rehearsal at a glance, and the heartbeat that follows looks identical either way.
+    if settings.fantabot_auto_act and arm:
+        console.print("[bold red]● ARMED — bids are real credits[/bold red]")
+    else:
+        why = "--arm not given" if settings.fantabot_auto_act else "FANTABOT_AUTO_ACT is false"
+        console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
+
+    journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    tracker = RoomTracker(
+        seat=seat,
+        bridge=bridge,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, names=world.names,
+        rules=RosterRules(),
+        budget=budget,
+        lam=lam,
+        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        ledger=lambda: feed.ledger_events(db, league),
+        journal=journal.write,
+        counter_time=None, counter_time_first=None,
+    )
+
+    # One code path, not two. `asta bid` used to carry its own copy of this fold — and
+    # `CLAUDE.md` records where that leads: three commands each grew their own value model and
+    # the one that spent credits fell behind the one that advised.
+    latest: list[RoomFrame] = []
+    reported: set[str] = set()
+
+    # Both nodes, not just `auction/`. Under ASSEGNA random the lot lands on `assign/<fl>`
+    # and a bidder watching only the first sees an empty room all evening (docs/fantalab/06
+    # §10.6). The node travels with the lot so the raise goes back where it came from.
+    router = room.LotRouter(
+        read=lambda node: rtdb.read_snapshot(db, f"{node}/{league}"),
+        write=lambda payload, node: rtdb.place_raise(db, league, payload, node=node),
+    )
+
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        player_id = snapshot.get("player_id")
-        if not isinstance(player_id, str):
+        import time as _time
+
+        frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000), node=router.node)
+        latest.append(frame)
+        # Said once rather than once per poll: at a 2 s cycle the same line would scroll the
+        # heartbeat away inside a minute, and the heartbeat is all the operator is reading.
+        if frame.note and frame.note not in reported:
+            reported.add(frame.note)
+            console.print(f"[yellow]{frame.note}[/yellow]")
+        if frame.target is None or frame.walk_away is None:
             return None
-        state = AstaState(total_budget=budget)
-        events, _unknown = resolve_ids(feed.ledger_events(db, league), bridge)
-        for event in events:
-            state = apply_event(state, event, our_team_id=team)
-        _, walkaways = reservations(
-            state,
-            world.pool,
-            value=world.value,
-            prices=world.prices,
-            teams=world.teams,
-            legality=world.legality,
-            lam=lam,
-        )
-        walk_away = walkaways.get(player_id)
-        return (player_id, int(walk_away)) if walk_away is not None else None
+        return (frame.target, frame.walk_away)
+
+    def _remaining() -> int:
+        return latest[-1].credits_left if latest else int(budget)
+
+    def _cap() -> int:
+        return latest[-1].max_cap if latest else max_bid(int(budget), RosterRules().size)
 
     report = room.run_bid_loop(
         seat=seat,
         fantaleague_id=league,
-        remaining_budget=int(budget),
+        remaining_budget=_remaining,
+        max_cap=_cap,
         target_of=target_of,
-        read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
-        write=lambda payload: rtdb.place_raise(db, league, payload),
+        read=lambda: router.read_lot()[0],
+        write=bid_writer(
+            auto_act=settings.fantabot_auto_act,
+            arm=arm,
+            send=router.write_raise,
+        ),
         now=lambda: int(time.time() * 1000),
         sleep=time.sleep,
         keep_going=lambda _cycle: True,
         heartbeat=console.print,
         poll_seconds=poll,
     )
+    journal.close()
     console.print(
         f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
         f"refused {report.refused}[/dim]"
@@ -356,6 +786,8 @@ COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
     ("legality", asta_legality),
     ("live", asta_live),
     ("bid", asta_bid),
+    ("calibrate", asta_calibrate),
+    ("room", asta_room),
 )
 
 

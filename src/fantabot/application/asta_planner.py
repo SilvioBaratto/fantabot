@@ -35,87 +35,17 @@ one its imports say it belongs to.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Collection, Mapping
 from datetime import date
 from typing import TYPE_CHECKING
 
-from fantabot.domain.asta.legality import SchemaLegality, build_legality, load_compat
+from fantabot.application.plan_inputs import PlanInputs, build_plan_inputs
 from fantabot.domain.asta.prices import Sale, mean_prices
-from fantabot.domain.asta.report import build_pool, build_value
-from fantabot.domain.asta.roles import MantraPlayer
-from fantabot.domain.asta.sentiment import SentimentWeights
-from fantabot.domain.asta.value import ValueModel
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from fantabot.domain.shared.values import QuotazioneRow, SentimentRow
-
-
-@dataclass(frozen=True)
-class PlanInputs:
-    """The world a plan is computed against, read once."""
-
-    pool: Sequence[MantraPlayer]
-    value: ValueModel
-    prices: Mapping[str, float]
-    teams: Mapping[str, str]
-    names: Mapping[str, str]
-    roles: Mapping[str, Sequence[str]]
-    legality: dict[str, SchemaLegality]
-    #: The readings the value model was built from, or `None` under `--no-sentiment`.
-    #: Carried because `report.format_roster` annotates drifted players from it.
-    sentiment: Mapping[str, SentimentRow] | None
-
-    def value_of(self) -> ValueModel:
-        """The factory `rolling_advisory` asks for. See this module's docstring."""
-        return self.value
-
-
-def build_plan_inputs(
-    quotazioni: Mapping[str, QuotazioneRow],
-    prices: Mapping[str, float],
-    sentiment: Mapping[str, SentimentRow] | None,
-    *,
-    as_of: date | None,
-    tilt_k: float,
-    excluded: Collection[str] = (),
-) -> PlanInputs:
-    """Derive the plan world from two already-read tables. Pure.
-
-    Takes rows rather than a `Session` so the derivation is testable without a database,
-    which is what lets the golden harness drive it from fixtures.
-
-    **`excluded` is dropped before anything is derived**, not filtered out afterwards.
-    Half of it would be worse than none: `format_roster` reads `names`, the opponent
-    tracker reads `roles`, the optimizer's variance term reads `teams`, and a player left
-    in any of them surfaces as a name with no row behind it. It also has to happen before
-    `build_value`, because the sentiment normalization pins the *pool* mean at exactly
-    1.0 -- a player who cannot be bought must not move everyone else's multiplier.
-
-    `prices` is deliberately not filtered. It comes from a different table and cannot put
-    anyone back: the pool is what gates selection.
-    """
-    if excluded:
-        quotazioni = {pid: row for pid, row in quotazioni.items() if pid not in excluded}
-    roles = {pid: row.ruoli_codice for pid, row in quotazioni.items()}
-    return PlanInputs(
-        pool=build_pool(roles),
-        value=build_value(
-            {pid: row.fvm for pid, row in quotazioni.items()},
-            priced_ids=set(prices),
-            sentiment=sentiment,
-            as_of=as_of if sentiment else None,
-            weights=SentimentWeights(k=tilt_k),
-        ),
-        prices=prices,
-        teams={pid: row.squadra for pid, row in quotazioni.items()},
-        names={pid: row.nome for pid, row in quotazioni.items()},
-        roles=roles,
-        legality=build_legality(load_compat()),
-        sentiment=sentiment,
-    )
+    from fantabot.domain.shared.values import SentimentRow
 
 
 def read_plan_inputs(
@@ -125,17 +55,33 @@ def read_plan_inputs(
     sentiment: Mapping[str, SentimentRow] | None,
     as_of: date | None,
     tilt_k: float,
+    callable_ids: Collection[str] | None = None,
+    num_teams: int = 8,
+    num_credits: int = 500,
 ) -> PlanInputs:
     """The I/O half: three reads on one session, then the pure derivation above.
 
-    Sales are restricted to our exact league shape — 8 teams, 500 credits — so the prices
-    are directly comparable and need no budget normalization.
+    Sales are restricted to the league's shape so the prices are directly comparable and need
+    no budget normalization. **The shape is a parameter, not a constant.** It was written in
+    as 8x500, which is our room, so nothing looked wrong — and `docs/fantalab/00 §13` is
+    explicit that a rule written into the code is a bug, because the next asta is the
+    riparazione in January, or a friend's league. The corpus holds 68 recorded 10x500 rooms
+    that would otherwise have been priced off somebody else's game.
+
+    The defaults are our league, so no existing caller changes and the golden fixtures stand.
+
+    `callable_ids` is forwarded untouched. It has to live here as well as on the pure half:
+    this is the only door — `asta optimize`, `asta live` and `asta bid` all come through it —
+    and it holds a `Session`, not a listone bridge. The bridge is fetched in the interface,
+    where the network lives, so the caller supplies the set and this passes it along.
     """
     from fantabot.adapters.persistence.repositories.aste import AsteRepository
     from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     reference = ReferenceRepository(session)
-    sales = AsteRepository(session).mantra_clearing_sales(budget=500, num_teams=8)
+    sales = AsteRepository(session).mantra_clearing_sales(
+        budget=num_credits, num_teams=num_teams
+    )
     return build_plan_inputs(
         reference.quotazioni(season, "mantra"),
         mean_prices(Sale(player_id, price) for player_id, price in sales),
@@ -146,4 +92,5 @@ def read_plan_inputs(
         # mechanism that can drop a player the site still lists. See
         # `adapters/persistence/models/exclusions.py`.
         excluded=reference.excluded_player_ids(),
+        callable_ids=callable_ids,
     )

@@ -8,7 +8,12 @@ budget. ``RosterRules`` is the league's composition — for lega 4103937, 30 pla
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fantabot.domain.asta.roles import MantraPlayer
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,44 @@ class AstaState:
     @property
     def remaining_budget(self) -> float:
         return self.total_budget - self.spent
+
+
+def drop_unvaluable(
+    state: AstaState, pool: Sequence[MantraPlayer], rules: RosterRules
+) -> tuple[AstaState, RosterRules, list[str]]:
+    """Set aside owned players the pool cannot name, and shrink the band to match. Pure.
+
+    ``optimize_roster`` refuses a state whose ``owned`` holds an id absent from the pool,
+    and it is right to — a roster it cannot value is not a roster. But the bidder rebuilds
+    ``AstaState`` from the ``purchases/`` ledger every cycle and a purchase record is never
+    removed, so the offending id returns every two seconds. Catching the exception without
+    removing its cause is not a hold for one lot; it is a stop for the rest of the evening.
+
+    **Both halves move together.** He is genuinely ours: the credits stay spent, and the
+    roster band shrinks by one, because a slot he fills is a slot we must not plan to buy
+    again. Dropping him from ``owned`` alone would ask the optimiser for a replacement and
+    end the night one player over the limit.
+
+    The band that shrinks is the movement one, even for a goalkeeper: his role is exactly
+    what we do not know, since not being in the pool is what put him here. That is a
+    deliberate approximation, and it is why the caller names him — a human reading the
+    heartbeat can correct an assumption a silent fallback would hide.
+
+    One live instance on 2026-09-01: fantacalcio id 7581, Konaté A., in FantaLab's listone
+    and absent from our ``quotazioni``.
+    """
+    known = {player.id for player in pool}
+    dropped = [pid for pid in state.owned if pid not in known]
+    if not dropped:
+        return state, rules, []
+
+    kept = replace(state, owned=tuple(pid for pid in state.owned if pid in known))
+    shrunk = replace(
+        rules,
+        size=max(0, rules.size - len(dropped)),
+        min_movement=max(0, rules.min_movement - len(dropped)),
+    )
+    return kept, shrunk, dropped
 
 
 @dataclass(frozen=True)

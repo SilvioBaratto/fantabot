@@ -35,6 +35,10 @@ CAPTURE = (
     "fantabot.adapters.http.harvest.transport",
     "fantabot.domain.harvest.sse",
     "fantabot.domain.harvest.reducer",
+    # The live room's journal, for the same reason and with the same rule: it is the
+    # evening's only record, and one that can block on Postgres at 21:47 loses the lot it
+    # was writing as well as the one after it.
+    "fantabot.adapters.files.room_journal",
 )
 
 
