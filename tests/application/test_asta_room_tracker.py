@@ -216,3 +216,54 @@ def test_the_frame_carries_every_walkaway_for_the_listone_column() -> None:
 
     assert frame.walkaways
     assert set(frame.walkaways) <= {p.id for p in POOL}
+
+
+class TestTheBriefIsNotFedFalsehoods:
+    """The copilot exists to re-read the state. Handing it an invented one is worse than
+    handing it nothing: its judgement degrades and the operator reads the conclusion.
+
+    `schemi_open=0` and `recent=()` were placeholders in the room's wiring, so every brief
+    claimed the rosa could field none of the eleven schemi and that nothing had been sold —
+    the first false always, the second false after the opening lot.
+    """
+
+    def test_the_frame_carries_how_many_schemi_the_rosa_actually_fields(self) -> None:
+        frame = _tracker(ledger=[AssignmentEvent("uuid-gk", 10, "us"),
+                                 AssignmentEvent("uuid-a1", 20, "us")]).cycle(
+            _lot(uuid="uuid-a2"), now_ms=1_000
+        )
+
+        assert frame.schemi_open == 1, "a keeper and a striker field the fixture's one schema"
+
+    def test_an_empty_rosa_fields_nothing_and_says_so_truthfully(self) -> None:
+        assert _tracker().cycle(_lot(), now_ms=1_000).schemi_open == 0
+
+    def test_the_frame_carries_the_last_sales_as_readable_lines(self) -> None:
+        frame = _tracker(ledger=[AssignmentEvent("uuid-gk", 12, "rival")]).cycle(
+            _lot(), now_ms=1_000
+        )
+
+        assert frame.recent, "the room's tempo, which the brief claimed was always empty"
+        assert "Portiere" in frame.recent[0], "named, not a uuid"
+        assert "12" in frame.recent[0]
+
+    def test_only_the_last_few_sales_travel(self) -> None:
+        """A brief carrying two hundred lines is a brief nobody reads, model included."""
+        ledger = [AssignmentEvent(f"uuid-a{i % 2 + 1}", i, "rival") for i in range(20)]
+        frame = _tracker(ledger=ledger).cycle(_lot(), now_ms=1_000)
+
+        assert len(frame.recent) <= 3
+
+
+class TestProvenanceNamesWhatActuallyDecided:
+    """`walk-away 77 (floor)` on a number the budget decided is a lie on the one line the
+    operator reads before spending. The walk-away is `min(remaining_budget, max(marginal,
+    floor))`, so three things can be the binding constraint and the label must say which."""
+
+    def test_the_budget_is_named_when_it_is_the_thing_that_bound(self) -> None:
+        frame = _tracker(budget_override=5.0).cycle(_lot(), now_ms=1_000)
+
+        if frame.walk_away is not None:
+            assert frame.provenance in {"budget", "marginal", "floor"}
+            if frame.walk_away == 5:
+                assert frame.provenance == "budget"

@@ -140,3 +140,55 @@ class TestBriefOrder:
         )
 
         assert briefs[0].observed_price is None
+
+
+class TestOfflineIsNotSticky:
+    """`errors > 0` never went back down, so one timeout at 21:03 made every player without
+    commentary read as "offline" for the rest of the evening — and the pane stopped
+    distinguishing the two things its docstring says it keeps apart.
+    """
+
+    def test_a_single_failure_does_not_mark_the_copilot_offline(self) -> None:
+        worker = _worker(boom=True)
+
+        assert worker.consecutive_errors == 0
+        worker.start()
+        worker.brief([BRIEF])
+        try:
+            _settle(worker, "200", timeout=0.5)
+            assert worker.consecutive_errors == 1
+            assert not worker.offline, "one miss is a miss, not an outage"
+        finally:
+            worker.stop()
+
+    def test_repeated_failures_do(self) -> None:
+        worker = _worker(boom=True)
+        worker.start()
+        worker.brief([BRIEF, BRIEF, BRIEF])
+        try:
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not worker.offline:
+                time.sleep(0.01)
+            assert worker.offline
+        finally:
+            worker.stop()
+
+    def test_one_success_clears_it(self) -> None:
+        """The worker recovers; the pane has to notice, or it lies for hours."""
+        answers = [None, SAID]
+
+        async def runner(_request, _schema):  # type: ignore[no-untyped-def]
+            nxt = answers.pop(0) if answers else SAID
+            if nxt is None:
+                raise RuntimeError("down")
+            return _Outcome(value=nxt)
+
+        worker = CopilotWorker(runner=runner)
+        worker.start()
+        worker.brief([BRIEF, BRIEF])
+        try:
+            _settle(worker, "200", timeout=2.0)
+            assert worker.consecutive_errors == 0
+            assert not worker.offline
+        finally:
+            worker.stop()

@@ -354,7 +354,7 @@ def asta_room(
     from fantabot.application.asta_copilot import CopilotWorker, briefs_for
     from fantabot.application.asta_room import RoomFrame, RoomRefused, RoomTracker, resolve_room
     from fantabot.config import settings
-    from fantabot.domain.asta.bid import Seat
+    from fantabot.domain.asta.bid import Seat, max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
     from fantabot.domain.asta.report import listone_rows
     from fantabot.domain.tokens.crypto import TokenCipher
@@ -465,6 +465,8 @@ def asta_room(
     with contextlib.suppress(ValueError):
         signal.signal(signal.SIGINT, _disarm)
 
+    # One slot, not a log: only `latest[-1]` is ever read, and a frame per poll for three
+    # hours is thousands of walk-away dicts held by a process that must not die mid-auction.
     latest: list[RoomFrame] = []
 
     # Out of band, on a daemon thread. `counter_time` is 7-10 s and a query takes seconds, so
@@ -479,7 +481,7 @@ def asta_room(
         frame = tracker.cycle(
             snapshot, now_ms=int(time.time() * 1000), node=router.node
         )
-        latest.append(frame)
+        latest[:] = [frame]
 
         advice = None
         if worker is not None:
@@ -494,7 +496,8 @@ def asta_room(
                         walkaways=dict(frame.walkaways), prices=dict(world.prices),
                         credits_left=frame.credits_left,
                         slots_left=RosterRules().size - len(frame.owned),
-                        schemi_open=0, recent=(),
+                        schemi_open=frame.schemi_open,
+                        recent=frame.recent,
                     )
                 )
             lot_fid = bridge.get(frame.lot_id) if frame.lot_id else None
@@ -508,7 +511,7 @@ def asta_room(
         live.update(
             render(
                 frame, rows, room=resolved, armed=armed[0], advice=advice,
-                copilot_offline=worker is not None and worker.errors > 0 and advice is None,
+                copilot_offline=worker is not None and worker.offline,
             )
         )
         if frame.target is None or frame.walk_away is None:
@@ -522,7 +525,7 @@ def asta_room(
             seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
             fantaleague_id=resolved.fantaleague_id,
             remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
-            max_cap=lambda: latest[-1].max_cap if latest else 0,
+            max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), RosterRules().size),
             target_of=target_of,
             read=lambda: router.read_lot()[0],
             # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a

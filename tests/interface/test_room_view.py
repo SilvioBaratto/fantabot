@@ -26,7 +26,7 @@ def _frame(**kw: object) -> RoomFrame:
         seconds_left=6.2, node="auction", target="uuid-a1", walk_away=77,
         provenance="floor", decision="bid", reason=None, note=None,
         credits_left=309, max_cap=285, owned=("100",), plan=("100", "200"),
-        unresolved_sales=0, walkaways={},
+        unresolved_sales=0, walkaways={}, schemi_open=7, recent=(),
     )
     return RoomFrame(**{**base, **kw})  # type: ignore[arg-type]
 
@@ -94,13 +94,14 @@ class TestRenderIsTotal:
                 node="auction", target=None, walk_away=None, provenance=None,
                 decision="waiting", reason=None, note=None, credits_left=500, max_cap=471,
                 owned=(), plan=(), unresolved_sales=0, walkaways={},
+                schemi_open=0, recent=(),
             ),
             RoomFrame(
                 lot_id="u", lot_name=None, price=0, high_bidder=None, seconds_left=0.0,
                 node="assign", target=None, walk_away=None, provenance=None,
                 decision="hold", reason=None, note="lot is not in the listone",
                 credits_left=0, max_cap=0, owned=(), plan=(), unresolved_sales=3,
-                walkaways={},
+                walkaways={}, schemi_open=0, recent=(),
             ),
         ],
         ids=["nothing-on-the-block", "everything-unknown"],

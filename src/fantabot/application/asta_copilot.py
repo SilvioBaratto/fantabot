@@ -38,6 +38,9 @@ Runner = Callable[[AgentRequest, type[Commentary]], Coroutine[Any, Any, Outcome[
 #: seconds, and the facts are already in the brief.
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
+#: Consecutive failures before the pane says "offline". One miss is a miss.
+OFFLINE_AFTER = 2
+
 
 def request_for(brief: CopilotBrief, *, model: str = DEFAULT_MODEL) -> AgentRequest:
     """One player's question. Pure."""
@@ -74,6 +77,10 @@ class CopilotWorker:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self.errors = 0
+        #: Failures since the last success. A running total never came down, so one timeout
+        #: made the pane read "offline" for the rest of the evening while the worker was fine
+        #: — and the pane's whole job is telling an outage from "nothing yet for this player".
+        self.consecutive_errors = 0
 
     def start(self) -> None:
         if self._thread is not None:
@@ -90,6 +97,11 @@ class CopilotWorker:
         """Ask about these players, soonest first. Returns immediately."""
         for item in briefs:
             self._queue.put(item)
+
+    @property
+    def offline(self) -> bool:
+        """Two misses in a row. One is a miss; a run of them is weather worth reporting."""
+        return self.consecutive_errors >= OFFLINE_AFTER
 
     def advice_for(self, player_id: str) -> Commentary | None:
         """Whatever has arrived for this player. Never blocks, never raises."""
@@ -116,6 +128,7 @@ class CopilotWorker:
             outcome = loop.run_until_complete(self._runner(request_for(brief, model=self._model), Commentary))
         except Exception as exc:
             self.errors += 1
+            self.consecutive_errors += 1
             if self._on_error:
                 self._on_error(f"{brief.name}: {exc}")
             return
@@ -123,7 +136,9 @@ class CopilotWorker:
         parsed = getattr(outcome, "value", None)
         if parsed is None:
             self.errors += 1
+            self.consecutive_errors += 1
             return
+        self.consecutive_errors = 0
         with self._lock:
             self._answers[brief.player_id] = parsed
 

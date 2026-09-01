@@ -32,13 +32,17 @@ from fantabot.adapters.http.fantalab.rest import RoomConfig
 from fantabot.adapters.http.fantalab.rest import Seat as RoomSeat
 from fantabot.domain.asta.bid import Seat as BidSeat
 from fantabot.domain.asta.bid import decide_bid, max_bid, pass_reason
-from fantabot.domain.asta.legality import SchemaLegality
+from fantabot.domain.asta.legality import SchemaLegality, fieldable_schemi
 from fantabot.domain.asta.live import AssignmentEvent, resolve_ids, seconds_left
 from fantabot.domain.asta.optimizer import InfeasibleRoster
 from fantabot.domain.asta.reservation import apply_event, reservations
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.domain.asta.value import ValueModel
+
+#: How many sales travel in a copilot brief and on the frame. Three is the room's tempo
+#: without being a transcript.
+RECENT_SALES = 3
 
 
 class RoomRefused(RuntimeError):
@@ -170,6 +174,13 @@ class RoomFrame:
     #: Every walk-away this cycle priced, keyed by fantacalcio id. The LISTONE pane's column:
     #: seeing only the lot's own number tells the operator nothing about what is coming.
     walkaways: Mapping[str, float]
+    #: How many of the eleven schemi the rosa can field as it stands. Computed here, where the
+    #: legality matrix already is — the room's wiring used to pass a literal 0 into every
+    #: copilot brief, so each one opened by telling the model something false about our rosa.
+    schemi_open: int
+    #: The last few sales as `name price buyer`, the room's tempo in three lines. Same reason:
+    #: the brief claimed nothing had been sold, for the whole evening.
+    recent: tuple[str, ...]
 
 
 class RoomTracker:
@@ -239,6 +250,15 @@ class RoomTracker:
         credits_left = int(state.remaining_budget)
         cap = max_bid(credits_left, rules.size - len(state.owned))
 
+        owned_players = [p for p in self._pool if p.id in set(state.owned)]
+        schemi_open = len(fieldable_schemi(owned_players, self._legality))
+        # Three, not the whole ledger: a brief carrying two hundred lines is a brief nobody
+        # reads, the model included.
+        recent = tuple(
+            f"{self._names.get(e.player_id, e.player_id)} {e.price} a {e.buyer_team_id}"
+            for e in events[-RECENT_SALES:]
+        )
+
         # A rosa that cannot be completed from here is a real state, not an error: too few
         # credits for the slots left, or a band no remaining player can fill. `drop_unvaluable`
         # handles the id we cannot name; this handles the arithmetic. Either way the loop must
@@ -259,6 +279,7 @@ class RoomTracker:
         frame = self._decide(
             snapshot, now_ms=now_ms, node=node, state=state, walkaways=walkaways,
             plan=planned, credits_left=credits_left, cap=cap,
+            schemi_open=schemi_open, recent=recent,
             unresolved=len(unresolved), unvaluable=unvaluable,
         )
         self._journal(
@@ -286,6 +307,8 @@ class RoomTracker:
         cap: int,
         unresolved: int,
         unvaluable: list[str],
+        schemi_open: int,
+        recent: tuple[str, ...],
     ) -> RoomFrame:
         note = (
             f"{len(unvaluable)} owned player(s) we cannot value; roster band shrunk"
@@ -294,7 +317,7 @@ class RoomTracker:
         common = {
             "node": node, "credits_left": credits_left, "max_cap": cap,
             "owned": tuple(state.owned), "plan": plan, "unresolved_sales": unresolved,
-            "walkaways": walkaways,
+            "walkaways": walkaways, "schemi_open": schemi_open, "recent": recent,
         }
 
         lot = snapshot.get("player_id") if snapshot else None
@@ -335,7 +358,16 @@ class RoomTracker:
             )
 
         walk_away = int(raw)
-        provenance = "floor" if self._floor and self._floor(str(fantacalcio_id)) >= raw else "marginal"
+        # `reservations` returns min(remaining_budget, max(marginal, floor)), so three things
+        # can bind and the label has to say which. Saying "floor" on a number the budget
+        # decided is a lie on the one line read before spending.
+        floored = self._floor(str(fantacalcio_id)) if self._floor else 0.0
+        if raw >= credits_left and floored > credits_left:
+            provenance = "budget"
+        elif floored >= raw:
+            provenance = "floor"
+        else:
+            provenance = "marginal"
         payload = decide_bid(
             snapshot or {}, self._seat, "", target=lot, walk_away=walk_away,
             remaining_budget=credits_left, now_ms=now_ms, step=self._step, max_cap=cap,
