@@ -147,3 +147,55 @@ def run_bid_loop(
             break
 
     return LoopReport(cycles=cycles, bids_sent=bids_sent, refused=refused)
+
+
+class LotRouter:
+    """Read whichever node holds the live lot, and remember which one for the raise.
+
+    Two nodes carry a lot and they are not interchangeable (``docs/fantalab/06 §10.6``, proved
+    live 2026-08-28). CHIAMA random puts it on ``auction/<fl>``; ASSEGNA random puts it on
+    ``assign/<fl>``. A bidder reading only ``auction/`` bids on nothing for the whole of an
+    ASSEGNA-run evening — and the failure is silent, because an empty node is indistinguishable
+    from a room between lots.
+
+    ``auction/`` is preferred when both answer. Between lots it carries an ``update_type:
+    reset`` and ``assign/`` briefly returns to null, so a real overlap means the called lot is
+    the live one.
+
+    ⚠ **Reading ``assign/`` is proved; writing it as a participant is not**
+    (``docs/fantalab/06 §10.5``). The node travels with the lot rather than being assumed, so
+    a ``401`` on that path is legible as "we cannot write here" and those lots can be bid by
+    hand without the loop pretending otherwise.
+    """
+
+    def __init__(
+        self,
+        *,
+        read: Callable[[str], Snapshot | None],
+        write: Callable[[dict[str, Any], str], Any] | None = None,
+    ) -> None:
+        self._read = read
+        self._write = write
+        #: Where the last lot came from. `auction` before the first read: a raise cannot
+        #: precede a lot, and a silent wrong guess would return a 401 that reads as a lost race.
+        self.node = "auction"
+
+    @staticmethod
+    def _has_lot(snapshot: Snapshot | None) -> bool:
+        return bool(snapshot) and isinstance((snapshot or {}).get("player_id"), str)
+
+    def read_lot(self) -> tuple[Snapshot | None, str]:
+        """The live lot and the node it came from, or ``(None, "auction")`` when there is none."""
+        for node in ("auction", "assign"):
+            snapshot = self._read(node)
+            if self._has_lot(snapshot):
+                self.node = node
+                return snapshot, node
+        self.node = "auction"
+        return None, "auction"
+
+    def write_raise(self, payload: dict[str, Any]) -> Any:
+        """PATCH the node the lot was read from. Raises if no writer was given."""
+        if self._write is None:  # pragma: no cover - a read-only router is a caller error
+            raise RuntimeError("this LotRouter has no writer")
+        return self._write(payload, self.node)

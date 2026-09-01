@@ -547,10 +547,18 @@ def asta_bid(
     latest: list[RoomFrame] = []
     reported: set[str] = set()
 
+    # Both nodes, not just `auction/`. Under ASSEGNA random the lot lands on `assign/<fl>`
+    # and a bidder watching only the first sees an empty room all evening (docs/fantalab/06
+    # §10.6). The node travels with the lot so the raise goes back where it came from.
+    router = room.LotRouter(
+        read=lambda node: rtdb.read_snapshot(db, f"{node}/{league}"),
+        write=lambda payload, node: rtdb.place_raise(db, league, payload, node=node),
+    )
+
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
         import time as _time
 
-        frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000))
+        frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000), node=router.node)
         latest.append(frame)
         # Said once rather than once per poll: at a 2 s cycle the same line would scroll the
         # heartbeat away inside a minute, and the heartbeat is all the operator is reading.
@@ -573,11 +581,11 @@ def asta_bid(
         remaining_budget=_remaining,
         max_cap=_cap,
         target_of=target_of,
-        read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
+        read=lambda: router.read_lot()[0],
         write=bid_writer(
             auto_act=settings.fantabot_auto_act,
             arm=arm,
-            send=lambda payload: rtdb.place_raise(db, league, payload),
+            send=router.write_raise,
         ),
         now=lambda: int(time.time() * 1000),
         sleep=time.sleep,

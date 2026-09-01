@@ -108,6 +108,7 @@ TREE: dict[str, str] = {
     "test_fantalab_feed.py": "adapters/http",
     "test_fantalab_rest.py": "adapters/http",
     "test_fantalab_room.py": "adapters/http",
+    "test_fantalab_lot_router.py": "adapters/http",
     "test_fantalab_rtdb.py": "adapters/http",
     "test_fantalab_write.py": "adapters/http",
     "test_aste_client.py": "adapters/http",
