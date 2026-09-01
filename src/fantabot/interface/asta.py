@@ -311,27 +311,16 @@ def asta_bid(
     """
     import time
 
-    from fantabot.adapters.http.fantalab import feed, room, rtdb
-    from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
-    from fantabot.domain.asta.bid import Seat
-
-    # The same value model asta optimize planned with, by construction now rather than by
-    # maintenance: a walk-away is "what is he worth to us", and this is the one command
-    # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
-    # credits with a metatarsal fracture reported by three sources.
-    with database_manager.get_session() as session:
-        readings = sentiment_rows(
-            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
-        )
-        world = read_plan_inputs(
-            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k
-        )
-
     # Fetched once for the run, not per poll: the mapping changes only when the
     # platform adds a player, and a live room does not want an HTTP round trip it
     # can avoid. See `fantalab/listone.py` for why this exists at all.
-    from fantabot.adapters.http.fantalab import listone
+    #
+    # Before the plan, not after: it is now an *input* to the plan, not only a translation
+    # for the ledger. The pool has to be narrowed to players the room can actually call.
+    from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.domain.asta.bid import Seat
 
     bridge = listone.fetch()
     if not bridge:
@@ -340,6 +329,28 @@ def asta_bid(
             "unknown player and the planner refuses the roster.[/red]"
         )
         raise typer.Exit(code=1)
+
+    # The same value model asta optimize planned with, by construction now rather than by
+    # maintenance: a walk-away is "what is he worth to us", and this is the one command
+    # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
+    # credits with a metatarsal fracture reported by three sources.
+    #
+    # `callable_ids` narrows the pool to what FantaLab's listone carries. 41 of 570 players
+    # are absent from it and can never come up for auction, yet the optimizer planned around
+    # them; in one simulated mid-auction state the top walk-away of all twelve targets was
+    # Lukaku, who could not appear on the block at all.
+    with database_manager.get_session() as session:
+        readings = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
+        world = read_plan_inputs(
+            session,
+            season=season,
+            sentiment=readings,
+            as_of=_today(),
+            tilt_k=tilt_k,
+            callable_ids={str(fid) for fid in bridge.values()},
+        )
 
     seat = Seat(fantateam_id=team, user_id=user)
 

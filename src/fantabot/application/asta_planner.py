@@ -81,6 +81,7 @@ def build_plan_inputs(
     as_of: date | None,
     tilt_k: float,
     excluded: Collection[str] = (),
+    callable_ids: Collection[str] | None = None,
 ) -> PlanInputs:
     """Derive the plan world from two already-read tables. Pure.
 
@@ -96,7 +97,23 @@ def build_plan_inputs(
 
     `prices` is deliberately not filtered. It comes from a different table and cannot put
     anyone back: the pool is what gates selection.
+
+    **`callable_ids` is the same drop for a different reason.** `excluded` answers "someone
+    decided not to buy him"; this answers "he cannot come up for auction at all", because
+    FantaLab's listone does not carry him. Measured 2026-09-01: 41 of 570 pool players are
+    absent from it — Lukaku, Nkunku, Morata, Perin, Angelino among them — and the optimizer
+    put three in the plan. In a simulated mid-auction state Lukaku was the *top* walk-away of
+    all twelve targets, so the headline target was a player who could never appear.
+
+    An allowlist, not a difference. `pool_ids - set(bridge.values())` is the obvious spelling
+    and it is wrong: `listone.parse` keeps fantacalcio ids as `int` while pool ids are `str`,
+    so the subtraction removes nothing and the whole pool would be excluded. `None` means no
+    filtering; an empty collection means the bridge resolved nothing, which is a real failure
+    and empties the pool rather than quietly passing everyone through.
     """
+    if callable_ids is not None:
+        allowed = set(callable_ids)
+        quotazioni = {pid: row for pid, row in quotazioni.items() if pid in allowed}
     if excluded:
         quotazioni = {pid: row for pid, row in quotazioni.items() if pid not in excluded}
     roles = {pid: row.ruoli_codice for pid, row in quotazioni.items()}
@@ -125,11 +142,17 @@ def read_plan_inputs(
     sentiment: Mapping[str, SentimentRow] | None,
     as_of: date | None,
     tilt_k: float,
+    callable_ids: Collection[str] | None = None,
 ) -> PlanInputs:
     """The I/O half: three reads on one session, then the pure derivation above.
 
     Sales are restricted to our exact league shape — 8 teams, 500 credits — so the prices
     are directly comparable and need no budget normalization.
+
+    `callable_ids` is forwarded untouched. It has to live here as well as on the pure half:
+    this is the only door — `asta optimize`, `asta live` and `asta bid` all come through it —
+    and it holds a `Session`, not a listone bridge. The bridge is fetched in the interface,
+    where the network lives, so the caller supplies the set and this passes it along.
     """
     from fantabot.adapters.persistence.repositories.aste import AsteRepository
     from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
@@ -146,4 +169,5 @@ def read_plan_inputs(
         # mechanism that can drop a player the site still lists. See
         # `adapters/persistence/models/exclusions.py`.
         excluded=reference.excluded_player_ids(),
+        callable_ids=callable_ids,
     )
