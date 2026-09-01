@@ -49,6 +49,7 @@ def run_bid_loop(
     heartbeat: Callable[[str], None],
     poll_seconds: float = 2.0,
     step: int = 1,
+    on_error: Callable[[Exception, int], None] | None = None,
 ) -> LoopReport:
     """Poll the room, bid our target up to its walk-away, and report.
 
@@ -77,6 +78,21 @@ def run_bid_loop(
     bids_sent = 0
     refused: dict[str, int] = {}
     errors: dict[str, int] = {}
+    consecutive_errors = 0
+
+    def report_error(exc: Exception, consecutive: int) -> None:
+        """Where a failed poll is *shown*. The heartbeat unless the caller has a screen.
+
+        `asta room` must pass its own. Its heartbeat sink discards, and the alternative it
+        used — sniffing the heartbeat line for "Error"/"error"/"timed out" — silently
+        missed `ReadTimeout`, `ConnectTimeout` and `PoolTimeout`, which on a flaky link are
+        the three most likely of all. An exception is not a string, and classifying it as one
+        fails in the direction that hides the outage.
+        """
+        if on_error is not None:
+            on_error(exc, consecutive)
+            return
+        heartbeat(f"[{cycles}] {type(exc).__name__}: {exc} ({consecutive} in a row)")
 
     def budget_now() -> int:
         return remaining_budget() if callable(remaining_budget) else remaining_budget
@@ -90,6 +106,7 @@ def run_bid_loop(
         try:
             cycles += 1
             snapshot = read()
+            consecutive_errors = 0
             if not snapshot or not isinstance(snapshot.get("player_id"), str):
                 heartbeat(f"[{cycles}] waiting for a lot")
                 sleep(poll_seconds)
@@ -160,9 +177,10 @@ def run_bid_loop(
             #
             # Counted and said out loud, because the failure that matters is the silent one:
             # a room that looks quiet for twenty minutes while the network is gone.
+            consecutive_errors += 1
             name = type(exc).__name__
             errors[name] = errors.get(name, 0) + 1
-            heartbeat(f"[{cycles}] {name}: {exc}")
+            report_error(exc, consecutive_errors)
             sleep(poll_seconds)
 
     return LoopReport(cycles=cycles, bids_sent=bids_sent, refused=refused, errors=errors)

@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 import typer
 
 if TYPE_CHECKING:
+    from rich.console import RenderableType
+
     from fantabot.domain.shared.values import SentimentRow
 
 from pathlib import Path
@@ -174,6 +176,22 @@ def _callable_ids(
         warn("listone empty; planning over the whole pool")
         return None
     return {str(fid) for fid in bridge.values()}
+
+
+def _report_stopped(report: Any) -> None:
+    """The exit summary both live commands print. One place, because they must not diverge.
+
+    `errors` gets its own red line. `400 cycles, 0 bids` reads as an evening in which nothing
+    we wanted came up, and that is indistinguishable — in that one line — from a link that was
+    down the whole time.
+    """
+    console.print(
+        f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
+        f"refused {report.refused}[/dim]"
+    )
+    if report.errors:
+        total = sum(report.errors.values())
+        console.print(f"[red]{total} cycle(s) failed on the link: {report.errors}[/red]")
 
 
 def asta_optimize(
@@ -416,7 +434,7 @@ def asta_room(
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
     from fantabot.domain.asta.report import listone_rows
     from fantabot.domain.tokens.crypto import TokenCipher
-    from fantabot.interface.room_view import render
+    from fantabot.interface.room_view import error_overlay, render
 
     try:
         fantaleague_id = parse_room_url(url)
@@ -526,6 +544,9 @@ def asta_room(
     # One slot, not a log: only `latest[-1]` is ever read, and a frame per poll for three
     # hours is thousands of walk-away dicts held by a process that must not die mid-auction.
     latest: list[RoomFrame] = []
+    #: The last painted screen, so `on_error` can redraw it under a banner. One slot, for the
+    #: same reason `latest` is one slot.
+    screen: list[RenderableType] = []
 
     # Out of band, on a daemon thread. `counter_time` is 7-10 s and a query takes seconds, so
     # asking about the lot on the block would answer about a lot that has already closed —
@@ -566,15 +587,25 @@ def asta_room(
             names=world.names, teams=world.teams, prices=world.prices, value=world.value,
             walkaways=frame.walkaways, limit=limit,
         )
-        live.update(
-            render(
-                frame, rows, room=resolved, armed=armed[0], advice=advice,
-                copilot_offline=worker is not None and worker.offline,
-            )
+        view = render(
+            frame, rows, room=resolved, armed=armed[0], advice=advice,
+            copilot_offline=worker is not None and worker.offline,
         )
+        screen[:] = [view]
+        live.update(view)
         if frame.target is None or frame.walk_away is None:
             return None
         return (frame.target, frame.walk_away)
+
+    def on_error(exc: Exception, consecutive: int) -> None:
+        """A failed poll, on the screen the operator is actually looking at."""
+        live.update(
+            error_overlay(
+                screen[0] if screen else None,
+                f"{type(exc).__name__}: {exc}",
+                consecutive=consecutive,
+            )
+        )
 
     from rich.live import Live
 
@@ -597,12 +628,13 @@ def asta_room(
             now=lambda: int(time.time() * 1000),
             sleep=time.sleep,
             keep_going=lambda _cycle: True,
-            # The room's heartbeat has nowhere to go — the screen is the frame. Errors are
-            # the exception: a silently retrying room is the failure the counting exists for,
-            # so they print above the Live and stay on the scrollback.
-            heartbeat=lambda line: console.print(f"[yellow]{line}[/yellow]")
-            if any(k in line for k in ("Error", "error", "timed out"))
-            else None,
+            # The room's heartbeat has nowhere to go — the screen is the frame. Errors do not
+            # go through it either: they went through a filter on the line's *text*, which
+            # missed `ReadTimeout`, `ConnectTimeout` and `PoolTimeout` — on a flaky link the
+            # three most likely of all — and printed the rest into an alternate buffer the
+            # next refresh overwrote. They are painted into the Live now, by `on_error`.
+            heartbeat=lambda _line: None,
+            on_error=on_error,
             poll_seconds=poll,
         )
 
@@ -610,10 +642,7 @@ def asta_room(
         worker.stop()
     journal.close()
     signal.signal(signal.SIGINT, previous_sigint)
-    console.print(
-        f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
-        f"refused {report.refused}[/dim]"
-    )
+    _report_stopped(report)
 
 
 def asta_calibrate(
@@ -831,10 +860,7 @@ def asta_bid(
         poll_seconds=poll,
     )
     journal.close()
-    console.print(
-        f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
-        f"refused {report.refused}[/dim]"
-    )
+    _report_stopped(report)
 
 
 #: `(name, function)`. Explicit, because the group supplies the prefix: the command

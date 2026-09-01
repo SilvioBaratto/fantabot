@@ -17,7 +17,7 @@ from rich.console import Console
 
 from fantabot.application.asta_room import RoomFrame
 from fantabot.domain.asta.report import ListoneRow
-from fantabot.interface.room_view import render
+from fantabot.interface.room_view import error_overlay, render
 
 
 def _frame(**kw: object) -> RoomFrame:
@@ -160,3 +160,46 @@ class TestTheCopilotPane:
             "headline", "why", "risks", "watch", "confidence", "disagrees_with_plan"
         }
         assert _paint(_frame(), advice=said)
+
+
+class TestTheStaleBanner:
+    """A failed poll leaves the previous frame on screen. Nothing else says so.
+
+    A frozen screen and a quiet room are pixel-identical, and they are the two states the
+    operator most needs to tell apart: in one the bot is still bidding and in the other it is
+    not. The banner is the whole difference.
+    """
+
+    def _overlay(self, view: object | None, message: str, consecutive: int) -> str:
+        console = Console(record=True, force_terminal=True, width=200, height=60, no_color=True)
+        console.print(error_overlay(view, message, consecutive=consecutive))  # type: ignore[arg-type]
+        return console.export_text()
+
+    def test_it_names_the_failure_and_the_streak(self) -> None:
+        painted = self._overlay(None, "ReadTimeout: blip", 3)
+
+        assert "STALE" in painted
+        assert "ReadTimeout: blip" in painted
+        assert "3" in painted, "the streak length distinguishes a blip from a dead link"
+
+    def test_the_last_good_screen_survives_underneath(self) -> None:
+        """Blanking it would take the walk-away column away at exactly the moment the operator
+        has to bid by hand instead."""
+        view = render(_frame(), [_row(name="Bomber", walk=77)])
+        painted = self._overlay(view, "ConnectTimeout: gone", 1)
+
+        assert "STALE" in painted
+        assert "Bomber" in painted
+        assert "77" in painted, "the number the operator now has to type themselves"
+
+    def test_it_paints_with_no_previous_screen(self) -> None:
+        """The link can be down before the first frame is ever drawn."""
+        painted = self._overlay(None, "ConnectError: down", 1)
+
+        assert "STALE" in painted
+
+    def test_it_never_raises_on_an_awkward_message(self) -> None:
+        """`error_overlay` joins `render` in being total: it runs on the failure path, and a
+        painter that can throw there turns a recoverable outage into a dead command."""
+        for message in ("", "x" * 500, "[not-a-rich-tag] {0} %s", "\n\n"):
+            assert "STALE" in self._overlay(None, message, 1)

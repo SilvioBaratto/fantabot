@@ -144,6 +144,32 @@ def _copilot_pane(advice: Commentary | None, *, offline: bool) -> RenderableType
     return Panel(body, title="COPILOTA", border_style=border)
 
 
+def error_overlay(
+    view: RenderableType | None, message: str, *, consecutive: int
+) -> RenderableType:
+    """The last good screen with a link-failure banner nailed above it.
+
+    Everything below the banner is **stale, and the banner is the only thing that says so**.
+    A failed poll leaves the previous frame exactly as it was — indistinguishable, on screen,
+    from a quiet room where nothing has happened — and those are the two states an operator
+    most needs to tell apart, because in one of them the bot is still bidding and in the other
+    it is not.
+
+    Stale is still the right thing to keep drawing: blanking the screen would take away the
+    walk-away column at the exact moment the operator has to bid by hand instead.
+
+    Painted into the `Live` rather than printed above it. `Live(screen=True)` owns the
+    alternate buffer, so a `console.print` from inside the loop lands where the next refresh
+    overwrites it — the message is emitted and never read.
+    """
+    banner = Panel(
+        Text(f"link down — {consecutive} failed poll(s): {message}", style="bold white on red"),
+        title="STALE",
+        border_style="red",
+    )
+    return banner if view is None else Group(banner, view)
+
+
 def render(
     frame: RoomFrame,
     rows: list[ListoneRow],
