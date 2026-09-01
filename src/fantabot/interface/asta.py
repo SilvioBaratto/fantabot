@@ -372,6 +372,7 @@ def asta_bid(
             teams=world.teams,
             legality=world.legality,
             lam=lam,
+            n_targets=None,
         )
         lot = snapshot.get("player_id")
         if isinstance(lot, str) and lot not in bridge:

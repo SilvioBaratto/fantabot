@@ -41,6 +41,16 @@ CEILING = 500_000
 #: how far back the code has slipped rather than just that a number grew.
 BASELINE_BEFORE_P10 = 2_069_696
 
+#: The same guard for the cycle `asta bid` actually runs. It passes `n_targets=None` —
+#: every unowned member of the plan, not the top five — because lots are called in
+#: arbitrary order and a plan priced five deep holds on the other twenty-five.
+#:
+#: Measured 1,508,707 on 2026-09-01 against the live pool; the ceiling is ~1.4x that, the
+#: same margin `CEILING` uses. Two ceilings rather than one raised one: 1.5M sits *below*
+#: `BASELINE_BEFORE_P10`, so a single ceiling wide enough for this cycle could no longer
+#: tell "priced the whole plan" from "someone reverted P10". Each number guards one thing.
+FULL_PLAN_CEILING = 2_100_000
+
 
 @pytest.fixture(scope="module")
 def world():  # type: ignore[no-untyped-def]
@@ -80,6 +90,31 @@ def _cycle_calls(world) -> int:  # type: ignore[no-untyped-def]
     return pstats.Stats(profiler, stream=io.StringIO()).total_calls
 
 
+def _full_plan_cycle_calls(world) -> int:  # type: ignore[no-untyped-def]
+    """The same measurement for `n_targets=None` — the cycle the live bidder runs."""
+    from fantabot.domain.asta.reservation import reservations
+    from fantabot.domain.asta.state import AstaState
+
+    def cycle() -> None:
+        reservations(
+            AstaState(total_budget=500.0),
+            world.pool,
+            value=world.value,
+            prices=world.prices,
+            teams=world.teams,
+            legality=world.legality,
+            lam=0.3,
+            n_targets=None,
+        )
+
+    cycle()  # warm, for the same reason as above
+    profiler = cProfile.Profile()
+    profiler.enable()
+    cycle()
+    profiler.disable()
+    return pstats.Stats(profiler, stream=io.StringIO()).total_calls
+
+
 def test_one_cycle_stays_under_the_ceiling(world) -> None:  # type: ignore[no-untyped-def]
     calls = _cycle_calls(world)
 
@@ -104,5 +139,44 @@ def test_the_ceiling_is_not_so_loose_that_it_would_miss_a_reversal(world) -> Non
     )
     assert _cycle_calls(world) < CEILING * 0.8, (
         "the measurement is within 20% of the ceiling, so this will flake before it "
+        "catches anything; re-measure and re-set both numbers deliberately"
+    )
+
+
+def test_the_full_plan_cycle_stays_under_its_own_ceiling(world) -> None:  # type: ignore[no-untyped-def]
+    """`asta bid` prices the whole plan, so the whole plan needs its own budget.
+
+    This is the cycle that runs every two seconds in a live room. Wall clock is not the
+    constraint — 77 ms measured, inside a 2 s poll — but an unbounded walk-away loop is
+    how that stops being true.
+    """
+    calls = _full_plan_cycle_calls(world)
+
+    assert calls <= FULL_PLAN_CEILING, (
+        f"the full-plan cycle now costs {calls:,} calls, over the {FULL_PLAN_CEILING:,} "
+        "ceiling. Each walk-away is one more roster solve, so the usual cause is a target "
+        "list that grew past the plan — `n_targets=None` must mean the unowned members of "
+        "the optimal roster, never the pool. If the cost is deliberate, raise the ceiling "
+        "in the same commit and say why."
+    )
+
+
+def test_the_two_ceilings_measure_different_things(world) -> None:  # type: ignore[no-untyped-def]
+    """One raised ceiling would have retired the P10 tripwire.
+
+    The full-plan cycle costs more than the code did before P10 was optimised at all, so a
+    single ceiling loose enough to admit it could not distinguish the two. That is the whole
+    reason there are two numbers instead of one.
+    """
+    capped = _cycle_calls(world)
+    full = _full_plan_cycle_calls(world)
+
+    assert full > capped, "n_targets=None must price more targets than the default five"
+    assert FULL_PLAN_CEILING > BASELINE_BEFORE_P10, (
+        "if the full-plan ceiling sat below the pre-P10 baseline the two guards would be "
+        "interchangeable, and this test would be asserting nothing"
+    )
+    assert full < FULL_PLAN_CEILING * 0.8, (
+        "the full-plan measurement is within 20% of its ceiling, so it will flake before it "
         "catches anything; re-measure and re-set both numbers deliberately"
     )

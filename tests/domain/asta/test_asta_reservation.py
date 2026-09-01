@@ -135,3 +135,54 @@ def test_the_advisory_re_reads_the_value_each_cycle() -> None:
     assert len(calls) == 2, "the value model was snapshotted instead of re-read"
     assert "a5" not in steps[0][2].optimal.player_ids
     assert "a5" in steps[1][2].optimal.player_ids
+
+
+def test_n_targets_still_defaults_to_five() -> None:
+    """The default is load-bearing beyond convenience.
+
+    `_cycle_calls` in `test_asta_cycle_cost.py` passes no `n_targets`, so the pinned
+    500,000-call ceiling — the tripwire that catches a reverted P10 optimisation — is
+    measuring whatever this default is. Widening the *type* to accept `None` is safe;
+    moving the *default* silently re-points that ceiling at a 3x heavier cycle.
+    """
+    import inspect
+
+    assert inspect.signature(reservations).parameters["n_targets"].default == 5
+
+
+def test_none_prices_every_unowned_member_of_the_plan() -> None:
+    """Five walk-aways out of a thirty-man plan is why `asta bid` held on most lots.
+
+    The lot on the block is whatever the room calls next, in arbitrary order. A plan
+    priced five deep answers "not a target" for the other twenty-five, which reads
+    exactly like a decision not to chase them.
+    """
+    state = AstaState(total_budget=100.0)
+
+    _, five = reservations(state, POOL, n_targets=2, **_kw())  # type: ignore[arg-type]
+    plan, everything = reservations(state, POOL, n_targets=None, **_kw())  # type: ignore[arg-type]
+
+    unowned = [pid for pid in plan.optimal.player_ids if pid not in state.owned]
+    assert len(five) == 2, "the capped call still caps"
+    assert set(everything) == set(unowned)
+    assert len(everything) > len(five), "the fixture must be able to tell the two apart"
+
+
+def test_none_prices_nothing_extra_beyond_the_plan() -> None:
+    """`None` means "the whole plan", not "the whole pool" — a walk-away for a player
+    the optimiser did not choose would be a number nobody should act on."""
+    state = AstaState(total_budget=100.0)
+
+    plan, everything = reservations(state, POOL, n_targets=None, **_kw())  # type: ignore[arg-type]
+
+    assert set(everything) <= set(plan.optimal.player_ids)
+    assert set(everything).isdisjoint({p.id for p in POOL} - set(plan.optimal.player_ids))
+
+
+def test_an_owned_player_is_never_given_a_walkaway() -> None:
+    """We do not bid on what we hold; that stays true when the cap is lifted."""
+    state = AstaState(owned=frozenset({"gk"}), total_budget=100.0)
+
+    _, everything = reservations(state, POOL, n_targets=None, **_kw())  # type: ignore[arg-type]
+
+    assert "gk" not in everything

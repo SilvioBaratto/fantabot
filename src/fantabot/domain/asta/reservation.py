@@ -50,13 +50,24 @@ def reservations(
     rules: RosterRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
-    n_targets: int = 5,
+    n_targets: int | None = 5,
 ) -> tuple[OptimizationResult, dict[str, float]]:
     """The current optimal plan, and a credit walk-away for each top target.
 
     ``walk-away(t) = optimal.objective - objective of the best roster without t``, capped at
     the remaining budget. A target whose removal makes the roster infeasible is essential and
     reserves the whole budget.
+
+    ``n_targets=None`` prices **every** unowned member of the plan. A live room needs that:
+    lots are called in arbitrary order, so a plan priced five deep answers "not a target" for
+    the other twenty-five, which is indistinguishable from a decision not to chase them.
+
+    **The default stays 5, and moving it would be a mistake.** Pricing the whole plan costs
+    one extra roster solve per target — measured on the live pool, 325,538 Python calls at
+    five against 1,508,707 at thirty. ``_cycle_calls`` in ``test_asta_cycle_cost.py`` passes
+    no ``n_targets``, so the pinned 500,000 ceiling that catches a reverted P10 optimisation
+    is measuring this default; re-pointing it at a 3x heavier cycle would retire that
+    tripwire silently. The advisory paths keep the cap; only ``asta bid`` asks for all of it.
     """
     # Built once for the whole cycle. Every solve below is over the same pool, the
     # same prices and the same value model, so the per-player facts and the slot
