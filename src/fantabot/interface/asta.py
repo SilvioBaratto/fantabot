@@ -7,7 +7,7 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -15,6 +15,8 @@ import typer
 
 if TYPE_CHECKING:
     from fantabot.domain.shared.values import SentimentRow
+
+from pathlib import Path
 
 from fantabot.application.asta_planner import read_plan_inputs
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
@@ -29,13 +31,11 @@ from fantabot.domain.asta.report import (
     parse_replay_lines,
 )
 from fantabot.domain.asta.reservation import (
-    apply_event,
     price_floor,
-    reservations,
     rolling_advisory,
 )
 from fantabot.domain.asta.sentiment import SentimentWeights
-from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
+from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.interface.console import console
 from fantabot.interface.options import (
     SEASON,
@@ -103,39 +103,6 @@ def sentiment_rows(
             "Run `fantabot news fetch --write`, or pass --no-sentiment."
         )
     return rows
-
-
-def _target_of(
-    snapshot: Mapping[str, Any],
-    bridge: Mapping[str, int],
-    walkaways: Mapping[str, float],
-) -> tuple[str, int] | None:
-    """The lot on the block, priced — or ``None`` when it is not one of ours.
-
-    **The third id-space gap, and the quietest.** ``resolve_ids`` re-keys the *ledger*, so
-    ``AstaState.owned`` and every walk-away are fantacalcio ids; the lot arrives from
-    somewhere else entirely — the raw ``auction/<fl>`` node — and is still a FantaLab UUID.
-    Looking one up among the others misses on every lot, and ``run_bid_loop`` answers
-    "not a target, hold" for the whole evening: no bid, no error, nothing to notice.
-
-    Module-level rather than a closure so it can be tested at all: the solve it used to sit
-    inside needs a database, a pool and a ledger, none of which this translation touches.
-
-    The returned id is the **node's** uuid, not the fantacalcio id, because it goes back out
-    in the bid payload and the platform refuses a raise naming a different lot
-    (``docs/fantalab/06 §10.1``, test 5). Pricing happens on the translated id.
-    """
-    lot = snapshot.get("player_id")
-    if not isinstance(lot, str):
-        return None
-    fantacalcio_id = bridge.get(lot)
-    if fantacalcio_id is None:
-        return None
-    walk_away = walkaways.get(str(fantacalcio_id))
-    # A walk-away of 0 is a target we will refuse on price, which is `decide_bid`'s call and
-    # not this function's: collapsing it into `None` would make it indistinguishable from a
-    # player the plan never named, and the heartbeat could no longer say which it saw.
-    return (lot, int(walk_away)) if walk_away is not None else None
 
 
 def bid_writer(
@@ -504,6 +471,8 @@ def asta_bid(
     """
     import time
 
+    from fantabot.adapters.files.room_journal import RoomJournal
+
     # Fetched once for the run, not per poll: the mapping changes only when the
     # platform adds a player, and a live room does not want an HTTP round trip it
     # can avoid. See `fantalab/listone.py` for why this exists at all.
@@ -513,6 +482,7 @@ def asta_bid(
     from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.application.asta_room import RoomFrame, RoomTracker
     from fantabot.config import settings
     from fantabot.domain.asta.bid import Seat, max_bid
 
@@ -556,68 +526,52 @@ def asta_bid(
         why = "--arm not given" if settings.fantabot_auto_act else "FANTABOT_AUTO_ACT is false"
         console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
-    # Said once per uuid rather than once per poll: at a 2 s cycle the same handful of
-    # strangers would otherwise scroll the heartbeat off the screen within a minute, and
-    # the heartbeat is the only thing the operator is reading.
+    journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    tracker = RoomTracker(
+        seat=seat,
+        bridge=bridge,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, names=world.names,
+        rules=RosterRules(),
+        budget=budget,
+        lam=lam,
+        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        ledger=lambda: feed.ledger_events(db, league),
+        journal=journal.write,
+        counter_time=None, counter_time_first=None,
+    )
+
+    # One code path, not two. `asta bid` used to carry its own copy of this fold — and
+    # `CLAUDE.md` records where that leads: three commands each grew their own value model and
+    # the one that spent credits fell behind the one that advised.
+    latest: list[RoomFrame] = []
     reported: set[str] = set()
 
-    def _report_once(uuids: Iterable[str], why: str) -> None:
-        fresh = sorted({u for u in uuids} - reported)
-        if not fresh:
-            return
-        reported.update(fresh)
-        console.print(f"[yellow]{len(fresh)} {why}: {', '.join(fresh)}[/yellow]")
-
-    # What the last cycle's fold of the ledger said we still hold. The loop's budget guard
-    # reads it, so it has to be the number the plan was just built against rather than the
-    # credits we started the evening with: after one lot won, those two stop agreeing.
-    remaining = [int(budget)]
-    # The MAX, recomputed from the same fold: credits left, against the slots the band still
-    # owes. It follows `drop_unvaluable`'s shrunk band down, or it would reserve credits for
-    # slots an unvaluable player we already hold has quietly filled.
-    cap = [max_bid(int(budget), RosterRules().size)]
-
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        state = AstaState(total_budget=budget)
-        events, unknown = resolve_ids(feed.ledger_events(db, league), bridge)
-        # A sale the listone cannot name is a sale we do not subtract: the buyer's budget
-        # and the player's availability both stay wrong for the rest of the evening. Silence
-        # here reads as "the ledger was clean", which is the failure `resolve_ids` counts for.
-        _report_once(unknown, "sale(s) dropped, uuid not in the listone")
-        for event in events:
-            state = apply_event(state, event, our_team_id=team)
-        # A player we won who is in FantaLab's listone but not in our `quotazioni` would make
-        # `optimize_roster` refuse the state — and refuse it again every cycle, because the
-        # ledger is re-read each time and a purchase is never withdrawn. Setting him aside
-        # here is what turns "stopped for the evening" into "held for one lot".
-        state, rules, unvaluable = drop_unvaluable(state, world.pool, RosterRules())
-        _report_once(unvaluable, "owned player(s) we cannot value; roster band shrunk")
-        remaining[0] = int(state.remaining_budget)
-        cap[0] = max_bid(remaining[0], rules.size - len(state.owned))
-        _, walkaways = reservations(
-            state,
-            world.pool,
-            value=world.value,
-            prices=world.prices,
-            teams=world.teams,
-            legality=world.legality,
-            rules=rules,
-            lam=lam,
-            n_targets=None,
-            floor=price_floor(floor_alpha, world.prices),
-        )
-        lot = snapshot.get("player_id")
-        if isinstance(lot, str) and lot not in bridge:
-            # Distinguishable from "we chose not to chase him": the loop's own heartbeat
-            # says "not a target, hold" for both, and only this line separates them.
-            _report_once([lot], "lot(s) we cannot value, uuid not in the listone")
-        return _target_of(snapshot, bridge, walkaways)
+        import time as _time
+
+        frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000))
+        latest.append(frame)
+        # Said once rather than once per poll: at a 2 s cycle the same line would scroll the
+        # heartbeat away inside a minute, and the heartbeat is all the operator is reading.
+        if frame.note and frame.note not in reported:
+            reported.add(frame.note)
+            console.print(f"[yellow]{frame.note}[/yellow]")
+        if frame.target is None or frame.walk_away is None:
+            return None
+        return (frame.target, frame.walk_away)
+
+    def _remaining() -> int:
+        return latest[-1].credits_left if latest else int(budget)
+
+    def _cap() -> int:
+        return latest[-1].max_cap if latest else max_bid(int(budget), RosterRules().size)
 
     report = room.run_bid_loop(
         seat=seat,
         fantaleague_id=league,
-        remaining_budget=lambda: remaining[0],
-        max_cap=lambda: cap[0],
+        remaining_budget=_remaining,
+        max_cap=_cap,
         target_of=target_of,
         read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
         write=bid_writer(
@@ -631,6 +585,7 @@ def asta_bid(
         heartbeat=console.print,
         poll_seconds=poll,
     )
+    journal.close()
     console.print(
         f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
         f"refused {report.refused}[/dim]"

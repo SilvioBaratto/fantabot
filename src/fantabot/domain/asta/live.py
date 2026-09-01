@@ -188,3 +188,44 @@ def parse_room_url(text: str) -> str:
         f"{candidate!r} is not a FantaLab room link. Paste the address of the room itself "
         "(app.fantalab.it/asta?asta=...) or its fantaleague id."
     )
+
+
+#: FantaLab's own timers, used when a room does not declare its own
+#: (`docs/fantalab/01-auction-engine.md:22`).
+DEFAULT_COUNTER_TIME = 10
+DEFAULT_COUNTER_TIME_FIRST = 20
+
+
+def seconds_left(
+    snapshot: Mapping[str, Any] | None,
+    *,
+    now_ms: int,
+    counter_time: int | None,
+    counter_time_first: int | None,
+) -> float | None:
+    """How long the lot on the block has, or ``None`` when the snapshot cannot say. Pure.
+
+    ``remaining = (is_first ? counter_time_first : counter_time) - (now - last_bid_time)``,
+    from ``docs/fantalab/01-auction-engine.md:263``. The first call gets the longer clock
+    because a called player has to be noticed before anyone can bid on him.
+
+    ``now_ms`` is a parameter for the same reason ``sentiment.as_of`` is: a pure module that
+    reads a clock has tests that are a coin flip.
+
+    ``None`` and ``0.0`` say different things and are kept apart — "we cannot tell" renders as
+    ``--`` while "expired" renders as expired, and the LOT pane turns red under two seconds,
+    which every negative number would satisfy for ever.
+    """
+    if not snapshot:
+        return None
+    last = snapshot.get("last_bid_time")
+    if not isinstance(last, int) or isinstance(last, bool):
+        return None
+
+    price = snapshot.get("price")
+    is_first = not (isinstance(price, int) and not isinstance(price, bool) and price > 0)
+    window = counter_time_first if is_first else counter_time
+    if window is None:
+        window = DEFAULT_COUNTER_TIME_FIRST if is_first else DEFAULT_COUNTER_TIME
+
+    return max(0.0, window - (now_ms - last) / 1000.0)

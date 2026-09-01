@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from fantabot.adapters.http.fantalab import listone
 from fantabot.domain.asta.live import AssignmentEvent, resolve_ids
-from fantabot.interface.asta import _target_of
 
 
 def _event(player_id: str, price: int = 10) -> AssignmentEvent:
@@ -102,40 +101,3 @@ class TestListoneParsing:
         )
 
         assert listone.from_cache(path) == {"uuid-a": 512}
-
-
-class TestTargetOf:
-    """The third gap of the same kind, and the one that made `asta bid` bid nothing.
-
-    `resolve_ids` re-keys the *ledger*, so `AstaState.owned` and every walk-away are
-    fantacalcio ids. The lot on the block arrives from a different place — the raw
-    ``auction/<fl>`` snapshot — and is still a FantaLab UUID. Looking one up among the
-    others misses on every lot, and the loop answers "not a target, hold" all evening:
-    no bid, no error, no traceback. The two defects in this file's docstring were a
-    crash and a quiet wrong answer; this one is a quiet *absence* of answers.
-    """
-
-    def test_the_lot_uuid_is_translated_before_the_walkaway_lookup(self) -> None:
-        target = _target_of({"player_id": "uuid-a"}, {"uuid-a": 100}, {"100": 42.7})
-
-        assert target is not None
-        node_id, walk_away = target
-        assert node_id == "uuid-a", "the payload has to name the lot the way the node does"
-        assert walk_away == 42, "priced on the fantacalcio id, truncated to whole credits"
-
-    def test_a_uuid_the_bridge_does_not_know_is_not_a_target(self) -> None:
-        assert _target_of({"player_id": "stranger"}, {"uuid-a": 100}, {"100": 42.7}) is None
-
-    def test_a_known_player_we_have_no_walkaway_for_is_not_a_target(self) -> None:
-        """The plan prices its own targets only; everything else is a lot we let go."""
-        assert _target_of({"player_id": "uuid-a"}, {"uuid-a": 100}, {"999": 42.7}) is None
-
-    def test_a_snapshot_with_no_lot_is_not_a_target(self) -> None:
-        assert _target_of({}, {"uuid-a": 100}, {"100": 42.7}) is None
-        assert _target_of({"player_id": None}, {"uuid-a": 100}, {"100": 42.7}) is None
-
-    def test_a_zero_walkaway_is_still_a_target_and_the_refusal_is_the_engines(self) -> None:
-        """`decide_bid` owns "too expensive", not the translation. Returning `None` here
-        would make a priced-at-zero player indistinguishable from an unknown one, and the
-        heartbeat could no longer tell the operator which of the two it saw."""
-        assert _target_of({"player_id": "uuid-a"}, {"uuid-a": 100}, {"100": 0.0}) == ("uuid-a", 0)
