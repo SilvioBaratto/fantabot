@@ -122,3 +122,53 @@ class TestItTouchesNothingOutside:
         assert not _importgraph.reaches(
             "fantabot.application.asta_calibrate", "fantabot.adapters.persistence"
         )
+
+
+class TestTheColumnThatMeasuresTheFloor:
+    """Spend cannot measure the floor when the corpus cannot fill the plan.
+
+    Measured 2026-09-01: only 19 of the plan's 30 members appear anywhere in the recorded
+    corpus, and one recorded evening sells a median of 7 of them. So "spend as a fraction of
+    budget" tops out around 43% at any alpha, and it is reporting the overlap between an
+    August corpus and a September listone rather than anything about the floor.
+
+    Conditioning on what a room actually put up for sale is what isolates the floor: of the
+    plan members that were available, how many did we win.
+    """
+
+    def test_it_reports_how_many_plan_members_were_even_available(self) -> None:
+        (row,) = _sweep([1.0])
+
+        assert row.available == 2, "both fixture lots are plan members"
+
+    def test_it_reports_the_share_of_those_we_won(self) -> None:
+        (row,) = _sweep([1.0])
+
+        assert row.won_share == 1.0
+
+    def test_a_lot_outside_the_plan_is_not_counted_as_available(self) -> None:
+        """Losing a player we never wanted is not a miss, and must not dilute the share."""
+        with_stranger = _auction(("gk1", 10), ("a1", 40), ("gk2", 99))
+        (row,) = _sweep([1.0], auctions=[with_stranger])
+
+        assert row.available == 2, "gk2 is not in the plan at any point"
+
+    def test_the_share_is_zero_rather_than_undefined_when_nothing_was_available(self) -> None:
+        """A corpus with no overlap is a real answer, not a division by zero."""
+        (row,) = _sweep([1.0], auctions=[_auction(("gk2", 99), ("a2", 99))], budget=1.0)
+
+        assert row.available >= 0
+        assert 0.0 <= row.won_share <= 1.0
+
+
+def test_won_can_never_exceed_available() -> None:
+    """The first run of this column reported 106%.
+
+    `available` was counted against the plan from an empty state while `won` tracked the plan
+    as it moved, and the plan moves: a player we did not want at 20:00 becomes a target once
+    the man ahead of him is gone. A share above 1.0 is not a good result, it is a broken
+    denominator, and it looked like evidence.
+    """
+    for row in _sweep([0.6, 0.8, 1.0], auctions=[_auction(("gk1", 10), ("a1", 40), ("gk2", 1))]):
+        assert row.won <= row.available, f"alpha={row.alpha}: {row.won} won of {row.available}"
+        assert 0.0 <= row.won_share <= 1.0

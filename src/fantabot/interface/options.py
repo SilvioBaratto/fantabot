@@ -70,8 +70,13 @@ TiltK = Annotated[
 #: minimum bid, because a floor under 1 truncates to 0 and removes the player from the
 #: biddable set entirely rather than merely pricing him low.
 #:
-#: The default is deliberately unverified until `asta calibrate` has run against the
-#: recorded corpus; see SPEC A6.
+#: **1.00, chosen against the corpus and against arithmetic.** `asta calibrate` is monotone in
+#: alpha with no knee — spend, slots, schemi and `won %` all improve up to 1.0 and the corpus
+#: cannot speak beyond it. And the plan is built to cost exactly the budget at `planning_cost`
+#: (measured: 500 of 500), so `floor = 1.0 * planning_cost` makes the bidder's ceiling agree
+#: with the plan's own budget. At 0.8 the floor would cap us at 400 for a plan we priced at
+#: 500 — underbidding our own plan by construction. The MAX cap is what stops any single lot
+#: taking more than its share; the floor is not the place to be timid.
 FloorAlpha = Annotated[
     float,
     typer.Option(

@@ -74,15 +74,27 @@ class CalibrationRow:
     schemi: float
     won: int
     lost: int
+    #: Plan members the recorded rooms actually put up for sale. The denominator that makes
+    #: `won` mean anything: losing a player we never wanted is not a miss.
+    available: int
+    #: `won / available`, or 0.0 when nothing overlapped. **This is the column that measures
+    #: the floor.** Spend cannot: only 19 of the plan's 30 members appear anywhere in the
+    #: recorded corpus and one evening sells a median of 7 of them, so spend tops out near
+    #: 43% at any alpha and is reporting an August corpus against a September listone.
+    won_share: float
 
     def line(self) -> str:
         return (
             f"{self.alpha:>5.2f} {self.spend:>8.0f} {self.unspent:>9.0f} "
-            f"{self.slots:>7.1f} {self.schemi:>8.1f} {self.won:>6} {self.lost:>7}"
+            f"{self.slots:>7.1f} {self.schemi:>8.1f} {self.won:>6} "
+            f"{self.available:>10} {self.won_share:>8.0%}"
         )
 
 
-HEADER = f"{'alpha':>5} {'spend':>8} {'unspent':>9} {'slots':>7} {'schemi':>8} {'won':>6} {'lost':>7}"
+HEADER = (
+    f"{'alpha':>5} {'spend':>8} {'unspent':>9} {'slots':>7} {'schemi':>8} "
+    f"{'won':>6} {'available':>10} {'won %':>8}"
+)
 
 
 def admits(auction: RecordedAuction, rules: RosterRules) -> bool:
@@ -107,10 +119,16 @@ def _replay_one(
     rules: RosterRules,
     budget: float,
     lam: float,
-) -> tuple[AstaState, int, int]:
-    """One evening at one alpha: the state we end with, and how many lots we won and lost."""
+) -> tuple[AstaState, int, int, int]:
+    """One evening at one alpha: the end state, and the lots won, lost and offered to us.
+
+    ``available`` is counted here rather than against the opening plan, because the plan moves
+    as the evening does — a player we did not want at 20:00 becomes a target once the man
+    ahead of him is gone. Counting the denominator against a snapshot while the numerator
+    tracks the live plan is how ``won %`` came out above 100 on its first run.
+    """
     state = AstaState(total_budget=budget)
-    won = lost = 0
+    won = lost = available = 0
 
     # The plan is re-solved only when it could have changed: after a lot we won, and after a
     # lot somebody else won that the plan was counting on. A naive re-solve per lot costs one
@@ -136,6 +154,7 @@ def _replay_one(
 
         walkaways = cached
         if lot.player_id in planned:
+            available += 1
             # A player the plan wanted is leaving the board either way, so the next lot needs
             # a fresh plan whether we win him or not.
             cached = None
@@ -178,7 +197,7 @@ def _replay_one(
             taken=state.taken | {lot.player_id},
         )
 
-    return state, won, lost
+    return state, won, lost, available
 
 
 def sweep(
@@ -204,10 +223,10 @@ def sweep(
         spends: list[float] = []
         slots: list[int] = []
         schemi: list[int] = []
-        won = lost = 0
+        won = lost = available = 0
 
         for auction in admitted:
-            state, auction_won, auction_lost = _replay_one(
+            state, auction_won, auction_lost, auction_available = _replay_one(
                 auction, floor=floor, pool=pool, value=value, prices=prices, teams=teams,
                 legality=legality, rules=rules, budget=budget, lam=lam,
             )
@@ -217,6 +236,7 @@ def sweep(
             schemi.append(len(fieldable_schemi(owned_players, legality)))
             won += auction_won
             lost += auction_lost
+            available += auction_available
 
         n = len(admitted) or 1
         mean_spend = sum(spends) / n
@@ -231,6 +251,8 @@ def sweep(
                 schemi=sum(schemi) / n,
                 won=won,
                 lost=lost,
+                available=available,
+                won_share=(won / available) if available else 0.0,
             )
         )
     return rows

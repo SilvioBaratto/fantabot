@@ -250,7 +250,7 @@ def asta_live(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
-    floor_alpha: FloorAlpha = 0.80,
+    floor_alpha: FloorAlpha = 1.00,
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
     ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
@@ -411,7 +411,7 @@ def asta_bid(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
-    floor_alpha: FloorAlpha = 0.80,
+    floor_alpha: FloorAlpha = 1.00,
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
