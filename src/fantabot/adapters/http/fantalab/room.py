@@ -36,6 +36,7 @@ def run_bid_loop(
     seat: Seat,
     fantaleague_id: str,
     remaining_budget: int | Callable[[], int],
+    max_cap: int | Callable[[], int] | None,
     target_of: Callable[[Snapshot], tuple[str, int] | None],
     read: Callable[[], Snapshot | None],
     write: Callable[[dict[str, Any]], Any],
@@ -52,6 +53,11 @@ def run_bid_loop(
     current pick and its reservation price — or ``None`` when the lot on the block is not one we
     chase. ``write`` is a bound ``rtdb.place_raise`` (gated by ``FANTABOT_AUTO_ACT``): its
     ``.sent`` says whether a PATCH actually went out. ``keep_going(cycle)`` bounds the run.
+
+    ``max_cap`` is **required, not defaulted**. `decide_bid` is called from inside this loop,
+    so the interface has no seam of its own to add the cap at; a default here would let a call
+    site omit the one guard standing between a "pay anything" walk-away and an unfieldable
+    rosa, and omit it silently. Pass ``None`` to mean "no cap" — deliberately, in writing.
 
     ``remaining_budget`` may be a callable, and in a live room it must be. It was a plain int
     passed once, so after the first lot won the budget guard — the one thing between a plan and
@@ -70,6 +76,9 @@ def run_bid_loop(
 
     def budget_now() -> int:
         return remaining_budget() if callable(remaining_budget) else remaining_budget
+
+    def cap_now() -> int | None:
+        return max_cap() if callable(max_cap) else max_cap
 
     # `break` inside this frame rather than a `try` wrapped around the whole call: the counters
     # have to stay here, or the report the interrupt exists to preserve is lost with them.
@@ -93,6 +102,7 @@ def run_bid_loop(
             target, walk_away = pick
             now_ms = now()
             budget = budget_now()
+            cap = cap_now()
             payload = decide_bid(
                 snapshot,
                 seat,
@@ -102,6 +112,7 @@ def run_bid_loop(
                 remaining_budget=budget,
                 now_ms=now_ms,
                 step=step,
+                max_cap=cap,
             )
             if payload is None:
                 reason = (
@@ -113,6 +124,7 @@ def run_bid_loop(
                         remaining_budget=budget,
                         now_ms=now_ms,
                         step=step,
+                        max_cap=cap,
                     )
                     or "none"
                 )

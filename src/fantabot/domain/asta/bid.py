@@ -38,6 +38,26 @@ class Seat:
     user_id: str
 
 
+def max_bid(credits_left: int, required_left: int) -> int:
+    """The most this lot may take without stranding an obligatory purchase. Pure.
+
+    One credit reserved per slot still to fill beyond this one — which is FantaLab's own
+    MAX, and the arithmetic behind ``docs/fantalab/00 §13``'s "invert it to learn a rival's
+    remaining obligations". ``required_left`` counts the slots the band still owes,
+    *including* the one this lot would fill, so the reserve is ``required_left - 1``.
+
+    **Nothing enforces this but us.** ``docs/fantalab/01:142`` calls the MAX client-enforced,
+    and ``docs/fantalab/06:389-412`` shows the RTDB rules validating only that the price
+    exceeds the current one and names the right lot. A raise past the cap is accepted.
+
+    The cap matters most exactly where the walk-away stops helping: ``reservations`` returns
+    the whole remaining budget for a target whose removal makes the roster infeasible, which
+    reads as "pay anything" with 28 slots still empty.
+    """
+    reserve = max(0, required_left - 1)
+    return max(0, credits_left - reserve)
+
+
 def _refusal(
     snapshot: Mapping[str, Any],
     seat: Seat,
@@ -47,6 +67,7 @@ def _refusal(
     remaining_budget: int,
     now_ms: int,
     step: int,
+    max_cap: int | None = None,
 ) -> tuple[str | None, int]:
     """The guard that refuses a raise (a stable name), or ``None`` if one can be placed.
 
@@ -75,6 +96,11 @@ def _refusal(
     next_price = current_price + step
     if next_price > walk_away:
         return ("walk_away", next_price)  # crossing our ceiling
+    if max_cap is not None and next_price > max_cap:
+        # Before `budget`, and named separately: both would refuse a bid past the purse, and
+        # the counter is the only thing that tells "we are out of money" from "we are keeping
+        # enough back to finish the rosa".
+        return ("max_cap", next_price)
     if next_price > remaining_budget:
         return ("budget", next_price)  # over budget
     return (None, next_price)
@@ -90,6 +116,7 @@ def decide_bid(
     remaining_budget: int,
     now_ms: int,
     step: int = 1,
+    max_cap: int | None = None,
 ) -> dict[str, Any] | None:
     """The raise to place on the current lot, or ``None`` to pass.
 
@@ -106,6 +133,7 @@ def decide_bid(
         remaining_budget=remaining_budget,
         now_ms=now_ms,
         step=step,
+        max_cap=max_cap,
     )
     if reason is not None:
         return None
@@ -131,6 +159,7 @@ def pass_reason(
     remaining_budget: int,
     now_ms: int,
     step: int = 1,
+    max_cap: int | None = None,
 ) -> str | None:
     """The name of the guard that would refuse a raise, or ``None`` if one can be placed. Pure."""
     return _refusal(
@@ -141,6 +170,7 @@ def pass_reason(
         remaining_budget=remaining_budget,
         now_ms=now_ms,
         step=step,
+        max_cap=max_cap,
     )[0]
 
 

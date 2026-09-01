@@ -363,7 +363,7 @@ def asta_bid(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.config import settings
-    from fantabot.domain.asta.bid import Seat
+    from fantabot.domain.asta.bid import Seat, max_bid
 
     bridge = listone.fetch()
     if not bridge:
@@ -421,6 +421,10 @@ def asta_bid(
     # reads it, so it has to be the number the plan was just built against rather than the
     # credits we started the evening with: after one lot won, those two stop agreeing.
     remaining = [int(budget)]
+    # The MAX, recomputed from the same fold: credits left, against the slots the band still
+    # owes. It follows `drop_unvaluable`'s shrunk band down, or it would reserve credits for
+    # slots an unvaluable player we already hold has quietly filled.
+    cap = [max_bid(int(budget), RosterRules().size)]
 
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
         state = AstaState(total_budget=budget)
@@ -438,6 +442,7 @@ def asta_bid(
         state, rules, unvaluable = drop_unvaluable(state, world.pool, RosterRules())
         _report_once(unvaluable, "owned player(s) we cannot value; roster band shrunk")
         remaining[0] = int(state.remaining_budget)
+        cap[0] = max_bid(remaining[0], rules.size - len(state.owned))
         _, walkaways = reservations(
             state,
             world.pool,
@@ -460,6 +465,7 @@ def asta_bid(
         seat=seat,
         fantaleague_id=league,
         remaining_budget=lambda: remaining[0],
+        max_cap=lambda: cap[0],
         target_of=target_of,
         read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
         write=bid_writer(
