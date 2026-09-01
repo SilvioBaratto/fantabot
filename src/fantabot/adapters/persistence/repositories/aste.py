@@ -95,6 +95,50 @@ class AsteRepository(RepositoryBase):
         ).all()
         return [(str(fantacalcio_id), price) for fantacalcio_id, price in rows]
 
+    def recorded_auctions(
+        self, *, asta_type: str = "mantra", num_credits: int = 500, num_teams: int = 8
+    ) -> list[tuple[str, list[tuple[str, int, int]]]]:
+        """Every recorded auction of a shape, with its sales in closing order. Read-only.
+
+        The calibration corpus: `(asta_id, [(fantacalcio_id, price, closed_at_ms), ...])`.
+        Rows with no buyer are dropped for the same reason `mantra_clearing_sales` drops
+        them — a lot the room called and nobody bid on is not a sale, and 29% of the
+        assignment table is exactly that.
+
+        Returned as plain tuples rather than as the application's `RecordedAuction`, so this
+        module keeps knowing nothing about who reads it.
+        """
+        rows = self.session.execute(
+            select(
+                AstaAssignment.asta_id,
+                AstaAssignment.fantacalcio_id,
+                AstaAssignment.price,
+                AstaAssignment.closed_at_ms,
+            )
+            .join(Asta, Asta.id == AstaAssignment.asta_id)
+            .where(
+                Asta.asta_type == asta_type,
+                Asta.num_credits == num_credits,
+                Asta.num_teams == num_teams,
+                AstaAssignment.fantacalcio_id.is_not(None),
+                AstaAssignment.buyer_team_id.is_not(None),
+            )
+            # Total, so the corpus is the same list on every run: `closed_at_ms` is null for
+            # some rows and ties for others, and an unordered replay is a different evening.
+            .order_by(
+                AstaAssignment.asta_id,
+                AstaAssignment.closed_at_ms.nulls_last(),
+                AstaAssignment.fantacalcio_id,
+            )
+        ).all()
+
+        by_auction: dict[str, list[tuple[str, int, int]]] = {}
+        for asta_id, fantacalcio_id, price, closed_at_ms in rows:
+            by_auction.setdefault(asta_id, []).append(
+                (str(fantacalcio_id), price, closed_at_ms or 0)
+            )
+        return list(by_auction.items())
+
     def upsert_auctions(self, rows: Sequence[dict[str, Any]]) -> int:
         """Register or refresh auction rooms.
 

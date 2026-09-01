@@ -337,6 +337,65 @@ def asta_live(
     console.print(format_opponents(opponents, names={}, total_budget=int(budget)))
 
 
+def asta_calibrate(
+    alpha: list[float] = typer.Option(
+        [], "--alpha", help="Repeatable. Default sweeps 0.6 0.7 0.8 0.9 1.0."
+    ),
+    teams: int = typer.Option(8, help="Recorded league shape: number of teams."),
+    credits: int = typer.Option(500, help="Recorded league shape: credits per team."),
+    season: Season = SEASON,
+    lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
+) -> None:
+    """Replay recorded aste at several walk-away floors. Read-only, no network.
+
+    The evidence SPEC A6 gates arming on. `--floor-alpha` decides what the bot pays and is
+    hand-set; this replays it against auctions that really happened and prints what each
+    value would have spent. Pick the alpha whose spend lands near the budget with a rosa that
+    can still field a schema, and paste the table into `tasks/todo.md`.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.adapters.persistence.repositories.aste import AsteRepository
+    from fantabot.application.asta_calibrate import HEADER, Lot, RecordedAuction, sweep
+
+    alphas = list(alpha) or [0.6, 0.7, 0.8, 0.9, 1.0]
+
+    with database_manager.get_session() as session:
+        rows = sentiment_rows(NewsSentimentSource(session), enabled=True, run="")
+        world = read_plan_inputs(
+            session, season=season, sentiment=rows, as_of=_today(), tilt_k=SentimentWeights().k
+        )
+        corpus = AsteRepository(session).recorded_auctions(
+            num_teams=teams, num_credits=credits
+        )
+
+    auctions = [
+        RecordedAuction(
+            asta_id=asta_id,
+            lots=tuple(Lot(player_id=pid, price=price, closed_at_ms=at) for pid, price, at in lots),
+        )
+        for asta_id, lots in corpus
+    ]
+
+    table = sweep(
+        auctions, alphas,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, budget=float(credits), lam=lam,
+    )
+    if not table:
+        console.print("[red]no alphas to sweep[/red]")
+        raise typer.Exit(code=1)
+
+    first = table[0]
+    console.print(
+        f"corpus: {first.auctions} of {first.auctions + first.dropped} auctions admitted "
+        f"({first.dropped} dropped: fewer lots than the roster band needs)"
+    )
+    console.print(f"[dim]{HEADER}[/dim]")
+    for row in table:
+        console.print(row.line())
+
+
 def asta_bid(
     league: str = typer.Option(..., help="Fantaleague id of the live room."),
     db: int = typer.Option(..., help="The room's RTDB shard index (its `db` field; see docs/fantalab/06)."),
@@ -510,6 +569,7 @@ COMMANDS: tuple[tuple[str, Callable[..., None]], ...] = (
     ("legality", asta_legality),
     ("live", asta_live),
     ("bid", asta_bid),
+    ("calibrate", asta_calibrate),
 )
 
 
