@@ -35,7 +35,7 @@ def run_bid_loop(
     *,
     seat: Seat,
     fantaleague_id: str,
-    remaining_budget: int,
+    remaining_budget: int | Callable[[], int],
     target_of: Callable[[Snapshot], tuple[str, int] | None],
     read: Callable[[], Snapshot | None],
     write: Callable[[dict[str, Any]], Any],
@@ -52,63 +52,86 @@ def run_bid_loop(
     current pick and its reservation price — or ``None`` when the lot on the block is not one we
     chase. ``write`` is a bound ``rtdb.place_raise`` (gated by ``FANTABOT_AUTO_ACT``): its
     ``.sent`` says whether a PATCH actually went out. ``keep_going(cycle)`` bounds the run.
+
+    ``remaining_budget`` may be a callable, and in a live room it must be. It was a plain int
+    passed once, so after the first lot won the budget guard — the one thing between a plan and
+    an overdraft — compared every bid against a number that had stopped being true. The caller
+    reads the ledger each cycle anyway; this lets the loop see what it found.
+
+    **``KeyboardInterrupt`` returns the report rather than propagating.** In production
+    ``keep_going`` is ``lambda _cycle: True``, so this loop never ends on its own and Ctrl-C is
+    how every real run finishes. Letting it escape threw away the only summary of the evening —
+    cycles, bids sent, and which guard refused the rest — all of which was computed and then
+    lost at the exact moment the operator wanted it.
     """
     cycles = 0
     bids_sent = 0
     refused: dict[str, int] = {}
 
+    def budget_now() -> int:
+        return remaining_budget() if callable(remaining_budget) else remaining_budget
+
+    # `break` inside this frame rather than a `try` wrapped around the whole call: the counters
+    # have to stay here, or the report the interrupt exists to preserve is lost with them.
     while keep_going(cycles):
-        cycles += 1
-        snapshot = read()
-        if not snapshot or not isinstance(snapshot.get("player_id"), str):
-            heartbeat(f"[{cycles}] waiting for a lot")
-            sleep(poll_seconds)
-            continue
+        try:
+            cycles += 1
+            snapshot = read()
+            if not snapshot or not isinstance(snapshot.get("player_id"), str):
+                heartbeat(f"[{cycles}] waiting for a lot")
+                sleep(poll_seconds)
+                continue
 
-        pick = target_of(snapshot)
-        if pick is None:
-            heartbeat(f"[{cycles}] on the block {snapshot.get('player_id')} — not a target, hold")
-            sleep(poll_seconds)
-            continue
-
-        target, walk_away = pick
-        now_ms = now()
-        payload = decide_bid(
-            snapshot,
-            seat,
-            fantaleague_id,
-            target=target,
-            walk_away=walk_away,
-            remaining_budget=remaining_budget,
-            now_ms=now_ms,
-            step=step,
-        )
-        if payload is None:
-            reason = (
-                pass_reason(
-                    snapshot,
-                    seat,
-                    target=target,
-                    walk_away=walk_away,
-                    remaining_budget=remaining_budget,
-                    now_ms=now_ms,
-                    step=step,
+            pick = target_of(snapshot)
+            if pick is None:
+                heartbeat(
+                    f"[{cycles}] on the block {snapshot.get('player_id')} — not a target, hold"
                 )
-                or "none"
-            )
-            refused[reason] = refused.get(reason, 0) + 1
-            heartbeat(f"[{cycles}] pass on {target}: {reason}")
-            sleep(poll_seconds)
-            continue
+                sleep(poll_seconds)
+                continue
 
-        outcome = write(payload)
-        sent = bool(getattr(outcome, "sent", False))
-        bids_sent += int(sent)
-        verb = "BID" if sent else "dry-run"
-        heartbeat(f"[{cycles}] {verb} {payload['price']} on {target} (status {getattr(outcome, 'status', None)})")
-        sleep(poll_seconds)
+            target, walk_away = pick
+            now_ms = now()
+            budget = budget_now()
+            payload = decide_bid(
+                snapshot,
+                seat,
+                fantaleague_id,
+                target=target,
+                walk_away=walk_away,
+                remaining_budget=budget,
+                now_ms=now_ms,
+                step=step,
+            )
+            if payload is None:
+                reason = (
+                    pass_reason(
+                        snapshot,
+                        seat,
+                        target=target,
+                        walk_away=walk_away,
+                        remaining_budget=budget,
+                        now_ms=now_ms,
+                        step=step,
+                    )
+                    or "none"
+                )
+                refused[reason] = refused.get(reason, 0) + 1
+                heartbeat(f"[{cycles}] pass on {target}: {reason}")
+                sleep(poll_seconds)
+                continue
+
+            outcome = write(payload)
+            sent = bool(getattr(outcome, "sent", False))
+            bids_sent += int(sent)
+            verb = "BID" if sent else "dry-run"
+            heartbeat(
+                f"[{cycles}] {verb} {payload['price']} on {target} "
+                f"(status {getattr(outcome, 'status', None)})"
+            )
+            sleep(poll_seconds)
+        except KeyboardInterrupt:
+            heartbeat(f"[{cycles}] interrupted")
+            break
 
     return LoopReport(cycles=cycles, bids_sent=bids_sent, refused=refused)
-
-
-__all__ = ["LoopReport", "Snapshot", "run_bid_loop"]

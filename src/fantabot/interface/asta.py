@@ -366,6 +366,11 @@ def asta_bid(
         reported.update(fresh)
         console.print(f"[yellow]{len(fresh)} {why}: {', '.join(fresh)}[/yellow]")
 
+    # What the last cycle's fold of the ledger said we still hold. The loop's budget guard
+    # reads it, so it has to be the number the plan was just built against rather than the
+    # credits we started the evening with: after one lot won, those two stop agreeing.
+    remaining = [int(budget)]
+
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
         state = AstaState(total_budget=budget)
         events, unknown = resolve_ids(feed.ledger_events(db, league), bridge)
@@ -381,6 +386,7 @@ def asta_bid(
         # here is what turns "stopped for the evening" into "held for one lot".
         state, rules, unvaluable = drop_unvaluable(state, world.pool, RosterRules())
         _report_once(unvaluable, "owned player(s) we cannot value; roster band shrunk")
+        remaining[0] = int(state.remaining_budget)
         _, walkaways = reservations(
             state,
             world.pool,
@@ -402,7 +408,7 @@ def asta_bid(
     report = room.run_bid_loop(
         seat=seat,
         fantaleague_id=league,
-        remaining_budget=int(budget),
+        remaining_budget=lambda: remaining[0],
         target_of=target_of,
         read=lambda: rtdb.read_snapshot(db, f"auction/{league}"),
         write=lambda payload: rtdb.place_raise(db, league, payload),
