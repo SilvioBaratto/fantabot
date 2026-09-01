@@ -208,3 +208,11 @@ class TestTheUuidTranslation:
 
         assert frame.decision == "hold"
         assert frame.plan == ()
+
+
+def test_the_frame_carries_every_walkaway_for_the_listone_column() -> None:
+    """Showing only the lot's own number tells the operator nothing about what is coming."""
+    frame = _tracker().cycle(_lot(), now_ms=1_000)
+
+    assert frame.walkaways
+    assert set(frame.walkaways) <= {p.id for p in POOL}

@@ -306,11 +306,25 @@ def asta_live(
 
 def asta_room(
     url: str = typer.Argument(..., help="The FantaLab room link, or its fantaleague id."),
+    arm: bool = typer.Option(
+        False, "--arm", help="Second, positive lock. Bidding is OFF without it."
+    ),
     resolve_only: bool = typer.Option(
         False, "--resolve-only", help="Print the resolved room and exit. Touches no RTDB."
     ),
+    budget: float = typer.Option(
+        0.0, help="Our starting credits. 0 reads the room's own num_credits."
+    ),
+    limit: int = typer.Option(40, help="Listone rows rendered."),
+    lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    poll: float = typer.Option(2.0, help="Seconds between polls."),
+    season: Season = SEASON,
+    sentiment: Sentiment = True,
+    sentiment_run: SentimentRun = "",
+    tilt_k: TiltK = SentimentWeights().k,
+    floor_alpha: FloorAlpha = 1.00,
 ) -> None:
-    """Resolve a FantaLab room link into a room we can bid in. Read-only.
+    """The live room: the listone, the lot, the model's bidding and the rosa, on one screen.
 
     `fantabot asta room "https://app.fantalab.it/asta?asta=<uuid>"`.
 
@@ -319,17 +333,29 @@ def asta_room(
     'bid'` and all 22 commands would break. A shell alias recovers the ergonomics:
     `fanta() { fantabot asta room "$1"; }`.
 
-    ⚠ **The authenticated fetch this runs has never been executed against a real room.** It
-    had no caller in `src/` at all before this phase. This command is where that is found out,
-    which is why `--resolve-only` exists: it prints what came back and stops.
+    **Two locks before a credit is spent** — `FANTABOT_AUTO_ACT` *and* `--arm`, both opt-in.
+    Ctrl-C once disarms and keeps watching; twice exits. Mid-auction "stop bidding, keep
+    showing me the room" is far more often what is wanted than "quit".
+
+    ⚠ The authenticated fetch behind `--resolve-only` had no caller in `src/` before this
+    phase. If it fails, `harvest scan --seed` still yields the shard and the room's settings.
     """
-    from fantabot.adapters.http.fantalab import rest
+    import contextlib
+    import signal
+    import time
+
+    from fantabot.adapters.files.room_journal import RoomJournal
+    from fantabot.adapters.http.fantalab import feed, listone, rest, room, rtdb
     from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.tokens.fantalab_store import FantalabStore
-    from fantabot.application.asta_room import RoomRefused, resolve_room
+    from fantabot.application.asta_room import RoomFrame, RoomRefused, RoomTracker, resolve_room
     from fantabot.config import settings
+    from fantabot.domain.asta.bid import Seat
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
+    from fantabot.domain.asta.report import listone_rows
     from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.interface.room_view import render
 
     try:
         fantaleague_id = parse_room_url(url)
@@ -350,7 +376,7 @@ def asta_room(
     # The token is bound here and goes no further: `resolve_room` takes a callable, so the
     # application layer never holds a credential and cannot render one by accident.
     try:
-        room = resolve_room(
+        resolved = resolve_room(
             fantaleague_id,
             user_id=stored.user_id,
             fetch=lambda fl: rest.fetch_league(fl, token=stored.id_token),
@@ -360,23 +386,130 @@ def asta_room(
         raise typer.Exit(code=1) from exc
 
     console.print(
-        f"[bold]{room.fantaleague_id}[/bold] · shard {room.db} · {room.asta_mode}/"
-        f"{room.raise_mode} · {room.num_teams} teams x {room.num_credits} credits"
+        f"[bold]{resolved.fantaleague_id}[/bold] · shard {resolved.db} · "
+        f"{resolved.asta_mode}/{resolved.raise_mode} · "
+        f"{resolved.num_teams} teams x {resolved.num_credits} credits · "
+        f"seat {resolved.seat.team_name or resolved.seat.fantateam_id}"
     )
-    console.print(
-        f"our seat: {room.seat.team_name or room.seat.fantateam_id} ({room.seat.fantateam_id})"
+    if resolve_only:
+        return
+
+    bridge = listone.fetch()
+    if not bridge:
+        console.print("[red]no uuid -> fantacalcio_id bridge; every lot would be unknown[/red]")
+        raise typer.Exit(code=1)
+
+    credits = budget or resolved.budget
+    with database_manager.get_session() as session:
+        readings = sentiment_rows(
+            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
+        )
+        world = read_plan_inputs(
+            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k,
+            callable_ids={str(fid) for fid in bridge.values()},
+            num_teams=resolved.num_teams or 8,
+            num_credits=int(resolved.num_credits or 500),
+        )
+
+    # Arming is a positive act twice over: the env var alone arms every run for the rest of
+    # the day, and the operator who edits `.env` in the morning is not the one at the keyboard
+    # at 21:47. `armed` is a list so the SIGINT handler can disarm it without a global.
+    armed = [bool(settings.fantabot_auto_act and arm)]
+    if armed[0] and not typer.confirm(
+        f"Bid REAL CREDITS in {resolved.fantaleague_id} as "
+        f"{resolved.seat.team_name or resolved.seat.fantateam_id}, budget {credits:.0f}?"
+    ):
+        raise typer.Abort
+
+    router = room.LotRouter(
+        read=lambda node: rtdb.read_snapshot(resolved.db, f"{node}/{resolved.fantaleague_id}"),
+        write=lambda payload, node: rtdb.place_raise(
+            resolved.db, resolved.fantaleague_id, payload, node=node
+        ),
     )
-    console.print(
-        f"roster band: {room.min_player}-{room.max_player} · "
-        f"opens at {'the quotazione' if room.call_at_quotaz else '1 credit'} · "
-        f"timers {room.counter_time_first}s / {room.counter_time}s"
+    journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    tracker = RoomTracker(
+        seat=Seat(
+            fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id
+        ),
+        bridge=bridge,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, names=world.names,
+        rules=RosterRules(),
+        budget=credits,
+        lam=lam,
+        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
+        journal=journal.write,
+        counter_time=resolved.counter_time,
+        counter_time_first=resolved.counter_time_first,
     )
 
-    if not resolve_only:
-        console.print(
-            "[dim]the live room is not built yet — T9 onward. Use `asta bid` with the shard "
-            "and seat above, or `asta live` beside it.[/dim]"
+    # First Ctrl-C disarms and keeps drawing; second exits. Mid-auction the operator far more
+    # often wants "stop bidding, keep showing me the room" than "quit" — the pattern is
+    # `news fetch`'s, for the same reason.
+    previous_sigint = signal.getsignal(signal.SIGINT)
+
+    def _disarm(_signum: int, _frame: Any) -> None:
+        if not armed[0]:
+            signal.signal(signal.SIGINT, previous_sigint)
+            raise KeyboardInterrupt
+        armed[0] = False
+        console.print("[yellow]disarmed — still watching. Ctrl-C again to exit.[/yellow]")
+
+    # Not the main thread means no signal handler, which costs the graceful disarm and
+    # nothing else. Refusing to run the room over that would be the worse trade.
+    with contextlib.suppress(ValueError):
+        signal.signal(signal.SIGINT, _disarm)
+
+    latest: list[RoomFrame] = []
+
+    def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
+        frame = tracker.cycle(
+            snapshot, now_ms=int(time.time() * 1000), node=router.node
         )
+        latest.append(frame)
+        rows = listone_rows(
+            world.pool, AstaState(owned=frame.owned, total_budget=credits),
+            names=world.names, teams=world.teams, prices=world.prices, value=world.value,
+            walkaways=frame.walkaways, limit=limit,
+        )
+        live.update(render(frame, rows, room=resolved, armed=armed[0]))
+        if frame.target is None or frame.walk_away is None:
+            return None
+        return (frame.target, frame.walk_away)
+
+    from rich.live import Live
+
+    with Live(console=console, screen=True, refresh_per_second=4) as live:
+        report = room.run_bid_loop(
+            seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
+            fantaleague_id=resolved.fantaleague_id,
+            remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
+            max_cap=lambda: latest[-1].max_cap if latest else 0,
+            target_of=target_of,
+            read=lambda: router.read_lot()[0],
+            # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
+            # writer captured at loop start would keep bidding after the operator disarmed.
+            write=lambda payload: bid_writer(
+                auto_act=settings.fantabot_auto_act,
+                arm=armed[0],
+                send=router.write_raise,
+                node=router.node,
+            )(payload),
+            now=lambda: int(time.time() * 1000),
+            sleep=time.sleep,
+            keep_going=lambda _cycle: True,
+            heartbeat=lambda _line: None,
+            poll_seconds=poll,
+        )
+
+    journal.close()
+    signal.signal(signal.SIGINT, previous_sigint)
+    console.print(
+        f"[dim]stopped: {report.cycles} cycles, {report.bids_sent} bids, "
+        f"refused {report.refused}[/dim]"
+    )
 
 
 def asta_calibrate(

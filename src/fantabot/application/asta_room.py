@@ -167,6 +167,9 @@ class RoomFrame:
     #: Sales the listone could not name. Each is a purchase we never subtracted, so a rival's
     #: budget and that player's availability are both wrong until it is explained.
     unresolved_sales: int
+    #: Every walk-away this cycle priced, keyed by fantacalcio id. The LISTONE pane's column:
+    #: seeing only the lot's own number tells the operator nothing about what is coming.
+    walkaways: Mapping[str, float]
 
 
 class RoomTracker:
@@ -291,6 +294,7 @@ class RoomTracker:
         common = {
             "node": node, "credits_left": credits_left, "max_cap": cap,
             "owned": tuple(state.owned), "plan": plan, "unresolved_sales": unresolved,
+            "walkaways": walkaways,
         }
 
         lot = snapshot.get("player_id") if snapshot else None

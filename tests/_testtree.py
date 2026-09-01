@@ -41,6 +41,7 @@ TREE: dict[str, str] = {
     "test_asta_floor.py": "domain/asta",
     "test_asta_room_url.py": "domain/asta",
     "test_asta_seconds_left.py": "domain/asta",
+    "test_asta_listone_rows.py": "domain/asta",
     "test_asta_max_cap.py": "domain/asta",
     "test_asta_unvaluable.py": "domain/asta",
     "test_asta_value.py": "domain/asta",
@@ -144,6 +145,7 @@ TREE: dict[str, str] = {
     "test_cli_token_status.py": "interface",
     "test_asta_id_bridge.py": "interface",
     "test_asta_arming.py": "interface",
+    "test_room_view.py": "interface",
     # -- about the repository itself, not about one layer -------------------------------------
     "test_layers.py": ".",
     "test_importgraph.py": ".",
