@@ -14,7 +14,7 @@ walk-away and holds.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from fantabot.domain.asta.bid import Seat, decide_bid, pass_reason
@@ -29,6 +29,9 @@ class LoopReport:
     cycles: int
     bids_sent: int
     refused: dict[str, int]
+    #: Failed cycles by exception class name. Not decoration: a run reporting 400 cycles and
+    #: 0 bids reads as "nothing we wanted came up" until this says `{'ReadTimeout': 400}`.
+    errors: dict[str, int] = field(default_factory=dict)
 
 
 def run_bid_loop(
@@ -73,6 +76,7 @@ def run_bid_loop(
     cycles = 0
     bids_sent = 0
     refused: dict[str, int] = {}
+    errors: dict[str, int] = {}
 
     def budget_now() -> int:
         return remaining_budget() if callable(remaining_budget) else remaining_budget
@@ -143,10 +147,25 @@ def run_bid_loop(
             )
             sleep(poll_seconds)
         except KeyboardInterrupt:
+            # The operator, not a fault. Never swallowed.
             heartbeat(f"[{cycles}] interrupted")
             break
+        except Exception as exc:
+            # **One bad poll costs one poll, not the evening.** `read` is an unretried HTTPS
+            # GET and `write` a PATCH; a single ReadTimeout on hotel wifi used to propagate
+            # out of here, out of the command, and — under `asta room` — tear down the Rich
+            # screen at 21:47. Nothing is lost by carrying on: the tracker rebuilds the whole
+            # picture from the `purchases/` ledger next cycle, so a failed poll is a poll we
+            # did not make and nothing more.
+            #
+            # Counted and said out loud, because the failure that matters is the silent one:
+            # a room that looks quiet for twenty minutes while the network is gone.
+            name = type(exc).__name__
+            errors[name] = errors.get(name, 0) + 1
+            heartbeat(f"[{cycles}] {name}: {exc}")
+            sleep(poll_seconds)
 
-    return LoopReport(cycles=cycles, bids_sent=bids_sent, refused=refused)
+    return LoopReport(cycles=cycles, bids_sent=bids_sent, refused=refused, errors=errors)
 
 
 class LotRouter:

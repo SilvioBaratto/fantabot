@@ -181,3 +181,91 @@ class TestCtrlCReports:
         assert beats[-1].endswith("interrupted")
         assert report.refused == {"walk_away": 2}
         assert report.bids_sent == 0
+
+
+class TestOneBadPollCostsOnePoll:
+    """A dropped packet must not end the evening.
+
+    `read` is an unretried HTTPS GET and `write` a PATCH. A single `ReadTimeout` — hotel
+    wifi, a phone hotspot, FantaLab hiccuping — used to propagate out of this loop, out of
+    the command, and under `asta room` tear down the Rich screen at 21:47.
+
+    Nothing is lost by carrying on. The tracker rebuilds the whole picture from the
+    `purchases/` ledger on the next successful cycle, so a failed poll is a poll we did not
+    make and nothing more. What must not happen is failing *silently*: a run reporting 400
+    cycles and 0 bids reads as "nothing we wanted came up" until something says otherwise.
+    """
+
+    def _flaky(self, fail_on: set[int], total: int = 4):  # type: ignore[no-untyped-def]
+        seen = {"n": 0}
+        beats: list[str] = []
+
+        def read() -> dict[str, Any] | None:
+            seen["n"] += 1
+            if seen["n"] in fail_on:
+                raise TimeoutError("read timed out")
+            return _lot(1)
+
+        report = run_bid_loop(
+            seat=SEAT, fantaleague_id=FL, remaining_budget=100, max_cap=None,
+            target_of=lambda _s: ("kean", 100),
+            read=read,
+            write=lambda _p: _Outcome(sent=True, status=200),
+            now=lambda: FAR, sleep=lambda _s: None,
+            keep_going=lambda cycle: cycle < total,
+            heartbeat=beats.append,
+        )
+        return report, beats
+
+    def test_a_failed_read_does_not_end_the_run(self) -> None:
+        report, _ = self._flaky({2})
+
+        assert report.cycles == 4, "the loop kept its appointment"
+        assert report.bids_sent == 3, "three good polls still bid"
+
+    def test_the_failure_is_counted_by_kind(self) -> None:
+        """`{'TimeoutError': 1}` is the difference between "quiet room" and "no network"."""
+        report, _ = self._flaky({2, 3})
+
+        assert report.errors == {"TimeoutError": 2}
+
+    def test_the_failure_is_said_out_loud(self) -> None:
+        report, beats = self._flaky({2})
+
+        assert any("TimeoutError" in line or "timed out" in line for line in beats)
+
+    def test_a_failing_write_costs_its_lot_and_not_the_evening(self) -> None:
+        beats: list[str] = []
+
+        def write(_payload: dict[str, Any]) -> _Outcome:
+            raise ConnectionError("PATCH refused")
+
+        report = run_bid_loop(
+            seat=SEAT, fantaleague_id=FL, remaining_budget=100, max_cap=None,
+            target_of=lambda _s: ("kean", 100),
+            read=lambda: _lot(1),
+            write=write,
+            now=lambda: FAR, sleep=lambda _s: None,
+            keep_going=lambda cycle: cycle < 3,
+            heartbeat=beats.append,
+        )
+
+        assert report.cycles == 3
+        assert report.bids_sent == 0
+        assert report.errors == {"ConnectionError": 3}
+
+    def test_a_keyboard_interrupt_still_stops_rather_than_being_swallowed(self) -> None:
+        """`KeyboardInterrupt` is not an error to shrug off — it is the operator."""
+        def read() -> dict[str, Any]:
+            raise KeyboardInterrupt
+
+        report = run_bid_loop(
+            seat=SEAT, fantaleague_id=FL, remaining_budget=100, max_cap=None,
+            target_of=lambda _s: None, read=read,
+            write=lambda _p: _Outcome(sent=True, status=200),
+            now=lambda: FAR, sleep=lambda _s: None,
+            keep_going=lambda _cycle: True,
+            heartbeat=lambda _line: None,
+        )
+
+        assert report.cycles == 1, "stopped, not retried for ever"

@@ -539,7 +539,12 @@ def asta_room(
             now=lambda: int(time.time() * 1000),
             sleep=time.sleep,
             keep_going=lambda _cycle: True,
-            heartbeat=lambda _line: None,
+            # The room's heartbeat has nowhere to go — the screen is the frame. Errors are
+            # the exception: a silently retrying room is the failure the counting exists for,
+            # so they print above the Live and stay on the scrollback.
+            heartbeat=lambda line: console.print(f"[yellow]{line}[/yellow]")
+            if any(k in line for k in ("Error", "error", "timed out"))
+            else None,
             poll_seconds=poll,
         )
 
