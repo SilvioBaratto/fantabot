@@ -25,6 +25,7 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from fantabot.application.asta_room import ResolvedRoom, RoomFrame
+    from fantabot.domain.asta.copilot import Commentary
     from fantabot.domain.asta.report import ListoneRow
 
 #: Under this many seconds the LOT pane goes red. The room's raise timer is 10 s by default,
@@ -112,17 +113,51 @@ def _listone_pane(rows: list[ListoneRow]) -> RenderableType:
     return Panel(table, title="LISTONE", border_style="dim")
 
 
+def _copilot_pane(advice: Commentary | None, *, offline: bool) -> RenderableType:
+    """The second reading, or a box that says there is none.
+
+    Its own pane, never woven into the LOT: the engine's number renders at t=0 whatever the
+    network is doing, and a commentary that shared a box with it could not fail without
+    taking the number's layout with it.
+
+    `offline` and "nothing yet for this player" are kept apart. The first is a fact about the
+    copilot worth acting on; the second is the ordinary case two seconds after a lot opens.
+    """
+    if offline:
+        return Panel(Text("copilota: offline", style="dim"), title="COPILOTA", border_style="dim")
+    if advice is None:
+        return Panel(Text("...", style="dim"), title="COPILOTA", border_style="dim")
+
+    body = Text()
+    body.append(f"{advice.headline}\n", style="bold" if advice.disagrees_with_plan else "")
+    body.append(f"{advice.why}\n", style="dim")
+    for risk in advice.risks:
+        body.append(f"  ! {risk}\n", style="yellow")
+    for watch in advice.watch:
+        body.append(f"  > {watch}\n", style="dim")
+    body.append(f"[{advice.confidence}]", style="dim")
+
+    # Amber only when it disagrees *and* is sure enough to be worth reading. A low-confidence
+    # disagreement is the model saying "ignore me", and colouring it would train the operator
+    # to ignore the colour instead.
+    border = "yellow" if advice.disagrees_with_plan and advice.confidence != "low" else "dim"
+    return Panel(body, title="COPILOTA", border_style=border)
+
+
 def render(
     frame: RoomFrame,
     rows: list[ListoneRow],
     *,
     room: ResolvedRoom | None = None,
     armed: bool = False,
+    advice: Commentary | None = None,
+    copilot_offline: bool = False,
 ) -> RenderableType:
     """The whole screen for one frame. Total: no I/O, and no branch that can raise."""
     return Group(
         _header(frame, room, armed=armed),
         _lot_pane(frame),
         _model_pane(frame),
+        _copilot_pane(advice, offline=copilot_offline),
         _listone_pane(rows),
     )

@@ -323,6 +323,8 @@ def asta_room(
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
     floor_alpha: FloorAlpha = 1.00,
+    copilot: bool = typer.Option(True, "--copilot/--no-copilot", help="The LLM pane."),
+    brief_top: int = typer.Option(40, help="How many of the plan's targets to pre-brief."),
 ) -> None:
     """The live room: the listone, the lot, the model's bidding and the rosa, on one screen.
 
@@ -349,6 +351,7 @@ def asta_room(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.tokens.fantalab_store import FantalabStore
+    from fantabot.application.asta_copilot import CopilotWorker, briefs_for
     from fantabot.application.asta_room import RoomFrame, RoomRefused, RoomTracker, resolve_room
     from fantabot.config import settings
     from fantabot.domain.asta.bid import Seat
@@ -464,17 +467,50 @@ def asta_room(
 
     latest: list[RoomFrame] = []
 
+    # Out of band, on a daemon thread. `counter_time` is 7-10 s and a query takes seconds, so
+    # asking about the lot on the block would answer about a lot that has already closed —
+    # the targets are briefed ahead and looked up when they come up.
+    worker = CopilotWorker() if copilot else None
+    briefed: set[str] = set()
+    if worker is not None:
+        worker.start()
+
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
         frame = tracker.cycle(
             snapshot, now_ms=int(time.time() * 1000), node=router.node
         )
         latest.append(frame)
+
+        advice = None
+        if worker is not None:
+            fresh = [pid for pid in list(frame.walkaways)[:brief_top] if pid not in briefed]
+            if fresh:
+                briefed.update(fresh)
+                worker.brief(
+                    briefs_for(
+                        fresh,
+                        names=dict(world.names), teams=dict(world.teams),
+                        roles={k: list(v) for k, v in world.roles.items()},
+                        walkaways=dict(frame.walkaways), prices=dict(world.prices),
+                        credits_left=frame.credits_left,
+                        slots_left=RosterRules().size - len(frame.owned),
+                        schemi_open=0, recent=(),
+                    )
+                )
+            lot_fid = bridge.get(frame.lot_id) if frame.lot_id else None
+            advice = worker.advice_for(str(lot_fid)) if lot_fid else None
+
         rows = listone_rows(
             world.pool, AstaState(owned=frame.owned, total_budget=credits),
             names=world.names, teams=world.teams, prices=world.prices, value=world.value,
             walkaways=frame.walkaways, limit=limit,
         )
-        live.update(render(frame, rows, room=resolved, armed=armed[0]))
+        live.update(
+            render(
+                frame, rows, room=resolved, armed=armed[0], advice=advice,
+                copilot_offline=worker is not None and worker.errors > 0 and advice is None,
+            )
+        )
         if frame.target is None or frame.walk_away is None:
             return None
         return (frame.target, frame.walk_away)
@@ -504,6 +540,8 @@ def asta_room(
             poll_seconds=poll,
         )
 
+    if worker is not None:
+        worker.stop()
     journal.close()
     signal.signal(signal.SIGINT, previous_sigint)
     console.print(

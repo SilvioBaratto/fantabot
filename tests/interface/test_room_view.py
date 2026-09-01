@@ -115,3 +115,47 @@ class TestRenderIsTotal:
         rows = [_row(status=s) for s in ("ours", "taken", "open")]
 
         assert _paint(_frame(), rows=rows)
+
+
+class TestTheCopilotPane:
+    def test_an_outage_says_so_and_moves_nothing_else(self) -> None:
+        """The engine's number renders at t=0 whatever the network is doing."""
+        painted = _paint(_frame(), copilot_offline=True)
+
+        assert "copilota: offline" in painted
+        assert "walk-away 77" in painted, "the number is untouched by the copilot's weather"
+        assert "LISTONE" in painted
+
+    def test_nothing_yet_is_not_the_same_as_offline(self) -> None:
+        """Two seconds after a lot opens there is no commentary and nothing is wrong."""
+        painted = _paint(_frame(), advice=None, copilot_offline=False)
+
+        assert "COPILOTA" in painted
+        assert "offline" not in painted
+
+    def test_commentary_renders_with_its_risks_and_confidence(self) -> None:
+        from fantabot.domain.asta.copilot import Commentary
+
+        said = Commentary(
+            headline="ballottaggio aperto", why="due punte per un posto",
+            risks=["parte in panchina"], watch=["Riserva"],
+            confidence="medium", disagrees_with_plan=True,
+        )
+        painted = _paint(_frame(), advice=said)
+
+        assert "ballottaggio aperto" in painted
+        assert "parte in panchina" in painted
+        assert "medium" in painted
+
+    def test_the_pane_never_shows_a_credit_figure(self) -> None:
+        """The schema cannot carry one; this is the second lock, on the way out."""
+        from fantabot.domain.asta.copilot import Commentary
+
+        said = Commentary(
+            headline="ok", why="niente di nuovo", confidence="low", disagrees_with_plan=False
+        )
+
+        assert set(Commentary.model_fields) == {
+            "headline", "why", "risks", "watch", "confidence", "disagrees_with_plan"
+        }
+        assert _paint(_frame(), advice=said)
