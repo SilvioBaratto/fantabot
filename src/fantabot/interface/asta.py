@@ -7,7 +7,7 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -91,6 +91,39 @@ def sentiment_rows(
             "Run `fantabot news fetch --write`, or pass --no-sentiment."
         )
     return rows
+
+
+def _target_of(
+    snapshot: Mapping[str, Any],
+    bridge: Mapping[str, int],
+    walkaways: Mapping[str, float],
+) -> tuple[str, int] | None:
+    """The lot on the block, priced — or ``None`` when it is not one of ours.
+
+    **The third id-space gap, and the quietest.** ``resolve_ids`` re-keys the *ledger*, so
+    ``AstaState.owned`` and every walk-away are fantacalcio ids; the lot arrives from
+    somewhere else entirely — the raw ``auction/<fl>`` node — and is still a FantaLab UUID.
+    Looking one up among the others misses on every lot, and ``run_bid_loop`` answers
+    "not a target, hold" for the whole evening: no bid, no error, nothing to notice.
+
+    Module-level rather than a closure so it can be tested at all: the solve it used to sit
+    inside needs a database, a pool and a ledger, none of which this translation touches.
+
+    The returned id is the **node's** uuid, not the fantacalcio id, because it goes back out
+    in the bid payload and the platform refuses a raise naming a different lot
+    (``docs/fantalab/06 §10.1``, test 5). Pricing happens on the translated id.
+    """
+    lot = snapshot.get("player_id")
+    if not isinstance(lot, str):
+        return None
+    fantacalcio_id = bridge.get(lot)
+    if fantacalcio_id is None:
+        return None
+    walk_away = walkaways.get(str(fantacalcio_id))
+    # A walk-away of 0 is a target we will refuse on price, which is `decide_bid`'s call and
+    # not this function's: collapsing it into `None` would make it indistinguishable from a
+    # player the plan never named, and the heartbeat could no longer say which it saw.
+    return (lot, int(walk_away)) if walk_away is not None else None
 
 
 def asta_optimize(
@@ -310,12 +343,25 @@ def asta_bid(
 
     seat = Seat(fantateam_id=team, user_id=user)
 
+    # Said once per uuid rather than once per poll: at a 2 s cycle the same handful of
+    # strangers would otherwise scroll the heartbeat off the screen within a minute, and
+    # the heartbeat is the only thing the operator is reading.
+    reported: set[str] = set()
+
+    def _report_once(uuids: Iterable[str], why: str) -> None:
+        fresh = sorted({u for u in uuids} - reported)
+        if not fresh:
+            return
+        reported.update(fresh)
+        console.print(f"[yellow]{len(fresh)} {why}: {', '.join(fresh)}[/yellow]")
+
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        player_id = snapshot.get("player_id")
-        if not isinstance(player_id, str):
-            return None
         state = AstaState(total_budget=budget)
-        events, _unknown = resolve_ids(feed.ledger_events(db, league), bridge)
+        events, unknown = resolve_ids(feed.ledger_events(db, league), bridge)
+        # A sale the listone cannot name is a sale we do not subtract: the buyer's budget
+        # and the player's availability both stay wrong for the rest of the evening. Silence
+        # here reads as "the ledger was clean", which is the failure `resolve_ids` counts for.
+        _report_once(unknown, "sale(s) dropped, uuid not in the listone")
         for event in events:
             state = apply_event(state, event, our_team_id=team)
         _, walkaways = reservations(
@@ -327,8 +373,12 @@ def asta_bid(
             legality=world.legality,
             lam=lam,
         )
-        walk_away = walkaways.get(player_id)
-        return (player_id, int(walk_away)) if walk_away is not None else None
+        lot = snapshot.get("player_id")
+        if isinstance(lot, str) and lot not in bridge:
+            # Distinguishable from "we chose not to chase him": the loop's own heartbeat
+            # says "not a target, hold" for both, and only this line separates them.
+            _report_once([lot], "lot(s) we cannot value, uuid not in the listone")
+        return _target_of(snapshot, bridge, walkaways)
 
     report = room.run_bid_loop(
         seat=seat,
