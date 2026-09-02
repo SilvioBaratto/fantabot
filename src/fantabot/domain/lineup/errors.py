@@ -15,7 +15,23 @@ from __future__ import annotations
 
 
 class LineupError(Exception):
-    """Base for lineup-submission failures, so callers can catch the family."""
+    """Base for lineup failures, so callers can catch the family."""
+
+
+class RosterIncomplete(LineupError):
+    """A roster id with no Mantra role — the roster cannot be assembled.
+
+    Fail-closed by name: guessing a role would build a lineup the platform rejects, so the
+    id is surfaced (scrape `quotazioni`, or check the id) rather than dropped.
+    """
+
+    def __init__(self, player_id: int) -> None:
+        super().__init__(
+            f"roster player {player_id} has no Mantra role in quotazioni — cannot place "
+            "him. Refresh the scrape (`fantabot db scrape quotazioni`) or check the id; "
+            "nothing was assembled."
+        )
+        self.player_id = player_id
 
 
 class LineupRejected(LineupError):
