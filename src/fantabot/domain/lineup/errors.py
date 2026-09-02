@@ -18,6 +18,22 @@ class LineupError(Exception):
     """Base for lineup failures, so callers can catch the family."""
 
 
+class NoFieldableModule(LineupError):
+    """The roster cannot field any of the allowed modules with natural roles.
+
+    Not a transport failure — the rosa itself is short of a role the schemi need (a
+    goalkeeper, most often). Names the modules tried so the gap is visible.
+    """
+
+    def __init__(self, modules: tuple[str, ...]) -> None:
+        super().__init__(
+            f"the roster fields none of the allowed modules {list(modules)} with natural "
+            "roles — it is missing a role the schemi require (check the goalkeeper and the "
+            "back line). Nothing was built."
+        )
+        self.modules = modules
+
+
 class RosterIncomplete(LineupError):
     """A roster id with no Mantra role — the roster cannot be assembled.
 
