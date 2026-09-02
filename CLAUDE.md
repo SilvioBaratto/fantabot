@@ -181,12 +181,27 @@ src/fantabot/
   instead of the floor, once from a denominator that reported `won %` above
   100% — and was removed rather than lowered a third time. Both versions are
   recorded in the archived spec.
+  **The mechanism this bullet describes is superseded, the conclusion is not.**
+  The asta-fixes phase (closed 2026-09-02,
+  [`tasks/archive/asta-fixes-spec.md`](tasks/archive/asta-fixes-spec.md) §2.A) deleted
+  `price_floor`/`--floor-alpha` — a floor computed only for the pre-briefed 40 plan
+  members — because the first live auction proved it silently held every unplanned lot
+  at any price, `walk_away: null` on 4,501 of 5,192 journal rows.
+  `domain/asta/reservation.lot_ceiling` replaces it for the one lot actually on the
+  block each cycle: a real re-solve with that lot forced in, planned or not, scaled by
+  `--ceiling-alpha` (still `1.00` by default, same arithmetic). `reservations()`
+  survives only for the LISTONE table and copilot brief, where 40 players a cycle must
+  be priced and a full re-solve for each is not affordable. The denominator defect is
+  also gone — Task 1.3's rewrite of `_replay_one` makes `won` unable to exceed
+  `available` by construction; a real sweep against the live database now reads
+  32–49% across every alpha, never near 100%, and a repaired acceptance threshold is
+  once again possible, just not built.
 - **The MAX cap has no server backstop.** `docs/fantalab/01:142` calls it
   client-enforced and `06:389-412` shows the RTDB rules validating only that a
   raise exceeds the current price and names the right lot. `domain/asta/bid.py`'s
-  `max_cap` guard is the only thing between a "pay anything" walk-away — which is
-  what `reservations` returns for an essential player — and a rosa that cannot be
-  fielded.
+  `max_cap` guard is the only thing between a "pay anything" walk-away — `lot_ceiling`
+  for the one lot actually on the block (`reservations()` for the bulk LISTONE/brief
+  read, per the asta-fixes note above) — and a rosa that cannot be fielded.
 - **Arming needs two locks and a record.** `FANTABOT_AUTO_ACT` **and** `--arm`,
   both opt-in, because the env var is process-wide `.env` state and the operator
   who edits it in the morning is not the one at the keyboard at 21:47. First
