@@ -270,6 +270,58 @@ def safe_ceiling(passes: Callable[[int], bool], *, lo: int, hi: int) -> int:
     return ceiling
 
 
+def lot_reference(
+    state: AstaState,
+    pool: Sequence[MantraPlayer],
+    *,
+    value: ValueModel,
+    prices: Mapping[str, float],
+    teams: Mapping[str, str],
+    legality: dict[str, SchemaLegality],
+    rules: RosterRules = RosterRules(),
+    lam: float = 0.0,
+    rho: float = DEFAULT_SAME_TEAM_RHO,
+    baseline: float,
+    player_id: str,
+    plan: Sequence[str],
+) -> float | None:
+    """The objective ``lot_ceiling`` must beat to justify buying ``player_id``. Pure.
+
+    ``baseline`` when he is not a member of ``plan`` — the plan's own optimum already
+    excludes him, so ``baseline`` already *is* "the objective without him" and there is
+    nothing further to solve. Re-solved with him forced **out**, otherwise: forcing an
+    already-planned member back in at his own book price changes nothing else about the
+    roster (nobody else moves, no budget frees up), so ``f(p)`` only ever *ties*
+    ``baseline`` and can never clear ``lot_ceiling``'s margin — comparing a plan member
+    against a total that already includes him at his book price answers a different
+    question than the one being asked. Measured on the golden pool (2026-08-28, ``lam=0.3``,
+    empty state): 17 of the 30 plan members return a ceiling of 0 against ``baseline`` this
+    way, every one already priced within a credit of the floor with no budget to free by
+    paying less — including one with ``mu=61.0``, not a marginal player by any reading.
+    Re-solving against the objective with each one excluded instead fixes 14 of those 17
+    (real numbers, e.g. 62, 21, 20, 10, 8 for the five costliest); the remaining 3 stay at 0
+    even against their own ``alt`` (``baseline - alt`` of 0.14, 1.08, 0.32 against a margin of
+    ~3), and correctly so — a near-identical substitute genuinely exists for them, which is
+    a real "he is fungible" answer and not the bug this function fixes.
+
+    Returns ``None`` when removing him leaves no completable roster at all — the same
+    "essential" case ``reservations()`` already special-cases (``except InfeasibleRoster:
+    walkaways[target] = state.remaining_budget``). This function only answers whether an
+    alternative exists; the caller decides what "reserve the budget" means for its own
+    ``hard_cap``.
+    """
+    if player_id not in plan:
+        return baseline
+    without = replace(state, taken=state.taken | {player_id})
+    try:
+        return optimize_roster(
+            without, pool, value=value, prices=prices, teams=teams, legality=legality,
+            rules=rules, lam=lam, rho=rho, n_fallbacks=0,
+        ).optimal.objective
+    except InfeasibleRoster:
+        return None
+
+
 def lot_ceiling(
     state: AstaState,
     pool: Sequence[MantraPlayer],
@@ -288,6 +340,11 @@ def lot_ceiling(
     margin_abs: float = CEILING_MARGIN_ABS,
 ) -> int:
     """The most we would pay for the lot on the block. Pure, and it re-solves.
+
+    ``baseline`` is the objective to beat, not necessarily ``reservations()``'s own plan
+    objective — see ``lot_reference``, which computes the right one for a plan member (the
+    objective with him excluded) versus an unplanned lot (the plan objective itself,
+    unchanged). This function does not care which; it only applies the criterion.
 
     Says nothing about whether ``player_id`` is a member of the plan — this is deliberate.
     ``reservations()`` prices only its own optimal roster, so a lot outside it holds at any

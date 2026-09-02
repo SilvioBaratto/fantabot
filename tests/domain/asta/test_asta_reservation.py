@@ -360,3 +360,87 @@ class TestLotCeilingGeneralizesToTheLotOnTheBlock:
         """
         assert player_id in self.in_plan, f"{name} must be a plan member for this test to mean anything"
         assert self.ceiling(player_id) == expected
+
+
+class TestLotReferencePicksTheRightObjectiveToBeat:
+    """`lot_ceiling` called directly with `baseline=plan.optimal.objective` — which is what a
+    naive generalization to "every lot, plan member or not" would pass — is wrong for a plan
+    member: forcing him back in at his own book price changes nothing else about the roster,
+    so the criterion ties `baseline` exactly and can never clear the margin. `lot_reference`
+    is the fix: `baseline` unchanged for a lot the plan did not name (it already *is* the
+    objective without him), the objective with him forced **out**, re-solved, for one it did.
+    """
+
+    @classmethod
+    def setup_class(cls) -> None:
+        from fantabot.domain.asta.reservation import lot_ceiling, lot_reference
+
+        cls.world = TestLotCeilingGeneralizesToTheLotOnTheBlock._world()
+        cls.state = AstaState(total_budget=500.0)
+        plan, _ = reservations(
+            cls.state, cls.world.pool, value=cls.world.value, prices=cls.world.prices,
+            teams=cls.world.teams, legality=cls.world.legality, lam=0.3, n_targets=None,
+        )
+        cls.baseline = plan.optimal.objective
+        cls.plan = plan.optimal.player_ids
+        cls.reference = staticmethod(
+            lambda player_id: lot_reference(
+                cls.state, cls.world.pool, value=cls.world.value, prices=cls.world.prices,
+                teams=cls.world.teams, legality=cls.world.legality, lam=0.3,
+                baseline=cls.baseline, player_id=player_id, plan=cls.plan,
+            )
+        )
+        cls.ceiling_at = staticmethod(
+            lambda player_id, reference, hard_cap=500: lot_ceiling(
+                cls.state, cls.world.pool, value=cls.world.value, prices=cls.world.prices,
+                teams=cls.world.teams, legality=cls.world.legality, lam=0.3,
+                baseline=reference, player_id=player_id, hard_cap=hard_cap,
+            )
+        )
+
+    def test_an_unplanned_lot_gets_baseline_back_unchanged(self) -> None:
+        """He is not in the plan, so `baseline` already *is* the objective without him — no
+        second solve is needed, and none is done: `lot_reference` returns the same object."""
+        assert "5585" not in self.plan
+        assert self.reference("5585") == self.baseline
+
+    def test_seventeen_of_thirty_plan_members_are_pinned_at_the_floor_against_baseline(
+        self,
+    ) -> None:
+        """The bug, pinned on the real pool: comparing a plan member against a total that
+        already includes him ties at every feasible price and never clears the margin — not
+        an edge case, more than half the live 30-man plan on 2026-08-28."""
+        zeros = [pid for pid in self.plan if self.ceiling_at(pid, self.baseline) == 0]
+        assert len(zeros) == 17
+
+    def test_the_same_players_get_a_real_ceiling_against_their_own_reference(self) -> None:
+        """The fix: re-solve with him excluded instead of comparing against a baseline that
+        already assumes he is in it. Not all 17 clear it — 3 (measured: 7602, 5882, 7600) stay
+        at 0 even against their own `alt`, because a near-identical substitute genuinely
+        exists (`baseline - alt` of 0.14, 1.08, 0.32 against a margin of ~3) — a real "he is
+        fungible" answer, not the bug. The other 14 are the regression this test pins.
+        """
+        zeros_before = [pid for pid in self.plan if self.ceiling_at(pid, self.baseline) == 0]
+        assert zeros_before, "the fixture must reproduce the bug for this to mean anything"
+        still_zero = {pid for pid in zeros_before if self.ceiling_at(pid, self.reference(pid)) == 0}
+        assert still_zero == {"7602", "5882", "7600"}, f"expected only the near-substitutes: {still_zero}"
+
+
+class TestLotReferenceOnAnEssentialPlayer:
+    """The same "essential" convention `reservations()` already uses (`except
+    InfeasibleRoster: walkaways[target] = state.remaining_budget`): removing him leaves no
+    completable roster at all, so there is no "objective without him" to solve for.
+    """
+
+    def test_none_means_no_alternative_exists_not_a_number(self) -> None:
+        from fantabot.domain.asta.reservation import lot_reference
+
+        state = AstaState(total_budget=100.0)
+        plan, _ = reservations(state, POOL, **_kw())  # type: ignore[arg-type]
+        assert "gk" in plan.optimal.player_ids, "the only POR in the pool must be planned"
+
+        reference = lot_reference(
+            state, POOL, value=VALUE, prices=PRICES, teams=TEAMS, legality=MINI, rules=RULES,
+            baseline=plan.optimal.objective, player_id="gk", plan=plan.optimal.player_ids,
+        )
+        assert reference is None

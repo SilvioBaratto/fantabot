@@ -43,6 +43,7 @@ from fantabot.domain.asta.reservation import (
     apply_event,
     bargain_allowance,
     lot_ceiling,
+    lot_reference,
     opportunistic_walkaway,
     reservations,
 )
@@ -380,6 +381,7 @@ class RoomTracker:
         rules: RosterRules,
         baseline: float,
         hard_cap: int,
+        plan: tuple[str, ...],
     ) -> int:
         """`lot_ceiling`, computed once per player per state. 0 means hold.
 
@@ -387,13 +389,25 @@ class RoomTracker:
         exactly why it can be cached across the thirty polls one lot lives for, and why the
         cache is keyed on the state rather than aged out on a clock this layer must not read.
         `cycle` clears it when the state moves.
+
+        `lot_reference` picks what `lot_ceiling` has to beat: `baseline` unchanged for a lot
+        the plan did not name, the objective with him forced *out* for one it did — see its
+        own docstring for why comparing a plan member against a total that already includes
+        him ties every time and never clears the margin. `None` means no rosa is completable
+        without him at all; the same "essential" case `reservations()` already reserves the
+        whole budget for, so the ceiling is the cap and not a re-solved number.
         """
         hit = self._bargains.get(player_id)
         if hit is not None:
             return hit
-        ceiling = lot_ceiling(
+        reference = lot_reference(
             state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
             legality=self._legality, rules=rules, lam=self._lam, baseline=baseline,
+            player_id=player_id, plan=plan,
+        )
+        ceiling = hard_cap if reference is None else lot_ceiling(
+            state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
+            legality=self._legality, rules=rules, lam=self._lam, baseline=reference,
             player_id=player_id, hard_cap=hard_cap,
         )
         self._bargains[player_id] = ceiling
@@ -458,6 +472,7 @@ class RoomTracker:
                 return 0, None
             ceiling = self._bargain(
                 player_id, state=state, rules=rules, baseline=baseline, hard_cap=hard_cap,
+                plan=plan,
             )
         except Exception as exc:  # a hold, never an end to the evening
             return 0, f"bargain check failed, holding: {exc}"
@@ -532,40 +547,50 @@ class RoomTracker:
                 **base,  # type: ignore[arg-type]
             )
 
-        raw = walkaways.get(str(fantacalcio_id))
-        provenance: str | None = None
-        if raw is None:
+        pid = str(fantacalcio_id)
+        raw: float | None
+        provenance: str | None
+        if baseline is None:
+            raw, provenance, bargain_note = None, None, None
+        elif pid in plan:
+            # A plan member is priced the same way as any other lot now: `lot_ceiling`,
+            # never `reservations()`'s own cheap `base - alt` walk-away (§SPEC 2.A's
+            # unit-error). `walkaways` keeps its `reservations()` number for the LISTONE
+            # column and the copilot brief — advisory only from here forward.
+            ceiling = self._bargain(
+                pid, state=state, rules=rules, baseline=baseline, hard_cap=cap, plan=plan,
+            )
+            raw = float(ceiling) if ceiling else None
+            provenance = "ceiling" if ceiling else None
+            bargain_note = None
+        else:
             bargain, bargain_note = self._bargain_for(
-                str(fantacalcio_id), state=state, rules=rules, baseline=baseline, plan=plan,
+                pid, state=state, rules=rules, baseline=baseline, plan=plan,
                 owned_players=owned_players, cap=cap, allowance=allowance,
                 bargain_spent=bargain_spent,
             )
-            if not bargain:
-                return RoomFrame(
-                    target=None, walk_away=None, provenance=None, decision="hold",
-                    reason=None, note=note or bargain_note,
-                    **base,  # type: ignore[arg-type]
-                )
-            raw = float(bargain)
-            provenance = "bargain"
-            # The LISTONE column and the copilot brief both read `walkaways`. A BID on a lot
-            # whose own row shows no ceiling is the one line the operator cannot check.
-            base["walkaways"] = {**walkaways, str(fantacalcio_id): raw}
-            note = note or bargain_note
+            raw = float(bargain) if bargain else None
+            provenance = "bargain" if bargain else None
+            if bargain:
+                # The LISTONE column and the copilot brief both read `walkaways`. A BID on
+                # a lot whose own row shows no ceiling is the one line the operator cannot
+                # check.
+                base["walkaways"] = {**walkaways, pid: raw}
+
+        if raw is None or provenance is None:
+            return RoomFrame(
+                target=None, walk_away=None, provenance=None, decision="hold",
+                reason=None, note=note or bargain_note,
+                **base,  # type: ignore[arg-type]
+            )
+        note = note or bargain_note
 
         walk_away = int(raw)
-        # `reservations` returns min(remaining_budget, max(marginal, floor)), so three things
-        # can bind and the label has to say which. Saying "floor" on a number the budget
-        # decided is a lie on the one line read before spending.
-        floored = self._floor(str(fantacalcio_id)) if self._floor else 0.0
-        if provenance is not None:
-            pass
-        elif raw >= credits_left and floored > credits_left:
+        # `lot_ceiling` is scanned up to `hard_cap`, which is already `<= credits_left` — so
+        # this can only bind when the whole remaining purse is the ceiling itself, not a
+        # separate computation to compare against.
+        if provenance == "ceiling" and raw >= credits_left:
             provenance = "budget"
-        elif floored >= raw:
-            provenance = "floor"
-        else:
-            provenance = "marginal"
         payload = decide_bid(
             snapshot or {}, self._seat, "", target=lot, walk_away=walk_away,
             remaining_budget=credits_left, now_ms=now_ms, step=self._step, max_cap=cap,
@@ -584,7 +609,7 @@ class RoomTracker:
             # happens for every unplanned lot that survives the gates, while *raising* is the
             # only act that can end with the player in our rosa. A lot we bid on and lost
             # never enters `owned`, so it never counts against the cap.
-            self._bargain_wins.add(str(fantacalcio_id))
+            self._bargain_wins.add(pid)
         return RoomFrame(
             target=lot, walk_away=walk_away, provenance=provenance, decision="bid",
             reason=None, note=note, **base,  # type: ignore[arg-type]

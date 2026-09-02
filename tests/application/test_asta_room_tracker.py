@@ -34,8 +34,14 @@ SCHEMI = {
 # `400` is the fixture's only real bargain, and he is built to be one. The plan cannot
 # afford him — 95 for him plus 10 for the obligatory keeper is 105 of a 100 budget — so he
 # is never named, yet owning him at a low price and *then* buying the keeper is a strictly
-# better rosa (20 + 5 = 25 against the plan's 15). `300` is the control: also unplanned,
-# also under his book price, and buying him only ever swaps mu 10 for mu 9.
+# better rosa (20 + 5 = 25 against the plan's 20). `300` is the control: also unplanned,
+# also under his book price, and buying him only ever swaps mu 15 for mu 9.
+#
+# `200`'s mu (15, not the flatter 10 an earlier version used) is deliberate too: `lot_ceiling`
+# now prices a plan member against the objective with *him* excluded (`14`, keeper + `300`),
+# not against a total that already assumes he is in it — see `lot_reference`. A gap of 15 - 9
+# clears the margin (`max(1.0, 0.15 * 15) = 2.25`); the earlier 10 - 9 did not, and every
+# already-planned member of the fixture held forever regardless of price.
 POOL = [
     MantraPlayer("100", normalize_roles(["POR"])),
     MantraPlayer("200", normalize_roles(["A"])),
@@ -46,7 +52,7 @@ TEAMS = {"100": "W", "200": "X", "300": "Y", "400": "Z"}
 PRICES = {"100": 10.0, "200": 40.0, "300": 39.0, "400": 95.0}
 NAMES = {"100": "Portiere", "200": "Bomber", "300": "Riserva", "400": "Occasione"}
 VALUE = NaiveValueModel(
-    signals={"100": 5.0, "200": 10.0, "300": 9.0, "400": 20.0},
+    signals={"100": 5.0, "200": 15.0, "300": 9.0, "400": 20.0},
     prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
 )
 BRIDGE = {"uuid-gk": 100, "uuid-a1": 200, "uuid-a2": 300, "uuid-a3": 400}
@@ -90,11 +96,13 @@ class TestTheFrameCarriesWhatTheScreenNeeds:
         assert frame.seconds_left == 9.0
 
     def test_the_walkaway_carries_its_provenance(self) -> None:
-        """`walk-away 77 (floor a.price)` — never a fused number nobody can argue with."""
+        """`walk-away 77 (ceiling)` — never a fused number nobody can argue with. `price_floor`
+        and its `marginal`/`floor` split are retired (Task 1.3); a plan member now prices off
+        the same `lot_ceiling` re-solve as any other lot — see `lot_reference`."""
         frame = _tracker().cycle(_lot(), now_ms=1_000)
 
         assert frame.walk_away is not None
-        assert frame.provenance in {"marginal", "floor"}
+        assert frame.provenance in {"ceiling", "budget"}
 
     def test_a_refusal_names_the_guard_that_bound(self) -> None:
         frame = _tracker(ledger=()).cycle({**_lot(price=99), "user_id": "me"}, now_ms=1_000)
@@ -213,7 +221,7 @@ class TestALotThePlanDidNotNameIsStillWorthSomething:
         self,
     ) -> None:
         """400 costs 95 and the keeper 10, so a 100-credit plan can never name him. Owning
-        him at 5 and buying the keeper after is 25 against the plan's 15.
+        him at 5 and buying the keeper after is 25 against the plan's 20.
 
         `bargain_share` is named rather than defaulted: at the production 0.10 this fixture's
         100-credit purse allows 10, and the aggregate cap -- not the objective -- would be
@@ -232,7 +240,7 @@ class TestALotThePlanDidNotNameIsStillWorthSomething:
     def test_a_discount_the_objective_does_not_want_is_refused(self) -> None:
         """**The test the price-map heuristic fails.** 300 is unplanned and 5 is deep under
         his book of 39, so every cheap gate says bargain — and buying him only ever swaps
-        the plan's mu 10 for his mu 9. Measured on the live pool this is not an edge case:
+        the plan's mu 15 for his mu 9. Measured on the live pool this is not an edge case:
         of the 53 lots the pre-gate admitted, the re-solve refused 33 and lowered 11.
         """
         frame = _tracker().cycle(_lot(uuid="uuid-a2", price=5), now_ms=1_000)
@@ -532,3 +540,43 @@ class TestTheEveningHasOneBargainPurse:
             room.lot_ceiling = real
 
         assert calls == []
+
+
+class TestTwoWinsLandingInTheSamePollAreStillSafe:
+    """Task 1.2's ledger-settlement-lag test (`tasks/plan.md` §2, risk row 3): the room's own
+    ledger read can lag a raise that already won, so two decisions made a poll apart can each
+    look individually justified against a purse that has not yet caught up with the other.
+    That gap is not closed here — `bargain_allowance` already guards the case where we made
+    both decisions ourselves (`TestTheEveningHasOneBargainPurse`, above) — this pins the
+    fallback for when it is not: once the ledger *does* catch up and shows both wins landing
+    in the same poll, at once, `cycle` must fold both correctly and never turn an already-bad
+    purse into a crash or a silent overspend. `max_bid` reserving credits per remaining slot
+    and `reservations()`'s own `InfeasibleRoster` are what already do this — nothing new is
+    added; this is the proof they still hold once every lot goes through the same re-solve.
+    """
+
+    def test_both_wins_are_folded_not_just_the_first(self) -> None:
+        """The state a decision is made against has to be the state *after* both, not
+        whichever one `resolve_ids` happens to see first."""
+        ledger = [AssignmentEvent("uuid-a3", 90, "us"), AssignmentEvent("uuid-a4", 90, "us")]
+        frame = _cap_tracker(0.40, ledger=ledger).cycle(_lot(uuid="uuid-a2", price=5), now_ms=1_000)
+
+        assert frame.credits_left == 100 - 90 - 90
+        assert set(frame.owned) == {"400", "500"}
+
+    def test_a_purse_two_lag_won_bargains_already_broke_holds_instead_of_overspending(
+        self,
+    ) -> None:
+        """`400` and `500` are only ever bargains, never plan members (their combined book —
+        185 — leaves nothing for the mandatory keeper). Landing both at once spends 180 of
+        100 credits before the keeper is even priced, which no single decision here chose —
+        each was a separate poll's answer, made before the other was visible. The keeper slot
+        cannot be filled from what's left, so `reservations()` must raise `InfeasibleRoster`
+        and `cycle` must hold, not ramp a bid past a budget that is already negative.
+        """
+        ledger = [AssignmentEvent("uuid-a3", 90, "us"), AssignmentEvent("uuid-a4", 90, "us")]
+        frame = _cap_tracker(0.40, ledger=ledger).cycle(_lot(uuid="uuid-gk"), now_ms=1_000)
+
+        assert frame.decision == "hold"
+        assert frame.plan == ()
+        assert frame.credits_left < 0, "the lag already overspent; the guard is what happens next"
