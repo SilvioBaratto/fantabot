@@ -18,12 +18,16 @@ from datetime import date
 from _golden import load_clearing_sales, load_listone_bridge, load_quotazioni, load_sentiment
 from _paths import GOLDEN
 
-from fantabot.application.asta_bench import BenchScenario, Rung, replay
+from fantabot.application.asta_bench import BENCH_SCENARIOS, bench_checks, load_scenario, replay
 from fantabot.application.plan_inputs import PlanInputs, build_plan_inputs
 from fantabot.domain.asta.prices import Sale, mean_prices
 from fantabot.domain.asta.sentiment import SentimentWeights
 
 BENCH_FIXTURES = GOLDEN / "asta_2026_09_01"
+
+#: `name -> (filename, uuid_key, rung_key)`, from the one shared scenario table
+#: `interface/asta.py`'s `asta bench` command also drives itself from.
+_SCENARIOS = {name: (filename, uuid_key, rung_key) for name, filename, uuid_key, rung_key in BENCH_SCENARIOS}
 
 #: The captured `player_sentiment` run these fixtures share with the rest of `tests/golden/`.
 PINNED_TODAY = date(2026, 8, 28)
@@ -45,42 +49,26 @@ def _world() -> tuple[PlanInputs, dict[str, int]]:
     return world, bridge
 
 
-def _scenario(name: str, filename: str, *, uuid_key: str, rung_key: str) -> tuple[BenchScenario, int]:
-    """Load one `tests/golden/asta_2026_09_01/*.json` fixture into a `BenchScenario`.
-
-    The three fixtures don't share one shape — Vicario's came from `asta_assignment.ladder`
-    (`player_uuid`/`ladder`, real bidder identity per rung); Ostigard's and Malen's came from
-    our own `room_journal.jsonl` (`lot_uuid`/`rows`, no bidder identity, since the harvester
-    missed their window — see the fixtures' own `_derived_from`). This is the one place that
-    difference is absorbed.
-    """
+def _final_price(filename: str) -> int:
+    """The fixture's own recorded clearing price — asserted separately from `bench_checks`,
+    which judges the replay's rows, not the fixture's own metadata."""
     raw = json.loads((BENCH_FIXTURES / filename).read_text(encoding="utf-8"))
-    rungs = tuple(
-        Rung(at_ms=row["at_ms"], price=row["price"], team_id=row.get("team_id"))
-        for row in raw[rung_key]
-    )
-    purchases = tuple(
-        (str(p["fantacalcio_id"]), p["price"]) for p in raw["our_purchases_before"]
-    )
-    scenario = BenchScenario(
-        name=name,
-        lot_uuid=raw[uuid_key],
-        fantacalcio_id=str(raw["fantacalcio_id"]),
-        our_purchases_before=purchases,
-        rungs=rungs,
-    )
-    return scenario, raw["final_price"]
+    return int(raw["final_price"])
 
 
 class TestVicarioIsConsideredAndDeclinedAtEveryPrice:
-    """SPEC §8 item 2: never a target; §8 item 3: never silently held."""
+    """SPEC §8 item 2: never a target; §8 item 3: never silently held.
+
+    The invariant itself lives in `asta_bench.bench_checks` — the same function
+    `interface/asta.py`'s `asta bench` command checks — so this test and that command cannot
+    quietly disagree about what "Vicario passes" means.
+    """
 
     def test_every_rung_is_a_considered_pass(self) -> None:
         world, bridge = _world()
-        scenario, final_price = _scenario(
-            "vicario", "vicario_ladder.json", uuid_key="player_uuid", rung_key="ladder"
-        )
-        assert final_price == 58
+        filename, uuid_key, rung_key = _SCENARIOS["Vicario"]
+        scenario = load_scenario(BENCH_FIXTURES, "Vicario", filename, uuid_key=uuid_key, rung_key=rung_key)
+        assert _final_price(filename) == 58
 
         rows = replay(
             scenario,
@@ -89,22 +77,20 @@ class TestVicarioIsConsideredAndDeclinedAtEveryPrice:
         )
 
         assert len(rows) == len(scenario.rungs)
-        assert all(row["decision"] == "pass" for row in rows)
-        assert all(row["walk_away"] == 0 for row in rows)
-        assert all(row["provenance"] == "bargain" for row in rows)
+        assert bench_checks("Vicario", rows) == []
 
 
 class TestOstigardIsGatedForFreeNotSilentlyHeld:
     """A `None` provenance here is the materiality gate working, not defect A recurring —
     his book (15) is below `BARGAIN_MIN_BOOK` (20), so `opportunistic_walkaway` declines
-    before any re-solve runs. SPEC §8 item 3 draws exactly this line."""
+    before any re-solve runs. SPEC §8 item 3 draws exactly this line. See
+    `TestVicarioIsConsideredAndDeclinedAtEveryPrice` for why the check itself is shared."""
 
     def test_every_poll_holds_on_the_free_pre_gate(self) -> None:
         world, bridge = _world()
-        scenario, final_price = _scenario(
-            "ostigard", "ostigard_journal.json", uuid_key="lot_uuid", rung_key="rows"
-        )
-        assert final_price == 1
+        filename, uuid_key, rung_key = _SCENARIOS["Ostigard"]
+        scenario = load_scenario(BENCH_FIXTURES, "Ostigard", filename, uuid_key=uuid_key, rung_key=rung_key)
+        assert _final_price(filename) == 1
 
         rows = replay(
             scenario,
@@ -113,9 +99,7 @@ class TestOstigardIsGatedForFreeNotSilentlyHeld:
         )
 
         assert len(rows) == len(scenario.rungs)
-        assert all(row["decision"] == "hold" for row in rows)
-        assert all(row["provenance"] is None for row in rows)
-        assert all(row["walk_away"] is None for row in rows)
+        assert bench_checks("Ostigard", rows) == []
 
 
 class TestMalenIsPricedAboveTheMinimumAndRefusedOnceHePassesTheCeiling:
@@ -123,14 +107,14 @@ class TestMalenIsPricedAboveTheMinimumAndRefusedOnceHePassesTheCeiling:
     polls; the fixed bidder prices him at a steady 50 throughout (`provenance="bargain"` on
     every row — never the silence the plan gave him before) and would have raised while the
     live price was under that (0, 30) before correctly refusing once it passed 50 — the
-    price he actually cleared at, 97, well above."""
+    price he actually cleared at, 97, well above. See
+    `TestVicarioIsConsideredAndDeclinedAtEveryPrice` for why the check itself is shared."""
 
     def test_every_poll_prices_him_and_the_decision_tracks_the_ceiling(self) -> None:
         world, bridge = _world()
-        scenario, final_price = _scenario(
-            "malen", "malen_journal.json", uuid_key="lot_uuid", rung_key="rows"
-        )
-        assert final_price == 97
+        filename, uuid_key, rung_key = _SCENARIOS["Malen"]
+        scenario = load_scenario(BENCH_FIXTURES, "Malen", filename, uuid_key=uuid_key, rung_key=rung_key)
+        assert _final_price(filename) == 97
 
         rows = replay(
             scenario,
@@ -139,13 +123,4 @@ class TestMalenIsPricedAboveTheMinimumAndRefusedOnceHePassesTheCeiling:
         )
 
         assert len(rows) == len(scenario.rungs)
-        assert all(row["provenance"] == "bargain" for row in rows)
-        assert all(row["walk_away"] == 50 for row in rows)
-        assert all(row["walk_away"] >= 40 for row in rows)
-        for row in rows:
-            price = row["price"]
-            assert isinstance(price, int)
-            if price < 50:
-                assert row["decision"] == "bid"
-            else:
-                assert row["decision"] == "pass" and row["reason"] == "walk_away"
+        assert bench_checks("Malen", rows) == []

@@ -26,19 +26,23 @@ regeneration prompt — see `test_golden.py`'s update mode, which is built so it
 
 from __future__ import annotations
 
-import csv
-import json
 import os
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import fields
 from datetime import date
 from typing import Any
 from unittest.mock import patch
 
 from _paths import GOLDEN
 
-from fantabot.domain.shared.values import QuotazioneRow, SentimentRow
+from fantabot.domain.shared.values import (
+    QuotazioneRow,
+    SentimentRow,
+    parse_clearing_sales_csv,
+    parse_listone_bridge_json,
+    parse_quotazioni_jsonl,
+    parse_sentiment_jsonl,
+)
 
 GOLDEN = GOLDEN
 
@@ -52,35 +56,14 @@ PINNED_TODAY = date(2026, 8, 28)
 CONSOLE_ENV = {"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
 
 
-def _jsonl(name: str) -> Iterator[dict[str, Any]]:
-    with (GOLDEN / name).open(encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                yield json.loads(line)
-
-
 def load_quotazioni() -> dict[str, QuotazioneRow]:
     """The 548-player Mantra listone, in the repository's own stable id order."""
-    out: dict[str, QuotazioneRow] = {}
-    for row in _jsonl("quotazioni.jsonl"):
-        out[row["player_id"]] = QuotazioneRow(
-            player_id=row["player_id"],
-            nome=row["nome"],
-            squadra=row["squadra"],
-            ruoli_codice=tuple(row["ruoli_codice"]),
-            ruoli=tuple(row["ruoli"]),
-            fvm=row["fvm"],
-        )
-    return out
+    return parse_quotazioni_jsonl((GOLDEN / "quotazioni.jsonl").read_text(encoding="utf-8"))
 
 
 def load_sentiment() -> dict[str, SentimentRow]:
     """One reading per player, all from `data_run` = PINNED_TODAY."""
-    names = {f.name for f in fields(SentimentRow)}
-    return {
-        row["player_id"]: SentimentRow(**{k: v for k, v in row.items() if k in names})
-        for row in _jsonl("sentiment.jsonl")
-    }
+    return parse_sentiment_jsonl((GOLDEN / "sentiment.jsonl").read_text(encoding="utf-8"))
 
 
 def load_listone_bridge() -> dict[str, int]:
@@ -96,15 +79,12 @@ def load_listone_bridge() -> dict[str, int]:
     It is load-bearing for `asta optimize` too now: the pinned players *absent* from this map
     are the ones the planner must stop planning around.
     """
-    raw = json.loads((GOLDEN / "listone_map.json").read_text(encoding="utf-8"))
-    return {str(uuid): int(fid) for uuid, fid in raw.items()}
+    return parse_listone_bridge_json((GOLDEN / "listone_map.json").read_text(encoding="utf-8"))
 
 
 def load_clearing_sales() -> list[tuple[str, int]]:
     """Every Mantra sale of our league shape, in the query's own `ORDER BY`."""
-    with (GOLDEN / "clearing_sales.csv").open(encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        return [(row["player_id"], int(row["price"])) for row in reader]
+    return parse_clearing_sales_csv((GOLDEN / "clearing_sales.csv").read_text(encoding="utf-8"))
 
 
 class _FakeReferenceRepository:

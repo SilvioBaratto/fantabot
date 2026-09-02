@@ -37,8 +37,11 @@ consumer that exists at the time.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 SCORES: tuple[str, ...] = (
     "sentiment",
@@ -146,6 +149,59 @@ class TrailingSentiment:
     forma: float
     rigorista: float
     piazzati: float
+
+
+def parse_quotazioni_jsonl(text: str) -> dict[str, QuotazioneRow]:
+    """One `QuotazioneRow` per non-blank line, keyed on `player_id`.
+
+    Shared by `tests/_golden.py` (the golden-fixture harness) and `interface/asta.py`'s
+    `asta bench` command, which reads the same fixture shape from a `--replay` directory
+    with no database in reach. Written once so the two readings of this row shape cannot
+    drift apart — they did exactly that, independently, before this function existed.
+    """
+    out: dict[str, QuotazioneRow] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        out[row["player_id"]] = QuotazioneRow(
+            player_id=row["player_id"],
+            nome=row["nome"],
+            squadra=row["squadra"],
+            ruoli_codice=tuple(row["ruoli_codice"]),
+            ruoli=tuple(row["ruoli"]),
+            fvm=row["fvm"],
+        )
+    return out
+
+
+def parse_sentiment_jsonl(text: str) -> dict[str, SentimentRow]:
+    """One `SentimentRow` per non-blank line, keyed on `player_id`.
+
+    Extra JSON keys are dropped rather than rejected: the fixture and the live
+    `player_sentiment` table have not always carried the same columns, and a reader that
+    demands an exact match breaks on the next column either one adds. See
+    `parse_quotazioni_jsonl` for why this is a shared function at all.
+    """
+    names = {f.name for f in fields(SentimentRow)}
+    out: dict[str, SentimentRow] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        out[row["player_id"]] = SentimentRow(**{k: v for k, v in row.items() if k in names})
+    return out
+
+
+def parse_clearing_sales_csv(text: str) -> list[tuple[str, int]]:
+    """`(player_id, price)` pairs, in the file's own row order. See `parse_quotazioni_jsonl`."""
+    return [(row["player_id"], int(row["price"])) for row in csv.DictReader(io.StringIO(text))]
+
+
+def parse_listone_bridge_json(text: str) -> dict[str, int]:
+    """`uuid -> fantacalcio_id`, FantaLab's listone bridge. See `parse_quotazioni_jsonl`."""
+    raw = json.loads(text)
+    return {str(uuid): int(fid) for uuid, fid in raw.items()}
 
 
 @dataclass(frozen=True)

@@ -13,12 +13,19 @@ the poll loop drives `cycle` with the scenario's own recorded `(at_ms, price, te
 Nothing here reads a clock, a socket, or a database — the fixtures under
 `tests/golden/asta_2026_09_01/` and `tests/golden/{quotazioni,sentiment,listone_map}.json(l)`
 carry everything a replay needs.
+
+**`load_scenario` is the one function here that touches a file**, reading one fixture from a
+directory both `asta bench` and `test_asta_bench.py` are handed — the same reason `bench_checks`
+lives here rather than in either caller: one statement of what a scenario is and what its
+replay must show, used by the CLI and the test rather than restated by each.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from fantabot.application.asta_room import RoomTracker
 from fantabot.domain.asta.bid import Seat
@@ -137,3 +144,76 @@ def replay(
         }
         tracker.cycle(snapshot, now_ms=rung.at_ms)
     return rows
+
+
+#: One recorded lot's fixture filename and the shape its rungs are stored under
+#: (`name, filename, uuid_key, rung_key`). Shared by `interface/asta.py`'s `asta bench`
+#: command and `tests/application/test_asta_bench.py`, so there is exactly one list of
+#: which scenarios the acceptance gate covers.
+BENCH_SCENARIOS: tuple[tuple[str, str, str, str], ...] = (
+    ("Vicario", "vicario_ladder.json", "player_uuid", "ladder"),
+    ("Ostigard", "ostigard_journal.json", "lot_uuid", "rows"),
+    ("Malen", "malen_journal.json", "lot_uuid", "rows"),
+)
+
+
+def bench_checks(name: str, rows: Sequence[Mapping[str, object]]) -> list[str]:
+    """Every failed invariant for one scenario's replay, or `[]` if it holds.
+
+    The one statement of what SPEC §8 items 2 and 3 require from each of the three real
+    scenarios — `interface/asta.py`'s `asta bench` command and `test_asta_bench.py` both
+    call this rather than each restating the same real, measured evidence in their own
+    words, which is exactly how the two drifted apart before this function existed.
+    """
+    failures: list[str] = []
+    if name == "Vicario":
+        if not all(r["decision"] == "pass" for r in rows):
+            failures.append("expected every rung to be a `pass` (never a target)")
+        if not all(r["walk_away"] == 0 for r in rows):
+            failures.append("expected `walk_away == 0` on every rung")
+        if not all(r["provenance"] == "bargain" for r in rows):
+            failures.append("expected `provenance == 'bargain'` on every rung (considered, not held)")
+    elif name == "Ostigard":
+        if not all(r["decision"] == "hold" for r in rows):
+            failures.append("expected every poll to `hold` (the free materiality pre-gate)")
+        if not all(r["provenance"] is None for r in rows):
+            failures.append("expected `provenance is None` on every poll (never asked, book < BARGAIN_MIN_BOOK)")
+    elif name == "Malen":
+        if not all(r["provenance"] == "bargain" for r in rows):
+            failures.append("expected `provenance == 'bargain'` on every poll")
+        if not all(isinstance(r["walk_away"], int) and r["walk_away"] >= 40 for r in rows):
+            failures.append("expected a ceiling >= 40 on every poll")
+        for r in rows:
+            price = r["price"]
+            assert isinstance(price, int)
+            if price < r["walk_away"]:  # type: ignore[operator]
+                if r["decision"] != "bid":
+                    failures.append(f"price {price} is under the ceiling; expected `bid`")
+            elif not (r["decision"] == "pass" and r["reason"] == "walk_away"):
+                failures.append(f"price {price} is at/over the ceiling; expected `pass`/`walk_away`")
+    return failures
+
+
+def load_scenario(directory: Path, name: str, filename: str, *, uuid_key: str, rung_key: str) -> BenchScenario:
+    """One `tests/golden/asta_2026_09_01/*.json` fixture, parsed into a `BenchScenario`.
+
+    The three fixtures don't share one shape — Vicario's came from `asta_assignment.ladder`
+    (`player_uuid`/`ladder`, real bidder identity per rung); Ostigard's and Malen's came from
+    our own `room_journal.jsonl` (`lot_uuid`/`rows`, no bidder identity, since the harvester
+    missed their window — see the fixtures' own `_derived_from`). `uuid_key`/`rung_key`
+    absorb that difference; `BENCH_SCENARIOS` states it once per fixture.
+    """
+    raw = json.loads((directory / filename).read_text(encoding="utf-8"))
+    rungs = tuple(
+        Rung(at_ms=row["at_ms"], price=row["price"], team_id=row.get("team_id"))
+        for row in raw[rung_key]
+    )
+    return BenchScenario(
+        name=name,
+        lot_uuid=raw[uuid_key],
+        fantacalcio_id=str(raw["fantacalcio_id"]),
+        our_purchases_before=tuple(
+            (str(p["fantacalcio_id"]), p["price"]) for p in raw["our_purchases_before"]
+        ),
+        rungs=rungs,
+    )

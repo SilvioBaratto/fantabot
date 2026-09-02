@@ -1010,52 +1010,6 @@ def asta_bid(
     _report_stopped(report)
 
 
-#: One recorded lot's fixture filenames and the acceptance `asta bench` checks it against.
-#: The checks themselves are the same invariants `tests/application/test_asta_bench.py`
-#: proves — this command exists so the same evidence is one CLI call away, not a pytest
-#: incantation, and so a future regression fails loudly with a clear reason on stdout.
-_BENCH_SCENARIOS: tuple[tuple[str, str, str, str], ...] = (
-    ("Vicario", "vicario_ladder.json", "player_uuid", "ladder"),
-    ("Ostigard", "ostigard_journal.json", "lot_uuid", "rows"),
-    ("Malen", "malen_journal.json", "lot_uuid", "rows"),
-)
-
-
-def _bench_checks(name: str, rows: list[Mapping[str, object]]) -> list[str]:
-    """Every failed invariant for one scenario's replay, or `[]` if it holds.
-
-    Mirrors the three assertion blocks in `test_asta_bench.py` exactly — this is the
-    production reading of the same real, measured evidence, not a separate claim.
-    """
-    failures: list[str] = []
-    if name == "Vicario":
-        if not all(r["decision"] == "pass" for r in rows):
-            failures.append("expected every rung to be a `pass` (never a target)")
-        if not all(r["walk_away"] == 0 for r in rows):
-            failures.append("expected `walk_away == 0` on every rung")
-        if not all(r["provenance"] == "bargain" for r in rows):
-            failures.append("expected `provenance == 'bargain'` on every rung (considered, not held)")
-    elif name == "Ostigard":
-        if not all(r["decision"] == "hold" for r in rows):
-            failures.append("expected every poll to `hold` (the free materiality pre-gate)")
-        if not all(r["provenance"] is None for r in rows):
-            failures.append("expected `provenance is None` on every poll (never asked, book < BARGAIN_MIN_BOOK)")
-    elif name == "Malen":
-        if not all(r["provenance"] == "bargain" for r in rows):
-            failures.append("expected `provenance == 'bargain'` on every poll")
-        if not all(isinstance(r["walk_away"], int) and r["walk_away"] >= 40 for r in rows):
-            failures.append("expected a ceiling >= 40 on every poll")
-        for r in rows:
-            price = r["price"]
-            assert isinstance(price, int)
-            if price < r["walk_away"]:  # type: ignore[operator]
-                if r["decision"] != "bid":
-                    failures.append(f"price {price} is under the ceiling; expected `bid`")
-            elif not (r["decision"] == "pass" and r["reason"] == "walk_away"):
-                failures.append(f"price {price} is at/over the ceiling; expected `pass`/`walk_away`")
-    return failures
-
-
 def asta_bench(
     replay: Path = typer.Option(
         ...,
@@ -1082,51 +1036,26 @@ def asta_bench(
     Exits non-zero, one line per failed invariant, if a change to `asta_room`/`reservation`
     regresses any of the three.
     """
-    import csv
-    import json
-    from dataclasses import fields
-
-    from fantabot.application.asta_bench import BenchScenario, Rung
+    from fantabot.application.asta_bench import BENCH_SCENARIOS, bench_checks, load_scenario
     from fantabot.application.asta_bench import replay as run_replay
     from fantabot.application.plan_inputs import build_plan_inputs
     from fantabot.domain.asta.prices import Sale, mean_prices
-    from fantabot.domain.shared.values import QuotazioneRow, SentimentRow
+    from fantabot.domain.shared.values import (
+        parse_clearing_sales_csv,
+        parse_listone_bridge_json,
+        parse_quotazioni_jsonl,
+        parse_sentiment_jsonl,
+    )
 
+    # Same row shapes `tests/_golden.py` reads for the golden harness, parsed by the same
+    # functions — `asta bench` and the golden tests must not each grow their own reading of
+    # what a `quotazioni.jsonl`/`sentiment.jsonl`/`listone_map.json` row means.
     world_dir = replay.parent
-    bridge = {
-        str(uuid): int(fid)
-        for uuid, fid in json.loads(
-            (world_dir / "listone_map.json").read_text(encoding="utf-8")
-        ).items()
-    }
-
-    quotazioni: dict[str, QuotazioneRow] = {}
-    for line in (world_dir / "quotazioni.jsonl").read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        quotazioni[row["player_id"]] = QuotazioneRow(
-            player_id=row["player_id"],
-            nome=row["nome"],
-            squadra=row["squadra"],
-            ruoli_codice=tuple(row["ruoli_codice"]),
-            ruoli=tuple(row["ruoli"]),
-            fvm=row["fvm"],
-        )
-
-    sentiment_field_names = {f.name for f in fields(SentimentRow)}
-    sentiment: dict[str, SentimentRow] = {}
-    for line in (world_dir / "sentiment.jsonl").read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        sentiment[row["player_id"]] = SentimentRow(
-            **{k: v for k, v in row.items() if k in sentiment_field_names}
-        )
-
-    with (world_dir / "clearing_sales.csv").open(encoding="utf-8", newline="") as handle:
-        sales = [Sale(row["player_id"], int(row["price"])) for row in csv.DictReader(handle)]
-    prices = mean_prices(sales)
+    bridge = parse_listone_bridge_json((world_dir / "listone_map.json").read_text(encoding="utf-8"))
+    quotazioni = parse_quotazioni_jsonl((world_dir / "quotazioni.jsonl").read_text(encoding="utf-8"))
+    sentiment = parse_sentiment_jsonl((world_dir / "sentiment.jsonl").read_text(encoding="utf-8"))
+    sales = parse_clearing_sales_csv((world_dir / "clearing_sales.csv").read_text(encoding="utf-8"))
+    prices = mean_prices(Sale(player_id, price) for player_id, price in sales)
 
     world = build_plan_inputs(
         quotazioni, prices, sentiment,
@@ -1135,27 +1064,14 @@ def asta_bench(
     )
 
     all_ok = True
-    for name, filename, uuid_key, rung_key in _BENCH_SCENARIOS:
-        raw = json.loads((replay / filename).read_text(encoding="utf-8"))
-        rungs = tuple(
-            Rung(at_ms=r["at_ms"], price=r["price"], team_id=r.get("team_id"))
-            for r in raw[rung_key]
-        )
-        scenario = BenchScenario(
-            name=name,
-            lot_uuid=raw[uuid_key],
-            fantacalcio_id=str(raw["fantacalcio_id"]),
-            our_purchases_before=tuple(
-                (str(p["fantacalcio_id"]), p["price"]) for p in raw["our_purchases_before"]
-            ),
-            rungs=rungs,
-        )
+    for name, filename, uuid_key, rung_key in BENCH_SCENARIOS:
+        scenario = load_scenario(replay, name, filename, uuid_key=uuid_key, rung_key=rung_key)
         rows = run_replay(
             scenario,
             pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
             legality=world.legality, names=world.names, bridge=bridge, lam=lam,
         )
-        failures = _bench_checks(name, rows)
+        failures = bench_checks(name, rows)
         if failures:
             all_ok = False
             console.print(f"[red]{name}: FAIL[/red] ({len(rows)} polls)")
