@@ -62,18 +62,11 @@ def test_plans_the_best_legal_lineup_and_carries_the_matchday_coordinates() -> N
     assert (plan.competition, plan.mday, plan.cmday, plan.tid) == (311681, 1, 3, 10000003)
 
 
-def test_sentiment_tilts_a_reserve_into_the_xi() -> None:
-    boosted = plan_lineup(INPUTS, effect={60: 10.0})  # 4.0 * 10 = 40, beats the 5.0 wingers
+def test_the_field_is_the_top_value_players() -> None:
+    plan = plan_lineup(INPUTS)
 
-    assert 60 in boosted.starts
-    assert 2194 not in boosted.starts  # the weaker winger drops to the bench
-
-
-def test_no_sentiment_reproduces_the_fvm_only_field() -> None:
-    plan = plan_lineup(INPUTS, effect=None)
-
-    assert 2194 in plan.starts
-    assert 60 not in plan.starts
+    assert 2194 in plan.starts  # a starter (value 5.0) beats the reserves (< 5.0)
+    assert 60 not in plan.starts  # a reserve (value 4.0) stays on the bench
 
 
 def test_plan_lineups_are_ranked_best_first_each_complete() -> None:

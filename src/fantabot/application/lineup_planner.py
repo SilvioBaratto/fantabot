@@ -2,10 +2,10 @@
 
 The one place the lineup value model is assembled, mirroring `application/asta_planner` for
 the auction. Pure orchestration of the `domain/lineup` pieces: the inputs (roster ids, the
-role/fvm maps, the allowed modules, the matchday coordinates) are gathered by the interface
-from `apileague` and `quotazioni` and handed in as `LineupInputs`, so this module opens no
-socket and reads no clock. The sentiment multiplier is likewise passed in, already computed
-against the caller's `as_of`; `effect=None` is the `--no-sentiment` ablation.
+role/value maps, the allowed modules, the matchday coordinates) are gathered by the interface
+from `apileague`'s `teamLineup` and handed in as `LineupInputs`, so this module opens no
+socket and reads no clock. The per-player value is the sourced `indexCompare` (see
+`domain/lineup/value`); no sentiment tilt is applied.
 """
 
 from __future__ import annotations
@@ -82,11 +82,7 @@ def inputs_from_lineup(
     return inputs, names
 
 
-def plan_lineups(
-    inputs: LineupInputs,
-    *,
-    effect: Mapping[int, float] | None = None,
-) -> list[PlannedLineup]:
+def plan_lineups(inputs: LineupInputs) -> list[PlannedLineup]:
     """Every fieldable `PlannedLineup`, best first.
 
     The submit path walks this list, falling to the next module if the platform rejects one
@@ -98,7 +94,7 @@ def plan_lineups(
         roles_by_id=inputs.roles_by_id,
         fvmma_by_id=inputs.fvmma_by_id,
     )
-    scores = score(roster, effect=effect)
+    scores = score(roster)
     plans = [
         PlannedLineup(
             module=module,
@@ -116,10 +112,6 @@ def plan_lineups(
     return plans
 
 
-def plan_lineup(
-    inputs: LineupInputs,
-    *,
-    effect: Mapping[int, float] | None = None,
-) -> PlannedLineup:
+def plan_lineup(inputs: LineupInputs) -> PlannedLineup:
     """The single best `PlannedLineup` from `inputs`."""
-    return plan_lineups(inputs, effect=effect)[0]
+    return plan_lineups(inputs)[0]

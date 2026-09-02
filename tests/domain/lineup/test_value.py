@@ -1,9 +1,4 @@
-"""`value.score` — each player's ranking signal, `fvmma x sentiment`. Pure.
-
-The multiplier is `domain/asta/sentiment.effect_by_id`, computed by the caller with an
-`as_of` it passes in, so this module reads no clock. With no effect the score is the raw
-`fvmma` — the `--no-sentiment` ablation the auction side also carries.
-"""
+"""`value.score` — each player's ranking signal, the value on `RosterPlayer.fvmma`. Pure."""
 
 from __future__ import annotations
 
@@ -16,18 +11,9 @@ ROSTER = [
 ]
 
 
-def test_score_is_fvmma_times_the_effect_multiplier() -> None:
-    scores = score(ROSTER, effect={6482: 1.0, 4179: 1.5})
-
-    assert scores == {6482: 6.0, 4179: 60.0}
-
-
-def test_no_effect_reproduces_the_raw_fvmma() -> None:
+def test_score_is_the_per_player_value() -> None:
     assert score(ROSTER) == {6482: 6.0, 4179: 40.0}
 
 
-def test_a_player_absent_from_the_effect_map_gets_a_neutral_multiplier() -> None:
-    scores = score(ROSTER, effect={4179: 2.0})
-
-    assert scores[6482] == 6.0  # neutral 1.0
-    assert scores[4179] == 80.0
+def test_an_empty_roster_scores_to_an_empty_map() -> None:
+    assert score([]) == {}

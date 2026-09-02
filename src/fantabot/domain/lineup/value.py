@@ -1,24 +1,20 @@
-"""Each player's ranking signal: `fvmma` tilted by news sentiment. Pure.
+"""Each player's ranking signal — the per-player objective term. Pure.
 
-The objective the matcher maximises is `sum(score)` over the started players — linear, which
-is what lets the assignment be solved exactly. `score` is that per-player term. The sentiment
-multiplier comes from `domain/asta/sentiment.effect_by_id` (the same gates the auction uses),
-computed by the caller against an `as_of` it owns; passing it in keeps this module clock-free.
-With no effect the score is the raw `fvmma` — the `--no-sentiment` ablation.
+The objective the matcher maximises is `sum(score)` over the started players; `score` is that
+per-player term. It is the sourced value on `RosterPlayer.fvmma` — which in this phase carries
+the platform's own `indexCompare` rating (`docs/leghe-api.md`), because the scraped
+`quotazioni`/sentiment ids do not join the league roster. A sentiment tilt is *not* applied:
+that seam was removed once the id mismatch made it unwireable; add it back here if a joinable
+signal ever exists.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from fantabot.domain.lineup.models import RosterPlayer
 
 
-def score(
-    roster: Sequence[RosterPlayer],
-    *,
-    effect: Mapping[int, float] | None = None,
-) -> dict[int, float]:
-    """`{player_id: fvmma * multiplier}`. A player absent from `effect` scores at `1.0`."""
-    multipliers = effect or {}
-    return {player.id: player.fvmma * multipliers.get(player.id, 1.0) for player in roster}
+def score(roster: Sequence[RosterPlayer]) -> dict[int, float]:
+    """`{player_id: value}` — each player's value signal, the weight the matcher maximises."""
+    return {player.id: player.fvmma for player in roster}

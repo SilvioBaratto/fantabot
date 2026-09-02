@@ -17,7 +17,12 @@ from fantabot.domain.lineup.errors import RosterIncomplete
 
 @dataclass(frozen=True)
 class RosterPlayer:
-    """One owned player: id, canonical Mantra roles, and Mantra fvm (the value signal)."""
+    """One owned player: id, canonical Mantra roles, and the value signal the matcher ranks on.
+
+    The `fvmma` field is that value signal; in this phase it carries the platform's
+    `indexCompare` rating (the data-source pivot — `quotazioni` ids do not join the roster),
+    not the Mantra fvm the name once meant.
+    """
 
     id: int
     roles: frozenset[str]
