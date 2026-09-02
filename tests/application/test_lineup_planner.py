@@ -1,0 +1,71 @@
+"""`plan_lineup` — the one place the lineup value model is composed. Pure, zero sockets.
+
+Pins that the planner picks the best legal XI and bench from the value model, that sentiment
+tilts the XI, and that `--no-sentiment` (effect=None) reproduces the fvm-only field.
+"""
+
+from __future__ import annotations
+
+from fantabot.application.lineup_planner import LineupInputs, plan_lineup
+
+MODULES = ["3412", "3421", "343", "3511", "352", "4141", "4231", "4312", "433", "4411", "442"]
+
+# 11 starters whose natural roles field only 3-4-3, each clearly above the reserves.
+STARTERS: dict[int, tuple[float, tuple[str, ...]]] = {
+    6482: (6.0, ("POR",)),
+    2788: (8.0, ("DC",)),
+    7564: (7.0, ("DC",)),
+    7274: (6.0, ("DC",)),
+    7181: (7.0, ("E",)),
+    1850: (6.0, ("M",)),
+    5504: (6.0, ("C",)),
+    5678: (5.0, ("E",)),
+    4179: (10.0, ("W",)),
+    6875: (9.0, ("A",)),
+    2194: (5.0, ("W",)),
+}
+RESERVE_GK = {50: (4.0, ("POR",))}
+# broad-role reserves, all below the weakest starter, so the XI is exactly the starters
+RESERVES = {60 + i: (4.0 - 0.2 * i, ("W", "A", "DC", "M", "C", "E")) for i in range(12)}
+
+ALL = {**STARTERS, **RESERVE_GK, **RESERVES}
+ROSTER_IDS = list(ALL)
+ROLES = {pid: list(roles) for pid, (_, roles) in ALL.items()}
+FVMMA = {pid: fvm for pid, (fvm, _) in ALL.items()}
+
+INPUTS = LineupInputs(
+    roster_ids=ROSTER_IDS,
+    roles_by_id=ROLES,
+    fvmma_by_id=FVMMA,
+    modules=MODULES,
+    competition=311681,
+    mday=1,
+    cmday=3,
+    tid=10000003,
+    bench_size=12,
+)
+
+
+def test_plans_the_best_legal_lineup_and_carries_the_matchday_coordinates() -> None:
+    plan = plan_lineup(INPUTS)
+
+    assert plan.module == "343"
+    assert set(plan.starts) == set(STARTERS)
+    assert len(plan.starts) == 11
+    assert len(plan.bench) == 12
+    assert plan.bench[0] == 50  # reserve keeper
+    assert (plan.competition, plan.mday, plan.cmday, plan.tid) == (311681, 1, 3, 10000003)
+
+
+def test_sentiment_tilts_a_reserve_into_the_xi() -> None:
+    boosted = plan_lineup(INPUTS, effect={60: 10.0})  # 4.0 * 10 = 40, beats the 5.0 wingers
+
+    assert 60 in boosted.starts
+    assert 2194 not in boosted.starts  # the weaker winger drops to the bench
+
+
+def test_no_sentiment_reproduces_the_fvm_only_field() -> None:
+    plan = plan_lineup(INPUTS, effect=None)
+
+    assert 2194 in plan.starts
+    assert 60 not in plan.starts

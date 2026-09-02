@@ -24,6 +24,20 @@ class RosterPlayer:
     fvmma: float
 
 
+@dataclass(frozen=True)
+class PlannedLineup:
+    """A submittable formation: the module, the ordered `starts`/`bench`, and the ids the
+    `gaming/v1` payload needs. `starts` is 11 (GK first), `bench` is the reserve order."""
+
+    module: str
+    starts: tuple[int, ...]
+    bench: tuple[int, ...]
+    competition: int
+    mday: int
+    cmday: int
+    tid: int
+
+
 def assemble_roster(
     roster_ids: Sequence[int],
     *,
