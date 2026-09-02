@@ -9,6 +9,8 @@ and reserves the whole budget.
 
 from __future__ import annotations
 
+import pytest
+
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule
 from fantabot.domain.asta.live import AssignmentEvent
 from fantabot.domain.asta.reservation import (
@@ -271,3 +273,90 @@ class TestTheOpportunisticCeiling:
         kw = self._kw(prices={**PRICES, "w": 40.0})
 
         assert opportunistic_walkaway(MantraPlayer("w", frozenset({"W"})), **kw) is None
+
+
+class TestLotCeilingGeneralizesToTheLotOnTheBlock:
+    """`lot_ceiling` says nothing about whether `player_id` is a plan member.
+
+    This is the golden-pool regression for `SPEC.md` §2.A: the plan never sees the price of
+    the lot in front of it. Malen (fantacalcio id 5585) was live on 2026-09-01 with the
+    highest mean value in the entire pool and was never priced — `reservations()` prices only
+    its own optimal roster, so a lot outside it has no key in `walkaways` and holds at any
+    price. Reproduced here on the committed golden pool (`tests/golden`, pinned to
+    2026-08-28) rather than the live database, so the regression runs in the default
+    socket-free tier.
+    """
+
+    @staticmethod
+    def _world():  # type: ignore[no-untyped-def]
+        from _golden import PINNED_TODAY, load_clearing_sales, load_quotazioni, load_sentiment
+
+        from fantabot.application.asta_planner import build_plan_inputs
+        from fantabot.domain.asta.prices import Sale, mean_prices
+
+        return build_plan_inputs(
+            load_quotazioni(),
+            mean_prices(Sale(pid, price) for pid, price in load_clearing_sales()),
+            load_sentiment(),
+            as_of=PINNED_TODAY,
+            tilt_k=0.25,
+        )
+
+    @classmethod
+    def setup_class(cls) -> None:
+        from fantabot.domain.asta.reservation import lot_ceiling
+
+        cls.world = cls._world()
+        cls.state = AstaState(total_budget=500.0)
+        plan, _ = reservations(
+            cls.state, cls.world.pool, value=cls.world.value, prices=cls.world.prices,
+            teams=cls.world.teams, legality=cls.world.legality, lam=0.3, n_targets=None,
+        )
+        cls.baseline = plan.optimal.objective
+        cls.in_plan = frozenset(plan.optimal.player_ids)
+        cls.ceiling = staticmethod(
+            lambda player_id, hard_cap=500: lot_ceiling(
+                cls.state, cls.world.pool, value=cls.world.value, prices=cls.world.prices,
+                teams=cls.world.teams, legality=cls.world.legality, lam=0.3,
+                baseline=cls.baseline, player_id=player_id, hard_cap=hard_cap,
+            )
+        )
+
+    def test_the_pinned_baseline_has_not_drifted(self) -> None:
+        """Every other assertion in this class is measured against this number. If it moves,
+        the golden fixtures moved and the numbers below need re-measuring, not patching."""
+        assert self.baseline == pytest.approx(2251.8, abs=0.1)
+
+    def test_malen_is_absent_from_the_plan_today(self) -> None:
+        """The bug, pinned: `reservations()` never names him, regardless of how good he is."""
+        assert "5585" not in self.in_plan
+
+    def test_malen_is_still_priced_even_though_the_plan_never_named_him(self) -> None:
+        """The fix: `lot_ceiling` prices the lot on the block whether or not `reservations()`
+        did. Measured live at book 40 the objective gain was +577; reproduced here on the
+        golden pool at +595.7 — both comfortably clear a ceiling of 40."""
+        assert self.ceiling("5585") >= 40
+
+    @pytest.mark.parametrize(
+        ("name", "player_id", "expected"),
+        [
+            ("Bremer", "2788", 27),
+            ("Akanji", "4159", 19),
+            ("Rrahmani", "4409", 15),
+            ("Svilar", "5841", 38),
+            ("Wesley", "7181", 33),
+        ],
+    )
+    def test_an_already_planned_member_still_gets_a_real_ceiling(
+        self, name: str, player_id: str, expected: int
+    ) -> None:
+        """The regression the old, baseline-relative margin failed: forcing an already-
+        planned member back in at a nearby price used to return a ceiling of exactly 0 for
+        every one of these five, because `0.15 * baseline(2251.8) = 337.8` dwarfs the objective
+        swing from a single player's price change. Scaling the margin to the player's own
+        value fixes it — every ceiling below is real and non-zero, and sits a few credits
+        *under* book, not over it (paying a premium to keep someone we could already afford is
+        `--ceiling-alpha`'s job, not this function's).
+        """
+        assert player_id in self.in_plan, f"{name} must be a plan member for this test to mean anything"
+        assert self.ceiling(player_id) == expected

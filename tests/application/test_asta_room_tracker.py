@@ -273,14 +273,14 @@ class TestALotThePlanDidNotNameIsStillWorthSomething:
         import fantabot.application.asta_room as room
 
         calls = []
-        real = room.bargain_ceiling
-        room.bargain_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        real = room.lot_ceiling
+        room.lot_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
         try:
             tracker = _tracker(bargain_share=0.40)
             for price in (5, 6, 7, 8):
                 frame = tracker.cycle(_lot(uuid="uuid-a3", price=price), now_ms=1_000)
         finally:
-            room.bargain_ceiling = real
+            room.lot_ceiling = real
 
         assert frame.decision == "bid", "still bidding, just not re-deciding from scratch"
         assert len(calls) == 1, f"one solve for four polls of one lot, got {len(calls)}"
@@ -298,8 +298,8 @@ class TestALotThePlanDidNotNameIsStillWorthSomething:
 
         ledger: list[AssignmentEvent] = []
         calls: list[int] = []
-        real = room.bargain_ceiling
-        room.bargain_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        real = room.lot_ceiling
+        room.lot_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
         try:
             tracker = _tracker(ledger=ledger, bargain_share=0.40)
             tracker.cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
@@ -307,7 +307,7 @@ class TestALotThePlanDidNotNameIsStillWorthSomething:
             ledger.append(AssignmentEvent("uuid-a1", 20, "rival"))
             tracker.cycle(_lot(uuid="uuid-a3", price=5), now_ms=2_000)
         finally:
-            room.bargain_ceiling = real
+            room.lot_ceiling = real
 
         assert len(calls) == 2, "a sale landed; the ceiling must be re-solved, not re-used"
 
@@ -524,11 +524,11 @@ class TestTheEveningHasOneBargainPurse:
         import fantabot.application.asta_room as room
 
         calls: list[int] = []
-        real = room.bargain_ceiling
-        room.bargain_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        real = room.lot_ceiling
+        room.lot_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
         try:
             _cap_tracker(0.0).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
         finally:
-            room.bargain_ceiling = real
+            room.lot_ceiling = real
 
         assert calls == []

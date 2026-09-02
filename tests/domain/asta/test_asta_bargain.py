@@ -18,10 +18,10 @@ import pytest
 
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule
 from fantabot.domain.asta.reservation import (
-    BARGAIN_MARGIN_ABS,
-    BARGAIN_MARGIN_REL,
+    CEILING_MARGIN_ABS,
+    CEILING_MARGIN_REL,
     bargain_allowance,
-    bargain_ceiling,
+    lot_ceiling,
     opportunistic_walkaway,
     safe_ceiling,
 )
@@ -82,20 +82,20 @@ class TestTheObjectiveIsWhatDecides:
         )
 
         assert pre_gate == 60, "0.60 x book, under the plan's dearest target"
-        assert bargain_ceiling(_state(), POOL, **_kw()) == 30  # type: ignore[arg-type]
+        assert lot_ceiling(_state(), POOL, **_kw()) == 30  # type: ignore[arg-type]
 
     def test_a_price_the_rosa_cannot_survive_is_a_refusal_not_an_exception(self) -> None:
         """`InfeasibleRoster` at every probe is a "no". It is also the only guard between a
         bargain and a rosa that cannot be filled: `max_bid` reserves credits and checks no
         role, and nothing on the server refuses the raise."""
-        assert bargain_ceiling(  # type: ignore[arg-type]
+        assert lot_ceiling(  # type: ignore[arg-type]
             _state(spent=95.0), POOL, **_kw()
         ) == 0
 
     def test_a_lot_that_never_beats_the_plan_costs_one_solve_and_returns_zero(self) -> None:
         """`a1` is *in* the plan, so forcing him in changes nothing and cannot clear the
         margin. Zero is the value `decide_bid` already refuses at every price."""
-        assert bargain_ceiling(  # type: ignore[arg-type]
+        assert lot_ceiling(  # type: ignore[arg-type]
             _state(), POOL, **_kw(player_id="a1")
         ) == 0
 
@@ -103,7 +103,7 @@ class TestTheObjectiveIsWhatDecides:
         """It is a function of the state alone. That is what lets the room solve it once for
         the 20-60 s a lot lives, and what makes a lot bid past it a *named* pass rather than
         a silent hold indistinguishable from a player we never considered."""
-        assert "ask" not in bargain_ceiling.__code__.co_varnames
+        assert "ask" not in lot_ceiling.__code__.co_varnames
 
 
 class TestTheMarginIsANoiseFloorNotATasteKnob:
@@ -112,7 +112,7 @@ class TestTheMarginIsANoiseFloorNotATasteKnob:
         when nothing real changed — measured -59.2 to +49.4 on a baseline of 1855.4 over 20
         null moves. A margin under that band buys players on solver noise.
         """
-        assert bargain_ceiling(  # type: ignore[arg-type]
+        assert lot_ceiling(  # type: ignore[arg-type]
             _state(), POOL, **_kw(margin_abs=100.0)
         ) == 0
 
@@ -120,7 +120,7 @@ class TestTheMarginIsANoiseFloorNotATasteKnob:
     def test_a_cap_below_the_minimum_bid_never_solves(self, cap: int) -> None:
         """A ceiling under 1 truncates to 0 and removes the player from the biddable set —
         `price_floor` clamps against the same convention."""
-        assert bargain_ceiling(  # type: ignore[arg-type]
+        assert lot_ceiling(  # type: ignore[arg-type]
             _state(), POOL, **_kw(hard_cap=cap)
         ) == 0
 
@@ -180,8 +180,15 @@ def _nm_kw(**over: object) -> dict[str, object]:
 
 
 def _nm_passes(price: int) -> bool:
-    """The same test `bargain_ceiling` applies internally, so the profile below is not a
-    re-derivation of the rule but a direct read of it."""
+    """The same test `lot_ceiling` applies internally, so the profile below is not a
+    re-derivation of the rule but a direct read of it.
+
+    The margin is against `NM_TARGET`'s own value (`mu(p1) = 30.0`), not `NM_BASELINE`
+    (187.0) — see `CEILING_MARGIN_REL`'s docstring for why the old baseline-relative margin
+    returns 0 for every already-planned member. Measured: the two margins differ (4.5 against
+    28.05) but the pass/fail profile over `[1, 40]` on this particular fixture comes out
+    byte-identical either way, which is a property of this fixture, not a guarantee.
+    """
     from dataclasses import replace
 
     from fantabot.domain.asta.optimizer import InfeasibleRoster, optimize_roster
@@ -196,7 +203,8 @@ def _nm_passes(price: int) -> bool:
         ).optimal.objective
     except InfeasibleRoster:
         return False
-    return got >= NM_BASELINE + max(1.0, BARGAIN_MARGIN_REL * NM_BASELINE)
+    mu = NM_VALUE.value(NM_TARGET).mean
+    return got >= NM_BASELINE + max(1.0, CEILING_MARGIN_REL * mu)
 
 
 class TestTheCeilingIsNeverAboveAPriceThatFails:
@@ -211,7 +219,7 @@ class TestTheCeilingIsNeverAboveAPriceThatFails:
     def test_a_failing_price_below_the_answer_makes_the_bisection_unsound(self) -> None:
         """The property, stated directly and independently of any implementation: nothing at
         or below the returned ceiling may fail. A bisection returns 31 here; 6 fails."""
-        ceiling = bargain_ceiling(NM_STATE, NM_POOL, **_nm_kw())  # type: ignore[arg-type]
+        ceiling = lot_ceiling(NM_STATE, NM_POOL, **_nm_kw())  # type: ignore[arg-type]
 
         assert ceiling == 5, "the largest price under which the rule holds *everywhere*"
         assert not _nm_passes(6), "the fixture's whole point: 6 fails"
@@ -225,7 +233,7 @@ class TestTheCeilingIsNeverAboveAPriceThatFails:
         opening at 1 is offered at every credit up to the ceiling and can be won at any of
         them. A ceiling is a promise about the whole interval, not about its endpoint.
         """
-        ceiling = bargain_ceiling(NM_STATE, NM_POOL, **_nm_kw())  # type: ignore[arg-type]
+        ceiling = lot_ceiling(NM_STATE, NM_POOL, **_nm_kw())  # type: ignore[arg-type]
         winnable = range(1, ceiling + 1)
 
         assert [q for q in winnable if not _nm_passes(q)] == []
@@ -269,60 +277,68 @@ class TestTheCeilingIsNeverAboveAPriceThatFails:
 
 
 class TestTheMarginClearsTheMeasuredJitter:
-    """C2. The margin is set from a measurement of the greedy builder's own noise.
+    """C2. The margin is set from a measurement of the greedy builder's own noise, and it is
+    scaled to the *player's own value* (`value.value(player_id).mean`), not the whole plan's
+    objective — see `CEILING_MARGIN_REL`'s docstring for why: a baseline-relative margin
+    returns a ceiling of exactly 0 for every already-planned member, measured on the live
+    golden pool (five defenders/midfielders, all zero).
 
-    A *null move* -- forcing a member of the current plan back in at his own `planning_cost`
-    -- changes nothing real, so an exact optimizer returns the identical objective. Measured
-    on the live pool on 2026-09-01 over **1,754 null moves across 90 randomised mid-auction
-    states**: signed jitter spans -9.85% to +9.38% of the baseline, and 215 of those moves go
-    *upward*, which is the direction that buys a player on noise. p95 +5.54%, p99 +8.29%.
-
-    At the 5% this constant used to hold, **18 of those 215 pure-noise improvements clear the
-    bar**. At 10%, 12% and 15%, none do.
+    **What carries over from the original measurement, and what does not.** A *null move* —
+    forcing a member of the current plan back in at his own `planning_cost` — changes nothing
+    real, so an exact optimizer returns the identical objective, and the live measurement
+    (1,754 null moves across 90 randomised states, signed jitter -9.85%..+9.38% *of the
+    baseline*) is what first justified 0.15 as a coefficient. That measurement was against the
+    baseline, not against `mu`, and no committed script reproduces it (`SPEC.md` §2.F/§9) — so
+    0.15 survives here as the conservative default it already was, not as a re-derived number.
+    The two numeric tests below are re-verified directly against the current formula, not
+    inherited from the old one.
     """
 
     def test_the_margin_clears_the_worst_upward_null_move_ever_measured(self) -> None:
-        assert BARGAIN_MARGIN_REL >= 0.0938 * 1.5, (
-            "0.0938 is the largest upward null move measured; a threshold at or just above "
-            "the observed maximum has no headroom against the next sample"
+        assert CEILING_MARGIN_REL >= 0.0938 * 1.5, (
+            "0.0938 is the largest upward null move measured against the old, baseline-"
+            "relative formula; kept as a floor on the coefficient until it is re-measured "
+            "against mu"
         )
 
-    #: The same shape as `POOL`, scaled up by ten. It has to be: on a baseline of 15 the
-    #: `BARGAIN_MARGIN_ABS` floor of 1.0 is 6.7%, so it, and not the relative margin, is what
-    #: refuses a small gain -- and a test that cannot tell 5% from 15% is not a test of the
-    #: number this class exists to justify. At a baseline of 150 the floor is 0.7% and the
-    #: relative margin is the only thing deciding.
+    #: The same shape as `POOL`, scaled up by ten, so `x`'s own value (`mu`) is large enough
+    #: that the relative margin — not `CEILING_MARGIN_ABS` — is what decides. `mu(x) = 250.0`
+    #: here, margin `max(1.0, 0.15*250) = 37.5`.
     BIG = NaiveValueModel(
         signals={"g": 50.0, "a1": 100.0, "x": 250.0},
         prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
     )
-    #: 162 against 150: a 8.0% edge, inside the measured upward tail (p99 +8.29%, max +9.38%)
-    #: and therefore indistinguishable from the builder talking to itself.
+    #: `mu(x) = 112.0`, margin `max(1.0, 0.15*112) = 16.8` — large enough that a real but
+    #: modest improvement still falls inside it.
     NOISE = NaiveValueModel(
         signals={"g": 50.0, "a1": 100.0, "x": 112.0},
         prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
     )
 
     def test_a_gain_inside_the_measured_jitter_band_is_refused(self) -> None:
-        """**The C2 regression.** Both of these clear the old 5%; only the real one clears
-        15%. At `BARGAIN_MARGIN_REL = 0.05` the second assertion returns 30 and the room buys
-        a player on nothing but solver noise, which is what 18 of 215 measured upward null
-        moves would have done.
+        """**The C2 regression, re-verified against the mu-scaled margin.** Re-run directly
+        (not derived) on the current formula: `BIG` still clears its own 37.5-point margin and
+        is taken; `NOISE` still does not clear its 16.8-point one and is refused.
         """
-        assert bargain_ceiling(  # type: ignore[arg-type]
+        assert lot_ceiling(  # type: ignore[arg-type]
             _state(), POOL, **_kw(value=self.BIG, baseline=150.0)
         ) == 30, "a real 100% improvement is still taken"
-        assert bargain_ceiling(  # type: ignore[arg-type]
+        assert lot_ceiling(  # type: ignore[arg-type]
             _state(), POOL, **_kw(value=self.NOISE, baseline=150.0)
-        ) == 0, "an 8% one is inside the builder's own noise and is not"
+        ) == 0, "a gain inside this player's own noise band is not"
 
-    def test_the_absolute_floor_only_guards_a_baseline_too_small_to_take_a_percentage_of(
+    def test_the_absolute_floor_only_guards_a_player_too_small_to_take_a_percentage_of(
         self,
     ) -> None:
-        """`BARGAIN_MARGIN_ABS` exists so a tiny fixture is not swamped by a percentage of
-        almost nothing. It must not be what decides on a real pool, where the baseline is in
-        the thousands and 15% of it dwarfs 1.0."""
-        assert BARGAIN_MARGIN_REL * 2444.4 > BARGAIN_MARGIN_ABS * 100
+        """`CEILING_MARGIN_ABS` exists so a near-worthless player is not swamped by a
+        percentage of almost nothing — not so a real pool's margin degenerates to it. The
+        crossover is `ABS / REL`: any player whose own value clears it has the relative term
+        decide, not the floor. Essentially every biddable Mantra player does — even a
+        1-credit riserva scores a few points, and the live pool's highest measured, Malen,
+        sits at 638.2.
+        """
+        crossover = CEILING_MARGIN_ABS / CEILING_MARGIN_REL
+        assert crossover < 10, "a realistic player's mu clears this without help from ABS"
 
 
 class TestTheEveningHasOneBargainPurse:

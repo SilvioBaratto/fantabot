@@ -86,7 +86,7 @@ def opportunistic_walkaway(
     189 sitting at 30 was indistinguishable on screen from one we had decided to let go.
 
     **What it returns is not a price to pay.** It is the ceiling a purchase would have to
-    beat the plan *under*, handed to ``bargain_ceiling``, which re-solves and either confirms
+    beat the plan *under*, handed to ``lot_ceiling``, which re-solves and either confirms
     it, lowers it, or refuses outright — so treating this number as the answer buys a rosa the
     objective says is worse than the plan. Measured on the live pool on 2026-09-01 from a
     3-owned/408-credit state: this gate admitted **51 of 496** unplanned lots, and the
@@ -147,36 +147,43 @@ def opportunistic_walkaway(
     return ceiling
 
 
-#: How far the re-solved objective must beat the plan's before a bargain is believed.
+#: How far the re-solved objective must beat the plan's before a price is believed.
 #:
-#: **This is a noise threshold, not a taste knob**, and it is set from a measurement of the
-#: noise rather than from taste. ``_build`` is greedy, so re-running it with one player forced
-#: in moves the answer even when nothing real changed.
+#: **Relative to the player's own value, not the whole plan's.** It was not always this way,
+#: and the earlier version is worth recording because it broke silently rather than loudly.
+#: The original formula was ``max(ABS, REL * abs(baseline))`` — the *whole-plan* objective,
+#: which sits in the thousands. Generalizing this function from "a lot the plan did not name"
+#: to "any lot, including one already in the plan" surfaces why that scale is wrong: forcing
+#: an *already-planned* member back in at a nearby price moves the objective by tens of
+#: points, never enough to clear a margin computed off a thousands-scale total. Measured
+#: directly on the shipped golden pool (``tests/golden``, 2026-08-28, ``lam=0.3``, empty
+#: state, plan objective 2251.8): every one of five already-planned defenders/midfielders
+#: (Bremer, Akanji, Rrahmani, Svilar, Wesley) returned a ceiling of **exactly 0** under the
+#: old formula — not because none of them were worth keeping, but because
+#: ``0.15 * 2251.8 = 337.8`` dwarfs any single-player price change. A margin that can never be
+#: cleared is not a noise filter, it is a silent "always refuse".
 #:
-#: The measurement is a *null move*: take a member of the current optimal plan and force him
-#: into ``owned`` at his own ``planning_cost``. Nothing real changed — the plan already
-#: intended to buy him at exactly that price — so an exact optimizer returns the identical
-#: objective and every non-zero delta is the builder talking to itself. Run on the live pool
-#: on 2026-09-01 (529 players, 418 priced) over **1,754 null moves across 90 randomised
-#: mid-auction states** — randomised because the tidy path (buy the plan at book, in order)
-#: barely perturbs the builder and reports a misleadingly quiet 1.32%, while a real evening
-#: has rivals taking players we wanted, purchases above and below book, and a purse the plan
-#: did not expect:
+#: Scaling to the player's own mean value (``value.value(player_id).mean``) fixes this without
+#: discarding the coefficient: the same 0.15 now measures against the size of *this* decision
+#: rather than the size of the whole rosa. Re-measured on the same pool and state: Malen
+#: (book 189, µ 638.2, outside the plan) → ceiling **129**; Bremer (book 31.4, µ 72.6) →
+#: **27**; Akanji (book 23.0, µ 68.5) → **19**; Rrahmani (book 18.7, µ 70.1) → **15**; Svilar
+#: (book 42.2, µ 111.9) → **38**; Wesley (book 37.2, µ 110.5) → **33**. Every one is a real,
+#: non-zero number, and the already-planned five sit a few credits *under* book rather than
+#: over it — which is the right shape for "still worth it", since paying a premium over book
+#: to keep someone we could already afford is a decision for ``--ceiling-alpha``, not this
+#: function.
 #:
-#: * signed jitter spans **-9.85% to +9.38%** of the baseline objective; worst absolute 237.0;
-#: * **215 of the 1,754 moved *upward*** — the only direction that matters here, because an
-#:   upward null move is a pure-noise "improvement" that this function reads as a reason to
-#:   spend. Median +2.32%, p95 +5.54%, p99 +8.29%, max +9.38%;
-#: * at the **5%** this constant used to hold, **18 of those 215 pure-noise improvements clear
-#:   the bar**. At 10%, 12% and 15%, none of them do.
-#:
-#: 0.15 is therefore ~1.6x the largest upward null move ever observed, and the first round
-#: value with real headroom over the p99. It is deliberately not 0.10: that is the observed
-#: maximum itself, which is a threshold with zero margin against the next sample.
+#: **What is inherited, not re-verified.** The original null-move measurement this file cited
+#: (1,754 moves across 90 randomised states, signed jitter -9.85%..+9.38%) was measured
+#: against the *old*, baseline-relative formula and no committed script reproduces it — see
+#: `SPEC.md` §2.F. It does not directly justify 0.15 against µ either. 0.15 is kept as the
+#: conservative default it already was, not re-derived; re-measuring the null-move jitter
+#: scaled to µ, with a committed script, is open work (`SPEC.md` §9).
 #:
 #: ``ABS`` keeps a small fixture from being swamped by a percentage of almost nothing.
-BARGAIN_MARGIN_REL = 0.15
-BARGAIN_MARGIN_ABS = 1.0
+CEILING_MARGIN_REL = 0.15
+CEILING_MARGIN_ABS = 1.0
 
 #: What share of the **starting** budget one evening may spend on lots the plan never named.
 #:
@@ -208,7 +215,7 @@ def bargain_allowance(
     a fixed number.
 
     Truncating down (``int``) is the safe direction, and it matches ``price_floor`` and
-    ``bargain_ceiling``, which both treat a sub-``MIN_BID`` number as "do not chase".
+    ``lot_ceiling``, which both treat a sub-``MIN_BID`` number as "do not chase".
     """
     return max(0, int(share * total_budget) - int(spent_on_bargains))
 
@@ -242,7 +249,7 @@ def safe_ceiling(passes: Callable[[int], bool], *, lo: int, hi: int) -> int:
     **It is also cheaper than it looks**, because the scan stops at the first failure rather
     than walking to ``hi`` — and under the shipped margin the first probe is where almost
     every lot stops. Measured on the live pool on 2026-09-01 in the exact shipped
-    configuration (``BARGAIN_MARGIN_REL = 0.15``, ``BARGAIN_BUDGET_SHARE = 0.10``), over the
+    configuration (``CEILING_MARGIN_REL = 0.15``, ``BARGAIN_BUDGET_SHARE = 0.10``), over the
     51 lots the pre-gate admits: **median 3.3 ms a lot, p95 3.7 ms, worst 110 ms**, and 0.34 s
     to price the entire pool. The room prices only the one lot on the block, once per state,
     against a 2 s poll — so the worst lot in the pool costs a twentieth of one cycle.
@@ -263,7 +270,7 @@ def safe_ceiling(passes: Callable[[int], bool], *, lo: int, hi: int) -> int:
     return ceiling
 
 
-def bargain_ceiling(
+def lot_ceiling(
     state: AstaState,
     pool: Sequence[MantraPlayer],
     *,
@@ -277,22 +284,28 @@ def bargain_ceiling(
     baseline: float,
     player_id: str,
     hard_cap: int,
-    margin_rel: float = BARGAIN_MARGIN_REL,
-    margin_abs: float = BARGAIN_MARGIN_ABS,
+    margin_rel: float = CEILING_MARGIN_REL,
+    margin_abs: float = CEILING_MARGIN_ABS,
 ) -> int:
-    """The most we would pay for a lot the plan did not name. Pure, and it re-solves.
+    """The most we would pay for the lot on the block. Pure, and it re-solves.
 
-    ``opportunistic_walkaway`` answers "is this cheap enough to look at" from the price map
-    alone. This answers the question that actually decides a purchase, and there is no way to
-    answer it without solving::
+    Says nothing about whether ``player_id`` is a member of the plan — this is deliberate.
+    ``reservations()`` prices only its own optimal roster, so a lot outside it holds at any
+    price and a lot inside it prices off a marginal (``objective with him`` minus ``without
+    him``) that collapses to 0 whenever a near-substitute exists (`SPEC.md` §2.A). Both are the
+    same bug: neither asks the question that actually decides a purchase, which has one
+    answer regardless of where the lot started::
 
         f(p) = objective of the best rosa we can still build having bought him at p
         take him at p  <=>  f(p) >= baseline + margin
 
     ``baseline`` is ``reservations``' own ``plan.optimal.objective``, computed one call
     earlier in the same cycle from the same state — so the two rosters differ in exactly one
-    thing, whether he is in them. ``margin`` is the greedy builder's own noise band
-    (``BARGAIN_MARGIN_REL``); without it the room buys on solver jitter.
+    thing, whether he is in them at price ``p``. ``margin`` is the greedy builder's own noise
+    band, scaled to *this player's* value (``value.value(player_id).mean``), not the whole
+    plan's — see ``CEILING_MARGIN_REL`` for why: the whole-plan scale returns a ceiling of
+    exactly 0 for every already-planned member, because a single player's price change never
+    moves a thousands-scale total by enough to matter.
 
     **The ceiling is the largest price at which the rule holds and below which it also
     holds**, scanned up from ``MIN_BID`` by ``safe_ceiling``. It was a bisection, and a
@@ -303,28 +316,20 @@ def bargain_ceiling(
     ``current + 1`` right through it. See ``safe_ceiling`` for the measurement.
 
     **Returns 0 for "hold", and 0 is the safe value**: ``decide_bid`` refuses at every price
-    when the walk-away is below ``MIN_BID`` — the same convention ``price_floor`` clamps
-    against.
+    when the walk-away is below ``MIN_BID`` — the same convention ``price_floor`` clamped
+    against, before this function replaced it.
 
-    Three things make this affordable in a loop that already spends 1 + |plan| solves a cycle:
+    **The answer does not mention the lot's current price**, only ``state``. That is
+    deliberate and not an accident of the arithmetic: it is what lets the caller memoize one
+    number for the 20-60 s a lot spends on the block instead of re-solving per poll, and it is
+    what makes a lot bid past its ceiling a *named* pass — ``decide_bid`` refuses it on
+    ``walk_away``, where taking ``ask`` as a lower bound would have returned 0 and made "too
+    expensive" indistinguishable from "never considered".
 
-    * the caller pre-gates. Measured over the 477 unplanned lots callable from a live
-      3-owned/398-credit state, ``opportunistic_walkaway`` refused 424 of them for free;
-    * a refusal costs **one** solve — ``f(MIN_BID)`` is the first probe and the scan stops
-      there when even a 1-credit purchase fails to beat the plan, which is the common case;
-    * **the answer does not mention the lot's current price**, only ``state``. That is
-      deliberate and not an accident of the arithmetic: it is what lets the caller memoize
-      one number for the 20-60 s a lot spends on the block instead of re-solving per poll,
-      and it is what makes a lot bid past its ceiling a *named* pass — ``decide_bid`` refuses
-      it on ``walk_away``, where taking ``ask`` as a lower bound would have returned 0 and
-      made "too expensive" indistinguishable from "never considered".
-
-    Measured end to end on the live pool on 2026-09-01, from a 3-owned/408-credit state: 51
-    of 496 unplanned lots survived the pre-gate, and sweeping every one of them to its full
-    ``hard_cap`` (the scan's worst case, never its real cost, since it stops at the first
-    failure) took 55 ms on average and 204 ms at the peak. The same measurement is the
-    argument for the function existing: the price map's cap and the objective's disagree
-    routinely, and the objective's is the one that can refuse a rosa we could not complete.
+    Measured on the shipped golden pool (2026-08-28, ``lam=0.3``, empty state, plan objective
+    2251.8): a solve here costs a handful of milliseconds, and one lot a cycle — the room
+    prices only the lot on the block, once per state — is nowhere near the cost of pricing the
+    whole plan every poll.
     """
     lo, hi = int(MIN_BID), int(hard_cap)
     if hi < lo:
@@ -334,14 +339,14 @@ def bargain_ceiling(
     # This is `reservations`' own reason for `build_index`, and the scan makes up to
     # `hard_cap` of these calls where it makes one.
     index = build_index(pool, prices, value, rules)
-    margin = max(margin_abs, margin_rel * abs(baseline))
+    margin = max(margin_abs, margin_rel * abs(value.value(player_id).mean))
 
     def better_at(price: int) -> bool:
         """Is the rosa we can still build, having bought him at ``price``, worth more?
 
         An ``InfeasibleRoster`` is a "no" and not an error: it is this function catching the
         case `max_bid` cannot see, where the credits left will not complete the band. That is
-        also the only guard between a bargain and a rosa that cannot be filled.
+        also the only guard between this ceiling and a rosa that cannot be filled.
         """
         forced = replace(
             state,

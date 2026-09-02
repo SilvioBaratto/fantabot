@@ -42,7 +42,7 @@ from fantabot.domain.asta.reservation import (
     BARGAIN_MIN_BOOK,
     apply_event,
     bargain_allowance,
-    bargain_ceiling,
+    lot_ceiling,
     opportunistic_walkaway,
     reservations,
 )
@@ -381,7 +381,7 @@ class RoomTracker:
         baseline: float,
         hard_cap: int,
     ) -> int:
-        """`bargain_ceiling`, computed once per player per state. 0 means hold.
+        """`lot_ceiling`, computed once per player per state. 0 means hold.
 
         The ceiling does not depend on the lot's current price, only on the state — which is
         exactly why it can be cached across the thirty polls one lot lives for, and why the
@@ -391,7 +391,7 @@ class RoomTracker:
         hit = self._bargains.get(player_id)
         if hit is not None:
             return hit
-        ceiling = bargain_ceiling(
+        ceiling = lot_ceiling(
             state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
             legality=self._legality, rules=rules, lam=self._lam, baseline=baseline,
             player_id=player_id, hard_cap=hard_cap,
@@ -424,7 +424,7 @@ class RoomTracker:
           each improve the rosa can, bought together, leave a purse that buys neither of the
           players the second re-solve assumed we would still afford. Free, so it goes first;
         * `opportunistic_walkaway` — dict lookups and one bipartite match, no solve;
-        * `bargain_ceiling` — re-solves, and answers the only question that can justify
+        * `lot_ceiling` — re-solves, and answers the only question that can justify
           spending, which is whether the rosa is *better* with him in it.
 
         **Nothing here may raise.** An exception inside a cycle ends the evening, and this is
