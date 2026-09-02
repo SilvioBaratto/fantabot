@@ -165,6 +165,12 @@ def aste_load(
     import json
     import time
 
+    # Aliased: the `listone` *parameter* (a Path) already holds this name in this function's
+    # scope, and `entries_only` is what makes this reader tolerant of the versioned envelope
+    # (`version`, `count`, `season`, `fetched_at`) a cache file now carries alongside its
+    # entries — see `listone.entries_only`'s own docstring for why a structural filter beats
+    # naming the four keys here.
+    from fantabot.adapters.http.fantalab import listone as listone_module
     from fantabot.adapters.persistence.models.aste import ASTA_TYPES
     from fantabot.application.harvest_loader import (
         DEFAULT_WINDOW_BYTES,
@@ -187,7 +193,8 @@ def aste_load(
         console.print(f"[red]seed file not found: {seed}[/red]")
         raise typer.Exit(2)
 
-    bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    raw_bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    bridge = listone_module.entries_only(raw_bridge) if isinstance(raw_bridge, dict) else {}
     # One pass holds its window several times over. Uncapped, the cost of a pass
     # grows with how far behind the loader is — so the further it falls, the less
     # able it is to start, and a 1.14 GB backlog could not be loaded at all.
@@ -480,6 +487,10 @@ def aste_backfill(
     """
     import json
 
+    # Aliased for the same reason `aste_load` aliases it: the `listone` parameter already
+    # holds this name here, and `entries_only` tolerates the versioned envelope a cache file
+    # now carries.
+    from fantabot.adapters.http.fantalab import listone as listone_module
     from fantabot.adapters.persistence.models.aste import ASTA_TYPES
     from fantabot.domain.harvest.backfill import build, read_jsonl
 
@@ -496,7 +507,8 @@ def aste_backfill(
 
     states = read_jsonl(events)
     seed_rows = json.loads(seed.read_text(encoding="utf-8"))
-    bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    raw_bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
+    bridge = listone_module.entries_only(raw_bridge) if isinstance(raw_bridge, dict) else {}
     if not bridge:
         console.print(f"[yellow]no listone at {listone}; assignments will carry no player link")
 
