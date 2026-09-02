@@ -234,6 +234,54 @@ def test_submit_refuses_when_the_matchday_context_is_missing(
     assert posted == [], "must not POST with zero coordinates"
 
 
+def test_submit_exits_one_when_every_module_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot import config
+    from fantabot.adapters.http import apileague
+    from fantabot.domain.lineup.errors import LineupRejected
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        apileague, "lineup_settings", lambda *a, **k: {"mods": ["442", "343"], "tbench": 12}
+    )
+    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00"}
+    )
+
+    def _always_reject(_lid: Any, body: dict[str, Any], **_k: Any) -> None:
+        raise LineupRejected("LUP009")
+
+    monkeypatch.setattr(apileague, "teamLineup_submit", _always_reject)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 1
+    assert "every fieldable module was refused" in result.output
+    assert "submitted" not in result.output
+
+
+def test_submit_reports_cleanly_when_the_roster_fields_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot import config
+    from fantabot.adapters.http import apileague
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    monkeypatch.setattr(  # empty roster -> NoFieldableModule, caught as a LineupError
+        apileague,
+        "teamLineup_read",
+        lambda *a, **k: {"teamLineupDto": {"mday": 1, "cmday": 3}, "lineUpInfo": []},
+    )
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output  # a clean LineupError, not a crash
+
+
 def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
