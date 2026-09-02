@@ -63,6 +63,23 @@ class TestWhatComesBack:
     def test_the_roster_band_comes_through(self) -> None:
         assert _resolve().min_player == 30
 
+    def test_the_goalkeeper_outfield_band_comes_through(self) -> None:
+        room = _resolve({
+            **BODY, "number_of_players_selection": "min-max-goalie-others",
+            "min_goalkeepers": 3, "max_goalkeepers": 3, "min_others": 23, "max_others": 28,
+        })
+
+        assert room.number_of_players_selection == "min-max-goalie-others"
+        assert (room.min_goalkeepers, room.max_goalkeepers) == (3, 3)
+        assert (room.min_others, room.max_others) == (23, 28)
+
+    def test_a_room_declaring_no_band_carries_none_through_not_a_default(self) -> None:
+        room = _resolve()
+
+        assert room.number_of_players_selection is None
+        assert room.min_goalkeepers is None
+        assert room.min_others is None
+
     def test_the_admin_id_comes_through(self) -> None:
         assert _resolve().admin_id == "rival"
 

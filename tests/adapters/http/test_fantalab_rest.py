@@ -199,3 +199,62 @@ class TestTheRosterBandFields:
     def test_call_at_quotaz_absent_reads_as_false(self) -> None:
         """FantaLab's default is "start from 1". A room that does not say is that room."""
         assert rest.parse_league({"fantaleague_id": "L"}).call_at_quotaz is False
+
+
+class TestTheGoalkeeperOutfieldBand:
+    """`number_of_players_selection` and the `min-max-goalie-others` band it names — the wire
+    key names here are a permissive guess (`docs/fantalab/01-auction-engine.md`, marked ⏳),
+    not a confirmed contract, so each candidate is proven independently rather than assumed.
+    """
+
+    def test_the_selection_mode_is_parsed(self) -> None:
+        room = rest.parse_league({
+            "fantaleague_id": "L", "number_of_players_selection": "min-max-goalie-others",
+        })
+
+        assert room.number_of_players_selection == "min-max-goalie-others"
+
+    def test_the_primary_snake_case_keys_are_read(self) -> None:
+        room = rest.parse_league({
+            "fantaleague_id": "L",
+            "min_goalkeepers": 3, "max_goalkeepers": 3,
+            "min_others": 23, "max_others": 28,
+        })
+
+        assert (room.min_goalkeepers, room.max_goalkeepers) == (3, 3)
+        assert (room.min_others, room.max_others) == (23, 28)
+
+    def test_the_italian_alias_is_tried_when_the_primary_key_is_absent(self) -> None:
+        room = rest.parse_league({
+            "fantaleague_id": "L",
+            "min_portieri": 2, "max_portieri": 4, "min_altri": 20, "max_altri": 26,
+        })
+
+        assert (room.min_goalkeepers, room.max_goalkeepers) == (2, 4)
+        assert (room.min_others, room.max_others) == (20, 26)
+
+    def test_the_camel_case_alias_is_tried_when_neither_other_key_is_present(self) -> None:
+        room = rest.parse_league({
+            "fantaleague_id": "L",
+            "minGoalkeepers": 1, "maxGoalkeepers": 5, "minOthers": 24, "maxOthers": 27,
+        })
+
+        assert (room.min_goalkeepers, room.max_goalkeepers) == (1, 5)
+        assert (room.min_others, room.max_others) == (24, 27)
+
+    def test_the_primary_key_wins_when_more_than_one_candidate_is_present(self) -> None:
+        """A malformed or stale alias must never override the key the docs actually name."""
+        room = rest.parse_league({
+            "fantaleague_id": "L", "min_goalkeepers": 3, "min_portieri": 99,
+        })
+
+        assert room.min_goalkeepers == 3
+
+    def test_none_of_the_candidates_present_is_none_not_a_default(self) -> None:
+        room = rest.parse_league({"fantaleague_id": "L"})
+
+        assert room.number_of_players_selection is None
+        assert room.min_goalkeepers is None
+        assert room.max_goalkeepers is None
+        assert room.min_others is None
+        assert room.max_others is None

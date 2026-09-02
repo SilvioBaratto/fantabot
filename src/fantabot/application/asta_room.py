@@ -76,6 +76,15 @@ class ResolvedRoom:
     num_credits: int | None
     min_player: int | None
     max_player: int | None
+    #: The room's own statement of its roster band, carried alongside `min_player`/`max_player`
+    #: for `rules_for_room` to derive `RosterRules` from with a stated provenance — see
+    #: `rest.RoomConfig`'s own docstring for why the wire keys behind these are a permissive
+    #: guess, not a confirmed contract.
+    number_of_players_selection: str | None
+    min_goalkeepers: int | None
+    max_goalkeepers: int | None
+    min_others: int | None
+    max_others: int | None
     asta_mode: str | None
     raise_mode: str | None
     counter_time: int | None
@@ -149,6 +158,11 @@ def resolve_room(
         num_credits=config.num_credits,
         min_player=config.min_player,
         max_player=config.max_player,
+        number_of_players_selection=config.number_of_players_selection,
+        min_goalkeepers=config.min_goalkeepers,
+        max_goalkeepers=config.max_goalkeepers,
+        min_others=config.min_others,
+        max_others=config.max_others,
         asta_mode=config.asta_mode,
         raise_mode=config.raise_mode,
         counter_time=config.counter_time,

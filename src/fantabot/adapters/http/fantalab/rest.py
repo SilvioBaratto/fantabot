@@ -69,6 +69,16 @@ class RoomConfig:
     #: reserving nothing (`docs/fantalab/01:142`: the cap has no server backstop).
     min_player: int | None = None
     max_player: int | None = None
+    #: How the room states its band, per `docs/fantalab/01-auction-engine.md` §"Roster
+    #: selection modes" — `"no-limit-per-role"`, `"min-max-goalie-others"`, or a Classic-only
+    #: mode this Mantra-only package never reads. `None` when the room's response carries none
+    #: of the candidate keys `_parse_roster_band` tries — see that function for why the wire
+    #: key names here are a permissive guess, not a confirmed contract.
+    number_of_players_selection: str | None = None
+    min_goalkeepers: int | None = None
+    max_goalkeepers: int | None = None
+    min_others: int | None = None
+    max_others: int | None = None
     #: "Start from the quotazione" instead of from 1. It deletes the whole 1-3 credit tail, so
     #: every price model downstream has to know. FantaLab's default is false.
     call_at_quotaz: bool = False
@@ -138,6 +148,43 @@ def _parse_seat(raw: Mapping[str, Any]) -> Seat:
     )
 
 
+#: Candidate wire keys for the goalkeeper/outfield band, tried in order. `docs/fantalab/
+#: 01-auction-engine.md` and `04-simulator-spec.md` record `min_goalkeepers`/`max_goalkeepers`/
+#: `min_others`/`max_others` — the internal `AstaConfig` dataclass's own field names, and the
+#: primary bet, marked ⏳ in both docs because neither was ever checked against a live response
+#: carrying `number_of_players_selection: "min-max-goalie-others"`. The Italian aliases are a
+#: real possibility the platform's UI is entirely Italian ("P Min", "Mov Min") and some other
+#: fields on this same endpoint could plausibly follow suit, though none observed so far do.
+_GOALKEEPER_BAND_KEYS: dict[str, tuple[str, ...]] = {
+    "min_goalkeepers": ("min_goalkeepers", "min_portieri", "minGoalkeepers"),
+    "max_goalkeepers": ("max_goalkeepers", "max_portieri", "maxGoalkeepers"),
+    "min_others": ("min_others", "min_altri", "minOthers"),
+    "max_others": ("max_others", "max_altri", "maxOthers"),
+}
+
+
+def _parse_roster_band(body: Mapping[str, Any]) -> dict[str, int | None]:
+    """The goalkeeper/outfield band, tried across plausible wire spellings. Pure.
+
+    **Permissive on purpose, not a confirmed contract.** Betting on one exact key and getting
+    it wrong would silently read every `min-max-goalie-others` room as if it declared nothing
+    — indistinguishable from `rules_for_room`'s honest "assumed" fallback, which is the one
+    outcome this has to avoid being mistaken for. Trying several candidates and taking the
+    first that parses is strictly safer than guessing once: a wrong guess here still falls
+    through to the same safe default a room that truly declares nothing gets, never a wrong
+    number silently used as if it were real.
+    """
+    found: dict[str, int | None] = {}
+    for field, candidates in _GOALKEEPER_BAND_KEYS.items():
+        value = None
+        for key in candidates:
+            value = _as_int(body.get(key))
+            if value is not None:
+                break
+        found[field] = value
+    return found
+
+
 def parse_league(body: Mapping[str, Any]) -> RoomConfig:
     """The flat ``fantaleague/fetch`` record → a typed ``RoomConfig``. Pure."""
     seats = tuple(
@@ -161,6 +208,8 @@ def parse_league(body: Mapping[str, Any]) -> RoomConfig:
         min_player=_as_int(body.get("min_player")),
         max_player=_as_int(body.get("max_player")),
         call_at_quotaz=bool(body.get("call_at_quotaz")),
+        number_of_players_selection=_as_str(body.get("number_of_players_selection")),
+        **_parse_roster_band(body),
     )
 
 
