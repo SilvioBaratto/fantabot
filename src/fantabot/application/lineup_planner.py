@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from fantabot.domain.lineup.bench import order_bench
-from fantabot.domain.lineup.build import best_lineup
+from fantabot.domain.lineup.build import ranked_lineups
+from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.marle import roles_from_marle
 from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
 from fantabot.domain.lineup.value import score
@@ -74,15 +75,16 @@ def inputs_from_lineup(
     return inputs, names
 
 
-def plan_lineup(
+def plan_lineups(
     inputs: LineupInputs,
     *,
     effect: Mapping[int, float] | None = None,
-) -> PlannedLineup:
-    """Build the best legal `PlannedLineup` from `inputs`.
+) -> list[PlannedLineup]:
+    """Every fieldable `PlannedLineup`, best first.
 
-    Raises the `domain/lineup` errors (`RosterIncomplete`, `NoFieldableModule`,
-    `BenchIncomplete`) unchanged — they name what is missing and the interface reports them.
+    The submit path walks this list, falling to the next module if the platform rejects one
+    (a wrong schema is survived, not fatal). Raises the `domain/lineup` errors
+    (`RosterIncomplete`, `NoFieldableModule`, `BenchIncomplete`) unchanged.
     """
     roster = assemble_roster(
         inputs.roster_ids,
@@ -90,14 +92,27 @@ def plan_lineup(
         fvmma_by_id=inputs.fvmma_by_id,
     )
     scores = score(roster, effect=effect)
-    module, starts = best_lineup(roster, inputs.modules, value=scores)
-    bench = order_bench(roster, starts, value=scores, size=inputs.bench_size)
-    return PlannedLineup(
-        module=module,
-        starts=tuple(starts),
-        bench=tuple(bench),
-        competition=inputs.competition,
-        mday=inputs.mday,
-        cmday=inputs.cmday,
-        tid=inputs.tid,
-    )
+    plans = [
+        PlannedLineup(
+            module=module,
+            starts=tuple(starts),
+            bench=tuple(order_bench(roster, starts, value=scores, size=inputs.bench_size)),
+            competition=inputs.competition,
+            mday=inputs.mday,
+            cmday=inputs.cmday,
+            tid=inputs.tid,
+        )
+        for module, starts in ranked_lineups(roster, inputs.modules, value=scores)
+    ]
+    if not plans:
+        raise NoFieldableModule(tuple(inputs.modules))
+    return plans
+
+
+def plan_lineup(
+    inputs: LineupInputs,
+    *,
+    effect: Mapping[int, float] | None = None,
+) -> PlannedLineup:
+    """The single best `PlannedLineup` from `inputs`."""
+    return plan_lineups(inputs, effect=effect)[0]

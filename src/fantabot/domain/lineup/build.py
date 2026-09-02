@@ -59,28 +59,42 @@ def lineup_for_module(
     return starts
 
 
+def ranked_lineups(
+    roster: Sequence[RosterPlayer],
+    modules: Sequence[str],
+    *,
+    value: Mapping[int, float],
+) -> list[tuple[str, list[int]]]:
+    """Every fieldable module's `(module, starts[])`, best `sum(value)` first.
+
+    Infeasible modules are dropped. Ties keep the order of `modules` (stable sort). The
+    caller submits down this list, falling to the next module if the platform rejects one —
+    which is how a wrong schema (`mantra_schemi.json`'s 4-1-4-1 was, live 2026-09-02) is
+    survived rather than fatal.
+    """
+    scored: list[tuple[float, str, list[int]]] = []
+    for code in modules:
+        starts = lineup_for_module(roster, code, value=value)
+        if starts is None:
+            continue
+        total = sum(value.get(pid, 0.0) for pid in starts)
+        scored.append((total, code, starts))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [(code, starts) for _total, code, starts in scored]
+
+
 def best_lineup(
     roster: Sequence[RosterPlayer],
     modules: Sequence[str],
     *,
     value: Mapping[int, float],
 ) -> tuple[str, list[int]]:
-    """`(module, starts[])` maximising `sum(value)` over the allowed modules.
-
-    Ties break toward the earlier module in `modules`. Raises `NoFieldableModule` when the
-    roster fields none of them.
-    """
-    best: tuple[float, str, list[int]] | None = None
-    for code in modules:
-        starts = lineup_for_module(roster, code, value=value)
-        if starts is None:
-            continue
-        total = sum(value.get(pid, 0.0) for pid in starts)
-        if best is None or total > best[0]:
-            best = (total, code, starts)
-    if best is None:
+    """`(module, starts[])` maximising `sum(value)`. Raises `NoFieldableModule` when the
+    roster fields none of the allowed modules."""
+    ranked = ranked_lineups(roster, modules, value=value)
+    if not ranked:
         raise NoFieldableModule(tuple(modules))
-    return best[1], best[2]
+    return ranked[0]
 
 
 def _hungarian(cost: list[list[float]]) -> list[int]:

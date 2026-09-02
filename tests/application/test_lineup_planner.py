@@ -10,6 +10,7 @@ from fantabot.application.lineup_planner import (
     LineupInputs,
     inputs_from_lineup,
     plan_lineup,
+    plan_lineups,
 )
 
 MODULES = ["3412", "3421", "343", "3511", "352", "4141", "4231", "4312", "433", "4411", "442"]
@@ -73,6 +74,13 @@ def test_no_sentiment_reproduces_the_fvm_only_field() -> None:
 
     assert 2194 in plan.starts
     assert 60 not in plan.starts
+
+
+def test_plan_lineups_are_ranked_best_first_each_complete() -> None:
+    plans = plan_lineups(INPUTS)
+
+    assert plans[0].module == "343"  # the roster fields only 343 here
+    assert all(len(p.starts) == 11 and len(p.bench) == 12 for p in plans)
 
 
 def test_inputs_from_lineup_maps_marle_roles_indexcompare_and_names() -> None:

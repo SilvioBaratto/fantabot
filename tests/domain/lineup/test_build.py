@@ -12,7 +12,7 @@ import pytest
 
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.roles import MantraPlayer
-from fantabot.domain.lineup.build import best_lineup, lineup_for_module
+from fantabot.domain.lineup.build import best_lineup, lineup_for_module, ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.models import RosterPlayer
 
@@ -74,6 +74,20 @@ UNIVERSAL = [_p(1, 5.0, "POR"), _p(2, 5.0, "POR")] + [
 UNIVERSAL_VALUE = {p.id: p.fvmma for p in UNIVERSAL}
 _ROLES_BY_ID = {p.id: p.roles for p in UNIVERSAL}
 _LEGALITY = build_legality(load_compat())
+
+
+def test_ranked_lineups_are_sorted_best_first_and_drop_infeasible() -> None:
+    ranked = ranked_lineups(UNIVERSAL, MODULES, value=UNIVERSAL_VALUE)
+
+    assert len(ranked) == 11  # the universal roster fields every module
+    totals = [sum(UNIVERSAL_VALUE[pid] for pid in starts) for _code, starts in ranked]
+    assert totals == sorted(totals, reverse=True)
+
+
+def test_ranked_lineups_over_a_narrow_roster_lists_only_what_is_fieldable() -> None:
+    ranked = ranked_lineups(GOLDEN, MODULES, value=GOLDEN_VALUE)
+
+    assert [code for code, _ in ranked] == ["343"]
 
 
 @pytest.mark.parametrize("code", MODULES)

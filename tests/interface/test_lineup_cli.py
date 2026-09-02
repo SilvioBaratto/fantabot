@@ -107,7 +107,7 @@ _LINEUP_INFO = [
 ] + [
     {
         "pid": 2000 + i,
-        "role": [9, 10, 11, 12, 13, 14, 15, 16],
+        "role": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16],  # broad: fields back-3 and back-4 modules
         "indexCompare": 8.0 - 0.1 * i,
         "plyr": f"Player{i}",
     }
@@ -211,4 +211,38 @@ def test_submit_posts_and_reads_back_when_fully_armed(
     assert result.exit_code == 0, result.output
     assert len(posted) == 1, "an armed submit must POST exactly once"
     assert posted[0]["mdl"] == "343"
+    assert "submitted" in result.output
+
+
+def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot import config
+    from fantabot.adapters.http import apileague
+    from fantabot.domain.lineup.errors import LineupRejected
+
+    _fakes_plan(monkeypatch)
+    # a roster that fields more than one module, so there is a next-best to fall to
+    monkeypatch.setattr(
+        apileague, "lineup_settings", lambda *a, **k: {"mods": ["442", "343"], "tbench": 12}
+    )
+    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00"}
+    )
+
+    tried: list[str] = []
+
+    def _submit(_lid: Any, body: dict[str, Any], **_k: Any) -> None:
+        tried.append(body["mdl"])
+        if len(tried) == 1:
+            raise LineupRejected("LUP009")  # platform refuses the first (best) module
+
+    monkeypatch.setattr(apileague, "teamLineup_submit", _submit)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert len(tried) == 2, "it must fall back to the next module after a refusal"
+    assert "trying the next module" in result.output
     assert "submitted" in result.output

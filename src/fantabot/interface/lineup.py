@@ -68,16 +68,16 @@ def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
     ]
 
 
-def _build_plan(
+def _build_plans(
     store: TokenStore, league_id: int, competition: int
-) -> tuple[PlannedLineup, dict[int, str], int]:
-    """Gather roster/settings/coords via `apileague` and compose the `PlannedLineup`.
+) -> tuple[list[PlannedLineup], dict[int, str], int]:
+    """Gather roster/settings/coords via `apileague` and compose the ranked `PlannedLineup`s.
 
     Roster, roles and value come from `teamLineup_read`'s `lineUpInfo`; the competition is
-    auto-resolved when `competition` is 0. Returns `(plan, id->name, competition_id)`.
+    auto-resolved when `competition` is 0. Returns `(plans_best_first, id->name, comp_id)`.
     """
     from fantabot.adapters.http import apileague
-    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineup
+    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
     from fantabot.domain.lineup.competition import resolve_competition
 
     tid = int(apileague.my_team(league_id, store=store)["id"])
@@ -89,7 +89,7 @@ def _build_plan(
     inputs, names = inputs_from_lineup(
         body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp
     )
-    return plan_lineup(inputs), names, comp
+    return plan_lineups(inputs), names, comp
 
 
 def _resolve_league(league: int) -> int:
@@ -158,7 +158,7 @@ def _plan(
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
             store = TokenStore(session, cipher)
-            plan, names, _ = _build_plan(store, league_id, competition)
+            plans, names, _ = _build_plans(store, league_id, competition)
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
@@ -166,7 +166,7 @@ def _plan(
         console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
         raise typer.Exit(code=1) from exc
 
-    for line in format_plan(plan, names):
+    for line in format_plan(plans[0], names):
         console.print(line)
 
 
@@ -191,7 +191,7 @@ def _submit(
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.config import settings
     from fantabot.domain.lineup import payload as payload_module
-    from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.lineup.errors import LineupError, LineupRejected
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
@@ -203,9 +203,9 @@ def _submit(
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
             store = TokenStore(session, cipher)
-            plan, names, comp = _build_plan(store, league_id, competition)
+            plans, names, comp = _build_plans(store, league_id, competition)
 
-            for line in format_plan(plan, names):
+            for line in format_plan(plans[0], names):
                 console.print(line)
 
             if not armed:
@@ -224,8 +224,22 @@ def _submit(
                     "the platform will refuse if it is truly closed.[/yellow]"
                 )
 
-            body = payload_module.build(plan)
-            apileague.teamLineup_submit(league_id, body, store=store)
+            # Submit the best module; if the platform refuses it (LUP009 — a wrong schema),
+            # fall to the next-best rather than failing the whole run.
+            submitted: PlannedLineup | None = None
+            for plan in plans:
+                try:
+                    apileague.teamLineup_submit(league_id, payload_module.build(plan), store=store)
+                    submitted = plan
+                    break
+                except LineupRejected as exc:
+                    console.print(
+                        f"[yellow]{plan.module} refused ({exc.code}) — trying the next "
+                        "module.[/yellow]"
+                    )
+            if submitted is None:
+                console.print("[red]every fieldable module was refused by the platform.[/red]")
+                raise typer.Exit(code=1)
             saved = apileague.teamLineup_read(league_id, comp, store=store).get(
                 "teamLineupDto", {}
             )
@@ -237,8 +251,8 @@ def _submit(
         raise typer.Exit(code=1) from exc
 
     console.print(
-        f"[green]submitted {plan.module} — saved {len(saved.get('starts', []))} starters, "
-        f"ldate {saved.get('ldate', '?')}[/green]"
+        f"[green]submitted {submitted.module} — saved {len(saved.get('starts', []))} "
+        f"starters, ldate {saved.get('ldate', '?')}[/green]"
     )
 
 
