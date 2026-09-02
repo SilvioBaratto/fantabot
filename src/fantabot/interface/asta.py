@@ -517,6 +517,8 @@ def asta_room(
         ceiling_alpha=ceiling_alpha,
         bargain_beta=bargain_beta,
         bargain_share=bargain_share,
+        admin_user_id=resolved.admin_id,
+        seat_by_user=resolved.seat_by_user,
         ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
         journal=journal.write,
         counter_time=resolved.counter_time,
@@ -736,6 +738,12 @@ def asta_bid(
     Fully unauthenticated: the shard (``--db``), seat (``--team``) and uid (``--user``) are given,
     and the live RTDB read + bid need no token (docs/fantalab/06 §10). The seat is claimed once,
     interactively; this command never touches the auth'd REST API.
+
+    ⚠ **A trade-off of that, not fixed here**: a lot the admin lets a stood raise fall through
+    on (Task 2.2's defect — the ledger records it identically to a routine admin skip) is only
+    reattributed when the room's seats and admin uid are known, and those live on
+    ``RoomConfig``, reached only through the authenticated fetch this command deliberately
+    skips. ``asta room`` (which does authenticate) catches it; this command does not.
     """
     import time
 
@@ -806,6 +814,10 @@ def asta_bid(
         ceiling_alpha=ceiling_alpha,
         bargain_beta=bargain_beta,
         bargain_share=bargain_share,
+        # No admin_user_id / seat_by_user: both live on `RoomConfig`, reached only through the
+        # authenticated `rest.fetch_league` this command deliberately never calls (see its own
+        # docstring). A passed lot the admin actually let stand is invisible here the same way
+        # it always was — `RoomTracker` degrades to that, not to a crash, without them.
         ledger=lambda: feed.ledger_events(db, league),
         journal=journal.write,
         counter_time=None, counter_time_first=None,

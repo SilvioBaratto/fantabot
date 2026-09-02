@@ -33,7 +33,12 @@ from fantabot.adapters.http.fantalab.rest import Seat as RoomSeat
 from fantabot.domain.asta.bid import Seat as BidSeat
 from fantabot.domain.asta.bid import decide_bid, max_bid, pass_reason
 from fantabot.domain.asta.legality import SchemaLegality, fieldable_schemi
-from fantabot.domain.asta.live import AssignmentEvent, resolve_ids, seconds_left
+from fantabot.domain.asta.live import (
+    AssignmentEvent,
+    attribute_passed_lots,
+    resolve_ids,
+    seconds_left,
+)
 from fantabot.domain.asta.opponents import MIN_BID
 from fantabot.domain.asta.optimizer import InfeasibleRoster
 from fantabot.domain.asta.reservation import (
@@ -79,6 +84,14 @@ class ResolvedRoom:
     #: `fantateam_id -> team name`, so a rival reads as a name rather than a uuid. Uuids are
     #: unreadable at speed, and the screen is read at speed or not at all.
     team_names: Mapping[str, str]
+    #: The room admin's uid — never a seat `attribute_passed_lots` may reattribute to, however
+    #: many of their auto-skips sit in the ledger (248 on 2026-09-01). `None` when the room
+    #: does not declare one; that is a real room shape, not a fetch failure.
+    admin_id: str | None
+    #: `user_id -> fantateam_id`, every *held* seat (a free seat has no uid to key on). Ours
+    #: included: a rival's reclaimed lot must vanish from the pool the same way ours does, or
+    #: the plan optimizes around a player the room has actually removed.
+    seat_by_user: Mapping[str, str]
 
     @property
     def budget(self) -> float:
@@ -142,6 +155,8 @@ def resolve_room(
         counter_time_first=config.counter_time_first,
         call_at_quotaz=config.call_at_quotaz,
         team_names={s.fantateam_id: s.team_name or s.fantateam_id for s in config.seats},
+        admin_id=config.admin_id,
+        seat_by_user={s.user_id: s.fantateam_id for s in config.seats if s.user_id is not None},
     )
 
 
@@ -236,6 +251,8 @@ class RoomTracker:
         bargain_beta: float = BARGAIN_BETA,
         bargain_min_book: int = BARGAIN_MIN_BOOK,
         bargain_share: float = BARGAIN_BUDGET_SHARE,
+        admin_user_id: str | None = None,
+        seat_by_user: Mapping[str, str] | None = None,
     ) -> None:
         self._seat = seat
         self._bridge = bridge
@@ -257,6 +274,12 @@ class RoomTracker:
         self._bargain_beta = bargain_beta
         self._bargain_min_book = bargain_min_book
         self._bargain_share = bargain_share
+        # Both default to inert: `asta bid` is fully unauthenticated by design (its own
+        # docstring) and never fetches `RoomConfig`, so it has neither. Without them every
+        # zero-price event's `seat_by_user.get(uid)` misses and `attribute_passed_lots`
+        # rewrites nothing — the same behaviour as before this existed, not a crash.
+        self._admin_user_id = admin_user_id
+        self._seat_by_user = seat_by_user or {}
         # **How the tracker tells a bargain win from a planned one.** Every fantacalcio id we
         # have ever actually raised on under `bargain` provenance, for the life of the
         # process. A win is then the intersection of this set with what the ledger says we
@@ -284,6 +307,13 @@ class RoomTracker:
         """One poll: fold, re-plan, decide, journal, and return the frame."""
         state = AstaState(total_budget=self._budget)
         events, unresolved = resolve_ids(self._ledger(), self._bridge)
+        # After resolve_ids, not before: `price_of` below is `self._prices`, keyed by
+        # fantacalcio id like every other lookup here, and `player_id` only matches it once
+        # the FantaLab uuid has already been translated.
+        events, _reclaimed = attribute_passed_lots(
+            events, admin_user_id=self._admin_user_id, seat_by_user=self._seat_by_user,
+            price_of=self._prices, min_bid=MIN_BID,
+        )
         for event in events:
             state = apply_event(state, event, our_team_id=self._seat.fantateam_id)
 

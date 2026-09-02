@@ -580,3 +580,51 @@ class TestTwoWinsLandingInTheSamePollAreStillSafe:
         assert frame.decision == "hold"
         assert frame.plan == ()
         assert frame.credits_left < 0, "the lag already overspent; the guard is what happens next"
+
+
+class TestAPassedLotIsAttributedBeforeTheFold:
+    """Task 2.3: `attribute_passed_lots` runs on every cycle's ledger, after `resolve_ids` (so
+    `price_of` sees fantacalcio ids, matching `self._prices`) and before `apply_event`. Neither
+    parameter is required — `asta bid` never has them (its own docstring) — so both default to
+    inert rather than crashing a cycle that doesn't supply them.
+    """
+
+    def test_a_stood_raise_the_admin_passed_lands_in_our_own_owned_set(self) -> None:
+        # uuid-gk / "100" reads price 10 from PRICES — the reattributed price prefers that
+        # observed clearing price over the MIN_BID fallback.
+        ledger = [AssignmentEvent("uuid-gk", 0, None, "our-uid")]
+        frame = _tracker(
+            ledger=ledger, admin_user_id="admin-uid", seat_by_user={"our-uid": "us"},
+        ).cycle(_lot(), now_ms=1_000)
+
+        assert frame.owned == ("100",)
+        assert frame.credits_left == 90
+
+    def test_an_admin_stamped_skip_is_never_reattributed_to_us(self) -> None:
+        ledger = [AssignmentEvent("uuid-gk", 0, None, "admin-uid")]
+        frame = _tracker(
+            ledger=ledger, admin_user_id="admin-uid", seat_by_user={"admin-uid": "us"},
+        ).cycle(_lot(), now_ms=1_000)
+
+        assert frame.owned == ()
+        assert frame.credits_left == 100
+
+    def test_a_rivals_passed_lot_is_removed_from_the_pool_not_credited_to_us(self) -> None:
+        """`seat_by_user` covers every held seat, ours included — a rival's reclaimed lot
+        must vanish from the pool the same way ours does, or the plan optimizes around a
+        player the room has actually removed."""
+        ledger = [AssignmentEvent("uuid-a2", 0, None, "rival-uid")]
+        frame = _tracker(
+            ledger=ledger, admin_user_id="admin-uid", seat_by_user={"rival-uid": "Y"},
+        ).cycle(_lot(), now_ms=1_000)
+
+        assert frame.owned == (), "not ours"
+        assert "300" not in frame.plan, "taken, so no longer a candidate the plan can pick"
+
+    def test_neither_parameter_is_required(self) -> None:
+        """`asta bid` never has these — `RoomTracker` degrades to no reattribution, not a
+        crash, exactly today's behaviour."""
+        ledger = [AssignmentEvent("uuid-gk", 0, None, "our-uid")]
+        frame = _tracker(ledger=ledger).cycle(_lot(), now_ms=1_000)
+
+        assert frame.owned == ()

@@ -26,6 +26,7 @@ BODY = {
     "num_credits": 500,
     "min_player": 30,
     "max_player": 30,
+    "admin_id": "rival",
     "fantateams": [
         {"fantateam_id": "t1", "user_id": "rival", "team_name": "Rivali"},
         {"fantateam_id": "t2", "user_id": "us", "team_name": "Team C"},
@@ -61,6 +62,21 @@ class TestWhatComesBack:
 
     def test_the_roster_band_comes_through(self) -> None:
         assert _resolve().min_player == 30
+
+    def test_the_admin_id_comes_through(self) -> None:
+        assert _resolve().admin_id == "rival"
+
+    def test_admin_id_absent_stays_none_not_a_fetch_failure(self) -> None:
+        room = {k: v for k, v in BODY.items() if k != "admin_id"}
+        assert _resolve(room).admin_id is None
+
+    def test_seat_by_user_maps_every_held_seat(self) -> None:
+        room = _resolve()
+
+        assert room.seat_by_user == {"rival": "t1", "us": "t2"}
+
+    def test_a_free_seat_has_no_uid_to_key_seat_by_user_on(self) -> None:
+        assert "t3" not in _resolve().seat_by_user.values()
 
 
 class TestWhatIsRefused:
