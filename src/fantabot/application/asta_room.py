@@ -332,6 +332,17 @@ class RoomTracker:
         # The key changes when a sale lands, which is the moment the lot ends anyway.
         self._bargain_key: tuple[AstaState, RosterRules] | None = None
         self._bargains: dict[str, int] = {}
+        # A separate memo from the one above, and deliberately not collapsed into it: this one
+        # caches the plan solve itself (`reservations()`), that one caches per-player ceilings
+        # computed *from* the plan's `baseline`. Both are functions of `(state, rules)` today,
+        # but they answer different questions and may not always share a key — the plan solve
+        # already stopped needing `rules` refreshed at the same moment a bargain ceiling does,
+        # once Task 1.2 generalized who gets priced. One slot, not a dict: `state` never
+        # recurs (`taken` only grows), so a dict would retain a frozenset per state forever.
+        self._plan_key: tuple[AstaState, RosterRules] | None = None
+        self._plan_cache: tuple[tuple[str, ...], dict[str, float], float | None, str | None] = (
+            (), {}, None, None,
+        )
 
     def cycle(
         self, snapshot: Mapping[str, Any] | None, *, now_ms: int, node: str = "auction"
@@ -371,21 +382,28 @@ class RoomTracker:
         # handles the id we cannot name; this handles the arithmetic. Either way the loop must
         # keep drawing and keep holding — raising out of a cycle would end the evening on a
         # condition the next sale might undo.
-        try:
-            plan, walkaways = reservations(
-                state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
-                legality=self._legality, rules=rules, lam=self._lam, n_targets=None,
-            )
-            planned: tuple[str, ...] = plan.optimal.player_ids
-            # The number every bargain is judged against. `None` when there is no plan: a
-            # rosa that cannot be completed has no objective to beat, and "better than
-            # nothing" is not a reason to spend.
-            baseline: float | None = plan.optimal.objective
-        except InfeasibleRoster as exc:
-            walkaways = {}
-            planned = ()
-            baseline = None
-            unvaluable = [*unvaluable, f"no completable rosa from here: {exc}"]
+        # The plan solve is a function of `(state, rules)` alone — nothing else that changes
+        # per poll (`price`, `seconds_left`, `recent`, ...) feeds it — so a lot sitting on the
+        # block for 20-60 s at a 2 s poll re-solved it thirty times for the same answer before
+        # this memo, and the plan's own `_cycle_calls` budget (`test_asta_cycle_cost.py`)
+        # measures exactly that solve.
+        plan_key = (state, rules)
+        if plan_key != self._plan_key:
+            self._plan_key = plan_key
+            try:
+                plan, walkaways = reservations(
+                    state, self._pool, value=self._value, prices=self._prices,
+                    teams=self._teams, legality=self._legality, rules=rules, lam=self._lam,
+                    n_targets=None,
+                )
+                self._plan_cache = (
+                    plan.optimal.player_ids, walkaways, plan.optimal.objective, None,
+                )
+            except InfeasibleRoster as exc:
+                self._plan_cache = ((), {}, None, f"no completable rosa from here: {exc}")
+        planned, walkaways, baseline, infeasible = self._plan_cache
+        if infeasible is not None:
+            unvaluable = [*unvaluable, infeasible]
 
         if self._bargain_key != (state, rules):
             self._bargain_key = (state, rules)

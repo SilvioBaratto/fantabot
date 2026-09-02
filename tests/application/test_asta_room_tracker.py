@@ -680,3 +680,91 @@ class TestTheJournalRowsForAPollThatNeverReachedCycle:
         row = error_row(ValueError("some detail nobody needs to grep for"), now_ms=2_000)
 
         assert row == {"at_ms": 2_000, "decision": "error", "error": "ValueError"}
+
+
+class TestThePlanSolveIsMemoizedOnStateAndRules:
+    """Task 4.2: `reservations()` is a function of `(state, rules)` alone — nothing else that
+    moves per poll (`price`, `seconds_left`, `recent`, ...) feeds it, so a lot sitting on the
+    block for 20-60 s at a 2 s poll re-solved it thirty times for the same answer before this.
+
+    A separate memo from `_bargain_key`/`_bargains` (Task 1.2's per-player ceiling cache) —
+    both key on `(state, rules)` today, but they answer different questions, and this test
+    file proves each independently rather than assuming one memo covers both.
+    """
+
+    @staticmethod
+    def _counted_reservations():  # type: ignore[no-untyped-def]
+        import fantabot.application.asta_room as room
+
+        calls: list[int] = []
+        real = room.reservations
+        room.reservations = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        return room, real, calls
+
+    def test_four_polls_of_an_unchanged_state_cost_one_solve(self) -> None:
+        room, real, calls = self._counted_reservations()
+        try:
+            tracker = _tracker()
+            for price in (5, 6, 7, 8):
+                tracker.cycle(_lot(price=price), now_ms=1_000)
+        finally:
+            room.reservations = real
+
+        assert len(calls) == 1, f"one solve for four polls of an unchanged state, got {len(calls)}"
+
+    def test_a_rivals_purchase_taken_only_forces_a_fresh_solve(self) -> None:
+        room, real, calls = self._counted_reservations()
+        try:
+            ledger: list[AssignmentEvent] = []
+            tracker = _tracker(ledger=ledger)
+            tracker.cycle(_lot(), now_ms=1_000)
+            assert len(calls) == 1
+            ledger.append(AssignmentEvent("uuid-a2", 20, "rival"))
+            tracker.cycle(_lot(), now_ms=2_000)
+        finally:
+            room.reservations = real
+
+        assert len(calls) == 2, "a rival's purchase moves `taken`; the memo must not survive it"
+
+    def test_our_own_purchase_owned_spent_and_taken_forces_a_fresh_solve(self) -> None:
+        room, real, calls = self._counted_reservations()
+        try:
+            ledger: list[AssignmentEvent] = []
+            tracker = _tracker(ledger=ledger)
+            tracker.cycle(_lot(), now_ms=1_000)
+            assert len(calls) == 1
+            ledger.append(AssignmentEvent("uuid-gk", 10, "us"))
+            tracker.cycle(_lot(), now_ms=2_000)
+        finally:
+            room.reservations = real
+
+        assert len(calls) == 2
+
+    def test_a_budget_only_change_forces_a_fresh_solve(self) -> None:
+        """Not reachable today through any live path — a `RoomTracker`'s budget is fixed at
+        construction — but the memo key is `AstaState` equality as a whole, not a hand-picked
+        subset of its fields, and has to be sensitive to every field that makes it up."""
+        room, real, calls = self._counted_reservations()
+        try:
+            tracker = _tracker()
+            tracker.cycle(_lot(), now_ms=1_000)
+            assert len(calls) == 1
+            tracker._budget = 50.0
+            tracker.cycle(_lot(), now_ms=2_000)
+        finally:
+            room.reservations = real
+
+        assert len(calls) == 2
+
+    def test_a_rules_change_from_task_3_forces_a_fresh_solve(self) -> None:
+        room, real, calls = self._counted_reservations()
+        try:
+            tracker = _tracker()
+            tracker.cycle(_lot(), now_ms=1_000)
+            assert len(calls) == 1
+            tracker._rules = RosterRules(size=3, min_goalkeepers=1, min_movement=2)
+            tracker.cycle(_lot(), now_ms=2_000)
+        finally:
+            room.reservations = real
+
+        assert len(calls) == 2
