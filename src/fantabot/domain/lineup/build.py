@@ -33,9 +33,17 @@ def lineup_for_module(
     *,
     value: Mapping[int, float],
 ) -> list[int] | None:
-    """The max-value `starts[]` (11 ids, GK first) for one module, or `None` if the roster
-    cannot field it with natural roles."""
-    slot_sets = schema.slots(module_code)
+    """The max-value `starts[]` (11 ids, GK first) for one module, or `None` if the module
+    is unknown or the roster cannot field it with natural roles.
+
+    An unknown code (the platform's `mods` diverged from the shipped schemi, or a wrong-mode
+    league) is treated as infeasible and dropped, not raised — the caller ranks over what is
+    fieldable, and a bad code must not crash an unattended run.
+    """
+    try:
+        slot_sets = schema.slots(module_code)
+    except ValueError:
+        return None
     players = list(roster)
     n, m = len(slot_sets), len(players)
     if m < n:

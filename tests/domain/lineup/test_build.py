@@ -90,6 +90,17 @@ def test_ranked_lineups_over_a_narrow_roster_lists_only_what_is_fieldable() -> N
     assert [code for code, _ in ranked] == ["343"]
 
 
+def test_an_unknown_module_code_is_dropped_not_raised() -> None:
+    # a code the platform's `mods` might carry but that is not one of the shipped schemi
+    ranked = ranked_lineups(GOLDEN, ["999", "343"], value=GOLDEN_VALUE)
+
+    assert [code for code, _ in ranked] == ["343"]  # '999' silently dropped, no ValueError
+
+
+def test_lineup_for_module_returns_none_for_an_unknown_code() -> None:
+    assert lineup_for_module(GOLDEN, "999", value=GOLDEN_VALUE) is None
+
+
 @pytest.mark.parametrize("code", MODULES)
 def test_the_built_starts_are_confirmed_fieldable_by_legality(code: str) -> None:
     starts = lineup_for_module(UNIVERSAL, code, value=UNIVERSAL_VALUE)
