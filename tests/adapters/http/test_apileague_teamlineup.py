@@ -222,6 +222,35 @@ def test_submit_with_no_token_is_refused_before_a_request_is_built() -> None:
     assert handler.requests == [], "a request was built for a token we do not have"
 
 
+# --- competitions (array) + lineup settings -------------------------------
+
+
+def test_competitions_returns_the_array_from_the_documented_path() -> None:
+    comps = [{"id": 311681, "tmids": [1, 2], "del": False}]
+    transport, handler = transport_returning(json_body=comps)
+
+    result = apileague.competitions(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    assert handler.requests[0].url.path == "/onboarding/v1/league/competitions"
+    assert result == comps
+
+
+def test_a_non_array_competitions_body_yields_an_empty_list() -> None:
+    transport, _ = transport_returning(json_body={"unexpected": "dict"})
+
+    assert apileague.competitions(_tokens.LEGA_MANTRA, store=a_store(), transport=transport) == []
+
+
+def test_lineup_settings_reads_the_settings_path() -> None:
+    body = {"mods": ["343", "442"], "tbench": 12}
+    transport, handler = transport_returning(json_body=body)
+
+    result = apileague.lineup_settings(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    assert handler.requests[0].url.path == "/onboarding/v1/league/settings/lineup"
+    assert result["mods"] == ["343", "442"]
+
+
 # --- nothing leaks --------------------------------------------------------
 
 

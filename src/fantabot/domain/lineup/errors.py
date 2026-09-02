@@ -18,6 +18,42 @@ class LineupError(Exception):
     """Base for lineup failures, so callers can catch the family."""
 
 
+class UnknownMarleRole(LineupError):
+    """A numeric `marle` role code with no entry in the mapping.
+
+    Fail-closed by number so the code can be added (notably `B`, absent when the map was
+    derived) rather than a role being guessed.
+    """
+
+    def __init__(self, code: int) -> None:
+        super().__init__(
+            f"unknown marle role code {code} — extend MARLE_TO_ROLE. Nothing was mapped."
+        )
+        self.code = code
+
+
+class NoCompetition(LineupError):
+    """No active competition includes our team — cannot resolve where to field a lineup."""
+
+    def __init__(self, tid: int) -> None:
+        super().__init__(
+            f"no active competition includes team {tid}. Check the league, or pass "
+            "`--competition`."
+        )
+        self.tid = tid
+
+
+class CompetitionAmbiguous(LineupError):
+    """Several active competitions include our team — the operator must pick one."""
+
+    def __init__(self, competitions: tuple[int, ...]) -> None:
+        super().__init__(
+            f"several competitions include our team {list(competitions)} — pass "
+            "`--competition <id>` to choose."
+        )
+        self.competitions = competitions
+
+
 class NoFieldableModule(LineupError):
     """The roster cannot field any of the allowed modules with natural roles.
 

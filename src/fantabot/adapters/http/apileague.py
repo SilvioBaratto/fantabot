@@ -50,6 +50,8 @@ APP_KEY = "ICiELOObd5DF5uJEATi77CRvHiiRuMU0"
 
 LEAGUE_STATUS_PATH = "/onboarding/v1/league/status"
 TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
+COMPETITIONS_PATH = "/onboarding/v1/league/competitions"
+LINEUP_SETTINGS_PATH = "/onboarding/v1/league/settings/lineup"
 DEFAULT_TIMEOUT = 10.0
 
 # The lineup lives under a different microservice, `gaming/v1`, not `onboarding/v1`
@@ -131,6 +133,31 @@ def _get(
 
     body = response.json()
     return body if isinstance(body, dict) else {}
+
+
+def _get_raw(
+    path: str,
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None,
+    timeout: float,
+    now: Any,
+) -> Any:
+    """`_get` without the dict coercion — for endpoints that return a JSON array (e.g.
+    `competitions`). Same headers, same leak guard."""
+    headers = auth_headers(league_id, store=store, now=now)
+    try:
+        with httpx.Client(
+            base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
+        ) as client:
+            response = client.get(path)
+    except httpx.TimeoutException:
+        raise ApiTimeout(timeout) from None
+    except httpx.TransportError:
+        raise ApiUnavailable(0) from None
+    _raise_for(response, league_id)
+    return response.json()
 
 
 def _raise_for_lineup(response: httpx.Response, league_id: int) -> None:
@@ -215,6 +242,40 @@ def my_team(
     )
 
 
+def competitions(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> list[dict[str, Any]]:
+    """`GET /onboarding/v1/league/competitions` — the league's competitions (a JSON array).
+
+    Each entry carries `id`, `tmids`, `sDay`/`eDay`, `del` (`docs/leghe-api.md`). Used to
+    resolve which competition a lineup acts on.
+    """
+    body = _get_raw(
+        COMPETITIONS_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+    return [c for c in body if isinstance(c, dict)] if isinstance(body, list) else []
+
+
+def lineup_settings(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/settings/lineup` — the formation settings: allowed modules
+    (`mods`), bench size (`tbench`), deadline, captain (`docs/leghe-api.md`)."""
+    return _get(
+        LINEUP_SETTINGS_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+
+
 def teamLineup_read(
     league_id: int,
     competition_id: int,
@@ -266,7 +327,9 @@ __all__ = [
     "TokenMissing",
     "TokenRejected",
     "auth_headers",
+    "competitions",
     "league_status",
+    "lineup_settings",
     "my_team",
     "teamLineup_read",
     "teamLineup_submit",

@@ -78,6 +78,74 @@ def _show(
         console.print(line)
 
 
+def format_plan(plan: Any, names: Mapping[int, str]) -> list[str]:
+    """Render a `PlannedLineup` with player names for the console. Pure."""
+
+    def nm(pid: int) -> str:
+        return names.get(pid, str(pid))
+
+    return [
+        f"module {plan.module}  (league matchday {plan.mday}, Serie A {plan.cmday})",
+        "XI:    " + ", ".join(nm(p) for p in plan.starts),
+        "bench: " + ", ".join(nm(p) for p in plan.bench),
+    ]
+
+
+def _plan(
+    league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
+    competition: int = typer.Option(
+        0, "--competition", help="Competition id. Auto-resolved when omitted."
+    ),
+) -> None:
+    """Build and print the best legal formation for the current matchday. **No submit.**
+
+    Roster, roles and value all come from `apileague.teamLineup_read`'s `lineUpInfo`
+    (`indexCompare` is the value signal); the allowed modules and bench size from
+    `settings/lineup`. Read-only — this never POSTs.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.http import apileague
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineup
+    from fantabot.config import settings
+    from fantabot.domain.lineup.competition import resolve_competition
+    from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    league_id = league or settings.fantabot_league_id
+    if not league_id:
+        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
+            tid = int(apileague.my_team(league_id, store=store)["id"])
+            comp = competition or resolve_competition(
+                apileague.competitions(league_id, store=store), tid=tid
+            )
+            body = apileague.teamLineup_read(league_id, comp, store=store)
+            lineup_conf = apileague.lineup_settings(league_id, store=store)
+        inputs, names = inputs_from_lineup(
+            body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp
+        )
+        plan = plan_lineup(inputs)
+    except (TokenError, LineupError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    for line in format_plan(plan, names):
+        console.print(line)
+
+
 def register(app: typer.Typer) -> None:
     """Attach the lineup commands to the `lineup` group (called from `interface/app`)."""
     app.command("show")(_show)
+    app.command("plan")(_plan)

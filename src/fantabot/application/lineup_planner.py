@@ -12,9 +12,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from fantabot.domain.lineup.bench import order_bench
 from fantabot.domain.lineup.build import best_lineup
+from fantabot.domain.lineup.marle import roles_from_marle
 from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
 from fantabot.domain.lineup.value import score
 
@@ -32,6 +34,44 @@ class LineupInputs:
     cmday: int
     tid: int
     bench_size: int
+
+
+def inputs_from_lineup(
+    dto: Mapping[str, Any],
+    lineup_info: Sequence[Mapping[str, Any]],
+    settings: Mapping[str, Any],
+    competition: int,
+) -> tuple[LineupInputs, dict[int, str]]:
+    """Turn a `teamLineup_read` response + `settings/lineup` into `LineupInputs` and a
+    id->name map. Pure.
+
+    The roster, roles and value all come from `lineUpInfo` (`docs/leghe-api.md`): `role` is
+    the numeric marle codes, `indexCompare` is the value signal, `plyr` the name. This is
+    the source of record because the scraped `quotazioni` ids do not join the league roster.
+    """
+    roster_ids: list[int] = []
+    roles_by_id: dict[int, list[str]] = {}
+    value_by_id: dict[int, float] = {}
+    names: dict[int, str] = {}
+    for row in lineup_info:
+        pid = int(row["pid"])
+        roster_ids.append(pid)
+        roles_by_id[pid] = roles_from_marle(row.get("role") or [])
+        value_by_id[pid] = float(row.get("indexCompare") or 0.0)
+        names[pid] = str(row.get("plyr", pid))
+
+    inputs = LineupInputs(
+        roster_ids=roster_ids,
+        roles_by_id=roles_by_id,
+        fvmma_by_id=value_by_id,
+        modules=list(settings.get("mods", [])),
+        competition=competition,
+        mday=int(dto.get("mday", 0)),
+        cmday=int(dto.get("cmday", 0)),
+        tid=int(dto.get("tid", 0)),
+        bench_size=int(settings.get("tbench", 12)),
+    )
+    return inputs, names
 
 
 def plan_lineup(
