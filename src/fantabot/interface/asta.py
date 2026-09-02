@@ -34,7 +34,7 @@ from fantabot.domain.asta.report import (
 )
 from fantabot.domain.asta.reservation import rolling_advisory
 from fantabot.domain.asta.sentiment import SentimentWeights
-from fantabot.domain.asta.state import AstaState, RosterRules
+from fantabot.domain.asta.state import AstaState, RosterRules, rules_for_room
 from fantabot.interface.console import console
 from fantabot.interface.options import (
     SEASON,
@@ -461,11 +461,19 @@ def asta_room(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
+    rules, rules_provenance = rules_for_room(
+        selection=resolved.number_of_players_selection,
+        min_player=resolved.min_player,
+        max_player=resolved.max_player,
+        min_goalkeepers=resolved.min_goalkeepers,
+        min_others=resolved.min_others,
+    )
     console.print(
         f"[bold]{resolved.fantaleague_id}[/bold] · shard {resolved.db} · "
         f"{resolved.asta_mode}/{resolved.raise_mode} · "
         f"{resolved.num_teams} teams x {resolved.num_credits} credits · "
-        f"seat {resolved.seat.team_name or resolved.seat.fantateam_id}"
+        f"seat {resolved.seat.team_name or resolved.seat.fantateam_id} · "
+        f"roster {rules.size} ({rules_provenance})"
     )
     if resolve_only:
         return
@@ -511,7 +519,7 @@ def asta_room(
         bridge=bridge,
         pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, names=world.names,
-        rules=RosterRules(),
+        rules=rules,
         budget=credits,
         lam=lam,
         ceiling_alpha=ceiling_alpha,
@@ -575,7 +583,7 @@ def asta_room(
                         roles={k: list(v) for k, v in world.roles.items()},
                         walkaways=dict(frame.walkaways), prices=dict(world.prices),
                         credits_left=frame.credits_left,
-                        slots_left=RosterRules().size - len(frame.owned),
+                        slots_left=rules.size - len(frame.owned),
                         schemi_open=frame.schemi_open,
                         recent=frame.recent,
                     )
@@ -615,7 +623,7 @@ def asta_room(
             seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
             fantaleague_id=resolved.fantaleague_id,
             remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
-            max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), RosterRules().size),
+            max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), rules.size),
             target_of=target_of,
             read=lambda: router.read_lot()[0],
             # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a

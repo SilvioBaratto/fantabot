@@ -17,7 +17,7 @@ from our `quotazioni`.
 from __future__ import annotations
 
 from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
-from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
+from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable, rules_for_room
 
 POOL = [
     MantraPlayer("1", normalize_roles(["A"])),
@@ -80,6 +80,27 @@ def test_a_dropped_goalkeeper_shrinks_the_goalkeeper_floor_instead() -> None:
     # We cannot tell his role -- he is not in the pool -- so the movement band is what
     # shrinks. Naming him in the heartbeat is what lets a human correct the assumption.
     assert rules.min_movement == 27
+
+
+def test_the_shrink_moves_both_bands_together_on_a_room_derived_rules_too() -> None:
+    """Task 3.3: `RosterRules` is no longer always `size=30` — a room can declare 25 with a
+    2/23 split (`rules_for_room`). The shrink-together property has to hold on that shape
+    exactly as it does on the default, not on a `size=30` this function happens to see most
+    often in its own test fixtures.
+    """
+    room_rules, provenance = rules_for_room(
+        selection="min-max-goalie-others", min_player=25, max_player=25,
+        min_goalkeepers=2, min_others=23,
+    )
+    assert provenance == "read from the room"
+    state = AstaState(owned=("1", "7581"), total_budget=500.0)
+
+    _, shrunk, dropped = drop_unvaluable(state, POOL, room_rules)
+
+    assert dropped == ["7581"]
+    assert shrunk.size == 24, "one slot filled by a player the pool cannot value"
+    assert shrunk.min_movement == 22, "the slot came out of the band he could have filled"
+    assert shrunk.min_goalkeepers == 2, "the room's own goalkeeper floor is unaffected"
 
 
 def test_the_band_never_shrinks_below_what_is_already_owned() -> None:

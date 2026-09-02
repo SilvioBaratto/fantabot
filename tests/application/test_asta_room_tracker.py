@@ -628,3 +628,33 @@ class TestAPassedLotIsAttributedBeforeTheFold:
         frame = _tracker(ledger=ledger).cycle(_lot(), now_ms=1_000)
 
         assert frame.owned == ()
+
+
+class TestTheInjectedRulesAreWhatDecidesTheBand:
+    """Task 3.3: `RosterRules` is a room-derived value now (`rules_for_room`), not always
+    `size=30` — this fixture's own `RULES` (`size=2`) already exercises that, but this pins
+    it explicitly: the band `RoomTracker` completes against is whatever `rules=` was
+    constructed with, never a hardcoded default sitting somewhere inside `cycle`.
+    """
+
+    @staticmethod
+    def _tracker_with(rules):  # type: ignore[no-untyped-def]
+        return RoomTracker(
+            seat=SEAT, bridge=BRIDGE, pool=POOL, value=VALUE, prices=PRICES, teams=TEAMS,
+            legality=SCHEMI, names=NAMES, rules=rules, budget=100.0, lam=0.0,
+            ledger=lambda: [], journal=lambda _row: None,
+            counter_time=10, counter_time_first=20,
+        )
+
+    def test_a_wider_room_derived_band_reserves_fewer_credits_per_lot(self) -> None:
+        """`max_bid` reserves one credit per slot still to fill beyond this one — more slots
+        left (a wider band) means a smaller cap on any single lot, for the same purse."""
+        narrow = self._tracker_with(RosterRules(size=2, min_goalkeepers=1, min_movement=1))
+        wide = self._tracker_with(RosterRules(size=5, min_goalkeepers=1, min_movement=4))
+
+        narrow_frame = narrow.cycle(_lot(), now_ms=1_000)
+        wide_frame = wide.cycle(_lot(), now_ms=1_000)
+
+        assert wide_frame.max_cap < narrow_frame.max_cap
+        assert wide_frame.max_cap == 100 - (5 - 1)
+        assert narrow_frame.max_cap == 100 - (2 - 1)
