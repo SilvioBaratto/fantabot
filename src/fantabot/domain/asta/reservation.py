@@ -10,7 +10,7 @@ task will add.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
 
 from fantabot.domain.asta.legality import SchemaLegality
@@ -55,8 +55,9 @@ def apply_event(state: AstaState, event: AssignmentEvent, *, our_team_id: str) -
 #: that no per-player re-solve is needed to believe it, which is the whole point — the loop
 #: cannot afford one.
 #:
-#: It is also strictly below ``FloorAlpha``'s 1.00, so a bargain ceiling is always under what
-#: the plan would itself pay for that player. A bargain can never outbid the plan.
+#: It is also strictly below 1.0, so the pre-gate's own cap sits under a lot's full book price
+#: before `lot_ceiling` ever re-solves it — `opportunistic_walkaway`'s ``share`` and ``max_cap``
+#: terms are the guards that keep a bargain from starving what the plan itself needs.
 BARGAIN_BETA = 0.6
 
 #: Below this book price a "bargain" is noise. At 20 credits a 40% discount saves 8, which is
@@ -214,8 +215,8 @@ def bargain_allowance(
     bargain allowance and the aggregate limit would not exist. The share of a fixed number is
     a fixed number.
 
-    Truncating down (``int``) is the safe direction, and it matches ``price_floor`` and
-    ``lot_ceiling``, which both treat a sub-``MIN_BID`` number as "do not chase".
+    Truncating down (``int``) is the safe direction, and it matches ``lot_ceiling``'s own
+    convention, which treats a sub-``MIN_BID`` number as "do not chase".
     """
     return max(0, int(share * total_budget) - int(spent_on_bargains))
 
@@ -260,7 +261,7 @@ def safe_ceiling(passes: Callable[[int], bool], *, lo: int, hi: int) -> int:
     110 ms above is.
 
     Returns 0 when ``hi < lo`` or when even ``lo`` fails, which is the "do not chase"
-    convention ``price_floor`` and ``decide_bid`` already share.
+    convention ``decide_bid`` already applies to a walk-away below ``MIN_BID`` elsewhere.
     """
     ceiling = 0
     for price in range(lo, hi + 1):
@@ -283,7 +284,7 @@ def lot_reference(
     rho: float = DEFAULT_SAME_TEAM_RHO,
     baseline: float,
     player_id: str,
-    plan: Sequence[str],
+    plan: Collection[str],
 ) -> float | None:
     """The objective ``lot_ceiling`` must beat to justify buying ``player_id``. Pure.
 
@@ -373,8 +374,8 @@ def lot_ceiling(
     ``current + 1`` right through it. See ``safe_ceiling`` for the measurement.
 
     **Returns 0 for "hold", and 0 is the safe value**: ``decide_bid`` refuses at every price
-    when the walk-away is below ``MIN_BID`` — the same convention ``price_floor`` clamped
-    against, before this function replaced it.
+    when the walk-away is below ``MIN_BID`` — the same convention the walk-away floor this
+    function replaced (Task 1.3) used to clamp against.
 
     **The answer does not mention the lot's current price**, only ``state``. That is
     deliberate and not an accident of the arithmetic: it is what lets the caller memoize one
@@ -423,33 +424,6 @@ def lot_ceiling(
     return safe_ceiling(better_at, lo=lo, hi=hi)
 
 
-def price_floor(alpha: float, prices: Mapping[str, float]) -> Callable[[str], float]:
-    """A walk-away floor: a fraction of what the player actually clears at. Pure.
-
-    The marginal walk-away is a correct statement of *value* and a wrong *reservation price*.
-    Over a pool with near-perfect substitutes almost everyone is replaceable, so the margin
-    collapses — measured on the live database on 2026-09-01, 10 of 30 walk-aways were exactly
-    0.0, including the player the same plan had budgeted 96 credits for. `decide_bid` refuses
-    at every price when the walk-away is 0, so the bot refuses nearly everything it planned.
-
-    **``max(MIN_BID, …)`` is load-bearing, not defensive.** A lot opens at 1 credit, the
-    walk-away is truncated with `int()`, and a refusal follows when the next price exceeds it.
-    So a floor below 1 becomes 0 and deletes that player from the biddable set. Measured over
-    the 416 priced players in the live pool: ``alpha=1.0`` truncates none, ``0.9`` truncates
-    91, ``0.8`` truncates 107, ``0.7`` truncates 133, ``0.6`` truncates 146. Without the clamp
-    lowering alpha does not lower a ceiling — it removes players — and a sweep over alpha would
-    be measuring that removal.
-
-    ``planning_cost`` supplies the fallback for the 154 players with no observed sale, rather
-    than a second convention: it is already what the optimizer and the roster report agree on.
-    """
-
-    def floor(player_id: str) -> float:
-        return max(float(MIN_BID), alpha * planning_cost(player_id, prices))
-
-    return floor
-
-
 def reservations(
     state: AstaState,
     pool: Sequence[MantraPlayer],
@@ -462,7 +436,6 @@ def reservations(
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
     n_targets: int | None = 5,
-    floor: Callable[[str], float] | None = None,
 ) -> tuple[OptimizationResult, dict[str, float]]:
     """The current optimal plan, and a credit walk-away for each top target.
 
@@ -481,14 +454,14 @@ def reservations(
     is measuring this default; re-pointing it at a 3x heavier cycle would retire that
     tripwire silently. The advisory paths keep the cap; only ``asta bid`` asks for all of it.
 
-    ``floor(pid)`` raises each walk-away to at least that much, still capped by the remaining
-    budget. It is injected rather than computed here so this module stays free of the pricing
-    policy — the choice is the operator's ``--floor-alpha`` and it is rendered on screen with
-    its provenance, never fused into a bare number. ``floor=None`` is today's behaviour, and
-    the golden cases pass nothing.
-
-    Why it is needed at all: ``base - alt`` is a correct marginal value and a wrong
-    reservation price. See ``price_floor``.
+    **This walk-away is advisory only, never the bid decision (Task 1.3).** It used to carry
+    an injected walk-away floor, a fraction of book price, precisely because a bare
+    ``base - alt`` collapses to 0 whenever a near-substitute exists — the unit-error `SPEC.md`
+    §2.A measured. `RoomTracker._decide` no longer reads this dict for the lot it is actually
+    deciding on; every lot, plan member or not, is priced by `lot_ceiling`/`lot_reference`
+    instead, an honest re-solve rather than a floored approximation. What this function still
+    prices, unfloored, is the LISTONE table and the copilot brief — a reading aid for up to
+    forty targets a cycle, where a full re-solve per target is not the cost the design accepts.
     """
     # Built once for the whole cycle. Every solve below is over the same pool, the
     # same prices and the same value model, so the per-player facts and the slot
@@ -522,10 +495,7 @@ def reservations(
             # can occasionally score higher (base - alt < 0). A negative walk-away is meaningless
             # — it just means the target is freely replaceable, i.e. worth nothing extra to chase.
             marginal = max(0.0, base - alt)
-            lifted = max(marginal, floor(target)) if floor else marginal
-            # The budget cap is applied after the floor, not before: a floor is what we would
-            # pay, and the budget is what we have. Only the second is a hard fact.
-            walkaways[target] = min(state.remaining_budget, lifted)
+            walkaways[target] = min(state.remaining_budget, marginal)
         except InfeasibleRoster:
             walkaways[target] = state.remaining_budget
     return result, walkaways
@@ -544,7 +514,6 @@ def rolling_advisory(
     rules: RosterRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
-    floor: Callable[[str], float] | None = None,
 ) -> Iterator[tuple[AstaState, AssignmentEvent, OptimizationResult, dict[str, float]]]:
     """Re-plan after every sale: yield ``(state, event, plan, walkaways)`` per event.
 
@@ -561,16 +530,14 @@ def rolling_advisory(
     meaningful once the *ledger* is re-read each cycle — and a constant factory costs
     nothing in the meantime.
 
-    ``floor`` is forwarded for one reason: the advisory and the bidder must not disagree about
-    what a player is worth. ``CLAUDE.md`` records what happens when they drift — three commands
-    each grew their own copy of the value model, and ``asta bid`` was still planning on plain
-    ``fvm`` after ``asta optimize`` had moved on. An operator reading a floored number on one
-    screen while the other bids an unfloored one is the same failure with a shorter fuse.
+    ``asta live`` is purely advisory (a human bids by hand) and has no per-lot re-solve to
+    keep in step with, so this shows the same unfloored ``reservations()`` marginal as any
+    other reading of ``walkaways`` — see its docstring.
     """
     for event in events:
         state = apply_event(state, event, our_team_id=our_team_id)
         result, walkaways = reservations(
             state, pool, value=value_of(), prices=prices, teams=teams, legality=legality,
-            rules=rules, lam=lam, rho=rho, floor=floor,
+            rules=rules, lam=lam, rho=rho,
         )
         yield state, event, result, walkaways

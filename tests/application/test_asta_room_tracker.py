@@ -68,7 +68,6 @@ def _tracker(ledger=(), journal=None, budget_override=None, **kw):  # type: igno
         rules=RULES,
         budget=100.0 if budget_override is None else budget_override,
         lam=0.0,
-        floor=None,
         ledger=lambda: list(ledger),
         journal=journal or (lambda _row: None),
         counter_time=10, counter_time_first=20,
@@ -96,9 +95,9 @@ class TestTheFrameCarriesWhatTheScreenNeeds:
         assert frame.seconds_left == 9.0
 
     def test_the_walkaway_carries_its_provenance(self) -> None:
-        """`walk-away 77 (ceiling)` — never a fused number nobody can argue with. `price_floor`
-        and its `marginal`/`floor` split are retired (Task 1.3); a plan member now prices off
-        the same `lot_ceiling` re-solve as any other lot — see `lot_reference`."""
+        """`walk-away 77 (ceiling)` — never a fused number nobody can argue with. The retired
+        walk-away floor's `marginal`/`floor` split is gone with it; a plan member now prices
+        off the same `lot_ceiling` re-solve as any other lot — see `lot_reference`."""
         frame = _tracker().cycle(_lot(), now_ms=1_000)
 
         assert frame.walk_away is not None
@@ -386,15 +385,16 @@ class TestTheBriefIsNotFedFalsehoods:
 
 
 class TestProvenanceNamesWhatActuallyDecided:
-    """`walk-away 77 (floor)` on a number the budget decided is a lie on the one line the
-    operator reads before spending. The walk-away is `min(remaining_budget, max(marginal,
-    floor))`, so three things can be the binding constraint and the label must say which."""
+    """`walk-away 77 (budget)` on a number the re-solve decided is a lie on the one line the
+    operator reads before spending. `lot_ceiling` is scanned up to `hard_cap`, itself bounded
+    by `credits_left` — so the label must say when the purse itself is what bound, not the
+    re-solve, and `ceiling`/`bargain` otherwise."""
 
     def test_the_budget_is_named_when_it_is_the_thing_that_bound(self) -> None:
         frame = _tracker(budget_override=5.0).cycle(_lot(), now_ms=1_000)
 
         if frame.walk_away is not None:
-            assert frame.provenance in {"budget", "marginal", "floor"}
+            assert frame.provenance in {"budget", "ceiling", "bargain"}
             if frame.walk_away == 5:
                 assert frame.provenance == "budget"
 
@@ -427,7 +427,7 @@ def _cap_tracker(share: float, ledger=()):  # type: ignore[no-untyped-def]
     return RoomTracker(
         seat=SEAT, bridge=CAP_BRIDGE, pool=CAP_POOL, value=CAP_VALUE, prices=CAP_PRICES,
         teams=CAP_TEAMS, legality=SCHEMI, names=CAP_NAMES, rules=CAP_RULES,
-        budget=100.0, lam=0.0, floor=None,
+        budget=100.0, lam=0.0,
         ledger=lambda: list(ledger), journal=lambda _row: None,
         counter_time=10, counter_time_first=20, bargain_share=share,
     )

@@ -119,7 +119,7 @@ class TestTheMarginIsANoiseFloorNotATasteKnob:
     @pytest.mark.parametrize("cap", [0, -5])
     def test_a_cap_below_the_minimum_bid_never_solves(self, cap: int) -> None:
         """A ceiling under 1 truncates to 0 and removes the player from the biddable set —
-        `price_floor` clamps against the same convention."""
+        `decide_bid` refuses below `MIN_BID` on the same convention elsewhere."""
         assert lot_ceiling(  # type: ignore[arg-type]
             _state(), POOL, **_kw(hard_cap=cap)
         ) == 0

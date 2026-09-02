@@ -1,8 +1,14 @@
-"""The alpha sweep: the only evidence the walk-away floor is set to a defensible number.
+"""The ceiling-alpha sweep: the only evidence the bid premium is set to a defensible number.
 
-`--floor-alpha` decides what the bot pays. It is a hand-set constant, and SPEC A6 refuses
-arming until it has been replayed against auctions that really happened. This is that replay,
-and it is pure: it takes lots already read from Postgres and returns a table.
+`--ceiling-alpha` decides what the bot pays on top of `lot_ceiling`'s own re-solved number. It
+is a hand-set constant, and SPEC A6 refuses arming until it has been replayed against auctions
+that really happened. This is that replay, and it is pure: it takes lots already read from
+Postgres and returns a table.
+
+**Re-targeted at `lot_ceiling`, not the retired walk-away floor (Task 1.3).** Only a plan
+member is ever priced, same scope as before this task: a lot outside the plan was always
+counted lost regardless of alpha, and stays that way here — see `_replay_one`'s own docstring
+for why widening it needs a band/slot guard this sweep does not have.
 
 **What is being measured, stated plainly.** For each recorded lot in the order it closed, we
 ask the real guard chain whether our bot would have raised at the price the lot actually
@@ -38,8 +44,15 @@ POOL = [
 ]
 TEAMS = {"gk1": "W", "gk2": "V", "a1": "X", "a2": "Y"}
 PRICES = {"gk1": 10.0, "gk2": 10.0, "a1": 40.0, "a2": 40.0}
+# Real separation between a plan member and his alternative, not the flatter, identical
+# signals an earlier version of this fixture used. `lot_ceiling` prices a plan member against
+# the objective with *him* excluded (`lot_reference`), not against a total that already
+# assumes he is in it — forcing him back in only clears the margin when there is a real gap
+# to his replacement (gk1 over gk2, a1 over a2); an identical pair ties baseline exactly and
+# never wins, which is a different, already-covered case (`test_asta_reservation.py`'s
+# `TestLotReferencePicksTheRightObjectiveToBeat`), not what this file is about.
 VALUE = NaiveValueModel(
-    signals={"gk1": 5.0, "gk2": 5.0, "a1": 10.0, "a2": 10.0},
+    signals={"gk1": 5.0, "gk2": 3.0, "a1": 15.0, "a2": 9.0},
     prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
 )
 RULES = RosterRules(size=2, min_goalkeepers=1, min_movement=1)
@@ -74,20 +87,23 @@ class TestTheSweepReportsOneRowPerAlpha:
         assert row.won + row.lost == 2
 
 
-class TestAlphaMovesTheCeilingNotTheMembership:
-    """The property the whole sweep rests on.
-
-    If lowering alpha removed players from the biddable set rather than lowering what we
-    pay for them, the table's columns would be measuring that removal. `price_floor`'s
-    `max(MIN_BID, ...)` clamp is what makes this hold; without it, every player priced
-    under `1/alpha` drops out.
+class TestAlphaScalesTheCeilingHonestly:
+    """The property the whole sweep rests on: alpha is a premium on an already-real number,
+    not a patch for a broken one. Raising it can turn a loss into a win; it does not touch
+    which players are even considered (that is plan membership, decided before alpha applies
+    at all — see `_replay_one`).
     """
 
-    def test_every_alpha_can_still_bid_on_a_one_credit_lot(self) -> None:
-        cheap = _auction(("gk1", 1), ("a1", 1))
+    def test_a_higher_alpha_wins_a_lot_a_lower_one_would_not(self) -> None:
+        """`a1`'s re-solved ceiling here is 90 (measured): 0.3 x 90 = 27, under the 50 the
+        room cleared at; 1.0 x 90 = 90, comfortably over. Nothing else about the lot changed.
+        """
+        priced_above_the_low_alpha = _auction(("gk1", 10), ("a1", 50))
 
-        for row in _sweep([1.0, 0.8, 0.6, 0.1], auctions=[cheap]):
-            assert row.won > 0, f"alpha={row.alpha} won nothing on 1-credit lots"
+        low, high = _sweep([0.3, 1.0], auctions=[priced_above_the_low_alpha])
+
+        assert low.won == 1, "gk1 only; 0.3 x ceiling(a1) does not clear 50"
+        assert high.won == 2, "both; 1.0 x ceiling(a1) clears 50"
 
     def test_spend_is_monotone_in_alpha(self) -> None:
         """More willingness to pay cannot buy strictly less."""
@@ -99,7 +115,7 @@ class TestAlphaMovesTheCeilingNotTheMembership:
 class TestTheCorpusIsFiltered:
     def test_an_auction_too_short_to_fill_the_band_is_not_admitted(self) -> None:
         """Half the recorded corpus cannot spend a budget at any alpha. Counting those
-        would make the table report the corpus's shape instead of the floor's effect."""
+        would make the table report the corpus's shape instead of the ceiling's effect."""
         rows = _sweep([1.0], auctions=[_auction(("gk1", 10))])
 
         assert rows[0].auctions == 0
@@ -124,15 +140,15 @@ class TestItTouchesNothingOutside:
         )
 
 
-class TestTheColumnThatMeasuresTheFloor:
-    """Spend cannot measure the floor when the corpus cannot fill the plan.
+class TestTheColumnThatMeasuresTheCeiling:
+    """Spend cannot measure the ceiling when the corpus cannot fill the plan.
 
     Measured 2026-09-01: only 19 of the plan's 30 members appear anywhere in the recorded
     corpus, and one recorded evening sells a median of 7 of them. So "spend as a fraction of
     budget" tops out around 43% at any alpha, and it is reporting the overlap between an
-    August corpus and a September listone rather than anything about the floor.
+    August corpus and a September listone rather than anything about the ceiling.
 
-    Conditioning on what a room actually put up for sale is what isolates the floor: of the
+    Conditioning on what a room actually put up for sale is what isolates the ceiling: of the
     plan members that were available, how many did we win.
     """
 
@@ -172,3 +188,15 @@ def test_won_can_never_exceed_available() -> None:
     for row in _sweep([0.6, 0.8, 1.0], auctions=[_auction(("gk1", 10), ("a1", 40), ("gk2", 1))]):
         assert row.won <= row.available, f"alpha={row.alpha}: {row.won} won of {row.available}"
         assert 0.0 <= row.won_share <= 1.0
+
+
+def test_the_roster_is_never_bought_past_its_own_size() -> None:
+    """`optimize_roster` does not itself refuse a roster forced over `rules.size` — it just
+    stops adding once `len(picked) >= rules.size` and returns what is there. The guard is
+    plan membership: once the band is full, `reservations()`'s own optimum *is* what we own,
+    so no further lot is ever `in planned`, and `_replay_one` never re-solves for one. A third
+    lot offered after the band fills must be lost, not bought.
+    """
+    three_offers = _auction(("gk1", 10), ("a1", 40), ("gk2", 1))
+    for row in _sweep([0.6, 0.8, 1.0], auctions=[three_offers]):
+        assert row.slots <= RULES.size, f"alpha={row.alpha}: {row.slots} players in a {RULES.size}-slot band"

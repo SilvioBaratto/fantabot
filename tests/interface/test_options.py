@@ -60,17 +60,17 @@ class TestTiltKRejectsNonFinite:
         assert "finite" not in result.output
 
 
-class TestFloorAlphaRejectsNonFinite:
+class TestCeilingAlphaRejectsNonFinite:
     def test_nan_is_rejected_on_asta_room(self) -> None:
         _rejected_by_the_finite_check(
-            ["asta", "room", "https://app.fantalab.it/asta?asta=fake", "--floor-alpha", "nan"]
+            ["asta", "room", "https://app.fantalab.it/asta?asta=fake", "--ceiling-alpha", "nan"]
         )
 
     def test_inf_is_rejected_on_asta_room(self) -> None:
-        # FloorAlpha declares only a lower bound, so `inf` is not caught by min=/max= at all —
+        # CeilingAlpha declares only a lower bound, so `inf` is not caught by min=/max= at all —
         # this is the case a bounded-below-only knob needs the callback for.
         _rejected_by_the_finite_check(
-            ["asta", "room", "https://app.fantalab.it/asta?asta=fake", "--floor-alpha", "inf"]
+            ["asta", "room", "https://app.fantalab.it/asta?asta=fake", "--ceiling-alpha", "inf"]
         )
 
 

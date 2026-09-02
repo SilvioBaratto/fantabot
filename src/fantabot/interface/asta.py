@@ -32,10 +32,7 @@ from fantabot.domain.asta.report import (
     parse_ids,
     parse_replay_lines,
 )
-from fantabot.domain.asta.reservation import (
-    price_floor,
-    rolling_advisory,
-)
+from fantabot.domain.asta.reservation import rolling_advisory
 from fantabot.domain.asta.sentiment import SentimentWeights
 from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.interface.console import console
@@ -43,7 +40,7 @@ from fantabot.interface.options import (
     SEASON,
     BargainBeta,
     BargainShare,
-    FloorAlpha,
+    CeilingAlpha,
     Season,
     Sentiment,
     SentimentRun,
@@ -290,7 +287,6 @@ def asta_live(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
-    floor_alpha: FloorAlpha = 1.00,
 ) -> None:
     """Render the rolling advisory off a captured replay (``--replay``) or a live room's sale
     ledger (``--league --db``). Read-only either way — the advisory advises, the human bids.
@@ -367,9 +363,6 @@ def asta_live(
         AstaState(total_budget=budget), world.pool, events,
         our_team_id=team, value_of=world.value_of, prices=world.prices, teams=world.teams,
         legality=world.legality, lam=lam,
-        # The same floor the bidder uses. An advisory that shows a different number from the
-        # command that spends the credits is the drift CLAUDE.md already records once.
-        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
     ):
         last = step
     if last is None:
@@ -400,7 +393,7 @@ def asta_room(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
-    floor_alpha: FloorAlpha = 1.00,
+    ceiling_alpha: CeilingAlpha = 1.00,
     bargain_beta: BargainBeta = 0.00,
     bargain_share: BargainShare = 0.10,
     copilot: bool = typer.Option(True, "--copilot/--no-copilot", help="The LLM pane."),
@@ -521,7 +514,7 @@ def asta_room(
         rules=RosterRules(),
         budget=credits,
         lam=lam,
-        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        ceiling_alpha=ceiling_alpha,
         bargain_beta=bargain_beta,
         bargain_share=bargain_share,
         ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
@@ -653,26 +646,27 @@ def asta_room(
 
 def asta_calibrate(
     alpha: list[float] = typer.Option(
-        [], "--alpha", help="Repeatable. Default sweeps 0.6 0.7 0.8 0.9 1.0."
+        [], "--alpha", help="Repeatable. Default sweeps 0.85 0.90 0.95 1.00 1.05 1.10 1.15."
     ),
     teams: int = typer.Option(8, help="Recorded league shape: number of teams."),
     credits: int = typer.Option(500, help="Recorded league shape: credits per team."),
     season: Season = SEASON,
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
 ) -> None:
-    """Replay recorded aste at several walk-away floors. Read-only, no network.
+    """Replay recorded aste at several ceiling premiums. Read-only, no network.
 
-    The evidence SPEC A6 gates arming on. `--floor-alpha` decides what the bot pays and is
-    hand-set; this replays it against auctions that really happened and prints what each
-    value would have spent. Pick the alpha whose spend lands near the budget with a rosa that
-    can still field a schema, and paste the table into `tasks/todo.md`.
+    The evidence SPEC A6 gates arming on. `--ceiling-alpha` is the premium applied on top of
+    `lot_ceiling`'s own re-solved number, and it is hand-set; this replays it against auctions
+    that really happened and prints what each value would have spent. Pick the alpha whose
+    spend lands near the budget with a rosa that can still field a schema, and paste the table
+    into `tasks/todo.md`.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.persistence.repositories.aste import AsteRepository
     from fantabot.application.asta_calibrate import HEADER, Lot, RecordedAuction, sweep
 
-    alphas = list(alpha) or [0.6, 0.7, 0.8, 0.9, 1.0]
+    alphas = list(alpha) or [0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15]
 
     with database_manager.get_session() as session:
         rows = sentiment_rows(NewsSentimentSource(session), enabled=True, run="")
@@ -725,7 +719,7 @@ def asta_bid(
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
-    floor_alpha: FloorAlpha = 1.00,
+    ceiling_alpha: CeilingAlpha = 1.00,
     bargain_beta: BargainBeta = 0.00,
     bargain_share: BargainShare = 0.10,
 ) -> None:
@@ -809,7 +803,7 @@ def asta_bid(
         rules=RosterRules(),
         budget=budget,
         lam=lam,
-        floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        ceiling_alpha=ceiling_alpha,
         bargain_beta=bargain_beta,
         bargain_share=bargain_share,
         ledger=lambda: feed.ledger_events(db, league),

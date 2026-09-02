@@ -82,30 +82,26 @@ TiltK = Annotated[
     ),
 ]
 
-#: The walk-away floor, as a fraction of a player's observed clearing price.
+#: A premium (or discount) on `lot_ceiling`'s own re-solved number. Replaces the walk-away
+#: floor this used to be (Task 1.3): that floor scaled a player's *book price*, and it existed
+#: because the marginal walk-away it was patching collapsed to zero over a pool of
+#: substitutes — 10 of 30 measured on the live database. `lot_ceiling` re-solves honestly
+#: instead of approximating, so there is no bare-zero collapse left to patch; this multiplier
+#: is the operator's premium on top of an already-real number, not a fix for a broken one.
 #:
-#: The marginal walk-away collapses to zero over a pool of substitutes -- 10 of 30 measured
-#: on the live database -- and `decide_bid` refuses at every price when it is zero, so
-#: without a floor the bot refuses nearly everything it planned to buy.
-#:
-#: **0.0 is the ablation, not a disabled floor.** `price_floor` still clamps to the 1-credit
-#: minimum bid, because a floor under 1 truncates to 0 and removes the player from the
-#: biddable set entirely rather than merely pricing him low.
-#:
-#: **1.00, chosen against the corpus and against arithmetic.** `asta calibrate` is monotone in
-#: alpha with no knee — spend, slots, schemi and `won %` all improve up to 1.0 and the corpus
-#: cannot speak beyond it. And the plan is built to cost exactly the budget at `planning_cost`
-#: (measured: 500 of 500), so `floor = 1.0 * planning_cost` makes the bidder's ceiling agree
-#: with the plan's own budget. At 0.8 the floor would cap us at 400 for a plan we priced at
-#: 500 — underbidding our own plan by construction. The MAX cap is what stops any single lot
-#: taking more than its share; the floor is not the place to be timid.
-FloorAlpha = Annotated[
+#: **1.00 by default — no premium.** `asta calibrate` replays this against 45 recorded 8x500
+#: rooms. On 2026-08-28/29, 1.00 lost the first four live contests by 1-14 credits; switching
+#: mid-auction to 1.15 won 7 of the next 10 — evidence the honest ceiling still under-bids by a
+#: measurable margin against real rivals, not a value tuned against the corpus in advance. The
+#: MAX cap (`hard_cap`, `bid.max_bid`) is what stops any single lot taking more than its share;
+#: this knob is not the place to be timid about a lot the ceiling already approved.
+CeilingAlpha = Annotated[
     float,
     typer.Option(
-        "--floor-alpha",
+        "--ceiling-alpha",
         min=0.0,
         callback=_reject_non_finite,
-        help="Walk-away floor as a fraction of the observed clearing price.",
+        help="Premium on lot_ceiling's own number (1.00 = none).",
     ),
 ]
 

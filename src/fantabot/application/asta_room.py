@@ -166,11 +166,10 @@ class RoomFrame:
     node: str
     target: str | None
     walk_away: int | None
-    #: `marginal`, `floor` or `budget` — which of the three terms in
-    #: `min(budget, max(marginal, floor))` produced the number — or `bargain`, which is a
-    #: different thing entirely: a lot the plan never named, whose ceiling is the highest
-    #: price at which re-solving the rosa with him in it still beats the plan.
-    #: Shown beside the number, because a fused figure is one nobody can argue with.
+    #: `ceiling` — a plan member, priced by `lot_ceiling`/`lot_reference` — or `bargain`, a lot
+    #: the plan never named that the same re-solve accepted anyway; either can become `budget`
+    #: instead when the remaining purse itself is what bound, not the re-solve. Shown beside
+    #: the number, because a fused figure is one nobody can argue with.
     provenance: str | None
     #: `waiting` | `hold` | `pass` | `bid`
     decision: str
@@ -228,12 +227,12 @@ class RoomTracker:
         rules: RosterRules,
         budget: float,
         lam: float,
-        floor: Callable[[str], float] | None,
         ledger: Callable[[], Iterable[AssignmentEvent]],
         journal: Callable[[Mapping[str, Any]], None],
         counter_time: int | None,
         counter_time_first: int | None,
         step: int = 1,
+        ceiling_alpha: float = 1.00,
         bargain_beta: float = BARGAIN_BETA,
         bargain_min_book: int = BARGAIN_MIN_BOOK,
         bargain_share: float = BARGAIN_BUDGET_SHARE,
@@ -249,12 +248,12 @@ class RoomTracker:
         self._rules = rules
         self._budget = budget
         self._lam = lam
-        self._floor = floor
         self._ledger = ledger
         self._journal = journal
         self._counter_time = counter_time
         self._counter_time_first = counter_time_first
         self._step = step
+        self._ceiling_alpha = ceiling_alpha
         self._bargain_beta = bargain_beta
         self._bargain_min_book = bargain_min_book
         self._bargain_share = bargain_share
@@ -314,7 +313,6 @@ class RoomTracker:
             plan, walkaways = reservations(
                 state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
                 legality=self._legality, rules=rules, lam=self._lam, n_targets=None,
-                floor=self._floor,
             )
             planned: tuple[str, ...] = plan.optimal.player_ids
             # The number every bargain is judged against. `None` when there is no plan: a
@@ -395,7 +393,12 @@ class RoomTracker:
         own docstring for why comparing a plan member against a total that already includes
         him ties every time and never clears the margin. `None` means no rosa is completable
         without him at all; the same "essential" case `reservations()` already reserves the
-        whole budget for, so the ceiling is the cap and not a re-solved number.
+        whole budget for, so the ceiling is the cap and not a re-solved number — `ceiling_alpha`
+        does not apply to it, since there is no other choice to weigh a premium against.
+
+        `--ceiling-alpha` (`self._ceiling_alpha`) is the one place it is applied, for both a
+        plan member and a bargain: `min(hard_cap, int(raw * ceiling_alpha))` — the shape the
+        walk-away floor's own alpha knob had before this function replaced it (Task 1.3).
         """
         hit = self._bargains.get(player_id)
         if hit is not None:
@@ -405,11 +408,15 @@ class RoomTracker:
             legality=self._legality, rules=rules, lam=self._lam, baseline=baseline,
             player_id=player_id, plan=plan,
         )
-        ceiling = hard_cap if reference is None else lot_ceiling(
-            state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
-            legality=self._legality, rules=rules, lam=self._lam, baseline=reference,
-            player_id=player_id, hard_cap=hard_cap,
-        )
+        if reference is None:
+            ceiling = hard_cap
+        else:
+            raw = lot_ceiling(
+                state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
+                legality=self._legality, rules=rules, lam=self._lam, baseline=reference,
+                player_id=player_id, hard_cap=hard_cap,
+            )
+            ceiling = min(hard_cap, int(raw * self._ceiling_alpha))
         self._bargains[player_id] = ceiling
         return ceiling
 

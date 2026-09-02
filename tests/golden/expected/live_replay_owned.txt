@@ -1,9 +1,9 @@
 target roster: 30 players | obj 1164.5
-  chase Carnesecchi          walk-away 28
   chase Cutrone              walk-away 20
-  chase Vasquez              walk-away 9
-  chase Obert                walk-away 3
+  chase Carnesecchi          walk-away 16
   chase Romagnoli            walk-away 3
+  chase Obert                walk-away 1
+  pass  Vasquez              walk-away 0 — freely replaceable
 opponents:
   f9927161-caca-4f46-9c4f-a0f74052d17c  4 players | spent 385 | left 115
   aa9ec8bf-2bd4-49b6-9655-25321f2f5402  2 players | spent 384 | left 116

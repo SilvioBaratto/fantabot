@@ -1,9 +1,19 @@
-"""Replay recorded aste at several walk-away floors, and report what each would have spent.
+"""Replay recorded aste at several ceiling premiums, and report what each would have spent.
 
-`--floor-alpha` is the number that decides what the bot pays, and it is hand-set. SPEC A6
-refuses arming until it has been replayed against auctions that really happened. This is that
-replay: 48 Mantra auctions in our exact 8x500 shape sit in Postgres with 6,554 sales and a
-full bid ladder each, collected on 2026-08-26/27.
+`--ceiling-alpha` is the number that decides what the bot pays on top of `lot_ceiling`'s own
+re-solved number, and it is hand-set. SPEC A6 refuses arming until it has been replayed against
+auctions that really happened. This is that replay: 48 Mantra auctions in our exact 8x500 shape
+sit in Postgres with 6,554 sales and a full bid ladder each, collected on 2026-08-26/27.
+
+**Re-targeted at `lot_ceiling`, not the retired walk-away floor (Task 1.3).** The floor this
+module used to sweep — a plain fraction of book price — no longer exists on the
+live path: `RoomTracker._decide` prices every lot, plan member or not, through `lot_ceiling`,
+scaled by `--ceiling-alpha` after the fact (`final = min(hard_cap, int(lot_ceiling(...) *
+ceiling_alpha))`). A calibration tool that still swept the retired knob would be measuring a
+number the bot no longer acts on — so this sweeps `ceiling_alpha` the same way `RoomTracker`
+applies it: one `lot_ceiling` re-solve per lot (memoized per `(state, player)`, cleared exactly
+when a plan member leaves the board or our own state moves — the same trigger `_replay_one`
+already used for `reservations()`'s own full-roster solve), multiplied by each swept alpha.
 
 **Pure on purpose.** It takes lots already read and returns a table, so the default test tier
 can drive it — `pytest -m db` is exempt from the socket guard (`tests/conftest.py`), so a
@@ -15,11 +25,11 @@ it would, we count it won at that price and fold it into our state. That is an a
 in a knowable direction: a real room might never have reached that price had we dropped out
 earlier, and our own bidding would have pushed it higher. It flatters us slightly on contested
 lots. It is still the only calibration available that uses prices somebody actually paid, and
-a floor chosen against it is a floor chosen against evidence rather than taste.
+a premium chosen against it is a premium chosen against evidence rather than taste.
 
 **Auctions too short to fill a roster are dropped, and the count is printed.** Many recorded
 rooms stop after a handful of lots; a sweep that counted them would report the corpus's shape
-rather than the floor's effect. A silent filter reads as full coverage, so it is a column.
+rather than the ceiling's effect. A silent filter reads as full coverage, so it is a column.
 """
 
 from __future__ import annotations
@@ -27,10 +37,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from fantabot.domain.asta.bid import Seat, decide_bid
+from fantabot.domain.asta.bid import Seat, decide_bid, max_bid
 from fantabot.domain.asta.legality import SchemaLegality, fieldable_schemi
+from fantabot.domain.asta.opponents import MIN_BID
 from fantabot.domain.asta.optimizer import InfeasibleRoster
-from fantabot.domain.asta.reservation import price_floor, reservations
+from fantabot.domain.asta.reservation import lot_ceiling, lot_reference, reservations
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.domain.asta.value import ValueModel
@@ -78,7 +89,7 @@ class CalibrationRow:
     #: `won` mean anything: losing a player we never wanted is not a miss.
     available: int
     #: `won / available`, or 0.0 when nothing overlapped. **This is the column that measures
-    #: the floor.** Spend cannot: only 19 of the plan's 30 members appear anywhere in the
+    #: the ceiling.** Spend cannot: only 19 of the plan's 30 members appear anywhere in the
     #: recorded corpus and one evening sells a median of 7 of them, so spend tops out near
     #: 43% at any alpha and is reporting an August corpus against a September listone.
     won_share: float
@@ -102,7 +113,7 @@ def admits(auction: RecordedAuction, rules: RosterRules) -> bool:
 
     The test is the corpus's, not the bot's: an evening with fewer lots than the band needs
     cannot spend a budget at any alpha, so including it would drag every column toward the
-    same floor regardless of what the floor does.
+    same number regardless of what the ceiling does.
     """
     return len(auction.lots) >= rules.size
 
@@ -110,7 +121,7 @@ def admits(auction: RecordedAuction, rules: RosterRules) -> bool:
 def _replay_one(
     auction: RecordedAuction,
     *,
-    floor: object,
+    ceiling_alpha: float,
     pool: Sequence[MantraPlayer],
     value: ValueModel,
     prices: Mapping[str, float],
@@ -120,12 +131,23 @@ def _replay_one(
     budget: float,
     lam: float,
 ) -> tuple[AstaState, int, int, int]:
-    """One evening at one alpha: the end state, and the lots won, lost and offered to us.
+    """One evening at one ceiling premium: the end state, and the lots won, lost and offered.
 
     ``available`` is counted here rather than against the opening plan, because the plan moves
     as the evening does — a player we did not want at 20:00 becomes a target once the man
     ahead of him is gone. Counting the denominator against a snapshot while the numerator
     tracks the live plan is how ``won %`` came out above 100 on its first run.
+
+    **Only a plan member is ever priced — same scope as before this task, not widened.** A
+    lot outside the plan was always counted lost regardless of alpha; that stays. Widening it
+    to price every lot through `lot_ceiling`, the way `RoomTracker._decide` now does live,
+    would need the same "band and slot already full" guard `opportunistic_walkaway` gives the
+    live bot's unplanned path — `optimize_roster` does not itself refuse a roster forced over
+    `rules.size` (it simply stops adding once `len(picked) >= rules.size` and returns what is
+    there), so a lot pursued once the band is full would size the ceiling off an over-full
+    roster instead of raising `InfeasibleRoster`. `bargain_beta`/`bargain_share` are a
+    deliberately separate, still-off-by-default knob (per SPEC §2.F's Q3) and this sweep does
+    not calibrate them.
     """
     state = AstaState(total_budget=budget)
     won = lost = available = 0
@@ -134,33 +156,58 @@ def _replay_one(
     # lot somebody else won that the plan was counting on. A naive re-solve per lot costs one
     # full optimisation each — 45 auctions x ~140 lots x 5 alphas is 31,500 of them, about
     # forty minutes — and almost every one returns the same plan as the last, because most
-    # lots are players we were never going to buy.
-    cached: dict[str, float] | None = None
+    # lots are players we were never going to buy. `ceilings` mirrors `RoomTracker._bargain`'s
+    # own per-`(player, state)` memo, cleared on exactly the same trigger, so a lot that sits
+    # unresolved across several other lots' closes is not re-solved for each of them.
+    baseline: float | None = None
     planned: frozenset[str] = frozenset()
+    ceilings: dict[str, int] = {}
+    need_plan = True
 
     for lot in sorted(auction.lots, key=lambda item: item.closed_at_ms):
         if lot.player_id in state.taken:
             continue
-        if cached is None:
+        if need_plan:
             try:
-                plan, cached = reservations(
+                plan, _ = reservations(
                     state, pool, value=value, prices=prices, teams=teams, legality=legality,
-                    rules=rules, lam=lam, n_targets=None, floor=floor,  # type: ignore[arg-type]
+                    rules=rules, lam=lam, n_targets=None,
                 )
             except InfeasibleRoster:
                 # The rosa is full or unfinishable; the rest of the evening is somebody else's.
                 break
+            baseline = plan.optimal.objective
             planned = frozenset(plan.optimal.player_ids)
+            ceilings = {}
+            need_plan = False
 
-        walkaways = cached
-        if lot.player_id in planned:
-            available += 1
-            # A player the plan wanted is leaving the board either way, so the next lot needs
-            # a fresh plan whether we win him or not.
-            cached = None
+        if lot.player_id not in planned:
+            lost += 1
+            state = replace(state, taken=state.taken | {lot.player_id})
+            continue
 
-        walk_away = walkaways.get(lot.player_id)
-        if walk_away is None:
+        available += 1
+        # A player the plan wanted is leaving the board either way, so the next lot needs
+        # a fresh plan whether we win him or not.
+        need_plan = True
+
+        hard_cap = max_bid(int(state.remaining_budget), rules.size - len(state.owned))
+        cached_ceiling = ceilings.get(lot.player_id)
+        if cached_ceiling is None:
+            assert baseline is not None  # `need_plan` guarantees a fresh plan above
+            reference = lot_reference(
+                state, pool, value=value, prices=prices, teams=teams, legality=legality,
+                rules=rules, lam=lam, baseline=baseline, player_id=lot.player_id, plan=planned,
+            )
+            raw = hard_cap if reference is None else lot_ceiling(
+                state, pool, value=value, prices=prices, teams=teams, legality=legality,
+                rules=rules, lam=lam, baseline=reference, player_id=lot.player_id,
+                hard_cap=hard_cap,
+            )
+            cached_ceiling = min(hard_cap, int(raw * ceiling_alpha))
+            ceilings[lot.player_id] = cached_ceiling
+
+        if cached_ceiling < MIN_BID:
             lost += 1
             state = replace(state, taken=state.taken | {lot.player_id})
             continue
@@ -178,7 +225,7 @@ def _replay_one(
             REPLAY_SEAT,
             auction.asta_id,
             target=lot.player_id,
-            walk_away=int(walk_away),
+            walk_away=cached_ceiling,
             remaining_budget=int(state.remaining_budget),
             now_ms=REPLAY_NOW_MS,
             max_cap=None,
@@ -189,7 +236,7 @@ def _replay_one(
             continue
 
         won += 1
-        cached = None  # our own state moved; every walk-away below it is stale
+        need_plan = True  # our own state moved; every ceiling below it is stale
         state = replace(
             state,
             owned=(*state.owned, lot.player_id),
@@ -213,13 +260,12 @@ def sweep(
     budget: float = 500.0,
     lam: float = 0.3,
 ) -> list[CalibrationRow]:
-    """One row per alpha, averaged over the admitted auctions. Pure, and opens nothing."""
+    """One row per ceiling-alpha, averaged over the admitted auctions. Pure, opens nothing."""
     admitted = [a for a in auctions if admits(a, rules)]
     dropped = len(auctions) - len(admitted)
 
     rows: list[CalibrationRow] = []
     for alpha in alphas:
-        floor = price_floor(alpha, prices)
         spends: list[float] = []
         slots: list[int] = []
         schemi: list[int] = []
@@ -227,8 +273,8 @@ def sweep(
 
         for auction in admitted:
             state, auction_won, auction_lost, auction_available = _replay_one(
-                auction, floor=floor, pool=pool, value=value, prices=prices, teams=teams,
-                legality=legality, rules=rules, budget=budget, lam=lam,
+                auction, ceiling_alpha=alpha, pool=pool, value=value, prices=prices,
+                teams=teams, legality=legality, rules=rules, budget=budget, lam=lam,
             )
             spends.append(state.spent)
             slots.append(len(state.owned))
