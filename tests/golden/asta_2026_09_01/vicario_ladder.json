@@ -1,0 +1,341 @@
+{
+  "_derived_from": "asta_assignment (asta_id=0752a384-0611-4df4-8c95-2f8aaa38425c, fantacalcio_id=4964, Vicario), 2026-09-01. Ladder is byte-real (59 rungs); our_purchases_before is real (9 real purchases, real prices, from data/room_state_snapshot.jsonl).",
+  "player_uuid": "e962868a-c447-43cd-8306-5378a88ee2d3",
+  "fantacalcio_id": 4964,
+  "final_price": 58,
+  "our_purchases_before": [
+    {
+      "fantacalcio_id": 6898,
+      "price": 1
+    },
+    {
+      "fantacalcio_id": 6875,
+      "price": 100
+    },
+    {
+      "fantacalcio_id": 6549,
+      "price": 1
+    },
+    {
+      "fantacalcio_id": 2194,
+      "price": 88
+    },
+    {
+      "fantacalcio_id": 7198,
+      "price": 3
+    },
+    {
+      "fantacalcio_id": 6534,
+      "price": 1
+    },
+    {
+      "fantacalcio_id": 7181,
+      "price": 36
+    },
+    {
+      "fantacalcio_id": 4998,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7564,
+      "price": 1
+    }
+  ],
+  "ladder": [
+    {
+      "at_ms": 1788300501316,
+      "price": 0,
+      "team_id": null
+    },
+    {
+      "at_ms": 1788300505681,
+      "price": 1,
+      "team_id": "892ddd6c-d2f4-491b-a217-a6fa743a2123"
+    },
+    {
+      "at_ms": 1788300509762,
+      "price": 2,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300510472,
+      "price": 3,
+      "team_id": "4ed08300-9583-4cc8-8aaf-d006e1dc36fe"
+    },
+    {
+      "at_ms": 1788300511591,
+      "price": 4,
+      "team_id": "892ddd6c-d2f4-491b-a217-a6fa743a2123"
+    },
+    {
+      "at_ms": 1788300512823,
+      "price": 5,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300514185,
+      "price": 6,
+      "team_id": "892ddd6c-d2f4-491b-a217-a6fa743a2123"
+    },
+    {
+      "at_ms": 1788300516314,
+      "price": 7,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300518501,
+      "price": 8,
+      "team_id": "892ddd6c-d2f4-491b-a217-a6fa743a2123"
+    },
+    {
+      "at_ms": 1788300519419,
+      "price": 9,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300525448,
+      "price": 10,
+      "team_id": "214edd75-465f-45d4-a6d7-dde113954c25"
+    },
+    {
+      "at_ms": 1788300526877,
+      "price": 11,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300531770,
+      "price": 12,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300532873,
+      "price": 13,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300538821,
+      "price": 14,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300540778,
+      "price": 15,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300545189,
+      "price": 16,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300546719,
+      "price": 17,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300555010,
+      "price": 18,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300556343,
+      "price": 19,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300558375,
+      "price": 20,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300559437,
+      "price": 21,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300562645,
+      "price": 22,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300564836,
+      "price": 23,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300567487,
+      "price": 24,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300568643,
+      "price": 25,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300572854,
+      "price": 26,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300574000,
+      "price": 27,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300576518,
+      "price": 28,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300577584,
+      "price": 29,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300580366,
+      "price": 30,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300581514,
+      "price": 31,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300583224,
+      "price": 32,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300584419,
+      "price": 33,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300586028,
+      "price": 34,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300586979,
+      "price": 35,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300589118,
+      "price": 36,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300590024,
+      "price": 37,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300591782,
+      "price": 38,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300592828,
+      "price": 39,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300599275,
+      "price": 40,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300601285,
+      "price": 41,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300604226,
+      "price": 42,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300606155,
+      "price": 43,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300609002,
+      "price": 44,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300615253,
+      "price": 45,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300616713,
+      "price": 46,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300622299,
+      "price": 47,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300623959,
+      "price": 48,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300629430,
+      "price": 49,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300631154,
+      "price": 50,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300639813,
+      "price": 51,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300641776,
+      "price": 52,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300650238,
+      "price": 53,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300653738,
+      "price": 54,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300661993,
+      "price": 55,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300665136,
+      "price": 56,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    },
+    {
+      "at_ms": 1788300673361,
+      "price": 57,
+      "team_id": "3097845d-6d44-42e9-9668-37803806036e"
+    },
+    {
+      "at_ms": 1788300679427,
+      "price": 58,
+      "team_id": "5ba655bd-1ff9-4cc4-b53d-8bc1a9aeb51a"
+    }
+  ]
+}

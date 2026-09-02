@@ -1,0 +1,166 @@
+{
+  "_derived_from": "data/room_journal.jsonl (name=Malen), 2026-09-01. No asta_assignment.ladder exists (the harvester missed this window), so this is our own journal's price-per-poll instead. our_purchases_before's fantacalcio ids are the journal's real `owned` list; individual prices are synthesized to sum to the journal's real credits_left (500 total budget) -- only the aggregate spend feeds AstaState, so this is exact where it matters.",
+  "lot_uuid": "4ad9120d-c9ab-43fc-90e1-8365d2ab22d1",
+  "fantacalcio_id": 5585,
+  "final_price": 97,
+  "our_purchases_before": [
+    {
+      "fantacalcio_id": 6898,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 6875,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 6549,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 2194,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 7198,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 6534,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 7181,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 4998,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 7564,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 6052,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 7126,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 2788,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 4947,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 4137,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 5620,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 2155,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 4459,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 4179,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 5680,
+      "price": 21
+    },
+    {
+      "fantacalcio_id": 7600,
+      "price": 36
+    }
+  ],
+  "rows": [
+    {
+      "at_ms": 1788303332238,
+      "price": 0
+    },
+    {
+      "at_ms": 1788303334545,
+      "price": 30
+    },
+    {
+      "at_ms": 1788303336885,
+      "price": 60
+    },
+    {
+      "at_ms": 1788303339225,
+      "price": 75
+    },
+    {
+      "at_ms": 1788303341628,
+      "price": 87
+    },
+    {
+      "at_ms": 1788303344096,
+      "price": 87
+    },
+    {
+      "at_ms": 1788303346398,
+      "price": 89
+    },
+    {
+      "at_ms": 1788303348780,
+      "price": 90
+    },
+    {
+      "at_ms": 1788303351097,
+      "price": 91
+    },
+    {
+      "at_ms": 1788303353536,
+      "price": 91
+    },
+    {
+      "at_ms": 1788303355976,
+      "price": 91
+    },
+    {
+      "at_ms": 1788303358379,
+      "price": 92
+    },
+    {
+      "at_ms": 1788303360827,
+      "price": 93
+    },
+    {
+      "at_ms": 1788303363171,
+      "price": 95
+    },
+    {
+      "at_ms": 1788303365610,
+      "price": 97
+    },
+    {
+      "at_ms": 1788303368051,
+      "price": 97
+    },
+    {
+      "at_ms": 1788303370346,
+      "price": 97
+    },
+    {
+      "at_ms": 1788303372683,
+      "price": 97
+    },
+    {
+      "at_ms": 1788303375080,
+      "price": 97
+    }
+  ]
+}

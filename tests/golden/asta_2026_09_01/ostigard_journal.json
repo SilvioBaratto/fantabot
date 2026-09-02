@@ -1,0 +1,142 @@
+{
+  "_derived_from": "data/room_journal.jsonl (name=Ostigard), 2026-09-01. No asta_assignment.ladder exists (the harvester missed this window), so this is our own journal's price-per-poll instead. our_purchases_before's fantacalcio ids are the journal's real `owned` list; individual prices are synthesized to sum to the journal's real credits_left (500 total budget) -- only the aggregate spend feeds AstaState, so this is exact where it matters.",
+  "lot_uuid": "3ba8d8de-4fd3-47ed-90b2-00ec9789f80c",
+  "fantacalcio_id": 5750,
+  "final_price": 1,
+  "our_purchases_before": [
+    {
+      "fantacalcio_id": 6898,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 6875,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 6549,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 2194,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7198,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 6534,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7181,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 4998,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7564,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 6052,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7126,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 2788,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 4947,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 4137,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 5620,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 2155,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 4459,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 4179,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 5680,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7600,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 7612,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 4436,
+      "price": 20
+    },
+    {
+      "fantacalcio_id": 1850,
+      "price": 27
+    }
+  ],
+  "rows": [
+    {
+      "at_ms": 1788304091862,
+      "price": 0
+    },
+    {
+      "at_ms": 1788304094191,
+      "price": 0
+    },
+    {
+      "at_ms": 1788304096498,
+      "price": 0
+    },
+    {
+      "at_ms": 1788304098803,
+      "price": 0
+    },
+    {
+      "at_ms": 1788304101241,
+      "price": 1
+    },
+    {
+      "at_ms": 1788304103556,
+      "price": 1
+    },
+    {
+      "at_ms": 1788304105888,
+      "price": 1
+    },
+    {
+      "at_ms": 1788304108807,
+      "price": 1
+    },
+    {
+      "at_ms": 1788304111202,
+      "price": 1
+    },
+    {
+      "at_ms": 1788304113498,
+      "price": 1
+    }
+  ]
+}
