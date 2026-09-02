@@ -1,11 +1,12 @@
-"""The `apileague.fantacalcio.it` client. One endpoint, and the headers it needs.
+"""The `apileague.fantacalcio.it` client. Two endpoints, and the headers they need.
 
 Reference: `docs/leghe-api.md`. Every request needs two headers — the static
 `app_key`, and a `Bearer` token scoped to one lega.
 
-**Only `GET /onboarding/v1/league/status` is wrapped.** SPEC's Non-goals fence
-off `competitions`, `teams`, `teams/my`, `settings/rosters` and `market/v1/time`;
-they are documented and stay documented until something needs them.
+**`GET /onboarding/v1/league/status` and `GET /onboarding/v1/league/teams/my` are
+wrapped.** SPEC's Non-goals still fence off `competitions`, `teams` (every team in the
+lega, not just ours), `settings/rosters` and `market/v1/time`; they are documented and
+stay documented until something needs them.
 
 **No `httpx` exception is ever re-raised.** `httpx.RequestError` carries its
 `.request`, and a rendered traceback can surface the `Authorization` header.
@@ -45,6 +46,7 @@ from fantabot.domain.tokens.errors import (
 APP_KEY = "ICiELOObd5DF5uJEATi77CRvHiiRuMU0"
 
 LEAGUE_STATUS_PATH = "/onboarding/v1/league/status"
+TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 DEFAULT_TIMEOUT = 10.0
 
 
@@ -91,18 +93,18 @@ def _raise_for(response: httpx.Response, league_id: int) -> None:
         raise ApiUnavailable(response.status_code)
 
 
-def league_status(
+def _get(
+    path: str,
     league_id: int,
     *,
     store: TokenStore,
-    transport: httpx.BaseTransport | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
-    now: Any = None,
+    transport: httpx.BaseTransport | None,
+    timeout: float,
+    now: Any,
 ) -> dict[str, Any]:
-    """`GET /onboarding/v1/league/status` — the one call that proves a token works.
-
-    `transport` is injectable so tests never build a default transport or an SSL
-    context, which is what keeps this suite in the socket-free default tier.
+    """One authenticated `GET`, the error mapping and the leak guard shared by every
+    endpoint below. `transport` is injectable so tests never build a default transport
+    or an SSL context, which is what keeps this suite in the socket-free default tier.
     """
     headers = auth_headers(league_id, store=store, now=now)
 
@@ -110,7 +112,7 @@ def league_status(
         with httpx.Client(
             base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
         ) as client:
-            response = client.get(LEAGUE_STATUS_PATH)
+            response = client.get(path)
     except httpx.TimeoutException:
         # Deliberately not `from exc`: httpx.RequestError carries .request, and
         # a chained traceback can render the Authorization header.
@@ -124,6 +126,39 @@ def league_status(
     return body if isinstance(body, dict) else {}
 
 
+def league_status(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/status` — the one call that proves a token works."""
+    return _get(
+        LEAGUE_STATUS_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+
+
+def my_team(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/teams/my` — the caller's own team: credits and roster.
+
+    Same shape as one item of `GET /onboarding/v1/league/teams` (`docs/leghe-api.md`),
+    which stays unwrapped — every team in the lega is a different, larger claim than
+    this one, and nothing needs it yet.
+    """
+    return _get(
+        TEAMS_MY_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+
+
 __all__ = [
     "APP_KEY",
     "ApiTimeout",
@@ -134,4 +169,5 @@ __all__ = [
     "TokenRejected",
     "auth_headers",
     "league_status",
+    "my_team",
 ]

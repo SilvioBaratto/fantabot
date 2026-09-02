@@ -237,16 +237,24 @@ def test_the_league_pool_has_no_foreign_key_to_players() -> None:
     assert Base.metadata.tables["league_player_pool"].foreign_keys == set()
 
 
-def test_the_snapshot_tables_ship_empty_and_say_why() -> None:
-    """They ship empty on purpose. SPEC open question 5 decides the producer,
-    and adding an HTTP client is on SPEC's Ask-first list — so the absence is a
-    decision, and the docstring has to be the thing that says so.
+def test_the_still_empty_snapshot_tables_say_why() -> None:
+    """`league_snapshot` and `league_player_pool` still ship empty on purpose — the
+    whole lega (every team, every player) is on SPEC's Non-goals list until something
+    needs more than our own team, and the docstring has to be the thing that says so.
 
-    This used to assert the absence against `importers.names()`. That package was
-    retired on 2026-08-30 — the CSVs it read are not on disk and `db-import --all`
-    already wrote nothing — so the check is now that the docstring still carries
-    the reason, which is the half that was ever load-bearing.
+    This used to assert absence against `importers.names()`. That package was retired
+    on 2026-08-30; then it asserted "open question 5" was still in the docstring, until
+    `fantabot db snapshot-team` answered that question for `league_team_snapshot` and
+    the docstring changed to say which of the three tables it answers it for.
     """
     from fantabot.adapters.persistence.models import league
 
-    assert "open question 5" in league.__doc__.lower()  # type: ignore[union-attr]
+    assert "non-goals" in league.__doc__.lower()  # type: ignore[union-attr]
+
+
+def test_the_team_snapshot_table_has_a_producer() -> None:
+    """`league_team_snapshot` is the one of the three with a writer: `db snapshot-team`
+    calls `apileague.my_team` and hands the parsed body to this exact method."""
+    from fantabot.adapters.persistence.repositories.league import LeagueRepository
+
+    assert hasattr(LeagueRepository, "record_team_snapshot")

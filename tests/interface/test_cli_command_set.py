@@ -43,6 +43,7 @@ EXPECTED: set[str] = {
     "db dump",
     "db price",
     "db scrape",
+    "db snapshot-team",
     "harvest backfill",
     "harvest collect",
     "harvest load",

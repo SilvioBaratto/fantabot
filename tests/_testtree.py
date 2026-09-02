@@ -81,6 +81,7 @@ TREE: dict[str, str] = {
     # -- domain/mantra, domain/shared, domain/tokens --------------------------------------
     "test_mantra_grid_gates.py": "domain/mantra",
     "test_club_names.py": "domain/shared",
+    "test_league.py": "domain/shared",
     "test_parsing.py": "domain/shared",
     "test_resources.py": "domain/shared",
     "test_token_capture.py": "domain/tokens",

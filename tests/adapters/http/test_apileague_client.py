@@ -140,6 +140,40 @@ def test_auth_headers_alone_builds_no_request() -> None:
     assert set(headers) == {"app_key", "Authorization"}
 
 
+# --- my_team: shares _get with league_status, so only its own behaviour is new ------
+
+
+TEAM_BODY = {"id": 10000003, "idu": 20000003, "n": "Team C", "nu": "Owner C",
+             "cri": 500, "crs": 474, "cr": 26}
+
+
+def test_my_team_requests_the_documented_path() -> None:
+    transport, handler = transport_returning(json_body=TEAM_BODY)
+
+    apileague.my_team(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    assert handler.requests[0].url.path == apileague.TEAMS_MY_PATH
+
+
+def test_my_team_returns_the_parsed_body() -> None:
+    transport, _ = transport_returning(json_body=TEAM_BODY)
+
+    body = apileague.my_team(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    assert body["n"] == "Team C"
+    assert body["crs"] == 474
+
+
+def test_my_team_shares_the_401_mapping_with_league_status() -> None:
+    """The rest of `_raise_for`'s matrix (ATH007, timeouts, connect failures, the
+    no-leak guard) is already proven against `league_status` above — both endpoints
+    go through the same `_get`, so this one spot check is what is actually new."""
+    transport, _ = transport_returning(401, {"code": "ATH001"})
+
+    with pytest.raises(TokenRejected):
+        apileague.my_team(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+
 # --- SC 13: refused before a socket exists --------------------------------
 
 

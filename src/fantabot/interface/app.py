@@ -452,6 +452,57 @@ def db_backfill_teams() -> None:
     console.print(f"resolved {changed} club name(s)")
 
 
+def db_snapshot_team(
+    league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
+) -> None:
+    """Capture our own team's credits and roster ids into `league_team_snapshot`.
+
+    The one network call is `apileague.my_team` (`GET /onboarding/v1/league/teams/my`),
+    authenticated with the token already stored for `league` — nothing here logs in or
+    touches a browser. Every call inserts a **new** row; `league_team_snapshot` is
+    append-only, so a rescan never overwrites the last capture (`LeagueRepository`'s own
+    docstring). The response's credits and roster ids are not secrets and are printed;
+    the bearer token used to fetch them never is.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.http import apileague
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.league import LeagueRepository
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.config import settings
+    from fantabot.domain.shared.league import parse_team_snapshot
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    league_id = league or settings.fantabot_league_id
+    if not league_id:
+        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
+            body = apileague.my_team(league_id, store=store)
+            snapshot = parse_team_snapshot(league_id, body)
+            LeagueRepository(session).record_team_snapshot(snapshot)
+    except TokenError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    spent = snapshot.credits_spent or 0
+    initial = snapshot.credits_initial or 0
+    remaining = snapshot.credits_remaining
+    console.print(
+        f"[green]saved[/green] {snapshot.nome!r} (team {snapshot.team_id}) — "
+        f"{spent}/{initial} credits spent, {remaining} left"
+    )
+
+
 def db_scrape(
     table: str = typer.Argument(
         ..., help="quotazioni | statistiche | voti — which pages to fetch."
@@ -921,6 +972,7 @@ for _group, _name in (
 news_app.command("fetch")(news_fetch)
 db_app.command("check")(db_check)
 db_app.command("backfill-teams")(db_backfill_teams)
+db_app.command("snapshot-team")(db_snapshot_team)
 db_app.command("scrape")(db_scrape)
 db_app.command("price")(db_price)
 db_app.command("exclude")(db_exclude)

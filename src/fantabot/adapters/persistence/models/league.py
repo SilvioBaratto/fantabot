@@ -6,10 +6,11 @@ all at 500/500 credits, asta not yet held — and the reason to keep taking them
 is the question that snapshot cannot answer on its own: *what did the market
 look like before that bid.*
 
-**Nothing writes to these yet.** SPEC open question 5 asks whether the capture
-ships in this phase, and the producer needs an HTTP client, which is on SPEC's
-Ask-first list. The tables exist so the schema is complete and the migration
-chain round-trips; the importer is a decision, not an oversight.
+**`fantabot db snapshot-team` writes `LeagueTeamSnapshot`, one row per call, our own
+team only** (`apileague.my_team`, `repositories/league.LeagueRepository`). `LeagueSnapshot`
+and `LeaguePlayerPool` still have no producer — the whole lega's roster/team list
+(`GET /onboarding/v1/league/teams`) stays on SPEC's Non-goals list until something
+needs every team, not just ours.
 """
 
 from __future__ import annotations
