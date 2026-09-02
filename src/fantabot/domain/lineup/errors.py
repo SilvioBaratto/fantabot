@@ -34,6 +34,14 @@ class NoFieldableModule(LineupError):
         self.modules = modules
 
 
+class BenchIncomplete(LineupError):
+    """The bench cannot be filled — no reserve keeper, or fewer reserves than the bench size.
+
+    The platform requires a goalkeeper in the first bench slot and a full bench, so an
+    incomplete one is refused rather than submitted and rejected. The message says which.
+    """
+
+
 class RosterIncomplete(LineupError):
     """A roster id with no Mantra role — the roster cannot be assembled.
 

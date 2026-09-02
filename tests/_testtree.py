@@ -51,6 +51,7 @@ TREE: dict[str, str] = {
     "test_schema.py": "domain/lineup",
     "test_value.py": "domain/lineup",
     "test_build.py": "domain/lineup",
+    "test_bench.py": "domain/lineup",
     # The rule is about the whole asta feature including its command, but what it
     # protects -- one calendar seam for the golden harness -- is a property of the
     # decision layer, which is the half that must be deterministic.
