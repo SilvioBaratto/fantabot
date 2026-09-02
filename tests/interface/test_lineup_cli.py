@@ -7,6 +7,7 @@ pure formatter is tested directly; the command is a thin wrapper around it.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -15,7 +16,7 @@ from typer.testing import CliRunner
 
 from fantabot.domain.lineup.models import PlannedLineup
 from fantabot.interface.app import app
-from fantabot.interface.lineup import format_lineup, format_plan
+from fantabot.interface.lineup import format_lineup, format_plan, is_past_deadline
 
 runner = CliRunner()
 
@@ -151,3 +152,63 @@ def test_plan_builds_and_prints_a_legal_formation(monkeypatch: pytest.MonkeyPatc
     assert "343" in result.output
     assert "XI:" in result.output
     assert "bench:" in result.output
+
+
+# --- submit: two locks, dry run by default --------------------------------
+
+
+def test_is_past_deadline_compares_naive() -> None:
+    assert is_past_deadline("2020-01-01T00:00:00", datetime(2026, 1, 1)) is True
+    assert is_past_deadline("2030-01-01T00:00:00", datetime(2026, 1, 1)) is False
+    assert is_past_deadline("nonsense", datetime(2026, 1, 1)) is False
+
+
+def _submit_fakes(monkeypatch: pytest.MonkeyPatch, *, auto_act: bool) -> list[Any]:
+    from fantabot import config
+    from fantabot.adapters.http import apileague
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(config.settings, "fantabot_auto_act", auto_act)
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00"}
+    )
+    posted: list[Any] = []
+    monkeypatch.setattr(
+        apileague, "teamLineup_submit", lambda _lid, body, **k: posted.append(body)
+    )
+    return posted
+
+
+def test_submit_is_a_dry_run_when_auto_act_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    posted = _submit_fakes(monkeypatch, auto_act=False)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 0
+    assert "dry run" in result.output
+    assert posted == [], "submitted despite AUTO_ACT being off"
+
+
+def test_submit_is_refused_without_arm_even_when_auto_act_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+
+    result = runner.invoke(app, ["lineup", "submit"])  # no --arm
+
+    assert result.exit_code == 0
+    assert "dry run" in result.output
+    assert posted == []
+
+
+def test_submit_posts_and_reads_back_when_fully_armed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1, "an armed submit must POST exactly once"
+    assert posted[0]["mdl"] == "343"
+    assert "submitted" in result.output

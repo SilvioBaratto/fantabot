@@ -50,6 +50,7 @@ EXPECTED: set[str] = {
     "harvest scan",
     "lineup plan",
     "lineup show",
+    "lineup submit",
     "mantra-grid",
     "news fetch",
 }

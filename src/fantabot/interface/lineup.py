@@ -1,27 +1,48 @@
 """`fantabot lineup` — read, plan and submit the weekly Mantra formazione.
 
-Typer only, like the rest of `interface/`. The one network call goes through
+Typer only, like the rest of `interface/`. The network calls go through
 `adapters/http/apileague`'s `gaming/v1` client; the value model, schema and matcher live in
-`domain/lineup` and are reached through `application/lineup_planner` (later tasks). This
-module holds the commands and the presentation; nothing here decides a lineup.
+`domain/lineup` and are composed by `application/lineup_planner`. This module holds the
+commands, the presentation, and the one clock read (`_now`) — nothing here decides a lineup.
+
+Submitting is gated by two opt-in locks (`FANTABOT_AUTO_ACT` **and** `--arm`) and is a dry
+run by default, matching the auction side. The deadline is a *warning*, not a block: `mstr`
+is not confirmed to be the lineup deadline (`docs/leghe-api.md`), so the platform stays the
+authority — it rejects a truly-closed submit and we surface that.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 import typer
 
 from fantabot.interface.console import console
 
+if TYPE_CHECKING:
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.domain.lineup.models import PlannedLineup
+
+
+def _now() -> datetime:
+    """The one clock read for the lineup feature — isolated so tests can reason about it."""
+    return datetime.now()
+
+
+def is_past_deadline(mstr: str, now: datetime) -> bool:
+    """Whether `now` is past the `mstr` timestamp. Pure. Both compared naive (mstr carries no
+    zone; a warning does not need zone precision). Unparseable `mstr` is treated as not-past."""
+    try:
+        deadline = datetime.fromisoformat(mstr)
+    except (ValueError, TypeError):
+        return False
+    return now.replace(tzinfo=None) > deadline.replace(tzinfo=None)
+
 
 def format_lineup(dto: Mapping[str, Any]) -> list[str]:
-    """Render a `teamLineupDto` for the console. Pure — takes the parsed body, no I/O.
-
-    Ids, not names: `show` is the raw read that proves the `gaming/v1` path; the
-    name-resolved, value-annotated view is `plan`, once the roster is assembled.
-    """
+    """Render a `teamLineupDto` for the console. Pure — takes the parsed body, no I/O."""
     if not dto:
         return ["no lineup set for this competition"]
     module = dto.get("mdl", "?")
@@ -34,17 +55,58 @@ def format_lineup(dto: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
+    """Render a `PlannedLineup` with player names for the console. Pure."""
+
+    def nm(pid: int) -> str:
+        return names.get(pid, str(pid))
+
+    return [
+        f"module {plan.module}  (league matchday {plan.mday}, Serie A {plan.cmday})",
+        "XI:    " + ", ".join(nm(p) for p in plan.starts),
+        "bench: " + ", ".join(nm(p) for p in plan.bench),
+    ]
+
+
+def _build_plan(
+    store: TokenStore, league_id: int, competition: int
+) -> tuple[PlannedLineup, dict[int, str], int]:
+    """Gather roster/settings/coords via `apileague` and compose the `PlannedLineup`.
+
+    Roster, roles and value come from `teamLineup_read`'s `lineUpInfo`; the competition is
+    auto-resolved when `competition` is 0. Returns `(plan, id->name, competition_id)`.
+    """
+    from fantabot.adapters.http import apileague
+    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineup
+    from fantabot.domain.lineup.competition import resolve_competition
+
+    tid = int(apileague.my_team(league_id, store=store)["id"])
+    comp = competition or resolve_competition(
+        apileague.competitions(league_id, store=store), tid=tid
+    )
+    body = apileague.teamLineup_read(league_id, comp, store=store)
+    lineup_conf = apileague.lineup_settings(league_id, store=store)
+    inputs, names = inputs_from_lineup(
+        body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp
+    )
+    return plan_lineup(inputs), names, comp
+
+
+def _resolve_league(league: int) -> int:
+    from fantabot.config import settings
+
+    league_id = league or settings.fantabot_league_id
+    if not league_id:
+        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
+        raise typer.Exit(code=1)
+    return league_id
+
+
 def _show(
     league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
     competition: int = typer.Option(0, "--competition", help="Competition id (required)."),
 ) -> None:
-    """Print the current lineup for a competition.
-
-    One network call, `apileague.teamLineup_read`
-    (`GET /gaming/v1/teamLineup/visualizza/A/{competition}`), authenticated with the token
-    already stored for `league`. Nothing here logs in or opens a browser; the bearer used to
-    fetch is never printed, only the ids it returns.
-    """
+    """Print the current lineup for a competition. Read-only."""
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.http import apileague
@@ -54,10 +116,7 @@ def _show(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = league or settings.fantabot_league_id
-    if not league_id:
-        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
-        raise typer.Exit(code=1)
+    league_id = _resolve_league(league)
     if not competition:
         console.print("[red]no competition id: pass --competition[/red]")
         raise typer.Exit(code=1)
@@ -78,62 +137,28 @@ def _show(
         console.print(line)
 
 
-def format_plan(plan: Any, names: Mapping[int, str]) -> list[str]:
-    """Render a `PlannedLineup` with player names for the console. Pure."""
-
-    def nm(pid: int) -> str:
-        return names.get(pid, str(pid))
-
-    return [
-        f"module {plan.module}  (league matchday {plan.mday}, Serie A {plan.cmday})",
-        "XI:    " + ", ".join(nm(p) for p in plan.starts),
-        "bench: " + ", ".join(nm(p) for p in plan.bench),
-    ]
-
-
 def _plan(
     league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
     competition: int = typer.Option(
         0, "--competition", help="Competition id. Auto-resolved when omitted."
     ),
 ) -> None:
-    """Build and print the best legal formation for the current matchday. **No submit.**
-
-    Roster, roles and value all come from `apileague.teamLineup_read`'s `lineUpInfo`
-    (`indexCompare` is the value signal); the allowed modules and bench size from
-    `settings/lineup`. Read-only — this never POSTs.
-    """
+    """Build and print the best legal formation for the current matchday. **No submit.**"""
     from sqlalchemy.exc import SQLAlchemyError
 
-    from fantabot.adapters.http import apileague
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
-    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineup
     from fantabot.config import settings
-    from fantabot.domain.lineup.competition import resolve_competition
     from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = league or settings.fantabot_league_id
-    if not league_id:
-        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
-        raise typer.Exit(code=1)
-
+    league_id = _resolve_league(league)
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
             store = TokenStore(session, cipher)
-            tid = int(apileague.my_team(league_id, store=store)["id"])
-            comp = competition or resolve_competition(
-                apileague.competitions(league_id, store=store), tid=tid
-            )
-            body = apileague.teamLineup_read(league_id, comp, store=store)
-            lineup_conf = apileague.lineup_settings(league_id, store=store)
-        inputs, names = inputs_from_lineup(
-            body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp
-        )
-        plan = plan_lineup(inputs)
+            plan, names, _ = _build_plan(store, league_id, competition)
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
@@ -145,7 +170,80 @@ def _plan(
         console.print(line)
 
 
+def _submit(
+    league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
+    competition: int = typer.Option(
+        0, "--competition", help="Competition id. Auto-resolved when omitted."
+    ),
+    arm: bool = typer.Option(
+        False, "--arm", help="Second, positive lock. Submit is OFF without it (and AUTO_ACT)."
+    ),
+) -> None:
+    """Build the formation and submit it — **behind two locks, dry run by default.**
+
+    Prints the plan always. Submits only when `FANTABOT_AUTO_ACT=true` **and** `--arm`; then
+    warns if the matchday looks started and confirms by reading the lineup back.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.http import apileague
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.config import settings
+    from fantabot.domain.lineup import payload as payload_module
+    from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    league_id = _resolve_league(league)
+    auto_act = bool(settings.fantabot_auto_act)
+    armed = auto_act and arm
+
+    try:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
+            plan, names, comp = _build_plan(store, league_id, competition)
+
+            for line in format_plan(plan, names):
+                console.print(line)
+
+            if not armed:
+                why = "--arm not given" if auto_act else "FANTABOT_AUTO_ACT is false"
+                console.print(
+                    f"[yellow]dry run ({why}) — not submitted. Arm with "
+                    "FANTABOT_AUTO_ACT=true and --arm.[/yellow]"
+                )
+                raise typer.Exit(code=0)
+
+            status = apileague.league_status(league_id, store=store)
+            mstr = str(status.get("mstr", ""))
+            if mstr and is_past_deadline(mstr, _now()):
+                console.print(
+                    f"[yellow]warning: past {mstr} (looks like kickoff) — submitting anyway; "
+                    "the platform will refuse if it is truly closed.[/yellow]"
+                )
+
+            body = payload_module.build(plan)
+            apileague.teamLineup_submit(league_id, body, store=store)
+            saved = apileague.teamLineup_read(league_id, comp, store=store).get(
+                "teamLineupDto", {}
+            )
+    except (TokenError, LineupError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"[green]submitted {plan.module} — saved {len(saved.get('starts', []))} starters, "
+        f"ldate {saved.get('ldate', '?')}[/green]"
+    )
+
+
 def register(app: typer.Typer) -> None:
     """Attach the lineup commands to the `lineup` group (called from `interface/app`)."""
     app.command("show")(_show)
     app.command("plan")(_plan)
+    app.command("submit")(_submit)
