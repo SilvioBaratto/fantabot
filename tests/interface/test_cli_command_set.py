@@ -80,6 +80,13 @@ def test_the_command_set_is_exactly_what_is_declared() -> None:
     )
 
 
+def test_tracebacks_never_show_frame_locals() -> None:
+    """A frame can hold the bearer token (`headers = {"Authorization": "Bearer ..."}`);
+    Typer's rich handler must never print locals, or an uncaught error leaks it to the log.
+    The default varies by Typer version within our pin, so it is pinned in code."""
+    assert app.pretty_exceptions_show_locals is False
+
+
 def test_no_group_is_empty() -> None:
     """A group with no commands still shows in `--help` and exits 2 when run.
 

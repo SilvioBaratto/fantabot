@@ -24,7 +24,13 @@ if TYPE_CHECKING:
     )
     from fantabot.application.news_fetcher import FetchResult
 
-app = typer.Typer(no_args_is_help=True)
+# `pretty_exceptions_show_locals=False` is load-bearing, not cosmetic: an uncaught
+# exception raised while a frame holds `headers = {"Authorization": "Bearer <token>"}`
+# (an unmapped httpx/JSON error) would otherwise have Typer's rich handler print that
+# frame's locals — the bearer — to stderr and any cron log. Typer's default has been
+# `True` in versions the `typer>=0.12` pin allows, so the guarantee is pinned here in code
+# rather than left to whichever Typer resolves. See `adapters/http/apileague._send`.
+app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 
 
 def _enable_os_trust_store() -> None:

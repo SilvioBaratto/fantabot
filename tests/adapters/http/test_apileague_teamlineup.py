@@ -24,7 +24,7 @@ from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.tokens.store import TokenStore
 from fantabot.domain.lineup.errors import LineupRejected
 from fantabot.domain.tokens.crypto import TokenCipher
-from fantabot.domain.tokens.errors import TokenMissing, TokenRejected
+from fantabot.domain.tokens.errors import ApiUnavailable, TokenMissing, TokenRejected
 
 NOW = datetime(2026, 9, 2, tzinfo=UTC)
 PLAINTEXT = _tokens.make_token(l_id=_tokens.LEGA_MANTRA, t_id=_tokens.TEAM_MANTRA)
@@ -200,6 +200,29 @@ def test_a_lup009_rejection_becomes_a_named_lineup_error() -> None:
         )
 
     assert "LUP009" in str(caught.value)
+
+
+def test_a_non_json_body_becomes_a_named_error_not_a_parse_traceback() -> None:
+    """A 200 with a non-JSON body (e.g. an intercepting proxy's HTML) must not let
+    `response.json()`'s ValueError escape with the token live on the frame."""
+    handler = _Recorder(httpx.Response(200, headers={"content-type": "text/html"}, text="<html>"))
+    transport = httpx.MockTransport(handler)
+
+    with pytest.raises(ApiUnavailable) as caught:
+        apileague.teamLineup_read(_tokens.LEGA_MANTRA, COMPETITION, store=a_store(), transport=transport)
+
+    assert "httpx" not in str(caught.value)
+
+
+def test_a_decoding_error_is_caught_by_the_leak_guard() -> None:
+    """`httpx.DecodingError` is a RequestError but not a TransportError — it must still be
+    mapped, never re-raised (its `.request` carries the Authorization header)."""
+    transport = httpx.MockTransport(_Recorder(httpx.DecodingError("bad encoding")))
+
+    with pytest.raises(ApiUnavailable):
+        apileague.teamLineup_submit(
+            _tokens.LEGA_MANTRA, PAYLOAD, store=a_store(), transport=transport
+        )
 
 
 def test_submit_shares_the_401_token_mapping() -> None:

@@ -20,7 +20,7 @@ Both print request headers, which is the credential.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import httpx
@@ -102,6 +102,53 @@ def _raise_for(response: httpx.Response, league_id: int) -> None:
         raise ApiUnavailable(response.status_code)
 
 
+def _send(
+    method: str,
+    path: str,
+    league_id: int,
+    *,
+    body: Mapping[str, Any] | None,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None,
+    timeout: float,
+    now: Any,
+    raise_for: Callable[[httpx.Response, int], None],
+) -> Any:
+    """The one authenticated request, its leak guard, and the JSON parse — shared by every
+    read and write below. `transport` is injectable so tests never build a default transport
+    or an SSL context, which keeps this suite in the socket-free tier.
+
+    **No `httpx` exception, and no raw JSON parse error, is ever re-raised** — every failure
+    exits through `from None`. Both `httpx.RequestError.request` and a bare traceback can
+    render the `Authorization` header, so the guard catches the whole `httpx.HTTPError`
+    family (not only timeout/transport — a `DecodingError` behind an intercepting proxy is
+    one) and the `ValueError` a non-JSON body raises, mapping each to a token-free error.
+    `raise_for` is the status mapper: `_raise_for` for reads, `_raise_for_lineup` for submit.
+    """
+    headers = auth_headers(league_id, store=store, now=now)
+    content = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        content = json.dumps(body)
+
+    try:
+        with httpx.Client(
+            base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
+        ) as client:
+            response = client.request(method, path, content=content)
+    except httpx.TimeoutException:
+        raise ApiTimeout(timeout) from None
+    except httpx.HTTPError:
+        raise ApiUnavailable(0) from None
+
+    raise_for(response, league_id)
+
+    try:
+        return response.json()
+    except ValueError:
+        raise ApiUnavailable(response.status_code) from None
+
+
 def _get(
     path: str,
     league_id: int,
@@ -111,27 +158,8 @@ def _get(
     timeout: float,
     now: Any,
 ) -> dict[str, Any]:
-    """One authenticated `GET`, the error mapping and the leak guard shared by every
-    endpoint below. `transport` is injectable so tests never build a default transport
-    or an SSL context, which is what keeps this suite in the socket-free default tier.
-    """
-    headers = auth_headers(league_id, store=store, now=now)
-
-    try:
-        with httpx.Client(
-            base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
-        ) as client:
-            response = client.get(path)
-    except httpx.TimeoutException:
-        # Deliberately not `from exc`: httpx.RequestError carries .request, and
-        # a chained traceback can render the Authorization header.
-        raise ApiTimeout(timeout) from None
-    except httpx.TransportError:
-        raise ApiUnavailable(0) from None
-
-    _raise_for(response, league_id)
-
-    body = response.json()
+    """One authenticated `GET`, coerced to a dict (the object endpoints)."""
+    body = _get_raw(path, league_id, store=store, transport=transport, timeout=timeout, now=now)
     return body if isinstance(body, dict) else {}
 
 
@@ -144,20 +172,11 @@ def _get_raw(
     timeout: float,
     now: Any,
 ) -> Any:
-    """`_get` without the dict coercion — for endpoints that return a JSON array (e.g.
-    `competitions`). Same headers, same leak guard."""
-    headers = auth_headers(league_id, store=store, now=now)
-    try:
-        with httpx.Client(
-            base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
-        ) as client:
-            response = client.get(path)
-    except httpx.TimeoutException:
-        raise ApiTimeout(timeout) from None
-    except httpx.TransportError:
-        raise ApiUnavailable(0) from None
-    _raise_for(response, league_id)
-    return response.json()
+    """An authenticated `GET` returning the parsed JSON as-is (list or dict)."""
+    return _send(
+        "GET", path, league_id, body=None, store=store, transport=transport,
+        timeout=timeout, now=now, raise_for=_raise_for,
+    )
 
 
 def _raise_for_lineup(response: httpx.Response, league_id: int) -> None:
@@ -186,26 +205,13 @@ def _post(
 ) -> dict[str, Any]:
     """One authenticated `POST` with a JSON body — the write sibling of `_get`.
 
-    Shares the leak guard exactly: no `httpx` exception is ever re-raised, because its
-    `.request` can render the `Authorization` header. The one difference is the error
-    mapping — `_raise_for_lineup` adds the `LUP0xx` rejection the write path can return.
+    Shares `_send`'s leak guard; the one difference is the error mapping —
+    `_raise_for_lineup` adds the `LUP0xx` rejection the write path can return.
     """
-    headers = auth_headers(league_id, store=store, now=now)
-    headers["Content-Type"] = "application/json"
-
-    try:
-        with httpx.Client(
-            base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
-        ) as client:
-            response = client.post(path, content=json.dumps(body))
-    except httpx.TimeoutException:
-        raise ApiTimeout(timeout) from None
-    except httpx.TransportError:
-        raise ApiUnavailable(0) from None
-
-    _raise_for_lineup(response, league_id)
-
-    parsed = response.json()
+    parsed = _send(
+        "POST", path, league_id, body=body, store=store, transport=transport,
+        timeout=timeout, now=now, raise_for=_raise_for_lineup,
+    )
     return parsed if isinstance(parsed, dict) else {}
 
 
