@@ -64,6 +64,55 @@ class AstaState:
         return self.total_budget - self.spent
 
 
+#: What `rules_for_room` returns when it derived a real band from the room, versus when it
+#: fell back to today's default because the room said nothing usable. The exact strings, not
+#: prose composed at each call site — a provenance an operator cannot grep for consistently is
+#: one they stop trusting.
+ROOM_DECLARED = "read from the room"
+ASSUMED_NOTHING = "assumed — the room declared nothing"
+
+
+def rules_for_room(
+    *,
+    selection: str | None,
+    min_player: int | None,
+    max_player: int | None,
+    min_goalkeepers: int | None = None,
+    min_others: int | None = None,
+    target_size: int | None = None,
+) -> tuple[RosterRules, str]:
+    """`RosterRules`, derived from what a room actually declares, with a stated provenance.
+
+    **Reading the room too literally is the named risk (`tasks/plan.md` §2).** A room under
+    `"no-limit-per-role"` — the common case — has no per-role floor to read at all, and
+    `min_player`/`max_player` alone say only "at least this many total," never how many must
+    be goalkeepers. Deriving `min_goalkeepers=0` from that silence would be a room-declared
+    zero-keeper floor no room actually stated, not the honest "unknown" it is. So only
+    `selection == "min-max-goalie-others"` with both halves of the band present counts as
+    "the room said something"; everything else — nothing parsed, the wrong selection mode,
+    only one half of the band — returns today's default (`RosterRules()`:
+    `size=30, min_goalkeepers=2, min_movement=28`) labelled `ASSUMED_NOTHING`.
+
+    Measured over the live registry (`tests/golden/seed_live_sample.json`, a trimmed real
+    slice of `data/seed_live.json`): **no Mantra room declares `min_player == 30`** — the
+    values that exist range from 19 to 29, and 153 of 247 rooms declare none at all. The old
+    hard-coded `size=30` was never "what rooms actually say"; it was lega 4103937's own
+    setting, generalised to every room that follows this bot's default.
+
+    `min_goalkeepers + min_others` is the size read from the room — matching the platform's
+    own invariant that this sum equals `min_player` (`docs/fantalab/04:485`) — unless
+    `target_size` overrides it (an operator's explicit choice to target `max_player` or
+    something else within the declared band, not this function's call to make).
+    """
+    if selection == "min-max-goalie-others" and min_goalkeepers is not None and min_others is not None:
+        size = target_size if target_size is not None else min_goalkeepers + min_others
+        return (
+            RosterRules(size=size, min_goalkeepers=min_goalkeepers, min_movement=min_others),
+            ROOM_DECLARED,
+        )
+    return RosterRules(), ASSUMED_NOTHING
+
+
 def drop_unvaluable(
     state: AstaState, pool: Sequence[MantraPlayer], rules: RosterRules
 ) -> tuple[AstaState, RosterRules, list[str]]:
