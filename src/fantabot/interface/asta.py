@@ -425,7 +425,14 @@ def asta_room(
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.tokens.fantalab_store import FantalabStore
     from fantabot.application.asta_copilot import CopilotWorker, briefs_for
-    from fantabot.application.asta_room import RoomFrame, RoomRefused, RoomTracker, resolve_room
+    from fantabot.application.asta_room import (
+        RoomFrame,
+        RoomRefused,
+        RoomTracker,
+        error_row,
+        resolve_room,
+        waiting_row,
+    )
     from fantabot.config import settings
     from fantabot.domain.asta.bid import Seat, max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
@@ -512,6 +519,15 @@ def asta_room(
         ),
     )
     journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    # `cycle_ms` is measured here, not in `application/` — the clock stays out of that layer.
+    # One slot rather than a return value from `cycle` itself: `target_of` starts the clock
+    # right before calling it, and this closure (handed to `RoomTracker` as `journal`) reads
+    # it back the moment the row `cycle` builds internally is about to be written.
+    cycle_started = [0.0]
+
+    def _timed_journal(row: Mapping[str, Any]) -> None:
+        journal.write({**row, "cycle_ms": round((time.perf_counter() - cycle_started[0]) * 1000, 1)})
+
     tracker = RoomTracker(
         seat=Seat(
             fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id
@@ -528,7 +544,7 @@ def asta_room(
         admin_user_id=resolved.admin_id,
         seat_by_user=resolved.seat_by_user,
         ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
-        journal=journal.write,
+        journal=_timed_journal,
         counter_time=resolved.counter_time,
         counter_time_first=resolved.counter_time_first,
     )
@@ -566,6 +582,7 @@ def asta_room(
         worker.start()
 
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
+        cycle_started[0] = time.perf_counter()
         frame = tracker.cycle(
             snapshot, now_ms=int(time.time() * 1000), node=router.node
         )
@@ -606,8 +623,20 @@ def asta_room(
             return None
         return (frame.target, frame.walk_away)
 
+    def heartbeat(line: str) -> None:
+        """The screen is the frame, so this discards every line but one. `run_bid_loop`
+        writes this exact message only when `read()` returned no lot at all — the one case
+        where `target_of` (and so `tracker.cycle`, and so the journal row it writes itself)
+        never ran this poll. Every other heartbeat line here followed a `target_of` call
+        that already journaled; journaling again would double the row for the same poll.
+        """
+        if "waiting for a lot" in line:
+            journal.write(waiting_row(now_ms=int(time.time() * 1000)))
+
     def on_error(exc: Exception, consecutive: int) -> None:
-        """A failed poll, on the screen the operator is actually looking at."""
+        """A failed poll: shown on the screen the operator is actually looking at, and now
+        journaled too — a run reporting a stall used to leave no record of why."""
+        journal.write(error_row(exc, now_ms=int(time.time() * 1000)))
         live.update(
             error_overlay(
                 screen[0] if screen else None,
@@ -637,12 +666,13 @@ def asta_room(
             now=lambda: int(time.time() * 1000),
             sleep=time.sleep,
             keep_going=lambda _cycle: True,
-            # The room's heartbeat has nowhere to go — the screen is the frame. Errors do not
-            # go through it either: they went through a filter on the line's *text*, which
-            # missed `ReadTimeout`, `ConnectTimeout` and `PoolTimeout` — on a flaky link the
-            # three most likely of all — and printed the rest into an alternate buffer the
-            # next refresh overwrote. They are painted into the Live now, by `on_error`.
-            heartbeat=lambda _line: None,
+            # Most heartbeat lines have nowhere to go — the screen is the frame — but
+            # `heartbeat` above still journals the one that means `tracker.cycle` never ran
+            # this poll. Errors used to be shown by filtering the line's *text*, which missed
+            # `ReadTimeout`, `ConnectTimeout` and `PoolTimeout` — on a flaky link the three
+            # most likely of all; they are painted into the Live and journaled now, by
+            # `on_error`.
+            heartbeat=heartbeat,
             on_error=on_error,
             poll_seconds=poll,
         )
@@ -766,7 +796,7 @@ def asta_bid(
     from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
-    from fantabot.application.asta_room import RoomFrame, RoomTracker
+    from fantabot.application.asta_room import RoomFrame, RoomTracker, error_row, waiting_row
     from fantabot.config import settings
     from fantabot.domain.asta.bid import Seat, max_bid
 
@@ -811,6 +841,14 @@ def asta_bid(
         console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
     journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    # `cycle_ms` measured here, not in `application/` — see `asta_room`'s identical wiring.
+    cycle_started = [0.0]
+
+    def _timed_journal(row: Mapping[str, Any]) -> None:
+        journal.write(
+            {**row, "cycle_ms": round((time.perf_counter() - cycle_started[0]) * 1000, 1)}
+        )
+
     tracker = RoomTracker(
         seat=seat,
         bridge=bridge,
@@ -827,7 +865,7 @@ def asta_bid(
         # docstring). A passed lot the admin actually let stand is invisible here the same way
         # it always was — `RoomTracker` degrades to that, not to a crash, without them.
         ledger=lambda: feed.ledger_events(db, league),
-        journal=journal.write,
+        journal=_timed_journal,
         counter_time=None, counter_time_first=None,
     )
 
@@ -848,6 +886,7 @@ def asta_bid(
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
         import time as _time
 
+        cycle_started[0] = _time.perf_counter()
         frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000), node=router.node)
         latest.append(frame)
         # Said once rather than once per poll: at a 2 s cycle the same line would scroll the
@@ -865,6 +904,20 @@ def asta_bid(
     def _cap() -> int:
         return latest[-1].max_cap if latest else max_bid(int(budget), RosterRules().size)
 
+    def heartbeat(line: str) -> None:
+        """Printed as before; also journaled for the one message that means `target_of` (and
+        so `tracker.cycle`'s own journal row) never ran this poll — see `asta_room`'s
+        identical heartbeat for why only this one line qualifies."""
+        console.print(line)
+        if "waiting for a lot" in line:
+            journal.write(waiting_row(now_ms=int(time.time() * 1000)))
+
+    def on_error(exc: Exception, consecutive: int) -> None:
+        """Replaces `run_bid_loop`'s own fallback (which only ever printed) so a failed poll
+        leaves a record, not just a line that scrolled away."""
+        console.print(f"[red]{type(exc).__name__}: {exc} ({consecutive} in a row)[/red]")
+        journal.write(error_row(exc, now_ms=int(time.time() * 1000)))
+
     report = room.run_bid_loop(
         seat=seat,
         fantaleague_id=league,
@@ -880,7 +933,8 @@ def asta_bid(
         now=lambda: int(time.time() * 1000),
         sleep=time.sleep,
         keep_going=lambda _cycle: True,
-        heartbeat=console.print,
+        heartbeat=heartbeat,
+        on_error=on_error,
         poll_seconds=poll,
     )
     journal.close()

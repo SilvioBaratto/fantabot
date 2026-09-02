@@ -14,7 +14,7 @@ it would give this module a path to Postgres and make its one structural guarant
 
 from __future__ import annotations
 
-from fantabot.application.asta_room import RoomTracker
+from fantabot.application.asta_room import RoomTracker, error_row, waiting_row
 from fantabot.domain.asta.bid import Seat
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule
 from fantabot.domain.asta.live import AssignmentEvent
@@ -658,3 +658,25 @@ class TestTheInjectedRulesAreWhatDecidesTheBand:
         assert wide_frame.max_cap < narrow_frame.max_cap
         assert wide_frame.max_cap == 100 - (5 - 1)
         assert narrow_frame.max_cap == 100 - (2 - 1)
+
+
+class TestTheJournalRowsForAPollThatNeverReachedCycle:
+    """Task 4.1: `run_bid_loop` short-circuits before calling `tracker.cycle` at all when no
+    lot is on the block — solving the whole plan every 2 s for nothing on the board is not
+    the cost this design accepts before Task 4.2's memo lands. `RoomTracker.cycle` never sees
+    that poll and so never journals it; without a row built here, the gap in the record reads
+    as a long stall, when nothing ran at all — this was the source of a wrong "72 s stall"
+    reading investigated live.
+    """
+
+    def test_a_waiting_row_names_the_decision_and_nothing_else(self) -> None:
+        row = waiting_row(now_ms=1_000)
+
+        assert row == {"at_ms": 1_000, "decision": "waiting"}
+
+    def test_an_error_row_names_the_exception_class_not_its_message(self) -> None:
+        """The class, not `str(exc)`: a `ReadTimeout`'s message can carry a URL and query
+        params, and a journal is a file an operator may paste into a bug report."""
+        row = error_row(ValueError("some detail nobody needs to grep for"), now_ms=2_000)
+
+        assert row == {"at_ms": 2_000, "decision": "error", "error": "ValueError"}

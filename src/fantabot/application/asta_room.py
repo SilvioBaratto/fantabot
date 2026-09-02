@@ -231,6 +231,24 @@ class RoomFrame:
     bargain_allowance: int = 0
 
 
+def waiting_row(*, now_ms: int) -> Mapping[str, Any]:
+    """The journal row for a poll `RoomTracker.cycle` never ran. Pure.
+
+    `run_bid_loop` short-circuits before calling `cycle` at all when no lot is on the block —
+    solving the whole plan every 2 s for nothing on the board is not the cost this design
+    accepts before Task 4.2's memo lands. That check is also why the row has to be built here
+    rather than by `cycle` itself: nothing inside `RoomTracker` ever sees this poll. Without
+    it the gap reads as a stall long enough to solve something, when nothing ran at all.
+    """
+    return {"at_ms": now_ms, "decision": "waiting"}
+
+
+def error_row(exc: Exception, *, now_ms: int) -> Mapping[str, Any]:
+    """The journal row for a poll that raised, before `run_bid_loop`'s own catch could reach
+    `cycle`. Pure. A run reporting a stall used to leave no record of why."""
+    return {"at_ms": now_ms, "decision": "error", "error": type(exc).__name__}
+
+
 class RoomTracker:
     """Fold the ledger, re-plan, decide — and return the whole picture rather than one tuple.
 
