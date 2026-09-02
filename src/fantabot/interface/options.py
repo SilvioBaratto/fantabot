@@ -19,12 +19,33 @@ signatures is sharing mutable state between commands; an `Annotated` alias is a 
 and Typer builds a fresh parameter from it at each use.
 """
 
+import math
 from typing import Annotated
 
 import typer
 
 #: The only listone the asta engine plans against.
 SEASON = "2026/27"
+
+
+def _reject_non_finite(value: float) -> float:
+    """Typer/Click callback: refuse ``nan`` and ``inf`` before any cycle runs.
+
+    ``click.FloatRange`` compares with ``<``/``>``, and every comparison against ``nan`` is
+    ``False`` — a ``FloatRange(0.0, 1.0)`` accepts ``nan`` for the exact reason it looks like it
+    should reject it, and a lower-bound-only range (``min=`` with no ``max=``) lets ``inf``
+    through too, since ``inf`` is never less than the minimum.
+
+    Measured live: ``--bargain-share nan`` reaches ``RoomTracker.cycle`` at the shipped
+    *disabled* default (``--bargain-beta 0.00``) and raises ``ValueError: cannot convert float
+    NaN to integer`` from inside a poll, because the allowance arithmetic runs unconditionally
+    every cycle. Click's own type conversion (the range check) runs before this callback, so
+    this only has to close the gap that check cannot see — a value already rejected by
+    ``min=``/``max=`` never reaches here.
+    """
+    if not math.isfinite(value):
+        raise typer.BadParameter("must be a finite number")
+    return value
 
 #: Defaults deliberately live in the command signatures, not here: `--tilt-k`'s is
 #: `SentimentWeights().k`, and restating it would recreate the drift this module removes.
@@ -56,6 +77,7 @@ TiltK = Annotated[
         "--tilt-k",
         min=0.0,
         max=1.0,
+        callback=_reject_non_finite,
         help="Strength of the quality tilt. 0 uses the playing-time gate alone.",
     ),
 ]
@@ -82,6 +104,7 @@ FloorAlpha = Annotated[
     typer.Option(
         "--floor-alpha",
         min=0.0,
+        callback=_reject_non_finite,
         help="Walk-away floor as a fraction of the observed clearing price.",
     ),
 ]
@@ -96,6 +119,7 @@ BargainBeta = Annotated[
         "--bargain-beta",
         min=0.0,
         max=1.0,
+        callback=_reject_non_finite,
         help="Take an unplanned lot under this fraction of its book price; 0 disables.",
     ),
 ]
@@ -111,6 +135,7 @@ BargainShare = Annotated[
         "--bargain-share",
         min=0.0,
         max=1.0,
+        callback=_reject_non_finite,
         help="Cap on total unplanned spend, as a fraction of the starting budget.",
     ),
 ]
