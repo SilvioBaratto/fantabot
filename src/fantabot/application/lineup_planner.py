@@ -42,6 +42,8 @@ def inputs_from_lineup(
     lineup_info: Sequence[Mapping[str, Any]],
     settings: Mapping[str, Any],
     competition: int,
+    *,
+    tid: int,
 ) -> tuple[LineupInputs, dict[int, str]]:
     """Turn a `teamLineup_read` response + `settings/lineup` into `LineupInputs` and a
     id->name map. Pure.
@@ -49,6 +51,11 @@ def inputs_from_lineup(
     The roster, roles and value all come from `lineUpInfo` (`docs/leghe-api.md`): `role` is
     the numeric marle codes, `indexCompare` is the value signal, `plyr` the name. This is
     the source of record because the scraped `quotazioni` ids do not join the league roster.
+
+    `tid` is passed in from `apileague.my_team` (authoritative) rather than read from `dto`,
+    which is empty when the competition has no saved lineup — a state that would otherwise
+    submit `tid=0`. The matchday coordinates still come from `dto`; the submit path refuses
+    to POST when they are absent (0).
     """
     roster_ids: list[int] = []
     roles_by_id: dict[int, list[str]] = {}
@@ -69,7 +76,7 @@ def inputs_from_lineup(
         competition=competition,
         mday=int(dto.get("mday", 0)),
         cmday=int(dto.get("cmday", 0)),
-        tid=int(dto.get("tid", 0)),
+        tid=tid,
         bench_size=int(settings.get("tbench", 12)),
     )
     return inputs, names

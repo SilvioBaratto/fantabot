@@ -84,14 +84,14 @@ def test_plan_lineups_are_ranked_best_first_each_complete() -> None:
 
 
 def test_inputs_from_lineup_maps_marle_roles_indexcompare_and_names() -> None:
-    dto = {"mday": 1, "cmday": 3, "tid": 10000003}
+    dto = {"mday": 1, "cmday": 3}  # note: no tid in the DTO
     info = [
         {"pid": 6482, "role": [6], "indexCompare": 5.5, "plyr": "Mandas"},
         {"pid": 7274, "role": [7, 9], "indexCompare": 6.7, "plyr": "Ze Pedro"},
     ]
     settings = {"mods": ["343", "442"], "tbench": 12}
 
-    inputs, names = inputs_from_lineup(dto, info, settings, competition=311681)
+    inputs, names = inputs_from_lineup(dto, info, settings, competition=311681, tid=10000003)
 
     assert list(inputs.roster_ids) == [6482, 7274]
     assert inputs.roles_by_id[7274] == ["Dd", "Dc"]  # marle 7,9
@@ -100,3 +100,13 @@ def test_inputs_from_lineup_maps_marle_roles_indexcompare_and_names() -> None:
     assert (inputs.competition, inputs.mday, inputs.cmday, inputs.tid) == (311681, 1, 3, 10000003)
     assert inputs.bench_size == 12
     assert names[7274] == "Ze Pedro"
+
+
+def test_tid_comes_from_the_argument_not_the_empty_dto() -> None:
+    # first-of-season: the DTO is empty, the roster is still present via lineUpInfo
+    info = [{"pid": 6482, "role": [6], "indexCompare": 5.5, "plyr": "Mandas"}]
+
+    inputs, _ = inputs_from_lineup({}, info, {"mods": ["343"], "tbench": 12}, 311681, tid=999)
+
+    assert inputs.tid == 999  # authoritative team id, never 0 from the empty DTO
+    assert inputs.mday == 0 and inputs.cmday == 0  # missing coords surface as 0 (submit refuses)

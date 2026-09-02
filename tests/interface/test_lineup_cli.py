@@ -214,6 +214,26 @@ def test_submit_posts_and_reads_back_when_fully_armed(
     assert "submitted" in result.output
 
 
+def test_submit_refuses_when_the_matchday_context_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot.adapters.http import apileague
+
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+    # first-of-season: roster present via lineUpInfo, but the DTO has no mday/cmday
+    monkeypatch.setattr(
+        apileague,
+        "teamLineup_read",
+        lambda *a, **k: {"teamLineupDto": {}, "lineUpInfo": _LINEUP_INFO},
+    )
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 1
+    assert "no matchday context" in result.output
+    assert posted == [], "must not POST with zero coordinates"
+
+
 def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

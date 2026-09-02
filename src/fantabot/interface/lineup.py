@@ -80,6 +80,9 @@ def _build_plans(
     from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
     from fantabot.domain.lineup.competition import resolve_competition
 
+    # `my_team` is the authoritative team id — used for the submit payload's `tid` (the
+    # lineup DTO is empty first-of-season) and, when no --competition is given, to resolve
+    # the competition. Always needed, so never a wasted read.
     tid = int(apileague.my_team(league_id, store=store)["id"])
     comp = competition or resolve_competition(
         apileague.competitions(league_id, store=store), tid=tid
@@ -87,7 +90,7 @@ def _build_plans(
     body = apileague.teamLineup_read(league_id, comp, store=store)
     lineup_conf = apileague.lineup_settings(league_id, store=store)
     inputs, names = inputs_from_lineup(
-        body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp
+        body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp, tid=tid
     )
     return plan_lineups(inputs), names, comp
 
@@ -207,6 +210,13 @@ def _submit(
 
             for line in format_plan(plans[0], names):
                 console.print(line)
+
+            if plans[0].mday == 0 or plans[0].cmday == 0:
+                console.print(
+                    "[red]no matchday context for this competition (the lineup has no saved "
+                    "coordinates yet) — refusing to submit. Try once the matchday opens.[/red]"
+                )
+                raise typer.Exit(code=1)
 
             if not armed:
                 why = "--arm not given" if auto_act else "FANTABOT_AUTO_ACT is false"
