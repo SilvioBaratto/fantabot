@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule
 from fantabot.domain.asta.live import AssignmentEvent
-from fantabot.domain.asta.reservation import apply_event, reservations, rolling_advisory
+from fantabot.domain.asta.reservation import (
+    apply_event,
+    opportunistic_walkaway,
+    reservations,
+    rolling_advisory,
+)
 from fantabot.domain.asta.roles import MantraPlayer, normalize_roles
 from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.domain.asta.value import NaiveValueModel
@@ -186,3 +191,83 @@ def test_an_owned_player_is_never_given_a_walkaway() -> None:
     _, everything = reservations(state, POOL, n_targets=None, **_kw())  # type: ignore[arg-type]
 
     assert "gk" not in everything
+
+
+class TestTheOpportunisticCeiling:
+    """A lot the plan did not name is not a lot to let go at any price.
+
+    `reservations` prices only the plan's own members, so everyone else came back with no
+    walk-away at all and the room held whatever the price was. The optimiser rejecting a
+    player at his *book* price says nothing about him at a third of it.
+    """
+
+    @staticmethod
+    def _kw(**over: object) -> dict[str, object]:
+        base: dict[str, object] = dict(
+            owned_players=[], prices=PRICES, plan=["a1", "a2", "gk"], owned=[],
+            legality=MINI, rules=RULES, max_cap=99, beta=0.6, min_book=5,
+        )
+        return {**base, **over}
+
+    def test_a_deep_discount_is_priced_from_the_book_alone(self) -> None:
+        """No re-solve: `asta room` already spends 1 + |plan| solves a cycle."""
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **self._kw()) == 5
+
+    def test_a_player_the_plan_did_pick_is_left_to_reservations(self) -> None:
+        assert opportunistic_walkaway(MantraPlayer("a1", frozenset({"A"})), **self._kw()) is None
+
+    def test_a_player_we_already_own_is_never_chased(self) -> None:
+        kw = self._kw(owned=["a3"], plan=["a1", "a2", "a3"])
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **kw) is None
+
+    def test_an_immaterial_book_price_is_not_a_bargain(self) -> None:
+        """`planning_cost` is 1 for every player with no observed sale, so without this floor
+        every unpriced riserva reads as a 1-credit bargain."""
+        kw = self._kw(min_book=20)
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **kw) is None
+
+    def test_zero_beta_disables_the_path_entirely(self) -> None:
+        kw = self._kw(beta=0.0)
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **kw) is None
+
+    def test_it_never_exceeds_the_plans_own_dearest_outstanding_target(self) -> None:
+        """The share gate. A price the plan has already shown it can absorb in one lot — and
+        it falls on its own as the evening spends the budget down."""
+        rich = {**PRICES, "a3": 400.0}
+        kw = self._kw(prices=rich, min_book=1)
+
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **kw) == 10
+
+    def test_it_never_exceeds_the_max_cap(self) -> None:
+        """`max_bid` is the only thing between a bargain and a rosa we cannot complete;
+        `docs/fantalab/01:142` says the server enforces nothing."""
+        kw = self._kw(prices={**PRICES, "a3": 400.0, "a1": 400.0}, min_book=1, max_cap=7)
+
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **kw) == 7
+
+    def test_a_bargain_that_would_break_the_keeper_band_is_refused(self) -> None:
+        """`max_bid` reserves credits and checks no role at all. This band holds one keeper,
+        and a second one is a rosa that cannot be fielded at any price."""
+        kw = self._kw(
+            owned_players=[MantraPlayer("gk", frozenset({"POR"}))],
+            owned=["gk"], plan=["gk", "a1", "a2"],
+            prices={**PRICES, "gk2": 40.0},
+        )
+
+        assert opportunistic_walkaway(MantraPlayer("gk2", frozenset({"POR"})), **kw) is None
+
+    def test_a_bargain_that_would_break_the_movement_band_is_refused(self) -> None:
+        kw = self._kw(
+            owned_players=[MantraPlayer("a1", frozenset({"A"})), MantraPlayer("a2", frozenset({"A"}))],
+            owned=["a1", "a2"], plan=["a1", "a2", "gk"],
+            prices={**PRICES, "a3": 40.0},
+        )
+
+        assert opportunistic_walkaway(MantraPlayer("a3", frozenset({"A"})), **kw) is None
+
+    def test_a_role_no_schema_has_a_slot_for_is_refused(self) -> None:
+        """Not `fieldable_schemi`: `can_field` matches a *full* XI, so a partial rosa fields
+        nothing and that gate would refuse every bargain all evening."""
+        kw = self._kw(prices={**PRICES, "w": 40.0})
+
+        assert opportunistic_walkaway(MantraPlayer("w", frozenset({"W"})), **kw) is None

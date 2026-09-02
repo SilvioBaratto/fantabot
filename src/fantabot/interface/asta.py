@@ -41,6 +41,8 @@ from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.interface.console import console
 from fantabot.interface.options import (
     SEASON,
+    BargainBeta,
+    BargainShare,
     FloorAlpha,
     Season,
     Sentiment,
@@ -399,6 +401,8 @@ def asta_room(
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
     floor_alpha: FloorAlpha = 1.00,
+    bargain_beta: BargainBeta = 0.00,
+    bargain_share: BargainShare = 0.10,
     copilot: bool = typer.Option(True, "--copilot/--no-copilot", help="The LLM pane."),
     brief_top: int = typer.Option(40, help="How many of the plan's targets to pre-brief."),
 ) -> None:
@@ -518,6 +522,8 @@ def asta_room(
         budget=credits,
         lam=lam,
         floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        bargain_beta=bargain_beta,
+        bargain_share=bargain_share,
         ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
         journal=journal.write,
         counter_time=resolved.counter_time,
@@ -720,6 +726,8 @@ def asta_bid(
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
     floor_alpha: FloorAlpha = 1.00,
+    bargain_beta: BargainBeta = 0.00,
+    bargain_share: BargainShare = 0.10,
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
@@ -802,6 +810,8 @@ def asta_bid(
         budget=budget,
         lam=lam,
         floor=price_floor(floor_alpha, world.prices) if floor_alpha else None,
+        bargain_beta=bargain_beta,
+        bargain_share=bargain_share,
         ledger=lambda: feed.ledger_events(db, league),
         journal=journal.write,
         counter_time=None, counter_time_first=None,

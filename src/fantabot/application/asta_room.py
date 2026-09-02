@@ -34,8 +34,18 @@ from fantabot.domain.asta.bid import Seat as BidSeat
 from fantabot.domain.asta.bid import decide_bid, max_bid, pass_reason
 from fantabot.domain.asta.legality import SchemaLegality, fieldable_schemi
 from fantabot.domain.asta.live import AssignmentEvent, resolve_ids, seconds_left
+from fantabot.domain.asta.opponents import MIN_BID
 from fantabot.domain.asta.optimizer import InfeasibleRoster
-from fantabot.domain.asta.reservation import apply_event, reservations
+from fantabot.domain.asta.reservation import (
+    BARGAIN_BETA,
+    BARGAIN_BUDGET_SHARE,
+    BARGAIN_MIN_BOOK,
+    apply_event,
+    bargain_allowance,
+    bargain_ceiling,
+    opportunistic_walkaway,
+    reservations,
+)
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.domain.asta.value import ValueModel
@@ -155,8 +165,11 @@ class RoomFrame:
     node: str
     target: str | None
     walk_away: int | None
-    #: `marginal` or `floor` — which half of `max(marginal, floor)` produced the number. Shown
-    #: beside it, because a fused figure is one nobody can argue with.
+    #: `marginal`, `floor` or `budget` — which of the three terms in
+    #: `min(budget, max(marginal, floor))` produced the number — or `bargain`, which is a
+    #: different thing entirely: a lot the plan never named, whose ceiling is the highest
+    #: price at which re-solving the rosa with him in it still beats the plan.
+    #: Shown beside the number, because a fused figure is one nobody can argue with.
     provenance: str | None
     #: `waiting` | `hold` | `pass` | `bid`
     decision: str
@@ -181,6 +194,12 @@ class RoomFrame:
     #: The last few sales as `name price buyer`, the room's tempo in three lines. Same reason:
     #: the brief claimed nothing had been sold, for the whole evening.
     recent: tuple[str, ...]
+    #: Credits already gone on lots the plan never named, and the evening's ceiling for them.
+    #: On the frame because an aggregate cap the operator cannot see is a cap he finds out
+    #: about by not understanding why a bid did not go in. Defaulted so the renderer's own
+    #: fixtures — and any frame built before this existed — still construct.
+    bargain_spent: int = 0
+    bargain_allowance: int = 0
 
 
 class RoomTracker:
@@ -214,6 +233,9 @@ class RoomTracker:
         counter_time: int | None,
         counter_time_first: int | None,
         step: int = 1,
+        bargain_beta: float = BARGAIN_BETA,
+        bargain_min_book: int = BARGAIN_MIN_BOOK,
+        bargain_share: float = BARGAIN_BUDGET_SHARE,
     ) -> None:
         self._seat = seat
         self._bridge = bridge
@@ -232,6 +254,29 @@ class RoomTracker:
         self._counter_time = counter_time
         self._counter_time_first = counter_time_first
         self._step = step
+        self._bargain_beta = bargain_beta
+        self._bargain_min_book = bargain_min_book
+        self._bargain_share = bargain_share
+        # **How the tracker tells a bargain win from a planned one.** Every fantacalcio id we
+        # have ever actually raised on under `bargain` provenance, for the life of the
+        # process. A win is then the intersection of this set with what the ledger says we
+        # own — the ledger carries a price and a buyer and nothing about *why* we bid, and it
+        # is the only record of a purchase, so the provenance has to be remembered here and
+        # joined to it. A lot we bid on and lost never enters `owned` and so costs nothing.
+        #
+        # ⚠ It is in memory, so a restart mid-evening forgets what has been spent and hands
+        # the cap back its full allowance. Journaling the provenance and reading it back would
+        # fix that and would put persistence on the decision path; the cap is a guard rail on
+        # an opt-in path that is off by default, and this is the cheaper half of that trade.
+        self._bargain_wins: set[str] = set()
+        # One slot, keyed on the state its answers were computed against — the same shape as
+        # `latest` and `screen` in the room's wiring, for the same reason. A bargain ceiling
+        # is a function of the rosa, the purse and the taken set, and of nothing that moves
+        # between polls; a lot sits on the block for 20-60 s at a 2 s poll, so without this
+        # the room would pay for the same re-solve thirty times and get the same number.
+        # The key changes when a sale lands, which is the moment the lot ends anyway.
+        self._bargain_key: tuple[AstaState, RosterRules] | None = None
+        self._bargains: dict[str, int] = {}
 
     def cycle(
         self, snapshot: Mapping[str, Any] | None, *, now_ms: int, node: str = "auction"
@@ -271,16 +316,44 @@ class RoomTracker:
                 floor=self._floor,
             )
             planned: tuple[str, ...] = plan.optimal.player_ids
+            # The number every bargain is judged against. `None` when there is no plan: a
+            # rosa that cannot be completed has no objective to beat, and "better than
+            # nothing" is not a reason to spend.
+            baseline: float | None = plan.optimal.objective
         except InfeasibleRoster as exc:
             walkaways = {}
             planned = ()
+            baseline = None
             unvaluable = [*unvaluable, f"no completable rosa from here: {exc}"]
+
+        if self._bargain_key != (state, rules):
+            self._bargain_key = (state, rules)
+            self._bargains = {}
+
+        # The join between "why we bid" (remembered) and "what we bought" (the ledger). Read
+        # off the ledger rather than accumulated as we go, for the reason every other number
+        # in this loop is: the ledger is re-read whole every cycle and is the only record that
+        # survives a lost poll, so a counter incremented on our own optimism would drift.
+        held = set(state.owned)
+        bargain_spent = int(
+            sum(
+                e.price
+                for e in events
+                if e.buyer_team_id == self._seat.fantateam_id
+                and e.player_id in self._bargain_wins
+                and e.player_id in held
+            )
+        )
+        allowance = bargain_allowance(
+            self._budget, bargain_spent, share=self._bargain_share
+        )
 
         frame = self._decide(
             snapshot, now_ms=now_ms, node=node, state=state, walkaways=walkaways,
             plan=planned, credits_left=credits_left, cap=cap,
-            schemi_open=schemi_open, recent=recent,
-            unresolved=len(unresolved), unvaluable=unvaluable,
+            schemi_open=schemi_open, recent=recent, owned_players=owned_players, rules=rules,
+            unresolved=len(unresolved), unvaluable=unvaluable, baseline=baseline,
+            bargain_spent=bargain_spent, allowance=allowance,
         )
         self._journal(
             {
@@ -290,9 +363,112 @@ class RoomTracker:
                 "decision": frame.decision, "reason": frame.reason,
                 "credits_left": frame.credits_left, "max_cap": frame.max_cap,
                 "owned": list(frame.owned),
+                # An aggregate cap that leaves no record is one nobody can audit after the
+                # evening — and `provenance` alone says why *this* lot was priced, never what
+                # the evening has already committed to lots the plan never named.
+                "bargain_spent": frame.bargain_spent,
+                "bargain_allowance": frame.bargain_allowance,
             }
         )
         return frame
+
+    def _bargain(
+        self,
+        player_id: str,
+        *,
+        state: AstaState,
+        rules: RosterRules,
+        baseline: float,
+        hard_cap: int,
+    ) -> int:
+        """`bargain_ceiling`, computed once per player per state. 0 means hold.
+
+        The ceiling does not depend on the lot's current price, only on the state — which is
+        exactly why it can be cached across the thirty polls one lot lives for, and why the
+        cache is keyed on the state rather than aged out on a clock this layer must not read.
+        `cycle` clears it when the state moves.
+        """
+        hit = self._bargains.get(player_id)
+        if hit is not None:
+            return hit
+        ceiling = bargain_ceiling(
+            state, self._pool, value=self._value, prices=self._prices, teams=self._teams,
+            legality=self._legality, rules=rules, lam=self._lam, baseline=baseline,
+            player_id=player_id, hard_cap=hard_cap,
+        )
+        self._bargains[player_id] = ceiling
+        return ceiling
+
+    def _bargain_for(
+        self,
+        player_id: str,
+        *,
+        state: AstaState,
+        rules: RosterRules,
+        baseline: float | None,
+        plan: tuple[str, ...],
+        owned_players: Sequence[MantraPlayer],
+        cap: int,
+        allowance: int,
+        bargain_spent: int,
+    ) -> tuple[int, str | None]:
+        """The opportunistic ceiling for a lot the plan did not name, and a line saying why.
+
+        The plan not naming a lot is not a decision to let it go at *any* price: the optimizer
+        rejected him at his book price and said nothing about him at a third of it. Three
+        gates, in increasing order of what they cost:
+
+        * `allowance` — the evening's aggregate cap on unplanned spend, and the only one of
+          the three that looks at the other bargains. Each of the others judges this lot
+          against the plan *alone*, and "better than the plan" does not compose: two lots that
+          each improve the rosa can, bought together, leave a purse that buys neither of the
+          players the second re-solve assumed we would still afford. Free, so it goes first;
+        * `opportunistic_walkaway` — dict lookups and one bipartite match, no solve;
+        * `bargain_ceiling` — re-solves, and answers the only question that can justify
+          spending, which is whether the rosa is *better* with him in it.
+
+        **Nothing here may raise.** An exception inside a cycle ends the evening, and this is
+        the newest and least-exercised path in the room; a bargain we failed to price is a
+        bargain we do not take, which is exactly the pre-feature behaviour.
+        """
+        # The beta switch comes first and silently. It is the shipped default (`0.00`), so
+        # anything below it would put a line on the screen for every unplanned lot of an
+        # evening in which the feature is not even on.
+        if baseline is None or self._bargain_beta <= 0.0:
+            return 0, None
+        if allowance < MIN_BID:
+            return 0, (
+                f"unplanned lot; the evening's bargain purse is spent "
+                f"({bargain_spent}/{int(self._bargain_share * self._budget)} credits, "
+                f"{int(self._bargain_share * 100)}% of {self._budget:.0f})"
+            )
+        try:
+            lot_player = next((p for p in self._pool if p.id == player_id), None)
+            if lot_player is None:
+                return 0, None
+            pre_gate = opportunistic_walkaway(
+                lot_player, owned_players=owned_players, prices=self._prices,
+                plan=plan, owned=state.owned, legality=self._legality, rules=rules,
+                max_cap=cap, beta=self._bargain_beta, min_book=self._bargain_min_book,
+            )
+            if pre_gate is None:
+                return 0, None
+            hard_cap = min(pre_gate, allowance)
+            if hard_cap < MIN_BID:
+                return 0, None
+            ceiling = self._bargain(
+                player_id, state=state, rules=rules, baseline=baseline, hard_cap=hard_cap,
+            )
+        except Exception as exc:  # a hold, never an end to the evening
+            return 0, f"bargain check failed, holding: {exc}"
+        if not ceiling:
+            return 0, None
+        capped = " (aggregate cap)" if allowance < pre_gate else ""
+        return ceiling, (
+            f"not in the plan; re-solve says {ceiling} beats it (cap {hard_cap} at "
+            f"{self._bargain_beta:.2f} x book{capped}; {allowance} of the evening's "
+            f"bargain allowance left)"
+        )
 
     def _decide(
         self,
@@ -307,8 +483,13 @@ class RoomTracker:
         cap: int,
         unresolved: int,
         unvaluable: list[str],
+        baseline: float | None,
         schemi_open: int,
         recent: tuple[str, ...],
+        owned_players: Sequence[MantraPlayer],
+        rules: RosterRules,
+        bargain_spent: int,
+        allowance: int,
     ) -> RoomFrame:
         note = (
             f"{len(unvaluable)} owned player(s) we cannot value; roster band shrunk"
@@ -318,6 +499,7 @@ class RoomTracker:
             "node": node, "credits_left": credits_left, "max_cap": cap,
             "owned": tuple(state.owned), "plan": plan, "unresolved_sales": unresolved,
             "walkaways": walkaways, "schemi_open": schemi_open, "recent": recent,
+            "bargain_spent": bargain_spent, "bargain_allowance": allowance,
         }
 
         lot = snapshot.get("player_id") if snapshot else None
@@ -351,18 +533,34 @@ class RoomTracker:
             )
 
         raw = walkaways.get(str(fantacalcio_id))
+        provenance: str | None = None
         if raw is None:
-            return RoomFrame(
-                target=None, walk_away=None, provenance=None, decision="hold",
-                reason=None, note=note, **base,  # type: ignore[arg-type]
+            bargain, bargain_note = self._bargain_for(
+                str(fantacalcio_id), state=state, rules=rules, baseline=baseline, plan=plan,
+                owned_players=owned_players, cap=cap, allowance=allowance,
+                bargain_spent=bargain_spent,
             )
+            if not bargain:
+                return RoomFrame(
+                    target=None, walk_away=None, provenance=None, decision="hold",
+                    reason=None, note=note or bargain_note,
+                    **base,  # type: ignore[arg-type]
+                )
+            raw = float(bargain)
+            provenance = "bargain"
+            # The LISTONE column and the copilot brief both read `walkaways`. A BID on a lot
+            # whose own row shows no ceiling is the one line the operator cannot check.
+            base["walkaways"] = {**walkaways, str(fantacalcio_id): raw}
+            note = note or bargain_note
 
         walk_away = int(raw)
         # `reservations` returns min(remaining_budget, max(marginal, floor)), so three things
         # can bind and the label has to say which. Saying "floor" on a number the budget
         # decided is a lie on the one line read before spending.
         floored = self._floor(str(fantacalcio_id)) if self._floor else 0.0
-        if raw >= credits_left and floored > credits_left:
+        if provenance is not None:
+            pass
+        elif raw >= credits_left and floored > credits_left:
             provenance = "budget"
         elif floored >= raw:
             provenance = "floor"
@@ -381,6 +579,12 @@ class RoomTracker:
                 target=lot, walk_away=walk_away, provenance=provenance, decision="pass",
                 reason=reason or "none", note=note, **base,  # type: ignore[arg-type]
             )
+        if provenance == "bargain":
+            # Recorded on the raise and not on the ceiling: pricing a lot costs nothing and
+            # happens for every unplanned lot that survives the gates, while *raising* is the
+            # only act that can end with the player in our rosa. A lot we bid on and lost
+            # never enters `owned`, so it never counts against the cap.
+            self._bargain_wins.add(str(fantacalcio_id))
         return RoomFrame(
             target=lot, walk_away=walk_away, provenance=provenance, decision="bid",
             reason=None, note=note, **base,  # type: ignore[arg-type]

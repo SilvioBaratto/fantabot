@@ -85,3 +85,32 @@ FloorAlpha = Annotated[
         help="Walk-away floor as a fraction of the observed clearing price.",
     ),
 ]
+
+
+#: How far under a player's observed clearing price a lot the plan did *not* pick has to sit
+#: before the room takes it anyway. `0` disables the opportunistic path entirely and restores
+#: the plan-only behaviour. See `domain/asta/reservation.BARGAIN_BETA` for why 0.60.
+BargainBeta = Annotated[
+    float,
+    typer.Option(
+        "--bargain-beta",
+        min=0.0,
+        max=1.0,
+        help="Take an unplanned lot under this fraction of its book price; 0 disables.",
+    ),
+]
+
+
+#: The aggregate cap. Each bargain is judged against the plan on its own, and "better than the
+#: plan" does not compose — several of them approved one at a time is a drained purse nothing
+#: else in the loop would notice. A fraction of the *starting* budget, so the limit cannot
+#: re-earn itself as the evening spends. See `domain/asta/reservation.BARGAIN_BUDGET_SHARE`.
+BargainShare = Annotated[
+    float,
+    typer.Option(
+        "--bargain-share",
+        min=0.0,
+        max=1.0,
+        help="Cap on total unplanned spend, as a fraction of the starting budget.",
+    ),
+]

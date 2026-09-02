@@ -26,6 +26,7 @@ from __future__ import annotations
 #: file -> directory under `tests/`. The subject's layer, then its feature.
 TREE: dict[str, str] = {
     # -- domain/asta: the decision logic ------------------------------------------------
+    "test_asta_bargain.py": "domain/asta",
     "test_asta_bid.py": "domain/asta",
     "test_asta_drain.py": "domain/asta",
     "test_asta_edge.py": "domain/asta",

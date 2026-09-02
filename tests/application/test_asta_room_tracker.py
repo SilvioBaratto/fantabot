@@ -31,19 +31,25 @@ SCHEMI = {
         ),
     )
 }
+# `400` is the fixture's only real bargain, and he is built to be one. The plan cannot
+# afford him — 95 for him plus 10 for the obligatory keeper is 105 of a 100 budget — so he
+# is never named, yet owning him at a low price and *then* buying the keeper is a strictly
+# better rosa (20 + 5 = 25 against the plan's 15). `300` is the control: also unplanned,
+# also under his book price, and buying him only ever swaps mu 10 for mu 9.
 POOL = [
     MantraPlayer("100", normalize_roles(["POR"])),
     MantraPlayer("200", normalize_roles(["A"])),
     MantraPlayer("300", normalize_roles(["A"])),
+    MantraPlayer("400", normalize_roles(["A"])),
 ]
-TEAMS = {"100": "W", "200": "X", "300": "Y"}
-PRICES = {"100": 10.0, "200": 40.0, "300": 39.0}
-NAMES = {"100": "Portiere", "200": "Bomber", "300": "Riserva"}
+TEAMS = {"100": "W", "200": "X", "300": "Y", "400": "Z"}
+PRICES = {"100": 10.0, "200": 40.0, "300": 39.0, "400": 95.0}
+NAMES = {"100": "Portiere", "200": "Bomber", "300": "Riserva", "400": "Occasione"}
 VALUE = NaiveValueModel(
-    signals={"100": 5.0, "200": 10.0, "300": 9.0},
+    signals={"100": 5.0, "200": 10.0, "300": 9.0, "400": 20.0},
     prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
 )
-BRIDGE = {"uuid-gk": 100, "uuid-a1": 200, "uuid-a2": 300}
+BRIDGE = {"uuid-gk": 100, "uuid-a1": 200, "uuid-a2": 300, "uuid-a3": 400}
 RULES = RosterRules(size=2, min_goalkeepers=1, min_movement=1)
 SEAT = Seat(fantateam_id="us", user_id="me")
 
@@ -182,12 +188,128 @@ class TestTheUuidTranslation:
 
         assert frame.target == "uuid-a1"
 
-    def test_a_known_player_the_plan_did_not_pick_is_not_a_target(self) -> None:
-        """The plan prices its own members; everything else is a lot we let go."""
-        frame = _tracker().cycle(_lot(uuid="uuid-a2"), now_ms=1_000)
+    def test_a_known_player_the_plan_did_not_pick_is_never_bought_at_his_book_price(
+        self,
+    ) -> None:
+        """This assertion used to read `target is None` at any price at all, which is the
+        gap: the optimiser saying "not worth 39" was read as "not worth anything". At book
+        the answer is unchanged — we do not buy him — but now it is a stated refusal.
+        """
+        frame = _tracker().cycle(_lot(uuid="uuid-a2", price=39), now_ms=1_000)
+
+        assert frame.decision != "bid"
+
+
+class TestALotThePlanDidNotNameIsStillWorthSomething:
+    """`reservations` prices only the plan's own members, so every other lot came back
+    `walk_away=None` and the room held at any price — a player the book puts at 189 sitting
+    at 30 was indistinguishable on screen from one we had decided to let go.
+
+    Both unplanned players are cheap against their book. Only one of them is worth buying,
+    and telling them apart is what the re-solve is for.
+    """
+
+    def test_a_lot_the_plan_could_not_afford_is_taken_when_the_room_marks_it_down(
+        self,
+    ) -> None:
+        """400 costs 95 and the keeper 10, so a 100-credit plan can never name him. Owning
+        him at 5 and buying the keeper after is 25 against the plan's 15.
+
+        `bargain_share` is named rather than defaulted: at the production 0.10 this fixture's
+        100-credit purse allows 10, and the aggregate cap -- not the objective -- would be
+        what set the ceiling. This test is about the objective's answer.
+        """
+        frame = _tracker(bargain_share=0.40).cycle(
+            _lot(uuid="uuid-a3", price=5), now_ms=1_000
+        )
+
+        assert frame.decision == "bid"
+        assert frame.target == "uuid-a3", "the payload must carry the node uuid, not 400"
+        assert frame.walk_away == 40, "the pre-gate's share cap; the objective allows 90"
+        assert frame.provenance == "bargain", "not marginal — no marginal was ever computed"
+        assert frame.walkaways["400"] == 40, "or the LISTONE row shows a bid with no ceiling"
+
+    def test_a_discount_the_objective_does_not_want_is_refused(self) -> None:
+        """**The test the price-map heuristic fails.** 300 is unplanned and 5 is deep under
+        his book of 39, so every cheap gate says bargain — and buying him only ever swaps
+        the plan's mu 10 for his mu 9. Measured on the live pool this is not an edge case:
+        of the 53 lots the pre-gate admitted, the re-solve refused 33 and lowered 11.
+        """
+        frame = _tracker().cycle(_lot(uuid="uuid-a2", price=5), now_ms=1_000)
+
+        assert frame.decision == "hold"
+        assert frame.target is None
+
+    def test_the_ceiling_binds_and_the_lot_is_refused_above_it(self) -> None:
+        """Named and refused, not silently unnamed: the operator has to be able to tell a
+        price we walked away from apart from a player we never considered."""
+        frame = _tracker(bargain_share=0.40).cycle(
+            _lot(uuid="uuid-a3", price=40), now_ms=1_000
+        )
+
+        assert frame.target == "uuid-a3"
+        assert frame.decision == "pass"
+        assert frame.reason == "walk_away"
+
+    def test_zero_beta_restores_the_plan_only_behaviour(self) -> None:
+        frame = _tracker(bargain_beta=0.0).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
 
         assert frame.target is None
         assert frame.decision == "hold"
+
+    def test_a_cheap_lot_is_not_a_bargain_however_deep_the_discount(self) -> None:
+        """`planning_cost` returns 1 for every player with no observed sale, so without a
+        materiality floor every unpriced riserva reads as a bargain at 1 credit."""
+        frame = _tracker(bargain_min_book=96).cycle(
+            _lot(uuid="uuid-a3", price=5), now_ms=1_000
+        )
+
+        assert frame.decision == "hold"
+
+    def test_the_ceiling_is_solved_once_per_state_not_once_per_poll(self) -> None:
+        """A lot lives 20-60 s at a 2 s poll. Re-solving it thirty times for the same answer
+        is how a per-lot solve becomes unaffordable; the ceiling depends on the state and on
+        nothing that moves between polls, so it is cached against the state."""
+        import fantabot.application.asta_room as room
+
+        calls = []
+        real = room.bargain_ceiling
+        room.bargain_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        try:
+            tracker = _tracker(bargain_share=0.40)
+            for price in (5, 6, 7, 8):
+                frame = tracker.cycle(_lot(uuid="uuid-a3", price=price), now_ms=1_000)
+        finally:
+            room.bargain_ceiling = real
+
+        assert frame.decision == "bid", "still bidding, just not re-deciding from scratch"
+        assert len(calls) == 1, f"one solve for four polls of one lot, got {len(calls)}"
+
+    def test_the_cached_ceiling_is_thrown_away_when_a_sale_moves_the_state(self) -> None:
+        """The other half of the memo, and the dangerous half. The ceiling is a function of
+        the rosa, the purse and the taken set; a sale changes all three, and re-using the
+        number computed before it would price the lot against a plan that no longer exists.
+
+        It matters more since C1: the scan can cost `hard_cap` solves where the bisection
+        cost seven, so the temptation to widen the cache key is real and the cost of widening
+        it wrongly is a bid at a stale price.
+        """
+        import fantabot.application.asta_room as room
+
+        ledger: list[AssignmentEvent] = []
+        calls: list[int] = []
+        real = room.bargain_ceiling
+        room.bargain_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        try:
+            tracker = _tracker(ledger=ledger, bargain_share=0.40)
+            tracker.cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
+            assert len(calls) == 1
+            ledger.append(AssignmentEvent("uuid-a1", 20, "rival"))
+            tracker.cycle(_lot(uuid="uuid-a3", price=5), now_ms=2_000)
+        finally:
+            room.bargain_ceiling = real
+
+        assert len(calls) == 2, "a sale landed; the ceiling must be re-solved, not re-used"
 
     def test_a_lot_over_the_walkaway_is_a_named_target_that_is_refused(self) -> None:
         """Refusing on price is `decide_bid`'s call, and the frame keeps the target either
@@ -267,3 +389,146 @@ class TestProvenanceNamesWhatActuallyDecided:
             assert frame.provenance in {"budget", "marginal", "floor"}
             if frame.walk_away == 5:
                 assert frame.provenance == "budget"
+
+
+# -- C3: the evening's one bargain purse ------------------------------------------------
+#
+# The fixture above cannot show a cap *binding*: with `size=2` a single bargain fills the
+# movement band, so the second lot is refused on roles and the cap never gets a word in.
+# This one holds three (one keeper, two movement) and two players the plan cannot name, so
+# the only thing that can tell the two bargains apart is what the first one cost.
+#
+# `500` is deliberately the weaker of the two -- book 90 against 95, mu 19 against 20 -- so
+# that after winning `400` he is still a genuine bargain on the objective's own terms, and a
+# refusal can only be the aggregate cap.
+CAP_POOL = [*POOL, MantraPlayer("500", normalize_roles(["A"]))]
+CAP_PRICES = {**PRICES, "500": 90.0}
+CAP_TEAMS = {**TEAMS, "500": "V"}
+CAP_NAMES = {**NAMES, "500": "Occasione2"}
+CAP_BRIDGE = {**BRIDGE, "uuid-a4": 500}
+CAP_VALUE = NaiveValueModel(
+    signals={"100": 5.0, "200": 10.0, "300": 9.0, "400": 20.0, "500": 19.0},
+    prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
+)
+CAP_RULES = RosterRules(size=3, min_goalkeepers=1, min_movement=2)
+#: We won `400` as a bargain at 40. 40% of the 100-credit purse is exactly spent.
+WON_A_BARGAIN = [AssignmentEvent("uuid-a3", 40, "us")]
+
+
+def _cap_tracker(share: float, ledger=()):  # type: ignore[no-untyped-def]
+    return RoomTracker(
+        seat=SEAT, bridge=CAP_BRIDGE, pool=CAP_POOL, value=CAP_VALUE, prices=CAP_PRICES,
+        teams=CAP_TEAMS, legality=SCHEMI, names=CAP_NAMES, rules=CAP_RULES,
+        budget=100.0, lam=0.0, floor=None,
+        ledger=lambda: list(ledger), journal=lambda _row: None,
+        counter_time=10, counter_time_first=20, bargain_share=share,
+    )
+
+
+class TestTheEveningHasOneBargainPurse:
+    """Each bargain is approved against the plan on its own, and "better than the plan" does
+    not compose: two lots that each improve the rosa can, bought together, leave a purse that
+    buys neither of the players the second re-solve assumed we would still afford. Nothing
+    else in the loop notices -- `max_bid` reserves credits per remaining slot and is happy to
+    see them go on anything, and `docs/fantalab/01:142` says the server caps nothing at all.
+    """
+
+    @staticmethod
+    def _raise_on_400(tracker, ledger, then):  # type: ignore[no-untyped-def]
+        """Live order of events, which is the whole point: we raise on `400` while he is
+        still on the block, and only afterwards does the ledger say who won him.
+
+        Bidding first is not a detail of the fixture. The provenance is remembered at the
+        moment of the raise, because that is the only moment we know *why*; the ledger, read
+        whole every cycle, then supplies the price and the buyer. Handing the tracker a
+        finished ledger would skip the half of the join it has to do itself.
+        """
+        frame = tracker.cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
+        assert frame.decision == "bid" and frame.provenance == "bargain", (
+            f"the fixture must actually raise on 400: got {frame.decision}/{frame.note}"
+        )
+        ledger.extend(then)
+        return frame
+
+    def test_the_second_bargain_is_refused_once_the_first_has_spent_the_purse(self) -> None:
+        """**The cap binding.** Same tracker, same lot, same ledger, same state -- the only
+        difference between bidding and holding is a 40-credit bargain already won.
+        """
+        ledger: list[AssignmentEvent] = []
+        tracker = _cap_tracker(0.40, ledger=ledger)
+        self._raise_on_400(tracker, ledger, WON_A_BARGAIN)
+
+        frame = tracker.cycle(_lot(uuid="uuid-a4", price=5), now_ms=2_000)
+
+        assert frame.decision == "hold"
+        assert frame.target is None
+        assert frame.bargain_spent == 40
+        assert frame.bargain_allowance == 0
+        assert frame.note is not None and "40/40" in frame.note, (
+            "a cap the operator cannot see is one he finds out about by not understanding "
+            f"why a bid did not go in, so the line has to carry the arithmetic; "
+            f"got {frame.note!r}"
+        )
+
+    def test_the_same_lot_is_taken_when_the_purse_still_has_room(self) -> None:
+        """The control, and the proof that the refusal above is the cap and not the roles,
+        the band, the budget or the objective. Everything is identical but the share."""
+        ledger: list[AssignmentEvent] = []
+        tracker = _cap_tracker(0.80, ledger=ledger)
+        self._raise_on_400(tracker, ledger, WON_A_BARGAIN)
+
+        frame = tracker.cycle(_lot(uuid="uuid-a4", price=5), now_ms=2_000)
+
+        assert frame.decision == "bid"
+        assert frame.provenance == "bargain"
+        assert frame.bargain_spent == 40
+        assert frame.bargain_allowance == 40
+
+    def test_a_lot_we_never_raised_on_does_not_count_against_the_cap(self) -> None:
+        """A win the *plan* named is not bargain spend. Without the join through the
+        remembered provenance the cap would charge the evening for its own plan, and one
+        expensive planned lot would switch the opportunistic path off for good.
+        """
+        tracker = _cap_tracker(0.40, ledger=WON_A_BARGAIN)
+
+        frame = tracker.cycle(_lot(uuid="uuid-a4", price=5), now_ms=1_000)
+
+        assert frame.bargain_spent == 0, "we own 400, but this process never raised on him"
+        assert frame.bargain_allowance == 40
+
+    def test_a_bargain_we_bid_on_and_lost_costs_nothing(self) -> None:
+        """The cap is enforced against what we actually *spent*, not what we chased. A lot
+        we were outbid on never enters `owned`, so it never enters the total."""
+        ledger: list[AssignmentEvent] = []
+        tracker = _cap_tracker(0.40, ledger=ledger)
+        self._raise_on_400(tracker, ledger, [AssignmentEvent("uuid-a3", 40, "rival")])
+
+        after = tracker.cycle(_lot(uuid="uuid-a4", price=5), now_ms=2_000)
+
+        assert after.bargain_spent == 0
+        assert after.bargain_allowance == 40
+
+    def test_a_zero_share_switches_the_opportunistic_path_off_entirely(self) -> None:
+        """A second, independent off-switch beside `--bargain-beta 0`. The two guard
+        different things -- one the per-lot discount, one the evening's total -- and an
+        operator who wants the plan and nothing else should not have to know which."""
+        frame = _cap_tracker(0.0).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
+
+        assert frame.decision == "hold"
+        assert frame.target is None
+        assert frame.bargain_allowance == 0
+
+    def test_the_cap_is_checked_before_anything_is_solved(self) -> None:
+        """It is the only free gate of the three, so it goes first. A cap that costs a
+        re-solve to discover is a cap that costs the evening its poll budget."""
+        import fantabot.application.asta_room as room
+
+        calls: list[int] = []
+        real = room.bargain_ceiling
+        room.bargain_ceiling = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        try:
+            _cap_tracker(0.0).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
+        finally:
+            room.bargain_ceiling = real
+
+        assert calls == []
