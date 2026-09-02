@@ -25,6 +25,34 @@ if TYPE_CHECKING:
 
 app = typer.Typer(no_args_is_help=True)
 
+
+def _enable_os_trust_store() -> None:
+    """Route TLS verification through the operating system's trust store.
+
+    A corporate proxy (Zscaler, on the operator's Windows Enterprise machine)
+    re-signs every TLS certificate with a private root that lives in the Windows
+    store but not in certifi, so `httpx`'s default verification fails with a bare
+    `TransportError` — which `apileague` surfaces as "returned 0", blaming the
+    server for a problem that is entirely local. Loading the Windows store into
+    OpenSSL by hand does not help either: OpenSSL 3.5 rejects the Zscaler CA
+    ("Basic Constraints of CA cert not marked critical") where schannel accepts
+    it. `truststore` sidesteps both by delegating verification to the OS, so this
+    is a no-op on a machine with no interception and the correct default anywhere.
+
+    Called from the root callback rather than at import time so it runs once per
+    real CLI invocation, before any command builds an httpx client, and never as
+    a side effect of importing `app` in a test.
+    """
+    import truststore
+
+    truststore.inject_into_ssl()
+
+
+@app.callback()
+def _main() -> None:
+    """Root callback: make every command's TLS verification use the OS trust store."""
+    _enable_os_trust_store()
+
 # The five groups. Declared here and nowhere else: every command in the package is
 # attached to one of these, so `fantabot --help` is the whole tool and there is one
 # place to look for where a command comes from.
