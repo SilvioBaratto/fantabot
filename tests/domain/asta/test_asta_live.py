@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fantabot.domain.asta.live import (
     AssignmentEvent,
+    attribute_passed_lots,
     normalize,
     parse_assignment,
     parse_purchase,
@@ -112,3 +113,172 @@ def test_a_reopened_close_is_no_phantom_sale() -> None:
     # final sale — keying off purchases cannot double-count it.
     ledger = {"only": _purchase("kean", 16, "seat2", 100)}
     assert purchases_to_events(ledger) == [AssignmentEvent("kean", 16, "seat2", "u1")]
+
+
+# --- B: a passed lot is invisible to the ledger --------------------------------------------
+
+ADMIN = "admin-uid"
+SEATS = {"us": "team-us", "rival": "team-rival"}
+
+
+class TestAttributePassedLots:
+    """`parse_purchase` already emits an unsold lot as `price=0, buyer_team_id=None` — real,
+    and not dropped. What it cannot tell apart on its own is *why*: the room admin auto-
+    skipping an expired lot writes the identical shape as a raise that stood but the admin
+    passed anyway. Only `bidder_user_id` (Task 2.1) tells them apart.
+    """
+
+    def test_a_stood_raise_the_admin_passed_is_reattributed(self) -> None:
+        events = [AssignmentEvent("kean", 0, None, "us")]
+
+        attributed, reclaimed = attribute_passed_lots(
+            events, admin_user_id=ADMIN, seat_by_user=SEATS, price_of={},
+        )
+
+        assert attributed == [AssignmentEvent("kean", 1, "team-us", "us")]
+        assert reclaimed == ["kean"]
+
+    def test_the_reclaimed_price_prefers_an_observed_clearing_price_over_the_minimum(
+        self,
+    ) -> None:
+        events = [AssignmentEvent("kean", 0, None, "us")]
+
+        attributed, _ = attribute_passed_lots(
+            events, admin_user_id=ADMIN, seat_by_user=SEATS, price_of={"kean": 12.0},
+        )
+
+        assert attributed[0].price == 12
+
+    def test_the_rule_is_exact_an_admin_stamped_skip_is_never_claimed(self) -> None:
+        """The one thing this task must never get wrong: however many of these there are —
+        248 on the real evening — none is a stood raise."""
+        events = [AssignmentEvent("kean", 0, None, ADMIN)]
+
+        attributed, reclaimed = attribute_passed_lots(
+            events, admin_user_id=ADMIN, seat_by_user=SEATS, price_of={},
+        )
+
+        assert attributed == events
+        assert reclaimed == []
+
+    def test_a_real_skip_with_no_bidder_at_all_is_left_alone(self) -> None:
+        events = [AssignmentEvent("kean", 0, None, None)]
+
+        attributed, reclaimed = attribute_passed_lots(
+            events, admin_user_id=ADMIN, seat_by_user=SEATS, price_of={},
+        )
+
+        assert attributed == events
+        assert reclaimed == []
+
+    def test_a_sold_lot_is_never_touched(self) -> None:
+        """The rule keys on `buyer_team_id is None` — a real sale already has one and must
+        pass through byte-for-byte, whoever `bidder_user_id` names."""
+        events = [AssignmentEvent("kean", 40, "team-rival", "rival")]
+
+        attributed, reclaimed = attribute_passed_lots(
+            events, admin_user_id=ADMIN, seat_by_user=SEATS, price_of={},
+        )
+
+        assert attributed == events
+        assert reclaimed == []
+
+    def test_a_bidder_with_no_known_seat_holds_rather_than_raising(self) -> None:
+        """A stale or unseated uid is not the room's fault to crash over — the same "hold,
+        don't end the evening" convention the rest of this package keeps."""
+        events = [AssignmentEvent("kean", 0, None, "nobody-holds-this-seat")]
+
+        attributed, reclaimed = attribute_passed_lots(
+            events, admin_user_id=ADMIN, seat_by_user=SEATS, price_of={},
+        )
+
+        assert attributed == events
+        assert reclaimed == []
+
+
+class TestThePassedLotFixtureFromTheRealEvening:
+    """Distilled from `data/room_state_snapshot.jsonl` — the room's own live `purchases/<fl>`
+    ledger for 2026-09-01's "è morto malen" evening — rather than a synthesized shape, because
+    the acceptance is a real reconciliation: `data/asta_2026-09-01_riepilogo.txt` recorded
+    30/30 slots and 474 credits spent, all of it confirmed on the platform, while the bot's own
+    ledger fold that evening (missing this fix) saw only 28 owned and 472 spent — exactly
+    Sohm and Caprile short, both bought at 1 credit and both passed by the admin after our own
+    raise had stood.
+
+    The fixture carries 28 of our real sold records (summing to 472, matching the gap exactly),
+    one rival's real sold record, the 4 real zero-price records whose `user_id` names a bidder
+    rather than the admin (2 ours — Sohm, Caprile — 2 belonging to two different rivals, the
+    same defect happening elsewhere in the same room), and 6 of the real evening's 248 admin
+    auto-skips, to prove those are never claimed even sitting right beside the ones that should
+    be.
+    """
+
+    OUR_TEAM = "3097845d-6d44-42e9-9668-37803806036e"
+    OUR_USER = "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+    ADMIN_USER = "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+    RIVAL_A_TEAM = "9a5a46fb-12ba-4b5c-80ea-67e9d31f04d1"
+    RIVAL_A_USER = "06c47965-5ea3-48e6-84f1-4947d30f2da6"
+    RIVAL_B_TEAM = "892ddd6c-d2f4-491b-a217-a6fa743a2123"
+    RIVAL_B_USER = "675ad9b6-3c8d-4617-b4d0-e3134d3aa779"
+
+    @classmethod
+    def _events(cls):  # type: ignore[no-untyped-def]
+        import json
+        from pathlib import Path
+
+        ledger = json.loads(
+            (Path(__file__).parents[2] / "golden" / "passed_lots_2026_09_01.json")
+            .read_text(encoding="utf-8")
+        )
+        return purchases_to_events(ledger)
+
+    def test_without_the_fix_the_fold_is_two_players_and_two_credits_short(self) -> None:
+        """The bug, pinned: the ledger's own `buyer_team_id` says 28 owned, 472 spent — not
+        the 30/474 the platform actually holds."""
+        from fantabot.domain.asta.reservation import apply_event
+        from fantabot.domain.asta.state import AstaState
+
+        state = AstaState(total_budget=500.0)
+        for event in self._events():
+            state = apply_event(state, event, our_team_id=self.OUR_TEAM)
+
+        assert len(state.owned) == 28
+        assert state.spent == 472.0
+
+    def test_the_fix_reconciles_to_the_platform_s_real_30_slots_and_474_credits(self) -> None:
+        from fantabot.domain.asta.reservation import apply_event
+        from fantabot.domain.asta.state import AstaState
+
+        seat_by_user = {
+            self.OUR_USER: self.OUR_TEAM,
+            self.RIVAL_A_USER: self.RIVAL_A_TEAM,
+            self.RIVAL_B_USER: self.RIVAL_B_TEAM,
+        }
+        attributed, reclaimed = attribute_passed_lots(
+            self._events(), admin_user_id=self.ADMIN_USER, seat_by_user=seat_by_user,
+            price_of={},
+        )
+
+        state = AstaState(total_budget=500.0)
+        for event in attributed:
+            state = apply_event(state, event, our_team_id=self.OUR_TEAM)
+
+        assert len(state.owned) == 30
+        assert state.spent == 474.0
+        assert len(reclaimed) == 4, "2 ours (Sohm, Caprile) and 2 belonging to two rivals"
+
+    def test_the_six_sampled_admin_skips_are_never_among_the_reclaimed(self) -> None:
+        """However many admin auto-skips sit in the same ledger, none of them is claimed."""
+        attributed, reclaimed = attribute_passed_lots(
+            self._events(), admin_user_id=self.ADMIN_USER,
+            seat_by_user={self.OUR_USER: self.OUR_TEAM}, price_of={},
+        )
+
+        admin_authored = [
+            e.player_id for e in self._events() if e.bidder_user_id == self.ADMIN_USER
+        ]
+        assert len(admin_authored) == 6
+        assert not (set(admin_authored) & set(reclaimed))
+        for event in attributed:
+            if event.player_id in admin_authored:
+                assert event.buyer_team_id is None

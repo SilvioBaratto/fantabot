@@ -1,0 +1,304 @@
+{
+  "00ad60de-257f-431c-91a1-a655951d8ea5": {
+    "created_at": 1788292684468,
+    "player_id": "8a0855b4-5bbc-45b0-95e7-ea1ebd420246",
+    "price": 0,
+    "purchase_id": "00ad60de-257f-431c-91a1-a655951d8ea5",
+    "user_id": "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+  },
+  "03b60d07-96fc-422e-a7ff-c007e4a30e68": {
+    "created_at": 1788300382974,
+    "player_id": "cea0b1cd-23f3-4967-934b-aea2845446a9",
+    "price": 0,
+    "purchase_id": "03b60d07-96fc-422e-a7ff-c007e4a30e68",
+    "user_id": "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+  },
+  "03d4ac26-6f66-4fbd-bbe4-952c6a6ec8d4": {
+    "created_at": 1788290502944,
+    "player_id": "6bff9424-1ae3-4bba-b1d5-0ccfbafb3afa",
+    "price": 0,
+    "purchase_id": "03d4ac26-6f66-4fbd-bbe4-952c6a6ec8d4",
+    "user_id": "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+  },
+  "04ccf590-7a6d-4661-9fc0-6e188c560c9c": {
+    "created_at": 1788294042849,
+    "player_id": "d627e1c5-e7e3-462e-8c4c-2f9aff0215f4",
+    "price": 0,
+    "purchase_id": "04ccf590-7a6d-4661-9fc0-6e188c560c9c",
+    "user_id": "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+  },
+  "081344cb-3456-48ff-845c-b4cdfe31178c": {
+    "created_at": 1788303982803,
+    "player_id": "5812c91b-36cc-413d-bc47-84de4f6e758a",
+    "price": 0,
+    "purchase_id": "081344cb-3456-48ff-845c-b4cdfe31178c",
+    "user_id": "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+  },
+  "08464037-9cc9-4b8e-8881-21b53f9af142": {
+    "created_at": 1788293808595,
+    "fantateam_id": "ee667192-4ffa-4dd8-b0fe-b890c43969aa",
+    "player_id": "9974d5bb-0599-421d-8ee6-2aebf34143f8",
+    "price": 7,
+    "purchase_id": "08464037-9cc9-4b8e-8881-21b53f9af142",
+    "user_id": "0540aa98-a318-4e80-b1e5-c3d7c757e8b6"
+  },
+  "09653257-23a4-402d-b508-068fe2787b98": {
+    "created_at": 1788294322271,
+    "player_id": "307bd1b7-8698-4247-be19-95a1b2d3a58c",
+    "price": 0,
+    "purchase_id": "09653257-23a4-402d-b508-068fe2787b98",
+    "user_id": "c95023fa-fa42-4d56-90d6-cd1eca955eb3"
+  },
+  "0b77f546-675f-470b-9dc8-35f8fd6ca081": {
+    "created_at": 1788297091103,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "36a9825a-5980-4cda-8103-62cc944e7a83",
+    "price": 1,
+    "purchase_id": "0b77f546-675f-470b-9dc8-35f8fd6ca081",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "0beac9fe-e6fa-46cc-8b9c-e34428729278": {
+    "created_at": 1788301895521,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "e0da5b59-193d-4063-8b09-f6a556e70afd",
+    "price": 3,
+    "purchase_id": "0beac9fe-e6fa-46cc-8b9c-e34428729278",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "200ed4d1-af59-4af7-be84-bb5a80b5c653": {
+    "created_at": 1788302209242,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "eb46d3ff-e668-421c-8274-0716cdb571b2",
+    "price": 1,
+    "purchase_id": "200ed4d1-af59-4af7-be84-bb5a80b5c653",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "2caaada5-4827-4846-8388-7e08e5e90fdd": {
+    "created_at": 1788303838244,
+    "player_id": "e81593ae-46a8-4fe1-9624-44dd35e63ee9",
+    "price": 0,
+    "purchase_id": "2caaada5-4827-4846-8388-7e08e5e90fdd",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "36001a49-8ffb-4082-9ade-7f25e3a1a9f6": {
+    "created_at": 1788302571480,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "d7febbfe-c61b-41d3-bc27-b98784322078",
+    "price": 24,
+    "purchase_id": "36001a49-8ffb-4082-9ade-7f25e3a1a9f6",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "4c5aaba7-afad-47c2-975b-66f5af086539": {
+    "created_at": 1788301553813,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "883a53f2-3f11-4cc7-bbcc-ec7d21a99f74",
+    "price": 40,
+    "purchase_id": "4c5aaba7-afad-47c2-975b-66f5af086539",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "4fe5f621-ee7d-4f79-94d0-1816b302ef08": {
+    "created_at": 1788304212657,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "0ecc1bd6-1dba-4b1c-9dc9-579838907f33",
+    "price": 1,
+    "purchase_id": "4fe5f621-ee7d-4f79-94d0-1816b302ef08",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "5cb41601-aeb7-4e3f-b164-9d19e715f33d": {
+    "created_at": 1788301300039,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "4c72a8d4-8416-4a9b-b70f-810f16af86ff",
+    "price": 94,
+    "purchase_id": "5cb41601-aeb7-4e3f-b164-9d19e715f33d",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "60cfd2e3-4cc0-4257-a23f-2549fa97bdb7": {
+    "created_at": 1788303724206,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "5232e236-cf75-4f0c-baf3-47c6c2e2887a",
+    "price": 5,
+    "purchase_id": "60cfd2e3-4cc0-4257-a23f-2549fa97bdb7",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "6dfa5d2a-8f1a-4f91-920e-63290fab86e2": {
+    "created_at": 1788302196837,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "4cc6309e-aacf-4bb2-b5a8-e425bfdafcb0",
+    "price": 1,
+    "purchase_id": "6dfa5d2a-8f1a-4f91-920e-63290fab86e2",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "7c4f1876-c28f-4f18-9062-92b49dec4d7a": {
+    "created_at": 1788303827563,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "104f0fb3-0b02-4c2c-99e4-b628e47e7ee2",
+    "price": 26,
+    "purchase_id": "7c4f1876-c28f-4f18-9062-92b49dec4d7a",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "9f1a3214-4703-46e0-9462-4c3f32d67ca0": {
+    "created_at": 1788292171925,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "9ce7c50c-4dc1-427e-ab59-516c891e2ffb",
+    "price": 1,
+    "purchase_id": "9f1a3214-4703-46e0-9462-4c3f32d67ca0",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "a103edb8-d0eb-4ddd-a608-1dfde3fc9c14": {
+    "created_at": 1788292819806,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "b6e4d803-fb64-4bf4-9771-3673e4c4dc9a",
+    "price": 100,
+    "purchase_id": "a103edb8-d0eb-4ddd-a608-1dfde3fc9c14",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "a5ec74ff-91a3-4ba4-9493-5ee90960fdcc": {
+    "created_at": 1788302781594,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "16bd57cd-1af6-42ea-abfd-23a1051c73c1",
+    "price": 1,
+    "purchase_id": "a5ec74ff-91a3-4ba4-9493-5ee90960fdcc",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "a7683e68-73d4-4b95-a92e-060fa05c9b02": {
+    "created_at": 1788304436695,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "b894b38e-67c8-42fb-946f-36b8a7b60349",
+    "price": 1,
+    "purchase_id": "a7683e68-73d4-4b95-a92e-060fa05c9b02",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "ace1132e-c9a6-4a03-b5b3-c1154be97896": {
+    "created_at": 1788299551496,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "0d58faf5-1ed1-4610-8a3b-caddd2c688a8",
+    "price": 1,
+    "purchase_id": "ace1132e-c9a6-4a03-b5b3-c1154be97896",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "b04e453f-f816-4639-a456-a8bf37ab3d6b": {
+    "created_at": 1788303677759,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "11592cc8-5eb4-42a5-ad56-da1448b4c5e6",
+    "price": 1,
+    "purchase_id": "b04e453f-f816-4639-a456-a8bf37ab3d6b",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "b2a91c7f-0412-49e2-ab3e-68361b1c565b": {
+    "created_at": 1788302585035,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "b5caebe6-a205-4fb2-bbd4-16e49bb20a36",
+    "price": 1,
+    "purchase_id": "b2a91c7f-0412-49e2-ab3e-68361b1c565b",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "be65b4ca-0868-41bf-b054-d4b1367ec5b0": {
+    "created_at": 1788304114198,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "3ba8d8de-4fd3-47ed-90b2-00ec9789f80c",
+    "price": 1,
+    "purchase_id": "be65b4ca-0868-41bf-b054-d4b1367ec5b0",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "c0a3cabb-9f3b-4999-9171-61949f2a1c74": {
+    "created_at": 1788296512330,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "6f1fa3c2-5ce5-4273-97e3-0fcb5c647657",
+    "price": 3,
+    "purchase_id": "c0a3cabb-9f3b-4999-9171-61949f2a1c74",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "c39a3c20-f96d-4da6-a523-e3a86b820bb3": {
+    "created_at": 1788297605864,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "fd7ae364-1f16-4f37-b54e-4f8453fe9de1",
+    "price": 36,
+    "purchase_id": "c39a3c20-f96d-4da6-a523-e3a86b820bb3",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "cb023ac8-f16c-47b3-9ef1-f063830df389": {
+    "created_at": 1788295290224,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "46cdde29-6808-4c58-aee5-4bcfffce0c2f",
+    "price": 88,
+    "purchase_id": "cb023ac8-f16c-47b3-9ef1-f063830df389",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "d37fe413-4961-4fe0-be9b-1cd2b3d3cb35": {
+    "created_at": 1788301813936,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "1f696a0b-f9cd-44bd-a2b0-a1eefa4fa15c",
+    "price": 1,
+    "purchase_id": "d37fe413-4961-4fe0-be9b-1cd2b3d3cb35",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "d8ec5571-3022-4afb-b470-3880a1ebe145": {
+    "created_at": 1788301765713,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "a3420003-4392-4db8-ae31-712523234361",
+    "price": 17,
+    "purchase_id": "d8ec5571-3022-4afb-b470-3880a1ebe145",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "d9b433be-a968-43c8-b223-cea2bea0f5d4": {
+    "created_at": 1788298935709,
+    "player_id": "8a42bb83-261c-4d0b-aa2a-ecf87a361d96",
+    "price": 0,
+    "purchase_id": "d9b433be-a968-43c8-b223-cea2bea0f5d4",
+    "user_id": "06c47965-5ea3-48e6-84f1-4947d30f2da6"
+  },
+  "db87c43f-c83b-40c8-a87f-f3260a68ef8c": {
+    "created_at": 1788302741742,
+    "player_id": "5ac26525-5d7e-4464-b38e-fc37784e6ab4",
+    "price": 0,
+    "purchase_id": "db87c43f-c83b-40c8-a87f-f3260a68ef8c",
+    "user_id": "675ad9b6-3c8d-4617-b4d0-e3134d3aa779"
+  },
+  "dc3aa6be-8a44-4233-9364-709455ce7e02": {
+    "created_at": 1788301872324,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "1b344136-9333-44d3-a27e-e9a80f819cea",
+    "price": 1,
+    "purchase_id": "dc3aa6be-8a44-4233-9364-709455ce7e02",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "e23d73b0-122e-4cfa-b899-4028da3661e9": {
+    "created_at": 1788299072715,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "beeb810b-47f6-4017-9337-21edb30796a6",
+    "price": 20,
+    "purchase_id": "e23d73b0-122e-4cfa-b899-4028da3661e9",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "e35a3cad-63c4-4428-8c05-4d9ce8fb4cc4": {
+    "created_at": 1788302793297,
+    "player_id": "349b1554-cf28-42c6-bc65-6582f28a0f5b",
+    "price": 0,
+    "purchase_id": "e35a3cad-63c4-4428-8c05-4d9ce8fb4cc4",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "e4f14a59-a31e-49d5-9e86-b0d8c7e4c7c2": {
+    "created_at": 1788304264649,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "c005a40e-c9d9-4673-94b5-1c85551c4460",
+    "price": 1,
+    "purchase_id": "e4f14a59-a31e-49d5-9e86-b0d8c7e4c7c2",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "e67e1da1-31f5-457b-8d85-bbc0054f2884": {
+    "created_at": 1788293404667,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "d4d1f7e7-31e5-40ec-ab01-11fa47ee49de",
+    "price": 1,
+    "purchase_id": "e67e1da1-31f5-457b-8d85-bbc0054f2884",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  },
+  "e9b86c66-0c11-4083-bcf7-b7cce98aca11": {
+    "created_at": 1788304395130,
+    "fantateam_id": "3097845d-6d44-42e9-9668-37803806036e",
+    "player_id": "5d4bd759-1210-413a-8cd0-5b7ba268c802",
+    "price": 1,
+    "purchase_id": "e9b86c66-0c11-4083-bcf7-b7cce98aca11",
+    "user_id": "fee799b2-1351-4695-b1f8-79d6ace8a4e6"
+  }
+}

@@ -119,6 +119,66 @@ def purchases_to_events(purchases: Mapping[str, Mapping[str, Any]]) -> list[Assi
     return [event for event in events if event is not None]
 
 
+def attribute_passed_lots(
+    events: Iterable[AssignmentEvent],
+    *,
+    admin_user_id: str | None,
+    seat_by_user: Mapping[str, str],
+    price_of: Mapping[str, float],
+    min_bid: int = 1,
+) -> tuple[list[AssignmentEvent], list[str]]:
+    """A lot the room recorded as unsold, when the last raise on it was actually ours (or a
+    rival's) and the admin skipped it anyway. Pure.
+
+    Measured on the 2026-09-01 evening (`data/room_state_snapshot.jsonl`, the room's own
+    ``purchases/<fl>`` ledger): 4 records read ``price: 0, fantateam_id: <absent>`` — the same
+    shape ``parse_purchase`` already emits as "unsold" — while ``user_id`` names a real bidder,
+    not the room admin who normally writes that shape (248 records, one admin, same evening).
+    Two were ours: Sohm and Caprile, both bought at the platform's minimum and both missing
+    from the bot's own ledger-derived roster all evening. The other two belonged to two
+    different rivals — the same defect happening to someone else's seat, invisible to us for
+    the same reason.
+
+    **The rule is exact, not loosened.** An event whose ``bidder_user_id`` equals
+    ``admin_user_id`` is left exactly as `parse_purchase` produced it — ``buyer_team_id=None``,
+    a real skip — always, regardless of how many such records there are (248 on this evening).
+    Confusing an admin's routine auto-skip with a stood raise would claim a lot nobody bid on.
+
+    ``seat_by_user`` is the room's ``user_id -> fantateam_id`` map (every held seat, ours
+    included — a rival's reclaimed lot must vanish from `AstaState.taken` the same way ours
+    does, or the plan optimizes around a player the room has actually removed from the pool).
+    A ``bidder_user_id`` absent from it (a stale or unseated id) is left unattributed rather
+    than raising — the same "hold, don't end the evening" convention the rest of this package
+    already keeps.
+
+    ``price_of`` is a market-price lookup (fantacalcio id -> observed clearing price, e.g.
+    ``RoomTracker``'s own ``prices``); a record with no observed price falls back to
+    ``min_bid``, matching what both of the real evening's reclaimed lots actually cleared at.
+
+    Returns the rewritten events, in the same order, and the ``player_id`` of every lot this
+    reattributed — an auditable record of what changed, not a bare count.
+    """
+    attributed: list[AssignmentEvent] = []
+    reattributed: list[str] = []
+    for event in events:
+        is_a_recorded_skip = event.price == 0 and event.buyer_team_id is None
+        if (
+            is_a_recorded_skip
+            and event.bidder_user_id is not None
+            and event.bidder_user_id != admin_user_id
+        ):
+            team = seat_by_user.get(event.bidder_user_id)
+            if team is not None:
+                event = replace(
+                    event,
+                    buyer_team_id=team,
+                    price=int(price_of.get(event.player_id, min_bid)),
+                )
+                reattributed.append(event.player_id)
+        attributed.append(event)
+    return attributed, reattributed
+
+
 def resolve_ids(
     events: Iterable[AssignmentEvent], bridge: Mapping[str, int]
 ) -> tuple[list[AssignmentEvent], list[str]]:
