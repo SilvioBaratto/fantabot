@@ -148,3 +148,64 @@ class TestFetchWithAnInjectableTransport:
         bridge = listone.fetch(cache, transport=httpx.MockTransport(explode))
 
         assert bridge == {"uuid-a": 100}
+
+
+class TestATransportFailureDegradesToTheCache:
+    """`refresh=True` asks for a live read, not a fatal one — the room must not crash on a
+    flaky link at exactly the moment it is trying to be extra sure the bridge is current.
+    """
+
+    @staticmethod
+    def _unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    def test_a_connect_error_falls_back_to_the_cache_even_with_refresh_true(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        cache = tmp_path / "listone_map.json"
+        cache.write_text(
+            json.dumps({"version": 1, "uuid-a": {"fantacalcio_id": 100}}), encoding="utf-8"
+        )
+
+        bridge = listone.fetch(
+            cache, refresh=True, transport=httpx.MockTransport(self._unreachable)
+        )
+
+        assert bridge == {"uuid-a": 100}
+
+    def test_the_fallen_back_to_cache_is_left_exactly_as_it_was(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """No write on failure — `cache_age` afterward has to report the *old* fetch's age,
+        not a fresh timestamp stamped on a read that never actually happened."""
+        cache = tmp_path / "listone_map.json"
+        before = cache_before = json.dumps(
+            {"version": 1, "fetched_at": "2020-01-01T00:00:00+00:00", "uuid-a": {"fantacalcio_id": 100}}
+        )
+        cache.write_text(before, encoding="utf-8")
+
+        listone.fetch(cache, refresh=True, transport=httpx.MockTransport(self._unreachable))
+
+        assert cache.read_text(encoding="utf-8") == cache_before
+
+    def test_no_cache_and_no_network_is_an_empty_bridge_not_a_raised_exception(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        cache = tmp_path / "nope.json"
+
+        bridge = listone.fetch(cache, refresh=True, transport=httpx.MockTransport(self._unreachable))
+
+        assert bridge == {}
+
+
+class TestIsStale:
+    """The arm-refusal decision, extracted so it is tested without a CLI harness — `asta
+    room`/`asta bid` both call this instead of hand-rolling the comparison."""
+
+    def test_older_than_the_limit_is_stale(self) -> None:
+        assert listone.is_stale(5 * 3600, max_hours=4.0) is True
+
+    def test_younger_than_the_limit_is_not_stale(self) -> None:
+        assert listone.is_stale(3 * 3600, max_hours=4.0) is False
+
+    def test_exactly_the_limit_is_not_yet_stale(self) -> None:
+        assert listone.is_stale(4 * 3600, max_hours=4.0) is False
+
+    def test_an_unknown_age_is_never_stale(self) -> None:
+        """A pre-envelope cache, or a fetch that never ran — refusing to arm on missing
+        information a room never had the chance to write would punish the upgrade itself."""
+        assert listone.is_stale(None, max_hours=4.0) is False

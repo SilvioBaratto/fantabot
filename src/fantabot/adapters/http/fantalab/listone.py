@@ -127,6 +127,18 @@ def cache_age(path: Path = DEFAULT_CACHE, *, now: datetime | None = None) -> flo
     return ((now or datetime.now(UTC)) - stamp).total_seconds()
 
 
+def is_stale(age: float | None, *, max_hours: float) -> bool:
+    """Whether a bridge this old should refuse *arming* — never the run itself. Pure.
+
+    `age is None` (a pre-envelope cache, or a fetch that has never run) is never stale by
+    this test: there is no age to compare against a limit, and refusing to arm on missing
+    information a room never had the chance to write would punish the upgrade itself, not a
+    real staleness. `max_hours` is the operator's own call (`--max-bridge-age-hours`); this
+    function only applies whatever number it is handed.
+    """
+    return age is not None and age > max_hours * 3600
+
+
 def fetch(
     cache: Path | None = DEFAULT_CACHE,
     *,
@@ -142,14 +154,27 @@ def fetch(
     `transport` is injectable so tests never construct a real client — the same seam
     `rest.fetch_league` already uses, and for the same reason: it keeps this in the
     socket-free default tier.
+
+    **A transport failure degrades to the cache, even when `refresh=True` asked for a live
+    read.** The room must not crash on a flaky link at exactly the moment it is trying to be
+    extra sure the bridge is current; `refresh`'s job is to *prefer* the network, not to make
+    the network's absence fatal. `cache_age()` on the same path afterward is how a caller
+    tells "just refreshed" from "fell back" apart — this function does not need to say so
+    itself, since both leave the same file behind with `fetched_at` set to whichever happened.
+    Returns `{}`, not a raised exception, when there is no cache to fall back to either: the
+    caller already has to handle an empty bridge (a room that has never been resolved before),
+    and a bare traceback here would be a worse way to say the same thing.
     """
     if cache is not None and not refresh:
         cached = from_cache(cache)
         if cached:
             return cached
 
-    with httpx.Client(transport=transport) as client:
-        payload = client.get(LISTONE_URL, timeout=30).json()
+    try:
+        with httpx.Client(transport=transport) as client:
+            payload = client.get(LISTONE_URL, timeout=30).json()
+    except httpx.HTTPError:
+        return from_cache(cache) if cache is not None else {}
     if cache is not None:
         entries = {
             p["player_id"]: {

@@ -396,6 +396,13 @@ def asta_room(
     ceiling_alpha: CeilingAlpha = 1.00,
     bargain_beta: BargainBeta = 0.00,
     bargain_share: BargainShare = 0.10,
+    max_bridge_age_hours: float = typer.Option(
+        4.0,
+        help="Refuse --arm (not the run) when the listone bridge could not be refreshed and "
+        "the cached copy is older than this. 4h: strictly tighter than the 5-hour-stale copy "
+        "that missed 16 transfer-deadline signings on 2026-08-28 — the incident this guards "
+        "against, not a number picked in the abstract.",
+    ),
     copilot: bool = typer.Option(True, "--copilot/--no-copilot", help="The LLM pane."),
     brief_top: int = typer.Option(40, help="How many of the plan's targets to pre-brief."),
 ) -> None:
@@ -485,10 +492,22 @@ def asta_room(
     if resolve_only:
         return
 
-    bridge = listone.fetch()
+    # `refresh=True`: prefer a live read at room start over whatever the cache already
+    # holds — a five-hour-old copy is what missed 16 transfer-deadline signings on
+    # 2026-08-28. A transport failure degrades to the cache rather than crashing here
+    # (`listone.fetch`'s own docstring); the age check below is what catches that case.
+    bridge = listone.fetch(refresh=True)
     if not bridge:
         console.print("[red]no uuid -> fantacalcio_id bridge; every lot would be unknown[/red]")
         raise typer.Exit(code=1)
+
+    bridge_age = listone.cache_age()
+    if bridge_age is None:
+        console.print("[dim]listone bridge: age unknown (pre-envelope cache)[/dim]")
+    elif bridge_age < 60:
+        console.print("[dim]listone bridge: just refreshed[/dim]")
+    else:
+        console.print(f"[yellow]listone bridge: refresh failed, using a {bridge_age / 3600:.1f}h old cache[/yellow]")
 
     credits = budget or resolved.budget
     with database_manager.get_session() as session:
@@ -501,6 +520,19 @@ def asta_room(
             num_teams=resolved.num_teams or 8,
             num_credits=int(resolved.num_credits or 500),
         )
+
+    # A stale bridge (the refresh above failed and fell back) is a reason to refuse
+    # *arming*, not to refuse the run — the room still draws and can be watched, exactly
+    # as a disarmed run always could. `bridge_age is None` (a pre-envelope cache) is not
+    # penalised: there is no age to compare, and refusing on missing information a room
+    # never had a chance to write would punish the upgrade itself.
+    if listone.is_stale(bridge_age, max_hours=max_bridge_age_hours):
+        assert bridge_age is not None  # `is_stale` only returns True with a real age
+        console.print(
+            f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
+            f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
+        )
+        arm = False
 
     # Arming is a positive act twice over: the env var alone arms every run for the rest of
     # the day, and the operator who edits `.env` in the morning is not the one at the keyboard
@@ -762,6 +794,13 @@ def asta_bid(
     ceiling_alpha: CeilingAlpha = 1.00,
     bargain_beta: BargainBeta = 0.00,
     bargain_share: BargainShare = 0.10,
+    max_bridge_age_hours: float = typer.Option(
+        4.0,
+        help="Refuse --arm (not the run) when the listone bridge could not be refreshed and "
+        "the cached copy is older than this. 4h: strictly tighter than the 5-hour-stale copy "
+        "that missed 16 transfer-deadline signings on 2026-08-28 — the incident this guards "
+        "against, not a number picked in the abstract.",
+    ),
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
@@ -800,13 +839,24 @@ def asta_bid(
     from fantabot.config import settings
     from fantabot.domain.asta.bid import Seat, max_bid
 
-    bridge = listone.fetch()
+    # `refresh=True`: see `asta_room`'s identical fetch for why. A transport failure
+    # degrades to the cache (`listone.fetch`'s own docstring); the age check below, before
+    # arming is decided, is what catches that case here too.
+    bridge = listone.fetch(refresh=True)
     if not bridge:
         console.print(
             "[red]no uuid -> fantacalcio_id bridge. Without it every lot we win is an "
             "unknown player and the planner refuses the roster.[/red]"
         )
         raise typer.Exit(code=1)
+
+    bridge_age = listone.cache_age()
+    if bridge_age is None:
+        console.print("[dim]listone bridge: age unknown (pre-envelope cache)[/dim]")
+    elif bridge_age < 60:
+        console.print("[dim]listone bridge: just refreshed[/dim]")
+    else:
+        console.print(f"[yellow]listone bridge: refresh failed, using a {bridge_age / 3600:.1f}h old cache[/yellow]")
 
     # The same value model asta optimize planned with, by construction now rather than by
     # maintenance: a walk-away is "what is he worth to us", and this is the one command
@@ -831,6 +881,17 @@ def asta_bid(
         )
 
     seat = Seat(fantateam_id=team, user_id=user)
+
+    # A stale bridge (the refresh above failed and fell back) refuses *arming*, not the run
+    # — see `asta_room`'s identical guard. `bridge_age is None` (a pre-envelope cache) is not
+    # penalised: there is no age to compare yet.
+    if listone.is_stale(bridge_age, max_hours=max_bridge_age_hours):
+        assert bridge_age is not None  # `is_stale` only returns True with a real age
+        console.print(
+            f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
+            f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
+        )
+        arm = False
 
     # Said before the first poll, not after: the operator has to be able to tell an armed run
     # from a rehearsal at a glance, and the heartbeat that follows looks identical either way.
