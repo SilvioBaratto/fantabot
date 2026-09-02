@@ -575,6 +575,10 @@ def asta_room(
         bargain_share=bargain_share,
         admin_user_id=resolved.admin_id,
         seat_by_user=resolved.seat_by_user,
+        # A new signing the startup fetch above missed (or one added mid-evening) triggers
+        # one rate-limited re-fetch instead of holding on it for the rest of the night —
+        # `RoomTracker`'s own guard against a burst of new uuids or a shrunk response.
+        bridge_refresh=lambda: listone.fetch(refresh=True),
         ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
         journal=_timed_journal,
         counter_time=resolved.counter_time,
@@ -925,6 +929,10 @@ def asta_bid(
         # authenticated `rest.fetch_league` this command deliberately never calls (see its own
         # docstring). A passed lot the admin actually let stand is invisible here the same way
         # it always was — `RoomTracker` degrades to that, not to a crash, without them.
+        #
+        # `bridge_refresh` has no such barrier — the listone endpoint is unauthenticated, so
+        # this command can and does get the same mid-evening re-resolution `asta room` does.
+        bridge_refresh=lambda: listone.fetch(refresh=True),
         ledger=lambda: feed.ledger_events(db, league),
         journal=_timed_journal,
         counter_time=None, counter_time_first=None,

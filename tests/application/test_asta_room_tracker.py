@@ -768,3 +768,78 @@ class TestThePlanSolveIsMemoizedOnStateAndRules:
             room.reservations = real
 
         assert len(calls) == 2
+
+
+class TestMidEveningBridgeRefresh:
+    """Task 5.3: a lot the current `bridge` cannot map is the most time-critical unresolvable
+    case there is — every poll it stays that way is a poll the room cannot even consider it —
+    so a *new* one (never seen unresolved before) triggers one rate-limited listone re-fetch.
+    """
+
+    def test_a_new_unresolvable_lot_grows_the_bridge(self) -> None:
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            return {**BRIDGE, "uuid-new": 500}
+
+        tracker = _tracker(bridge_refresh=refresh)
+        tracker.cycle(_lot(uuid="uuid-new"), now_ms=1_000)
+
+        assert len(calls) == 1
+        assert tracker._bridge["uuid-new"] == 500
+
+    def test_the_same_evening_lot_never_triggers_a_second_refresh(self) -> None:
+        """The listone genuinely not knowing him yet (a signing too new even for it) must not
+        hammer the endpoint every poll for the rest of the evening."""
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            return dict(BRIDGE)  # does not actually resolve "uuid-new"
+
+        tracker = _tracker(bridge_refresh=refresh)
+        for now_ms in (1_000, 3_000, 5_000, 100_000):
+            tracker.cycle(_lot(uuid="uuid-new"), now_ms=now_ms)
+
+        assert len(calls) == 1
+
+    def test_two_new_unresolvable_uuids_in_one_burst_still_cost_one_refresh(self) -> None:
+        """The rate limit is on the *fetch*, not per uuid — a burst of new signings must not
+        each earn their own round trip."""
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            return {**BRIDGE, "uuid-new-a": 500, "uuid-new-b": 501}
+
+        ledger = [AssignmentEvent("uuid-new-b", 10, "rival")]
+        tracker = _tracker(ledger=ledger, bridge_refresh=refresh)
+        tracker.cycle(_lot(uuid="uuid-new-a"), now_ms=1_000)
+
+        assert len(calls) == 1
+        assert tracker._bridge["uuid-new-a"] == 500
+        assert tracker._bridge["uuid-new-b"] == 501
+
+    def test_a_bridge_that_would_shrink_materially_is_refused(self) -> None:
+        """plan.md §2's E risk row: never swap in an empty or materially smaller mapping — a
+        transport hiccup returning a truncated payload must not be trusted just because it
+        parsed."""
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            return {"uuid-gk": 100}  # 1 of BRIDGE's 4 entries — a real shrink, not noise
+
+        tracker = _tracker(bridge_refresh=refresh)
+        tracker.cycle(_lot(uuid="uuid-new"), now_ms=1_000)
+
+        assert len(calls) == 1, "the fetch still happens; only the swap is refused"
+        assert tracker._bridge == dict(BRIDGE)
+
+    def test_no_refresh_callable_is_a_no_op_exactly_like_before_this_existed(self) -> None:
+        """`asta bid`, and `asta room` before this task, never had one."""
+        frame = _tracker().cycle(_lot(uuid="uuid-new"), now_ms=1_000)
+
+        assert frame.decision == "hold"
+        assert "listone" in (frame.note or "")

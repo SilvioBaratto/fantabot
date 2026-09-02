@@ -60,6 +60,19 @@ from fantabot.domain.asta.value import ValueModel
 #: without being a transcript.
 RECENT_SALES = 3
 
+#: How often a *new* unmappable uuid may trigger a mid-evening listone re-fetch. Matches
+#: `harvest collect --seed`'s own re-read cadence (`CLAUDE.md`) — the same endpoint family,
+#: the same reasoning: turnover during a live evening is real, but re-fetching on every poll
+#: a lot stays unresolved would hammer it for the rest of the night over one signing.
+BRIDGE_REFRESH_INTERVAL_MS = 60_000
+
+#: A refreshed bridge below this fraction of the one it would replace is refused — plan.md
+#: §2's E risk row, "never swap in an empty or materially smaller mapping." A transport
+#: hiccup that returns a truncated payload is indistinguishable from a real one at the shape
+#: level; only the size gives it away. 0.9 tolerates ordinary roster churn (a handful of
+#: retirements) without tolerating a response that lost most of the listone.
+MIN_BRIDGE_RETENTION = 0.9
+
 
 class RoomRefused(RuntimeError):
     """This room cannot be bid in, and the message says what the operator can do about it."""
@@ -285,9 +298,11 @@ class RoomTracker:
         bargain_share: float = BARGAIN_BUDGET_SHARE,
         admin_user_id: str | None = None,
         seat_by_user: Mapping[str, str] | None = None,
+        bridge_refresh: Callable[[], Mapping[str, int]] | None = None,
+        bridge_refresh_interval_ms: int = BRIDGE_REFRESH_INTERVAL_MS,
     ) -> None:
         self._seat = seat
-        self._bridge = bridge
+        self._bridge = dict(bridge)
         self._pool = pool
         self._value = value
         self._prices = prices
@@ -343,6 +358,41 @@ class RoomTracker:
         self._plan_cache: tuple[tuple[str, ...], dict[str, float], float | None, str | None] = (
             (), {}, None, None,
         )
+        self._bridge_refresh = bridge_refresh
+        self._bridge_refresh_interval_ms = bridge_refresh_interval_ms
+        # Every uuid this process has already tried to resolve and failed on, for the life of
+        # the evening — what tells a *new* unmappable uuid apart from one already known to be
+        # missing. Without it, a genuinely new signing the listone has never heard of would
+        # trigger a re-fetch every single poll it stays unresolved, and 41 of 570 pool players
+        # were absent from the listone on 2026-08-28 — that many permanent misses would hammer
+        # the endpoint for the rest of the evening rather than once, rate-limited.
+        self._seen_unresolved: set[str] = set()
+        self._last_bridge_refresh_ms: int | None = None
+
+    def _maybe_refresh_bridge(self, unresolved: Sequence[str], *, now_ms: int) -> bool:
+        """Re-fetch the listone once, rate-limited, when a *new* uuid cannot be resolved.
+
+        Returns whether the bridge actually changed, so `cycle` knows to re-resolve the same
+        poll rather than wait one more cycle for the benefit. `None` for `bridge_refresh`
+        (`asta bid` without one — see its own call site) makes this a no-op, same as today.
+        """
+        if self._bridge_refresh is None:
+            return False
+        new = [uuid for uuid in unresolved if uuid not in self._seen_unresolved]
+        self._seen_unresolved.update(unresolved)
+        if not new:
+            return False
+        if (
+            self._last_bridge_refresh_ms is not None
+            and now_ms - self._last_bridge_refresh_ms < self._bridge_refresh_interval_ms
+        ):
+            return False
+        self._last_bridge_refresh_ms = now_ms
+        fresh = self._bridge_refresh()
+        if len(fresh) < len(self._bridge) * MIN_BRIDGE_RETENTION:
+            return False
+        self._bridge = dict(fresh)
+        return True
 
     def cycle(
         self, snapshot: Mapping[str, Any] | None, *, now_ms: int, node: str = "auction"
@@ -350,6 +400,16 @@ class RoomTracker:
         """One poll: fold, re-plan, decide, journal, and return the frame."""
         state = AstaState(total_budget=self._budget)
         events, unresolved = resolve_ids(self._ledger(), self._bridge)
+
+        # The lot on the block joins the ledger's own unresolved uuids: `_decide` looks it up
+        # in `self._bridge` too, and a brand-new signing showing up *as the lot itself* is the
+        # most time-critical case there is — every poll it stays unresolved is a poll the room
+        # cannot even consider bidding on it.
+        lot = snapshot.get("player_id") if snapshot else None
+        candidates = [*unresolved, lot] if isinstance(lot, str) and lot not in self._bridge else unresolved
+        if self._maybe_refresh_bridge(candidates, now_ms=now_ms):
+            events, unresolved = resolve_ids(self._ledger(), self._bridge)
+
         # After resolve_ids, not before: `price_of` below is `self._prices`, keyed by
         # fantacalcio id like every other lookup here, and `player_id` only matches it once
         # the FantaLab uuid has already been translated.
