@@ -19,11 +19,14 @@ Both print request headers, which is the credential.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
 from fantabot.adapters.tokens.store import TokenStore
+from fantabot.domain.lineup.errors import LineupRejected
 from fantabot.domain.tokens.errors import (
     ApiTimeout,
     ApiUnavailable,
@@ -48,6 +51,10 @@ APP_KEY = "ICiELOObd5DF5uJEATi77CRvHiiRuMU0"
 LEAGUE_STATUS_PATH = "/onboarding/v1/league/status"
 TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 DEFAULT_TIMEOUT = 10.0
+
+# The lineup lives under a different microservice, `gaming/v1`, not `onboarding/v1`
+# (`docs/leghe-api.md`). `division` is the divisione tag, `A` for this account's leghe.
+DEFAULT_DIVISION = "A"
 
 
 def auth_headers(league_id: int, *, store: TokenStore, now: Any = None) -> dict[str, str]:
@@ -126,6 +133,55 @@ def _get(
     return body if isinstance(body, dict) else {}
 
 
+def _raise_for_lineup(response: httpx.Response, league_id: int) -> None:
+    """`_raise_for`, plus the write path's `LUP0xx`.
+
+    The lineup submit answers an unfieldable formation with a `400` and a `LUP` code
+    (`LUP009` observed) — a lineup problem, not a token or server fault, so it maps to a
+    `LineupRejected` before the generic 4xx handling ever runs.
+    """
+    if response.status_code == 400:
+        code = _error_code(response)
+        if code.startswith("LUP"):
+            raise LineupRejected(code)
+    _raise_for(response, league_id)
+
+
+def _post(
+    path: str,
+    league_id: int,
+    *,
+    body: Mapping[str, Any],
+    store: TokenStore,
+    transport: httpx.BaseTransport | None,
+    timeout: float,
+    now: Any,
+) -> dict[str, Any]:
+    """One authenticated `POST` with a JSON body — the write sibling of `_get`.
+
+    Shares the leak guard exactly: no `httpx` exception is ever re-raised, because its
+    `.request` can render the `Authorization` header. The one difference is the error
+    mapping — `_raise_for_lineup` adds the `LUP0xx` rejection the write path can return.
+    """
+    headers = auth_headers(league_id, store=store, now=now)
+    headers["Content-Type"] = "application/json"
+
+    try:
+        with httpx.Client(
+            base_url=_base_url(), headers=headers, timeout=timeout, transport=transport
+        ) as client:
+            response = client.post(path, content=json.dumps(body))
+    except httpx.TimeoutException:
+        raise ApiTimeout(timeout) from None
+    except httpx.TransportError:
+        raise ApiUnavailable(0) from None
+
+    _raise_for_lineup(response, league_id)
+
+    parsed = response.json()
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def league_status(
     league_id: int,
     *,
@@ -159,6 +215,48 @@ def my_team(
     )
 
 
+def teamLineup_read(
+    league_id: int,
+    competition_id: int,
+    *,
+    division: str = DEFAULT_DIVISION,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /gaming/v1/teamLineup/visualizza/{division}/{competition_id}` — the current
+    lineup, `{teamLineupDto, lineUpInfo}` (`docs/leghe-api.md`).
+
+    A different microservice (`gaming/v1`) from the `onboarding/v1` reads above, but the
+    same two headers and the same `_get` leak guard.
+    """
+    path = f"/gaming/v1/teamLineup/visualizza/{division}/{competition_id}"
+    return _get(path, league_id, store=store, transport=transport, timeout=timeout, now=now)
+
+
+def teamLineup_submit(
+    league_id: int,
+    payload: Mapping[str, Any],
+    *,
+    division: str = DEFAULT_DIVISION,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`POST /gaming/v1/teamLineup/{division}` — submit the formation.
+
+    `200` and the saved DTO on success; an unfieldable formation returns a `LUP0xx` `400`
+    that becomes `LineupRejected` (`docs/leghe-api.md`). `payload` is the decoded body
+    built by `domain/lineup/payload`, already validated against the schema by the caller.
+    """
+    path = f"/gaming/v1/teamLineup/{division}"
+    return _post(
+        path, league_id, body=payload, store=store, transport=transport, timeout=timeout, now=now
+    )
+
+
 __all__ = [
     "APP_KEY",
     "ApiTimeout",
@@ -170,4 +268,6 @@ __all__ = [
     "auth_headers",
     "league_status",
     "my_team",
+    "teamLineup_read",
+    "teamLineup_submit",
 ]
