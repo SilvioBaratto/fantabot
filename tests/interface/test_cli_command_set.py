@@ -24,6 +24,7 @@ from fantabot.interface.app import app
 #: Every command reachable from the root, as the user types it. Sub-app commands
 #: appear space-separated (`asta optimize`) once the groups land.
 EXPECTED: set[str] = {
+    "asta bench",
     "asta bid",
     "asta calibrate",
     "asta room",

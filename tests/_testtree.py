@@ -149,6 +149,7 @@ TREE: dict[str, str] = {
     "test_cli_news_fetch.py": "interface",
     "test_cli_token_forget.py": "interface",
     "test_cli_token_status.py": "interface",
+    "test_asta_bench_cli.py": "interface",
     "test_asta_id_bridge.py": "interface",
     "test_asta_callable_pool.py": "interface",
     "test_asta_arming.py": "interface",
