@@ -25,6 +25,12 @@ from fantabot.adapters.persistence.repositories._base import RepositoryBase
 #: Postgres refuses a statement with more bind parameters than this.
 PARAMETER_LIMIT = 65_535
 
+#: Excluded from `recorded_auctions` by default: "è morto malen", the room `asta room` bid
+#: real credits in on 2026-09-01. It is auction 19 of its own corpus once recorded, and its
+#: clearing prices already carry this bot's bids — grading a fix against a room it partly
+#: decided the outcome of is not independent evidence (SPEC §6 gap 4).
+SELF_BID_ROOMS = frozenset({"0752a384-0611-4df4-8c95-2f8aaa38425c"})
+
 #: Never chunk larger than this regardless of width, so one statement stays a
 #: reasonable unit of work and a failure costs a bounded amount of progress.
 MAX_CHUNK = 4000
@@ -96,7 +102,12 @@ class AsteRepository(RepositoryBase):
         return [(str(fantacalcio_id), price) for fantacalcio_id, price in rows]
 
     def recorded_auctions(
-        self, *, asta_type: str = "mantra", num_credits: int = 500, num_teams: int = 8
+        self,
+        *,
+        asta_type: str = "mantra",
+        num_credits: int = 500,
+        num_teams: int = 8,
+        exclude: frozenset[str] = SELF_BID_ROOMS,
     ) -> list[tuple[str, list[tuple[str, int, int]]]]:
         """Every recorded auction of a shape, with its sales in closing order. Read-only.
 
@@ -104,6 +115,10 @@ class AsteRepository(RepositoryBase):
         Rows with no buyer are dropped for the same reason `mantra_clearing_sales` drops
         them — a lot the room called and nobody bid on is not a sale, and 29% of the
         assignment table is exactly that.
+
+        `exclude` defaults to `SELF_BID_ROOMS` — a room this bot bid real credits in is not
+        independent evidence for calibrating the thing that bid in it. Pass `frozenset()` to
+        grade against the full corpus anyway (e.g. to see the room's own effect by comparison).
 
         Returned as plain tuples rather than as the application's `RecordedAuction`, so this
         module keeps knowing nothing about who reads it.
@@ -120,6 +135,7 @@ class AsteRepository(RepositoryBase):
                 Asta.asta_type == asta_type,
                 Asta.num_credits == num_credits,
                 Asta.num_teams == num_teams,
+                Asta.id.notin_(exclude),
                 AstaAssignment.fantacalcio_id.is_not(None),
                 AstaAssignment.buyer_team_id.is_not(None),
             )

@@ -228,3 +228,27 @@ def test_counting_can_filter_by_format(db_session: Session) -> None:
     assert repo.count_assignments() - before_all == 2
     assert repo.count_assignments("classic") - before_classic == 1
     assert repo.count_assignments("mantra") - before_mantra == 1
+
+
+class TestRecordedAuctionsExcludesTheSelfBidRoom:
+    """"è morto malen" (`0752a384-0611-4df4-8c95-2f8aaa38425c`) is the room `asta room` bid
+    real credits in on 2026-09-01 — it is genuinely in this database (Task 6/7's own
+    evidence), so this reads the real row rather than writing one, to avoid upserting over
+    production data with a test fixture that happens to share its id.
+    """
+
+    SELF_BID_ROOM = "0752a384-0611-4df4-8c95-2f8aaa38425c"
+
+    def test_it_is_absent_from_the_default_corpus(self, db_session: Session) -> None:
+        repo = AsteRepository(db_session)
+        corpus = repo.recorded_auctions(num_teams=8, num_credits=500)
+
+        assert self.SELF_BID_ROOM not in dict(corpus)
+
+    def test_it_is_present_when_the_exclusion_is_lifted(self, db_session: Session) -> None:
+        """Proves the exclusion is doing something — not that the room is simply absent
+        from this database for an unrelated reason."""
+        repo = AsteRepository(db_session)
+        corpus = repo.recorded_auctions(num_teams=8, num_credits=500, exclude=frozenset())
+
+        assert self.SELF_BID_ROOM in dict(corpus)
