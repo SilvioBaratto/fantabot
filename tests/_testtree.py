@@ -146,6 +146,7 @@ TREE: dict[str, str] = {
     "test_cli_db_check.py": "interface",
     "test_cli_db_price.py": "interface",
     "test_cli_entrypoints.py": "interface",
+    "test_lineup_cli.py": "interface",
     "test_cli_fantalab_login.py": "interface",
     "test_cli_login.py": "interface",
     "test_cli_news_fetch.py": "interface",

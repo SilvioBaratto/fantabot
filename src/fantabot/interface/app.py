@@ -11,6 +11,7 @@ from rich.markup import escape
 from fantabot.interface.asta import register as register_asta_engine_commands
 from fantabot.interface.console import console
 from fantabot.interface.harvest import register as register_aste_commands
+from fantabot.interface.lineup import register as register_lineup_commands
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -64,6 +65,9 @@ harvest_app = typer.Typer(no_args_is_help=True, help="Collect FantaLab auctions 
 db_app = typer.Typer(no_args_is_help=True, help="Database health, scraping and pricing.")
 auth_app = typer.Typer(no_args_is_help=True, help="Sign in; manage stored credentials.")
 news_app = typer.Typer(no_args_is_help=True, help="Weekly player news sentiment.")
+lineup_app = typer.Typer(
+    no_args_is_help=True, help="Read, plan and submit the weekly Mantra formazione."
+)
 
 
 @app.command()
@@ -994,6 +998,7 @@ for _group, _name in (
     (db_app, "db"),
     (auth_app, "auth"),
     (news_app, "news"),
+    (lineup_app, "lineup"),
 ):
     app.add_typer(_group, name=_name)
 
@@ -1012,6 +1017,7 @@ auth_app.command("forget")(token_forget)
 
 register_aste_commands(harvest_app, auth_app)
 register_asta_engine_commands(asta_app)
+register_lineup_commands(lineup_app)
 
 
 if __name__ == "__main__":
