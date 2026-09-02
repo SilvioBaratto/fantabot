@@ -28,3 +28,14 @@ docs/
 # a remote to push it to. A dump asked for in the repo root is ignored instead.
 *.dump
 *.sql
+
+# The Remotion project behind the full-screen animations in script.md.
+# Renders land in out/ and are regenerable: `cd video && npx remotion render <id>`.
+video/node_modules/
+video/out/
+
+# macOS + local scratch, never publish
+.DS_Store
+/out/
+/script.md
+/video/

@@ -3,10 +3,16 @@
 Reference: `docs/leghe-api.md`. Every request needs two headers — the static
 `app_key`, and a `Bearer` token scoped to one lega.
 
-**`GET /onboarding/v1/league/status` and `GET /onboarding/v1/league/teams/my` are
-wrapped.** SPEC's Non-goals still fence off `competitions`, `teams` (every team in the
-lega, not just ours), `settings/rosters` and `market/v1/time`; they are documented and
-stay documented until something needs them.
+**The read surface is now the whole lega**, not just our own team: `lega sync` needs
+every team's rosa, the calendar, the pool and the custom roles, so `teams`, `players`,
+`roster_settings`, `custom_roles` and `calendar` are wrapped here alongside the two
+originals. `market/v1/time` stays documented and unwrapped — nothing needs the server
+clock.
+
+**`GET /onboarding/v1/league/profile` is deliberately NOT wrapped.** It returns the
+lega's join password in `parola`, and a wrapper is an invitation to store or print it.
+The lega name and president it also carries are available from `teams` without touching
+a shared secret.
 
 **No `httpx` exception is ever re-raised.** `httpx.RequestError` carries its
 `.request`, and a rendered traceback can surface the `Authorization` header.
@@ -52,7 +58,16 @@ LEAGUE_STATUS_PATH = "/onboarding/v1/league/status"
 TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 COMPETITIONS_PATH = "/onboarding/v1/league/competitions"
 LINEUP_SETTINGS_PATH = "/onboarding/v1/league/settings/lineup"
+ROSTER_SETTINGS_PATH = "/onboarding/v1/league/settings/rosters"
+TEAMS_PATH = "/onboarding/v1/league/teams"
+PLAYERS_PATH = "/onboarding/v1/league/players"
+CUSTOM_ROLES_PATH = "/onboarding/v1/league/custom-roles"
+CALENDAR_PATH = "/onboarding/v1/league/competition/calendar"
 DEFAULT_TIMEOUT = 10.0
+
+#: `league/teams` pages. The frontend asks for 50 and so do we; a lega of 8 fits in one
+#: page, and the loop below still follows `pages` because a lega of 60 does not.
+TEAMS_PAGE_SIZE = 50
 
 # The lineup lives under a different microservice, `gaming/v1`, not `onboarding/v1`
 # (`docs/leghe-api.md`). `division` is the divisione tag, `A` for this account's leghe.
@@ -282,6 +297,115 @@ def lineup_settings(
     )
 
 
+def roster_settings(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/settings/rosters` — budget, roster size, and the
+    per-role-group min/max (`docs/leghe-api.md`). `sroles` says how many groups the
+    `minrl`/`maxrl` arrays have, and it differs between this account's two leghe."""
+    return _get(
+        ROSTER_SETTINGS_PATH, league_id, store=store, transport=transport,
+        timeout=timeout, now=now,
+    )
+
+
+def teams(
+    league_id: int,
+    *,
+    division: str = DEFAULT_DIVISION,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> list[dict[str, Any]]:
+    """`GET /onboarding/v1/league/teams` — **every** team in the lega, rosa included.
+
+    Each item carries `cal` and `cs`: the team's 30 player ids and the 30 costs paid for
+    them, two `;`-joined parallel strings. This is the only read that shows what the
+    opponents bought, and it needs no admin rights.
+
+    Pages are followed to exhaustion. `pages` is authoritative; the loop also stops on an
+    empty page so a server that reports the wrong count cannot spin it.
+    """
+    out: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        query = f"?page={page}&pageSize={TEAMS_PAGE_SIZE}&division={division.upper()}"
+        body = _get(
+            f"{TEAMS_PATH}{query}", league_id, store=store, transport=transport,
+            timeout=timeout, now=now,
+        )
+        rows = body.get("data")
+        batch = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        out.extend(batch)
+        pages = body.get("pages")
+        if not batch or not isinstance(pages, int) or page >= pages:
+            return out
+        page += 1
+
+
+def players(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = 30.0,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/players` — the lega's own player list.
+
+    An object with a `players` key, **not** a bare array (`docs/leghe-api.md`); the
+    default timeout is raised because the body is several megabytes.
+    """
+    return _get(
+        PLAYERS_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+
+
+def custom_roles(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> list[dict[str, Any]]:
+    """`GET /onboarding/v1/league/custom-roles` — players this lega re-tagged (a JSON
+    array). Small, and load-bearing: L1 must match on the lega's role, not the listone's.
+    """
+    body = _get_raw(
+        CUSTOM_ROLES_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+    return [row for row in body if isinstance(row, dict)] if isinstance(body, list) else []
+
+
+def calendar(
+    league_id: int,
+    competition_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> list[dict[str, Any]]:
+    """`GET /onboarding/v1/league/competition/calendar/{id}` — the whole calendar.
+
+    One entry per round, each holding its `matches` with points, results and the two
+    matchday numberings. Found by grepping the shipped Angular bundle for the service
+    that backs the Fixtures page (`docs/leghe-api.md`, "How this was found").
+    """
+    body = _get_raw(
+        f"{CALENDAR_PATH}/{competition_id}", league_id, store=store, transport=transport,
+        timeout=timeout, now=now,
+    )
+    return [row for row in body if isinstance(row, dict)] if isinstance(body, list) else []
+
+
 def teamLineup_read(
     league_id: int,
     competition_id: int,
@@ -333,10 +457,15 @@ __all__ = [
     "TokenMissing",
     "TokenRejected",
     "auth_headers",
+    "calendar",
     "competitions",
+    "custom_roles",
     "league_status",
     "lineup_settings",
     "my_team",
+    "players",
+    "roster_settings",
     "teamLineup_read",
     "teamLineup_submit",
+    "teams",
 ]

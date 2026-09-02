@@ -194,6 +194,13 @@ SCHEMA_TABLES = frozenset(
         "league_team_snapshot",
         "league_player_pool",
         "league_tokens",
+        # `lega sync`, 2026-09-02. Listed deliberately, like the harvest three below:
+        # the rest of the lega — its competitions, its calendar, and the Classic role
+        # overrides — became reachable once the shipped Angular bundle gave up the
+        # endpoints behind the Fixtures page.
+        "league_competition",
+        "league_fixture",
+        "league_custom_role",
         # Phase 5, the streaming auction harvest. Listed here on purpose rather
         # than the assertion being loosened: this test exists to make schema
         # growth a deliberate edit, and it did its job — adding these three
@@ -223,7 +230,13 @@ def test_every_table_spec_names_exists_and_nothing_else_does() -> None:
 def test_snapshots_are_keyed_from_captured_at_outward() -> None:
     """Append-only and time-stamped: the point of the tables is the drift, so
     the timestamp leads the key rather than being an attribute of it."""
-    for table in ("league_snapshot", "league_team_snapshot", "league_player_pool"):
+    for table in (
+        "league_snapshot",
+        "league_team_snapshot",
+        "league_player_pool",
+        "league_competition",
+        "league_custom_role",
+    ):
         columns = [c.name for c in Base.metadata.tables[table].primary_key.columns]
         assert columns[0] == "captured_at", table
         assert "league_id" in columns, table
@@ -237,24 +250,35 @@ def test_the_league_pool_has_no_foreign_key_to_players() -> None:
     assert Base.metadata.tables["league_player_pool"].foreign_keys == set()
 
 
-def test_the_still_empty_snapshot_tables_say_why() -> None:
-    """`league_snapshot` and `league_player_pool` still ship empty on purpose — the
-    whole lega (every team, every player) is on SPEC's Non-goals list until something
-    needs more than our own team, and the docstring has to be the thing that says so.
+def test_every_league_table_has_a_producer() -> None:
+    """The assertion this file has carried longest, inverted.
 
-    This used to assert absence against `importers.names()`. That package was retired
-    on 2026-08-30; then it asserted "open question 5" was still in the docstring, until
-    `fantabot db snapshot-team` answered that question for `league_team_snapshot` and
-    the docstring changed to say which of the three tables it answers it for.
+    It asserted absence for three revisions running — first that no importer wrote these
+    tables, then that "open question 5" was still open, then that the module docstring
+    still said "Non-goals". `fantabot lega sync` closed the question on 2026-09-02, so
+    the test now names the writer for each table instead. A table added here without one
+    fails, which is the same guard pointed the other way.
     """
-    from fantabot.adapters.persistence.models import league
-
-    assert "non-goals" in league.__doc__.lower()  # type: ignore[union-attr]
-
-
-def test_the_team_snapshot_table_has_a_producer() -> None:
-    """`league_team_snapshot` is the one of the three with a writer: `db snapshot-team`
-    calls `apileague.my_team` and hands the parsed body to this exact method."""
     from fantabot.adapters.persistence.repositories.league import LeagueRepository
 
-    assert hasattr(LeagueRepository, "record_team_snapshot")
+    for method in (
+        "record_team_snapshot",
+        "record_league_state",
+        "record_team_rosters",
+        "record_competitions",
+        "record_custom_roles",
+        "record_pool",
+        "upsert_fixtures",
+    ):
+        assert hasattr(LeagueRepository, method), method
+
+
+def test_the_fixture_table_is_the_one_that_upserts() -> None:
+    """Every other `league_*` table is append-only because the drift is the point. A
+    fixture does not drift — its fields fill in — so its key is natural and a re-sync
+    updates in place. Keying it from `captured_at` would write 144 rows a sync to record
+    one boolean flipping once per round.
+    """
+    columns = [c.name for c in Base.metadata.tables["league_fixture"].primary_key.columns]
+    assert columns == ["competition_id", "matchday", "team_home", "team_away"]
+    assert "captured_at" not in Base.metadata.tables["league_fixture"].columns

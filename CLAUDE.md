@@ -31,6 +31,10 @@ fantabot auth status        # stored / expires / state per lega; works with no k
 fantabot auth forget --league 4103937
 fantabot config-check
 
+fantabot lega sync                      # dry run: read the whole lega, print, write nothing
+fantabot lega sync --write              # the weekly run: 8 reads, 6 tables
+fantabot lega show                      # what is stored, per table, and when
+
 fantabot news fetch --limit 5           # smoke test, queries but writes nothing
 fantabot news fetch --write             # the weekly run: all 523, both leagues
 fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
@@ -63,6 +67,7 @@ src/fantabot/
   domain/        Pure. No I/O, no network, no clock, no framework import.
     asta/        legality, optimizer, reservation, roles, sentiment, state, value,
                  bid, drain, live, opponents, prices, report, stateentry
+    lega/        models, parse — the platform's own JSON, translated
     harvest/     sse, reducer, reconstruct, incremental, registry, compare, backfill,
                  models
     news/        models, mantra, prompt, pool, store, sink, pipeline
@@ -71,7 +76,8 @@ src/fantabot/
     tokens/      claims, crypto, capture, fantalab, status, errors
   application/   Use cases. Orchestrates domain through ports.
                  asta_planner, harvest_loader, harvest_supervisor, news_fetcher,
-                 mantra_collector, pricing, auth_login, fantalab_login, reporting
+                 mantra_collector, pricing, auth_login, fantalab_login, reporting,
+                 lega_sync
   adapters/      The outside world, one subpackage per kind.
     persistence/ engine, base, models/, repositories/, upserts, scraping, news_pool,
                  news_sentiment
@@ -83,7 +89,8 @@ src/fantabot/
     tokens/      store, fantalab_store
     scraping/    quotazioni, statistiche, voti
   interface/     Typer only. Nothing else may import typer.
-                 app (the root, and the one Console), asta, harvest, console, options
+                 app (the root, and the one Console), asta, harvest, lega, lineup,
+                 console, options
   config.py      settings; the one module both sides may read
   data/          mantra_schemi.json, mantra_compat.json — package data, not runtime state
 ```
@@ -145,6 +152,15 @@ src/fantabot/
   the live population per 15–20 minutes. `--pool` must exceed the live population — 649
   on 2026-08-27 against a default of 250. Both commands re-read the seed, and both had
   to learn it separately.
+* **`application/lega_sync.py`** — the whole lega, read in one pass and written to six
+  tables. Two things in it are decisions, not plumbing. **Failure is per-read**: the pool
+  is megabytes and the calendar is the only place results appear, so a 400 on
+  `custom-roles` reports itself by name and the other seven reads still land; `ok` is
+  False so a cron wrapper can tell partial from clean. A `TokenError` is the exception
+  and re-raises — it fails all eight reads for one reason, and reporting it eight times
+  buries the one thing the operator has to do. **Reads and writes are separate phases**,
+  because holding a write transaction open across a multi-megabyte GET leaves a Postgres
+  connection idle-in-transaction for the length of a network call.
 
 ## Known unknowns — resolve before flipping `FANTABOT_AUTO_ACT=true`
 
@@ -156,11 +172,36 @@ src/fantabot/
   token is an encrypted row in `league_tokens` reachable through
   `apileague.auth_headers(league_id, store=...)`. Only the submit POST is still
   undocumented (see "Gaps" in that doc) and needs a live Network capture.
+- ~~**The lega itself was not in the database**~~ **Resolved 2026-09-02** by
+  `fantabot lega sync`. Three things it settled, each of which had been recorded here
+  or in `docs/leghe-api.md` as unknown:
+  **The rose of every team, with what each player cost**, are two `;`-joined fields
+  (`cal`, `cs`) on `GET /onboarding/v1/league/teams` — no admin rights, no per-team
+  endpoint, and no gap: there never was one, only a misread. Summing `cs` against each
+  team's own `crs` matched to the credit for six of eight, and the two that differed did
+  so by exactly −12 and +12 — a trade, which is why both numbers are printed side by side.
+  **`marle`'s numeric role codes are resolved**: join `/league/players` against the
+  Mantra listone on `player_id`, pair the role lists positionally, and all twelve
+  integers land on exactly one letter each over 571 players with no runner-up
+  (`domain/lega/parse.MARLE_TO_CODE`). **`custom-roles` uses a different scale** — the
+  Classic P/D/C/A one — and the two overlap numerically, so reading an override through
+  the Mantra map turns Zaccagni's `C → A` into a Mantra `C → W`: a real code, the wrong
+  one, and nothing raises. It is stored and deliberately not wired into L1.
+  **`GET /onboarding/v1/league/profile` is not wrapped and must not be**: it returns the
+  lega's join password in cleartext, and everything else it carries is on `/league/teams`.
+- **The lega's roster rules changed under us, and nothing noticed.** On 2026-08-26
+  `settings/rosters` read `msltc`/`xsltc` = 30/30 and `minrl`=`maxrl`=`[2, 28]`; on
+  2026-09-02 it reads **25/32 with `minrl=[2, 23]` and `maxrl=[4, 28]`** — a variable
+  roster size and a real per-role band where there was none. `domain/asta/state.py:41`
+  still defaults `size: int = 30`. That was harmless for an asta that is over, and it is
+  not harmless for a lineup planner that will be told a 32-man rosa is legal. The
+  settings are now snapshotted per sync, so the drift is at least visible; making the
+  planner read them instead of a constant is not done.
 - ~~**Asta mechanics**~~ **Resolved.** Not the leghe.fantacalcio.it room at all —
   the asta runs on FantaLab, and `asta bid` drives its unauthenticated RTDB
   directly. See `docs/fantalab/06-asta-write-path.md`, verified live 2026-08-28.
 - ~~**The bot could not actually bid**~~ **Resolved 2026-09-01** by the asta-room
-  phase ([`tasks/archive/asta-room-spec.md`](tasks/archive/asta-room-spec.md)).
+  phase.
   Three defects, none visible from reading the code:
   **B1** — the lot arrives from `auction/<fl>` as a FantaLab uuid while every
   walk-away is keyed by fantacalcio id, so `asta bid` answered "not a target,
@@ -183,7 +224,7 @@ src/fantabot/
   recorded in the archived spec.
   **The mechanism this bullet describes is superseded, the conclusion is not.**
   The asta-fixes phase (closed 2026-09-02,
-  [`tasks/archive/asta-fixes-spec.md`](tasks/archive/asta-fixes-spec.md) §2.A) deleted
+  §2.A of the archived asta-fixes spec) deleted
   `price_floor`/`--floor-alpha` — a floor computed only for the pre-briefed 40 plan
   members — because the first live auction proved it silently held every unplanned lot
   at any price, `walk_away: null` on 4,501 of 5,192 journal rows.
@@ -212,7 +253,7 @@ src/fantabot/
   is picked, write the interface against the consumer that exists then.
 - ~~**Bearer token**~~ **Resolved.** Encrypted in Postgres (`league_tokens`),
   written by `fantabot auth login`, read through `apileague.auth_headers`. Spec:
-  [`tasks/archive/token-store-spec.md`](tasks/archive/token-store-spec.md) — recovered from commit
+  the archived token-store spec — recovered from commit
   `edb693c` on 2026-08-30, because `SPEC.md` had been overwritten by four later
   phases and nine links still pointed at it. `SPEC.md` holds only the **current**
   phase; a closing phase copies its spec to `docs/spec-<phase>.md` first.
@@ -283,6 +324,17 @@ src/fantabot/
   matcher's input, and reading them relative to the working directory meant
   `asta legality` and `mantra-grid --write` agreed only when both ran from the
   repository root.
+- **The `league_*` tables are append-only, and `league_fixture` is the one exception.**
+  The snapshot tables are keyed from `captured_at` outward because the point of them is
+  the drift — the roster-rules change above is only knowable because two captures
+  disagree, and an upsert would have erased it. A fixture does not drift, it fills in:
+  the pairing is fixed in August and the points arrive when the round is calculated, so
+  its key is natural and a re-sync updates in place. Snapshotting it would write 144 rows
+  a sync to record one boolean flipping once per round.
+- **2026/27 has no `statistiche` or `match_grain` rows, and that is a stale default, not
+  a decision.** `voti.py:57` and `statistiche.py:54` both stop their `DEFAULT_SEASONS` at
+  2025/26 — correct when written (the season was preseason, all zeros) and wrong now that
+  it is being played. Pass `--season 2026/27` explicitly, or fix the default.
 - **Archive `SPEC.md`, `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
   `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:23`
   ignores it, which is how the token-store spec came to survive only in git history. Repoint that phase's spec

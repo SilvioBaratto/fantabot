@@ -14,6 +14,9 @@ from fantabot.adapters.persistence.models.aste import (
 )
 from fantabot.adapters.persistence.models.exclusions import PlayerExclusion
 from fantabot.adapters.persistence.models.league import (
+    LeagueCompetition,
+    LeagueCustomRole,
+    LeagueFixture,
     LeaguePlayerPool,
     LeagueSnapshot,
     LeagueTeamSnapshot,
@@ -44,6 +47,9 @@ __all__ = [
     "AstaEvent",
     "Base",
     "FantalabSession",
+    "LeagueCompetition",
+    "LeagueCustomRole",
+    "LeagueFixture",
     "LeaguePlayerPool",
     "LeagueSnapshot",
     "LeagueTeamSnapshot",

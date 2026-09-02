@@ -48,6 +48,8 @@ TREE: dict[str, str] = {
     "test_asta_unvaluable.py": "domain/asta",
     "test_asta_value.py": "domain/asta",
     "test_roster.py": "domain/lineup",
+    # -- domain/lega: the platform's own JSON, translated
+    "test_lega_parse.py": "domain/lega",
     "test_schema.py": "domain/lineup",
     "test_value.py": "domain/lineup",
     "test_build.py": "domain/lineup",
@@ -100,6 +102,7 @@ TREE: dict[str, str] = {
     # -- application ----------------------------------------------------------------------
     "test_asta_bench.py": "application",
     "test_lineup_planner.py": "application",
+    "test_lega_sync.py": "application",
     "test_asta_calibrate.py": "application",
     "test_plan_inputs.py": "application",
     "test_asta_room_resolve.py": "application",
