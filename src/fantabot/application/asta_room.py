@@ -591,6 +591,14 @@ class RoomTracker:
         **Nothing here may raise.** An exception inside a cycle ends the evening, and this is
         the newest and least-exercised path in the room; a bargain we failed to price is a
         bargain we do not take, which is exactly the pre-feature behaviour.
+
+        **A `None` note means "never asked"; every other gate says why, even a refusal.**
+        Before the re-solve runs (beta off, allowance spent, the pre-gate itself refusing), a
+        `None` note is honest — nothing was priced, there is nothing to report. Past that
+        point the re-solve genuinely ran and has a real opinion, "he does not beat it at any
+        price" included, and reporting that as indistinguishable from "never considered" is
+        the same defect this whole feature exists to fix (SPEC §8 item 3: `provenance is not
+        None` on every poll a lot was actually priced for, holds included).
         """
         # The beta switch comes first and silently. It is the shipped default (`0.00`), so
         # anything below it would put a line on the screen for every unplanned lot of an
@@ -624,7 +632,10 @@ class RoomTracker:
         except Exception as exc:  # a hold, never an end to the evening
             return 0, f"bargain check failed, holding: {exc}"
         if not ceiling:
-            return 0, None
+            return 0, (
+                f"not in the plan; re-solve says he does not beat it at any price up to "
+                f"{hard_cap}"
+            )
         capped = " (aggregate cap)" if allowance < pre_gate else ""
         return ceiling, (
             f"not in the plan; re-solve says {ceiling} beats it (cap {hard_cap} at "
@@ -704,11 +715,16 @@ class RoomTracker:
             # never `reservations()`'s own cheap `base - alt` walk-away (§SPEC 2.A's
             # unit-error). `walkaways` keeps its `reservations()` number for the LISTONE
             # column and the copilot brief — advisory only from here forward.
+            #
+            # Always considered, never `None`: `_bargain` runs the full re-solve for every
+            # plan member unconditionally — no beta gate, no pre-gate — so a ceiling of 0
+            # here is a real, considered "he does not beat it," not a lot never looked at
+            # (SPEC §8 item 3).
             ceiling = self._bargain(
                 pid, state=state, rules=rules, baseline=baseline, hard_cap=cap, plan=plan,
             )
-            raw = float(ceiling) if ceiling else None
-            provenance = "ceiling" if ceiling else None
+            raw = float(ceiling)
+            provenance = "ceiling"
             bargain_note = None
         else:
             bargain, bargain_note = self._bargain_for(
@@ -716,8 +732,13 @@ class RoomTracker:
                 owned_players=owned_players, cap=cap, allowance=allowance,
                 bargain_spent=bargain_spent,
             )
-            raw = float(bargain) if bargain else None
-            provenance = "bargain" if bargain else None
+            # `bargain_note is not None` is the real signal, not `bargain` truthiness: a
+            # ceiling of 0 the re-solve actually computed (`_bargain_for` now says so) is a
+            # considered "no", not the same silence as beta being off or the cheap pre-gate
+            # never running the re-solve at all.
+            considered = bargain_note is not None
+            raw = float(bargain) if considered else None
+            provenance = "bargain" if considered else None
             if bargain:
                 # The LISTONE column and the copilot brief both read `walkaways`. A BID on
                 # a lot whose own row shows no ceiling is the one line the operator cannot

@@ -241,11 +241,17 @@ class TestALotThePlanDidNotNameIsStillWorthSomething:
         his book of 39, so every cheap gate says bargain — and buying him only ever swaps
         the plan's mu 15 for his mu 9. Measured on the live pool this is not an edge case:
         of the 53 lots the pre-gate admitted, the re-solve refused 33 and lowered 11.
+
+        `decision` is `pass`, not `hold`: the re-solve genuinely ran and has a real answer
+        ("he does not beat it"), which is a priced refusal, not a lot never considered
+        (SPEC §8 item 3 — `provenance` must not read the same as a lot we never looked at).
         """
         frame = _tracker().cycle(_lot(uuid="uuid-a2", price=5), now_ms=1_000)
 
-        assert frame.decision == "hold"
-        assert frame.target is None
+        assert frame.decision == "pass"
+        assert frame.target == "uuid-a2", "priced and refused, not unconsidered"
+        assert frame.provenance == "bargain"
+        assert frame.walk_away == 0
 
     def test_the_ceiling_binds_and_the_lot_is_refused_above_it(self) -> None:
         """Named and refused, not silently unnamed: the operator has to be able to tell a
@@ -460,7 +466,10 @@ class TestTheEveningHasOneBargainPurse:
 
     def test_the_second_bargain_is_refused_once_the_first_has_spent_the_purse(self) -> None:
         """**The cap binding.** Same tracker, same lot, same ledger, same state -- the only
-        difference between bidding and holding is a 40-credit bargain already won.
+        difference between bidding and refusing is a 40-credit bargain already won.
+
+        `decision` is `pass`: the allowance check ran and has a real answer ("the purse is
+        spent"), which is a priced refusal, not a lot never considered.
         """
         ledger: list[AssignmentEvent] = []
         tracker = _cap_tracker(0.40, ledger=ledger)
@@ -468,8 +477,8 @@ class TestTheEveningHasOneBargainPurse:
 
         frame = tracker.cycle(_lot(uuid="uuid-a4", price=5), now_ms=2_000)
 
-        assert frame.decision == "hold"
-        assert frame.target is None
+        assert frame.decision == "pass"
+        assert frame.target == "uuid-a4", "priced (the purse is spent) and refused, not unconsidered"
         assert frame.bargain_spent == 40
         assert frame.bargain_allowance == 0
         assert frame.note is not None and "40/40" in frame.note, (
@@ -519,11 +528,15 @@ class TestTheEveningHasOneBargainPurse:
     def test_a_zero_share_switches_the_opportunistic_path_off_entirely(self) -> None:
         """A second, independent off-switch beside `--bargain-beta 0`. The two guard
         different things -- one the per-lot discount, one the evening's total -- and an
-        operator who wants the plan and nothing else should not have to know which."""
+        operator who wants the plan and nothing else should not have to know which.
+
+        `decision` is `pass`, not `hold`: a zero allowance is a real, checked answer
+        ("the purse is spent, by construction, before it opened"), not a lot unconsidered.
+        """
         frame = _cap_tracker(0.0).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
 
-        assert frame.decision == "hold"
-        assert frame.target is None
+        assert frame.decision == "pass"
+        assert frame.target == "uuid-a3"
         assert frame.bargain_allowance == 0
 
     def test_the_cap_is_checked_before_anything_is_solved(self) -> None:
