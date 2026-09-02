@@ -59,22 +59,36 @@ def test_normalize_keeps_only_the_sales_in_order() -> None:
 # --- the live path: the purchases/<fl> ledger, the authoritative sale signal ---
 
 
-def _purchase(player_id: str, price: int, buyer: object, created_at: int) -> dict[str, object]:
-    rec: dict[str, object] = {"player_id": player_id, "price": price, "created_at": created_at}
+def _purchase(
+    player_id: str, price: int, buyer: object, created_at: int, user: object = "u1",
+) -> dict[str, object]:
+    rec: dict[str, object] = {
+        "player_id": player_id, "price": price, "created_at": created_at, "user_id": user,
+    }
     if buyer is not None:
         rec["fantateam_id"] = buyer
     return rec
 
 
 def test_a_purchase_record_becomes_an_assignment_event() -> None:
-    event = parse_purchase(_purchase("kean", 16, "seat2", 100))
-    assert event == AssignmentEvent(player_id="kean", price=16, buyer_team_id="seat2")
+    event = parse_purchase(_purchase("kean", 16, "seat2", 100, user="u9"))
+    assert event == AssignmentEvent(
+        player_id="kean", price=16, buyer_team_id="seat2", bidder_user_id="u9"
+    )
 
 
 def test_an_unsold_lot_keeps_a_none_buyer_and_is_not_dropped() -> None:
     # a skip is a real record: price 0, no fantateam_id
-    event = parse_purchase(_purchase("orsolini", 0, None, 50))
-    assert event == AssignmentEvent(player_id="orsolini", price=0, buyer_team_id=None)
+    event = parse_purchase(_purchase("orsolini", 0, None, 50, user="admin"))
+    assert event == AssignmentEvent(
+        player_id="orsolini", price=0, buyer_team_id=None, bidder_user_id="admin"
+    )
+
+
+def test_a_skip_with_no_user_id_at_all_carries_none() -> None:
+    record = _purchase("orsolini", 0, None, 50)
+    del record["user_id"]
+    assert parse_purchase(record) == AssignmentEvent("orsolini", 0, None, None)
 
 
 def test_a_garbled_purchase_is_ignored() -> None:
@@ -97,4 +111,4 @@ def test_a_reopened_close_is_no_phantom_sale() -> None:
     # a lot closed then RIAPRI'd never writes a purchase, so the ledger holds only the real
     # final sale — keying off purchases cannot double-count it.
     ledger = {"only": _purchase("kean", 16, "seat2", 100)}
-    assert purchases_to_events(ledger) == [AssignmentEvent("kean", 16, "seat2")]
+    assert purchases_to_events(ledger) == [AssignmentEvent("kean", 16, "seat2", "u1")]

@@ -34,11 +34,19 @@ CLOSE = "close_auction"
 
 @dataclass(frozen=True)
 class AssignmentEvent:
-    """A player sold: who, for how much, to which team (``None`` if unnamed)."""
+    """A player sold: who, for how much, to which team (``None`` if unnamed).
+
+    ``bidder_user_id`` is additive — ``None`` for a ``parse_assignment`` replay, which has no
+    such field, and for any caller built before this existed. It is what makes a passed lot's
+    real bidder recoverable: an admin auto-skip and a raise that stood but was never confirmed
+    are the same record shape (``price: 0``, no ``fantateam_id``) and differ only in whose
+    ``user_id`` wrote it (`attribute_passed_lots`).
+    """
 
     player_id: str
     price: int
     buyer_team_id: str | None
+    bidder_user_id: str | None = None
 
 
 def parse_assignment(state: Mapping[str, Any]) -> AssignmentEvent | None:
@@ -74,6 +82,11 @@ def parse_purchase(record: Mapping[str, Any]) -> AssignmentEvent | None:
     a real record with ``price: 0`` and no ``fantateam_id`` — it is emitted with
     ``buyer_team_id=None``, **not dropped**, so the pool sees the player leave the board and the
     opponent tracker correctly attributes it to nobody.
+
+    ``bidder_user_id`` (``record["user_id"]``) rides along on every record, sold or skipped.
+    On a skip it is not "nobody" — it is whoever's action produced this record: the room admin
+    auto-skipping an expired lot, or a bidder whose raise stood but the admin passed anyway,
+    which the platform records identically. `attribute_passed_lots` is what tells them apart.
     """
     if not isinstance(record, Mapping):
         return None
@@ -84,10 +97,12 @@ def parse_purchase(record: Mapping[str, Any]) -> AssignmentEvent | None:
     if isinstance(price, bool) or not isinstance(price, int):  # a JSON bool is not a price
         return None
     buyer = record.get("fantateam_id")
+    bidder = record.get("user_id")
     return AssignmentEvent(
         player_id=player_id,
         price=price,
         buyer_team_id=buyer if isinstance(buyer, str) else None,
+        bidder_user_id=bidder if isinstance(bidder, str) else None,
     )
 
 
