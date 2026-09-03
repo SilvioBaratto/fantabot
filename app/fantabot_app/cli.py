@@ -31,7 +31,18 @@ def _default(ctx: typer.Context) -> None:
 @app.command()
 def setup() -> None:
     """Provision local Postgres, run migrations, and install chromium."""
-    typer.echo("setup: not yet implemented (F2 — provisioner + migrate)")
+    from fantabot_app.provisioner import chromium, migrate
+    from fantabot_app.provisioner.postgres import PostgresProvisioner
+
+    provisioner = PostgresProvisioner()
+    typer.echo("Provisioning local Postgres (bundled PG18, no Docker)...")
+    url = provisioner.start()
+    typer.echo(f"Postgres ready at {_redact(url)}")
+    typer.echo("Running migrations (alembic upgrade head)...")
+    migrate.upgrade_head()
+    typer.echo("Installing chromium for headed login...")
+    chromium.install_chromium()
+    typer.echo("Setup complete.")
 
 
 @app.command()
@@ -43,13 +54,26 @@ def up() -> None:
 @app.command()
 def stop() -> None:
     """Stop the local Postgres the launcher started."""
-    typer.echo("stop: not yet implemented (F2 — provisioner)")
+    from fantabot_app.provisioner.postgres import PostgresProvisioner
+
+    PostgresProvisioner().stop()
+    typer.echo("Postgres stopped.")
 
 
 @app.command()
 def doctor() -> None:
     """Report on uv, Postgres, migrations, chromium, and token status."""
-    typer.echo("doctor: not yet implemented (F2 — provisioner)")
+    typer.echo("doctor: not yet implemented (F2 — extended checks)")
+
+
+def _redact(url: str) -> str:
+    """Hide any password in a database URL before echoing it."""
+    if "@" not in url or "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    creds, _, host = rest.partition("@")
+    user = creds.split(":", 1)[0]
+    return f"{scheme}://{user}@{host}"
 
 
 def main() -> None:
