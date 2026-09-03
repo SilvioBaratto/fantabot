@@ -62,6 +62,10 @@ def _fakes(monkeypatch: pytest.MonkeyPatch, dto: dict[str, Any] = DTO) -> None:
     monkeypatch.setattr(
         config.settings, "fantabot_encryption_key", Fernet.generate_key().decode()
     )
+    # Hermetic: the commands resolve the lega from config when no --league is given, and the
+    # real value lives in the gitignored .env — absent in CI. Pin it so the tests do not depend
+    # on a local .env.
+    monkeypatch.setattr(config.settings, "fantabot_league_id", 4103937)
     monkeypatch.setattr(database_manager, "_session_factory", _Session)
     monkeypatch.setattr(
         apileague, "teamLineup_read", lambda *a, **k: {"teamLineupDto": dto, "lineUpInfo": []}
@@ -123,6 +127,7 @@ def _fakes_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         config.settings, "fantabot_encryption_key", Fernet.generate_key().decode()
     )
+    monkeypatch.setattr(config.settings, "fantabot_league_id", 4103937)  # hermetic; see _fakes
     monkeypatch.setattr(database_manager, "_session_factory", _Session)
     monkeypatch.setattr(apileague, "my_team", lambda *a, **k: {"id": 10000003})
     monkeypatch.setattr(

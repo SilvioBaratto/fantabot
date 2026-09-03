@@ -88,10 +88,20 @@ def test_the_untracked_set_still_describes_reality() -> None:
 
     Both directions matter. One that has gone is a citation to nothing; one that has been
     tracked should leave the list, or the exemption outlives the reason for it.
+
+    **The presence check is maintainer-local.** These files are gitignored (`docs/`), so a
+    fresh checkout — CI, or anyone but the machine that wrote them — legitimately does not have
+    them, and asserting they are on disk there would be asserting the `.gitignore` is broken.
+    The "no longer on disk" direction therefore only runs where the docs actually live; the
+    "must not become tracked" direction runs everywhere, because a tracked file drifting into
+    this list is real rot regardless of host.
     """
     tracked = _tracked()
-    gone = sorted(f for f in UNTRACKED_BY_DECISION if not (REPO / f).exists())
     now_tracked = sorted(f for f in UNTRACKED_BY_DECISION if f in tracked)
-
-    assert gone == [], f"cited, exempted, and no longer on disk: {gone}"
     assert now_tracked == [], f"now tracked, so remove from the exemption list: {now_tracked}"
+
+    present = [f for f in UNTRACKED_BY_DECISION if (REPO / f).exists()]
+    if not present:
+        pytest.skip("docs/ not checked out (a fresh/CI clone) — this is a maintainer-local check")
+    gone = sorted(f for f in UNTRACKED_BY_DECISION if not (REPO / f).exists())
+    assert gone == [], f"cited, exempted, and no longer on disk: {gone}"

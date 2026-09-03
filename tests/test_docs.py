@@ -73,6 +73,10 @@ def test_every_path_named_is_a_file_that_exists(doc: str) -> None:
                 or TEMPLATE.match(ref)
                 or ref in CONVENTIONAL
                 or ref in basenames
+                # `docs/` is gitignored by policy (local-only maintainer notes), so a fresh
+                # checkout / CI cannot see it and a reference into it is not verifiable in git.
+                # Exempted like SPEC.md and tasks/ — the same local-only convention.
+                or ref.startswith("docs/")
             ):
                 continue
             stale.append(f"{doc}:{number}: {ref}")
