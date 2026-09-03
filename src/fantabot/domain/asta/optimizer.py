@@ -285,7 +285,7 @@ def _seed_legal_xi(
     return None
 
 
-def _build(
+def _build_mantra(
     state: AstaState,
     by_id: Mapping[str, MantraPlayer],
     available: Sequence[MantraPlayer],
@@ -364,6 +364,30 @@ def _build(
 
     total_cost = state.spent + (state.remaining_budget - budget_left)
     return Roster(tuple(picked), total_cost, objective(picked, value, teams, lam, rho))
+
+
+def _build(
+    state: AstaState,
+    by_id: Mapping[str, MantraPlayer],
+    available: Sequence[MantraPlayer],
+    value: ValueModel,
+    prices: Mapping[str, float],
+    teams: Mapping[str, str],
+    legality: dict[str, SchemaLegality],
+    rules: RosterRules,
+    lam: float,
+    rho: float,
+    index: _Index,
+) -> Roster:
+    """Dispatch the roster fill by composition.
+
+    Today only the Mantra fill exists (two super-roles + an L1 legal-XI seed). The Classic
+    fill — four per-role bands over P/D/C/A, no schema seed — lands in the next task and is
+    selected here on the rules' composition shape, keeping the Mantra path byte-identical.
+    """
+    return _build_mantra(
+        state, by_id, available, value, prices, teams, legality, rules, lam, rho, index
+    )
 
 
 def _fallback_targets(
