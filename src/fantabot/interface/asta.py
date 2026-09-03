@@ -813,6 +813,12 @@ def asta_bid(
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
+    fmt: str = typer.Option(
+        "mantra", "--format",
+        help="Roster format of THIS room: mantra or classic. asta bid is unauthenticated and "
+        "cannot read the room's asta_type, so a Classic room must be told — a wrong format "
+        "prices and caps against the wrong band.",
+    ),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
@@ -851,6 +857,9 @@ def asta_bid(
     import time
 
     from fantabot.adapters.files.room_journal import RoomJournal
+
+    if fmt not in ("mantra", "classic"):
+        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
     # Fetched once for the run, not per poll: the mapping changes only when the
     # platform adds a player, and a live room does not want an HTTP round trip it
@@ -904,7 +913,18 @@ def asta_bid(
             as_of=_today(),
             tilt_k=tilt_k,
             callable_ids={str(fid) for fid in bridge.values()},
+            listone=fmt,
         )
+
+    if not world.pool:
+        console.print(f"[red]no {fmt} players for season {season} — cannot bid.[/red]")
+        raise typer.Exit(code=1)
+
+    # The band this room is played under. Classic (25-man P/D/C/A) or Mantra (the default);
+    # max_cap and the plan both size off it, so a wrong --format caps against the wrong rosa.
+    room_rules: RosterRules | ClassicRosterRules = (
+        ClassicRosterRules() if fmt == "classic" else RosterRules()
+    )
 
     seat = Seat(fantateam_id=team, user_id=user)
 
@@ -939,9 +959,9 @@ def asta_bid(
     tracker = RoomTracker(
         seat=seat,
         bridge=bridge,
-        pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, names=world.names,
-        rules=RosterRules(),
+        rules=room_rules,
         budget=budget,
         lam=lam,
         ceiling_alpha=ceiling_alpha,
@@ -993,7 +1013,7 @@ def asta_bid(
         return latest[-1].credits_left if latest else int(budget)
 
     def _cap() -> int:
-        return latest[-1].max_cap if latest else max_bid(int(budget), RosterRules().size)
+        return latest[-1].max_cap if latest else max_bid(int(budget), room_rules.size)
 
     def heartbeat(line: str) -> None:
         """Printed as before; also journaled for the one message that means `target_of` (and

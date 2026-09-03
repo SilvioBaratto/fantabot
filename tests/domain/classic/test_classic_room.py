@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from fantabot.domain.asta.bid import max_bid
 from fantabot.domain.asta.reservation import opportunistic_walkaway
-from fantabot.domain.asta.state import AstaState, drop_unvaluable
+from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.domain.classic.roles import ClassicPlayer
 from fantabot.domain.classic.state import ClassicRosterRules
 
 TINY = ClassicRosterRules(size=4, bands=(("P", 1, 1), ("D", 1, 1), ("C", 1, 1), ("A", 1, 1)))
+
+
+def test_the_max_cap_sizes_off_the_classic_roster_not_the_mantra_one() -> None:
+    # asta bid's _cap reserves one credit per remaining obligatory slot: 25 for Classic,
+    # 30 for the Mantra default. A wrong --format would cap against the wrong band.
+    assert ClassicRosterRules().size == 25
+    assert max_bid(500, ClassicRosterRules().size) != max_bid(500, RosterRules().size)
 
 
 def test_shrunk_stays_feasible() -> None:
