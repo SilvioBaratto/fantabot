@@ -39,3 +39,6 @@ video/out/
 /out/
 /script.md
 /video/
+
+# maintainer-only, never publish
+/SPEC.md
