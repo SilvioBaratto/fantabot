@@ -98,6 +98,9 @@ class ResolvedRoom:
     max_goalkeepers: int | None
     min_others: int | None
     max_others: int | None
+    #: The Classic `static` per-role band `{P,D,C,A}`, carried so `rules_for_room` can build a
+    #: `ClassicRosterRules`. `None` for a Mantra room.
+    players_settings_data: Mapping[str, int] | None
     asta_mode: str | None
     raise_mode: str | None
     counter_time: int | None
@@ -176,6 +179,7 @@ def resolve_room(
         max_goalkeepers=config.max_goalkeepers,
         min_others=config.min_others,
         max_others=config.max_others,
+        players_settings_data=config.players_settings_data,
         asta_mode=config.asta_mode,
         raise_mode=config.raise_mode,
         counter_time=config.counter_time,

@@ -82,6 +82,11 @@ class RoomConfig:
     #: "Start from the quotazione" instead of from 1. It deletes the whole 1-3 credit tail, so
     #: every price model downstream has to know. FantaLab's default is false.
     call_at_quotaz: bool = False
+    #: The Classic per-role band under `number_of_players_selection == "static"` — a
+    #: `{P,D,C,A}` map of exact counts (`min == max`). Confirmed live 3584692:
+    #: `{"P":3,"D":8,"C":8,"A":6}` (`docs/classic/task0-capture.md`). `None` for a Mantra room,
+    #: which declares its band through the goalkeeper/others keys instead.
+    players_settings_data: Mapping[str, int] | None = None
 
     def free_seats(self) -> tuple[Seat, ...]:
         """The seats nobody holds — a bot claims one of these to bid legitimately."""
@@ -185,6 +190,21 @@ def _parse_roster_band(body: Mapping[str, Any]) -> dict[str, int | None]:
     return found
 
 
+def _players_settings(body: Mapping[str, Any]) -> Mapping[str, int] | None:
+    """The Classic ``static`` per-role band, or ``None``.
+
+    Reads only the P/D/C/A keys and coerces each to int; a body without a usable map (a Mantra
+    room, or a malformed one) returns ``None`` so the caller falls back rather than inventing a
+    band. See ``RoomConfig.players_settings_data``.
+    """
+    raw = body.get("players_settings_data")
+    if not isinstance(raw, Mapping):
+        return None
+    band = {role: _as_int(raw.get(role)) for role in ("P", "D", "C", "A")}
+    resolved = {role: value for role, value in band.items() if value is not None}
+    return resolved or None
+
+
 def parse_league(body: Mapping[str, Any]) -> RoomConfig:
     """The flat ``fantaleague/fetch`` record → a typed ``RoomConfig``. Pure."""
     seats = tuple(
@@ -209,6 +229,7 @@ def parse_league(body: Mapping[str, Any]) -> RoomConfig:
         max_player=_as_int(body.get("max_player")),
         call_at_quotaz=bool(body.get("call_at_quotaz")),
         number_of_players_selection=_as_str(body.get("number_of_players_selection")),
+        players_settings_data=_players_settings(body),
         **_parse_roster_band(body),
     )
 

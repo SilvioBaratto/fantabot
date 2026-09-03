@@ -8,9 +8,11 @@ budget. ``RosterRules`` is the league's composition — for lega 4103937, 30 pla
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
+
+from fantabot.domain.classic.state import ClassicRosterRules, classic_rules
 
 if TYPE_CHECKING:
     from fantabot.domain.asta.roles import MantraPlayer
@@ -80,7 +82,8 @@ def rules_for_room(
     min_goalkeepers: int | None = None,
     min_others: int | None = None,
     target_size: int | None = None,
-) -> tuple[RosterRules, str]:
+    classic_band: Mapping[str, int] | None = None,
+) -> tuple[RosterRules | ClassicRosterRules, str]:
     """`RosterRules`, derived from what a room actually declares, with a stated provenance.
 
     **Reading the room too literally is the named risk (`tasks/plan.md` §2).** A room under
@@ -104,6 +107,10 @@ def rules_for_room(
     `target_size` overrides it (an operator's explicit choice to target `max_player` or
     something else within the declared band, not this function's call to make).
     """
+    # Classic (`sroles=1`): a `static` selection carries a four-role P/D/C/A band that the
+    # two-super-role RosterRules cannot express, so it becomes a ClassicRosterRules.
+    if selection == "static" and classic_band:
+        return classic_rules(classic_band), ROOM_DECLARED
     if selection == "min-max-goalie-others" and min_goalkeepers is not None and min_others is not None:
         size = target_size if target_size is not None else min_goalkeepers + min_others
         return (

@@ -500,6 +500,7 @@ def asta_room(
         max_player=resolved.max_player,
         min_goalkeepers=resolved.min_goalkeepers,
         min_others=resolved.min_others,
+        classic_band=resolved.players_settings_data,
     )
     console.print(
         f"[bold]{resolved.fantaleague_id}[/bold] · shard {resolved.db} · "
@@ -586,7 +587,9 @@ def asta_room(
         bridge=bridge,
         pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, names=world.names,
-        rules=rules,
+        # Mantra-only until C3 makes RoomTracker format-aware; resolve_room still refuses Classic,
+        # so `rules` is a RosterRules at runtime here.
+        rules=cast("RosterRules", rules),
         budget=credits,
         lam=lam,
         ceiling_alpha=ceiling_alpha,

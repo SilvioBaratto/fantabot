@@ -200,6 +200,17 @@ class TestTheRosterBandFields:
         """FantaLab's default is "start from 1". A room that does not say is that room."""
         assert rest.parse_league({"fantaleague_id": "L"}).call_at_quotaz is False
 
+    def test_players_settings_data_is_parsed_for_a_classic_static_room(self) -> None:
+        room = rest.parse_league({
+            "fantaleague_id": "L",
+            "number_of_players_selection": "static",
+            "players_settings_data": {"P": 3, "D": 8, "C": 8, "A": 6},
+        })
+        assert room.players_settings_data == {"P": 3, "D": 8, "C": 8, "A": 6}
+
+    def test_absent_players_settings_data_is_none(self) -> None:
+        assert rest.parse_league({"fantaleague_id": "L"}).players_settings_data is None
+
 
 class TestTheGoalkeeperOutfieldBand:
     """`number_of_players_selection` and the `min-max-goalie-others` band it names — the wire

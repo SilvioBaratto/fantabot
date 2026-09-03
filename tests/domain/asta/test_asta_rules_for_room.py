@@ -17,6 +17,31 @@ from fantabot.domain.asta.state import (
     RosterRules,
     rules_for_room,
 )
+from fantabot.domain.classic.state import ClassicRosterRules
+
+
+class TestAClassicStaticRoom:
+    """A Classic room declares `number_of_players_selection == "static"` and a
+    `players_settings_data` per-role band — a four-role floor Mantra's two-super-role shape
+    cannot express. Confirmed live 3584692 (docs/classic/task0-capture.md)."""
+
+    def test_static_selection_builds_a_classic_band(self) -> None:
+        rules, provenance = rules_for_room(
+            selection="static", min_player=25, max_player=25,
+            classic_band={"P": 3, "D": 8, "C": 8, "A": 6},
+        )
+        assert isinstance(rules, ClassicRosterRules)
+        assert rules.size == 25
+        assert rules.min_of("D") == 8
+        assert rules.max_of("A") == 6
+        assert provenance == ROOM_DECLARED
+
+    def test_static_without_a_band_falls_back_to_assumed(self) -> None:
+        rules, provenance = rules_for_room(
+            selection="static", min_player=25, max_player=25,
+        )
+        assert isinstance(rules, RosterRules)  # nothing to read -> the honest assumed default
+        assert provenance == ASSUMED_NOTHING
 
 
 class TestARoomThatDeclaresTheBand:
