@@ -1,0 +1,54 @@
+<header class="mb-8">
+  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Actions</h1>
+  <p class="mt-1 text-sm text-text-secondary">Run the weekly jobs and watch them progress.</p>
+</header>
+
+@if (errorMsg(); as error) {
+  <div class="mb-6 rounded-lg border border-danger/40 bg-surface-raised p-4 text-sm text-danger">{{ error }}</div>
+}
+
+<section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Lega sync</div>
+  <div class="p-6">
+    <p class="mb-4 text-sm text-text-secondary">
+      Read a lega (rosters, credits, settings, calendar) and store it. Safe to re-run — every write is an upsert.
+    </p>
+    <div class="flex flex-wrap items-center gap-3">
+      <input
+        type="number"
+        inputmode="numeric"
+        placeholder="league id, e.g. 4103937"
+        (input)="setLeagueId($any($event.target).value)"
+        class="w-56 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text tabular-nums placeholder:text-text-tertiary"
+      />
+      <button
+        type="button"
+        (click)="runLegaSync()"
+        [disabled]="!leagueId() || running()"
+        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
+      >
+        <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="running()"></lucide-icon>
+        {{ running() ? 'Running…' : 'Run lega sync' }}
+      </button>
+    </div>
+
+    @if (jobStatus()) {
+      <div class="mt-6 rounded-md border border-border-muted bg-surface-inset p-4">
+        <div class="mb-2 flex items-center gap-2">
+          <span
+            class="h-2.5 w-2.5 rounded-full"
+            [class.bg-warning]="jobStatus() === 'running'"
+            [class.bg-signature]="jobStatus() === 'done' && jobOk() !== false"
+            [class.bg-danger]="jobStatus() === 'error' || jobOk() === false"
+          ></span>
+          <span class="text-sm font-medium text-text">{{ jobStatus() }}{{ jobOk() === false ? ' (partial)' : '' }}</span>
+        </div>
+        @for (line of lines(); track $index) {
+          <p class="font-mono text-xs text-text-secondary">{{ line }}</p>
+        } @empty {
+          <p class="text-xs text-text-tertiary">Waiting for output…</p>
+        }
+      </div>
+    }
+  </div>
+</section>

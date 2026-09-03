@@ -42,6 +42,11 @@ export const routes: Routes = [
         title: 'Accounts',
       },
       {
+        path: 'actions',
+        loadComponent: () => import('./pages/actions/actions').then((m) => m.ActionsComponent),
+        title: 'Actions',
+      },
+      {
         path: 'news',
         loadComponent: () => import('./pages/news/news').then((m) => m.NewsComponent),
         title: 'News',

@@ -8,6 +8,7 @@ and register them here with ``api_router.include_router(...)``.
 from fastapi import APIRouter
 
 from fantabot_app.api.v1.endpoints import (
+    actions,
     asta,
     auth,
     db,
@@ -30,3 +31,4 @@ api_router.include_router(asta.router)
 api_router.include_router(pricing.router)
 api_router.include_router(legality.router)
 api_router.include_router(lineup.router)
+api_router.include_router(actions.router)
