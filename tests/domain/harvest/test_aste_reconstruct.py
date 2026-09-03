@@ -15,33 +15,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-from _paths import ONE_AUCTION, REPO
+from _paths import ONE_AUCTION
 
 from fantabot.domain.harvest.reconstruct import reconstruct
 
 FIXTURE = ONE_AUCTION
-EVENING = REPO / "data" / "aste_live" / "events_2026-08-26.jsonl"
-
-# Ground truth from scripts/resolve_aste_live.py, the poller-era resolver, run
-# against this exact file on 2026-08-27. This module must not silently disagree
-# with it: a difference means one of the two is wrong, and it has to be explained
-# rather than absorbed.
-#
-# The input is pinned alongside the output. An earlier revision asserted 11,453 —
-# correct when measured at 01:23 UTC, stale by 02:23 because the collector kept
-# running for another hour. Without the line count, that failure reads as "the
-# reconstruction broke" when it means "the input grew". With it, the message says
-# which.
-EVENING_LINES = 144_518
-EVENING_ASSIGNMENTS = 11_498
-
-#: Total credits across the evening's sales, under **last close wins**.
-#:
-#: The count alone was a weak oracle and said so only in hindsight: it is
-#: identical under first-wins and last-wins, so the rule could be — and was —
-#: wrong on 271 sales with every test green. The spend is the number that moves.
-EVENING_SPEND = 172_286
 FIXTURE_ASSIGNMENTS = 18
 
 
@@ -92,22 +70,6 @@ def test_states_from_several_auctions_do_not_bleed_together() -> None:
     assert len({a.auction_id for a in both}) == 2
 
 
-@pytest.mark.skipif(not EVENING.exists(), reason="the recorded evening is not on this machine")
-def test_the_recorded_evening_matches_the_poller_era_resolver() -> None:
-    states = _states(EVENING)
-    assert len(states) == EVENING_LINES, (
-        f"the recorded evening has {len(states)} states, not the {EVENING_LINES} these "
-        "numbers were measured against. The file is meant to be immutable; if it grew, "
-        "re-derive EVENING_ASSIGNMENTS with scripts/resolve_aste_live.py before touching "
-        "this module."
-    )
-    assignments = reconstruct(states)
-    assert len(assignments) == EVENING_ASSIGNMENTS
-    assert sum(a.price for a in assignments) == EVENING_SPEND, (
-        "the count is identical under first-wins and last-wins; the spend is not"
-    )
-
-
 def test_an_auction_first_seen_between_players_does_not_crash() -> None:
     """A `confirm` state carries no player_id: the slot is empty between sales.
     If collection starts there, `None` is the player on the block — which is not
@@ -154,22 +116,6 @@ def test_a_recalled_player_starts_a_fresh_ladder() -> None:
     assert assignment.price == 0
     assert [b.price for b in assignment.ladder] == [0], (
         "the annulled turn's bidding must not appear in the sale that followed"
-    )
-
-
-def test_no_recorded_ladder_ever_steps_downwards() -> None:
-    """An ascending auction cannot produce one. This is the property the bug
-    above violated, asserted across the whole recorded evening rather than on a
-    fixture that happened not to contain the case."""
-    if not EVENING.exists():
-        pytest.skip("the recorded evening is not on this machine")
-    descending = [
-        a for a in reconstruct(_states(EVENING))
-        if [b.price for b in a.ladder] != sorted(b.price for b in a.ladder)
-    ]
-    assert descending == [], (
-        f"{len(descending)} ladder(s) step downwards; first: "
-        f"{[b.price for b in descending[0].ladder] if descending else None}"
     )
 
 

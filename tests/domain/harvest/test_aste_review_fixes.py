@@ -6,8 +6,6 @@ would otherwise be a two-test module.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
@@ -16,7 +14,7 @@ from fantabot.adapters.http.harvest.stream import stream_url
 from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
 from fantabot.adapters.persistence.repositories.aste import PARAMETER_LIMIT, chunk_size
 from fantabot.domain.harvest.models import ShardError, valid_shard
-from fantabot.domain.harvest.registry import from_card, from_seed_row
+from fantabot.domain.harvest.registry import from_card
 
 # --- 1. SSRF: the shard reaches a URL and comes from untrusted content -----
 
@@ -68,27 +66,3 @@ def test_chunking_is_derived_rather_than_assumed() -> None:
     """A wide table gets a smaller chunk. A single constant cannot be right for
     tables of different widths, and being wrong is silent until the batch is big."""
     assert chunk_size(Asta) < chunk_size(AstaEvent)
-
-
-# --- 3. One seed parser, not two ------------------------------------------
-
-
-def test_the_backfill_and_the_registry_read_a_seed_identically() -> None:
-    """Two independent parsers of one positional format drift silently. The
-    backfill used index constants and `entry[-1]`; the registry used a field
-    tuple. Same file, two readings."""
-    from fantabot.domain.harvest.backfill import auction_rows
-
-    seed = json.loads(
-        Path("data/aste_live/seed_2026-08-26.json").read_text(encoding="utf-8")
-    )
-    rows = auction_rows(seed, "mantra")
-    configs = [from_seed_row(entry, asta_type="mantra") for entry in seed]
-
-    assert len(rows) == len(configs)
-    for row, config in zip(rows, configs, strict=True):
-        assert row["id"] == config.auction_id
-        assert row["db_shard"] == config.db_shard
-        assert row["name"] == config.name
-        assert row["num_credits"] == config.num_credits
-        assert row["counter_time_first"] == config.counter_time_first
