@@ -27,6 +27,11 @@ export const routes: Routes = [
         title: 'Target prices',
       },
       {
+        path: 'lineup',
+        loadComponent: () => import('./pages/lineup/lineup').then((m) => m.LineupComponent),
+        title: 'Lineup',
+      },
+      {
         path: 'modules',
         loadComponent: () => import('./pages/modules/modules').then((m) => m.ModulesComponent),
         title: 'Modules',

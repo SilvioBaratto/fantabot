@@ -1,0 +1,77 @@
+<header class="mb-8">
+  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Lineup</h1>
+  <p class="mt-1 text-sm text-text-secondary">The best fieldable formation. Preview only — it never submits.</p>
+</header>
+
+@if (loading()) {
+  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+} @else if (errorMsg(); as message) {
+  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
+    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
+    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
+  </section>
+} @else if (!leagues().length) {
+  <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
+    <p class="font-display text-base font-semibold text-text">No leagues yet</p>
+    <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">Run a lega sync first.</p>
+  </section>
+} @else {
+  <div class="mb-6 flex flex-wrap gap-2">
+    @for (l of leagues(); track l.league_id) {
+      <button
+        type="button"
+        (click)="select(l.league_id)"
+        class="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
+        [class.border-primary]="selectedId() === l.league_id"
+        [class.bg-primary-light]="selectedId() === l.league_id"
+        [class.text-primary]="selectedId() === l.league_id"
+        [class.border-border]="selectedId() !== l.league_id"
+        [class.text-text-secondary]="selectedId() !== l.league_id"
+      >
+        {{ l.league_name ?? 'Lega ' + l.league_id }}
+      </button>
+    }
+  </div>
+
+  @if (planLoading()) {
+    <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+  } @else if (plan(); as p) {
+    @if (p.found) {
+      <section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+        <div class="h-1 w-full bg-primary"></div>
+        <div class="flex flex-wrap items-end gap-x-12 gap-y-4 p-6">
+          <div>
+            <p class="font-display text-5xl font-bold tabular-nums text-text">{{ p.module }}</p>
+            <p class="mt-1 text-sm text-text-secondary">module@if (p.matchday !== null) { · matchday {{ p.matchday }} }</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
+          <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Starters</div>
+          @for (player of p.starters; track player.player_id; let i = $index) {
+            <div class="flex items-center gap-3 border-b border-border-muted px-6 py-2 last:border-b-0">
+              <span class="w-5 text-right text-xs tabular-nums text-text-tertiary">{{ i + 1 }}</span>
+              <span class="text-sm text-text">{{ player.nome }}</span>
+            </div>
+          }
+        </section>
+
+        <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
+          <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Bench</div>
+          @for (player of p.bench; track player.player_id) {
+            <div class="border-b border-border-muted px-6 py-2 text-sm text-text-secondary last:border-b-0">
+              {{ player.nome }}
+            </div>
+          }
+        </section>
+      </div>
+    } @else {
+      <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
+        <p class="font-display text-base font-semibold text-text">No lineup yet</p>
+        <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">{{ p.reason }}</p>
+      </section>
+    }
+  }
+}

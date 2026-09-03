@@ -19,6 +19,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Home', route: '/home', icon: 'Home' },
   { name: 'Dashboard', route: '/dashboard', icon: 'LayoutDashboard' },
   { name: 'Asta', route: '/asta', icon: 'Sliders' },
+  { name: 'Lineup', route: '/lineup', icon: 'ClipboardList' },
   { name: 'Prices', route: '/prices', icon: 'FunctionSquare' },
   { name: 'Modules', route: '/modules', icon: 'CheckCircle' },
   { name: 'Accounts', route: '/accounts', icon: 'User' },
