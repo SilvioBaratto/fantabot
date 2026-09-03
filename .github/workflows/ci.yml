@@ -14,6 +14,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: this pipeline only reads the code and runs tests. Nothing here needs write.
+permissions:
+  contents: read
+
 jobs:
   lint-and-type:
     name: ruff + mypy
@@ -80,5 +84,7 @@ jobs:
           echo "FANTABOT_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
       - name: alembic upgrade head
         run: alembic upgrade head
+      - name: alembic check (models and migrations agree)
+        run: alembic check
       - name: pytest -m db
         run: pytest -q -m db

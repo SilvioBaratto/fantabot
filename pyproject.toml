@@ -26,8 +26,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.5",
-    "mypy>=1.10",
+    # ruff and mypy are pinned to a patch band (~=): a new minor can add a lint rule or tighten
+    # a check and turn CI red with no code change, which would break the "green every time"
+    # promise. Bump these deliberately (Dependabot), not implicitly.
+    "ruff~=0.16.5",
+    "mypy~=2.3.1",
 ]
 
 [project.scripts]

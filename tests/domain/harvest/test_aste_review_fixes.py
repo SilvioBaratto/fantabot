@@ -66,3 +66,34 @@ def test_chunking_is_derived_rather_than_assumed() -> None:
     """A wide table gets a smaller chunk. A single constant cannot be right for
     tables of different widths, and being wrong is silent until the batch is big."""
     assert chunk_size(Asta) < chunk_size(AstaEvent)
+
+
+# --- 3. One seed parser, not two ------------------------------------------
+
+# The positional seed format, inline (the shape `test_aste_registry.SEED_ROW` /
+# `test_aste_backfill.SEED` use): [id, db_shard, ?, num_credits, ?, ?, mode, raise_mode,
+# counter_time, counter_time_first, name]. A hermetic literal, not the gitignored 80 MB
+# data/aste_live/seed_2026-08-26.json the original read.
+_SEED = [
+    ["a-1", "15", 8, 500, 25, 25, "random", "free", 10, 20, "Lega Uno"],
+    ["b-2", "4", 10, 500, 25, 25, "chiamata", "free", 7, 7, "Lega Due"],
+]
+
+
+def test_the_backfill_and_the_registry_read_a_seed_identically() -> None:
+    """Two independent parsers of one positional format drift silently. The backfill used
+    index constants and `entry[-1]`; the registry used a field tuple. Same file, two readings —
+    nothing else cross-checks that they agree, so this asserts it on a hermetic seed."""
+    from fantabot.domain.harvest.backfill import auction_rows
+    from fantabot.domain.harvest.registry import from_seed_row
+
+    rows = auction_rows(_SEED, "mantra")
+    configs = [from_seed_row(entry, asta_type="mantra") for entry in _SEED]
+
+    assert len(rows) == len(configs)
+    for row, config in zip(rows, configs, strict=True):
+        assert row["id"] == config.auction_id
+        assert row["db_shard"] == config.db_shard
+        assert row["name"] == config.name
+        assert row["num_credits"] == config.num_credits
+        assert row["counter_time_first"] == config.counter_time_first

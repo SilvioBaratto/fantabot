@@ -47,3 +47,8 @@ video/out/
 # ids (and a public Firebase web key). Kept local, never committed to a public repo.
 scripts/capture_*.py
 scripts/read_classic_lineup.py
+
+# Local scratch and live-site captures — hold real DOM/console/PII from leghe.fantacalcio.it.
+# Untracked-and-unignored is one `git add -A` from publication; ignore before going public.
+.playwright-mcp/
+_pdftext.txt

@@ -1,15 +1,32 @@
-# Keep the image lean and the build deterministic. .git IS kept — test_links/test_docs
-# read the tracked set via `git ls-files`.
+# Docker does NOT read .gitignore, so the "never publish" set is mirrored here — otherwise
+# `COPY . .` bakes the maintainer's real .env (FANTABOT_ENCRYPTION_KEY, LEGA_PASSWORD, API
+# keys) and local-only trees into image layers. Keep this in sync with .gitignore's secret set.
+.env
+.env.*
+!.env.example
+
+# Local-only / maintainer-only, never in an image. Only the gitignored recordings under
+# data/aste_live/ are excluded — data/README.md and data/.gitkeep are tracked and test_links
+# reads them, so the directory itself stays.
+data/aste_live/
+docs/
+SPEC.md
+tasks/
+scripts/capture_*.py
+scripts/read_classic_lineup.py
+*.dump
+*.sql
+.playwright-mcp/
+.claude/
+_pdftext.txt
+
+# Build/test caches and scratch
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.playwright-mcp/
-.claude/
-_pdftext.txt
-postgres_data/
 *.egg-info/
 .venv/
 node_modules/
