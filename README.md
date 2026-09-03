@@ -119,7 +119,7 @@ Postgres is the source of truth. The CSVs in `data/` are the one-time seed it
 was built from and nothing reads them any more — the scrapers, the analysis
 scripts and `news fetch` all go through the database. See
 [`data/README.md`](data/README.md) for the table dictionary, and
-[`docs/spec-postgres-persistence.md`](docs/spec-postgres-persistence.md) for why
+`docs/spec-postgres-persistence.md` for why
 each departure from the file layout was made.
 
 ```bash
