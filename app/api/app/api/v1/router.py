@@ -7,5 +7,8 @@ and register them here with ``api_router.include_router(...)``.
 
 from fastapi import APIRouter
 
+from app.api.v1.endpoints import jobs
+
 # Create the main API router
 api_router = APIRouter()
+api_router.include_router(jobs.router)
