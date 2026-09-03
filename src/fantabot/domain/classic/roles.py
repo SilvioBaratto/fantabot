@@ -10,6 +10,7 @@ that mapping. Measured live 2026-09-03 (`docs/classic/task0-capture.md`): fcrle=
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -76,3 +77,18 @@ class ClassicPlayer:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "role", normalize_role(self.role))
+
+
+def build_classic_pool(roles_by_id: Mapping[str, Sequence[str]]) -> list[ClassicPlayer]:
+    """A Classic pool from the listone's per-player role codes. The counterpart to
+    `domain/asta/report.build_pool` for Mantra.
+
+    A Classic listone row carries a single macro role (`ruoli_codice` is one element); the
+    first code is taken and validated by `ClassicPlayer`. A row with no code is skipped — it
+    cannot be placed in any band — rather than crashing the whole build.
+    """
+    return [
+        ClassicPlayer(id=player_id, role=codes[0])
+        for player_id, codes in roles_by_id.items()
+        if codes
+    ]

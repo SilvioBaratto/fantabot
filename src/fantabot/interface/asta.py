@@ -7,15 +7,16 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import typer
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
 
+    from fantabot.domain.asta.roles import MantraPlayer
     from fantabot.domain.shared.values import SentimentRow
 
 from pathlib import Path
@@ -35,6 +36,7 @@ from fantabot.domain.asta.report import (
 from fantabot.domain.asta.reservation import rolling_advisory
 from fantabot.domain.asta.sentiment import SentimentWeights
 from fantabot.domain.asta.state import AstaState, RosterRules, rules_for_room
+from fantabot.domain.classic.state import ClassicRosterRules
 from fantabot.interface.console import console
 from fantabot.interface.options import (
     SEASON,
@@ -204,19 +206,26 @@ def asta_optimize(
         help="Plan only over players FantaLab's listone can call. Cached; falls back open.",
     ),
     season: Season = SEASON,
+    fmt: str = typer.Option(
+        "mantra", "--format", help="Roster format: mantra (30-man, schemi) or classic (P/D/C/A)."
+    ),
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
-    """Print the current optimal 30-man Mantra roster and next-best plans. Read-only.
+    """Print the current optimal roster and next-best plans. Read-only.
 
-    The pool is narrowed to players FantaLab's listone can call, exactly as `asta bid` narrows
-    it. It is the same plan or it is not a plan: this is what the operator reads the night
-    before and bids from by hand, and a player who can never come up for auction is a slot the
-    evening cannot fill. `--no-callable` restores the old, wider plan.
+    `--format mantra` (default) plans a 30-man Mantra rosa against the 11 schemi; `--format
+    classic` plans the four-band P/D/C/A rosa (25-man `[3,8,8,6]`) against no schema. The pool is
+    narrowed to players FantaLab's listone can call, exactly as `asta bid` narrows it — a player
+    who can never come up for auction is a slot the evening cannot fill. `--no-callable` restores
+    the wider plan.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+
+    if fmt not in ("mantra", "classic"):
+        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
     ids = (
         _callable_ids(lambda note: console.print(f"[yellow]{note}[/yellow]"))
@@ -230,10 +239,19 @@ def asta_optimize(
         )
         world = read_plan_inputs(
             session, season=season, sentiment=rows, as_of=_today(), tilt_k=tilt_k,
-            callable_ids=ids,
+            callable_ids=ids, listone=fmt,
         )
 
+    # Fail closed: an empty pool means the listone has no rows for this format/season, which is
+    # a wrong-format or un-scraped run, not a plan over nobody.
+    if not world.pool:
+        console.print(f"[red]no {fmt} players for season {season} — nothing to plan.[/red]")
+        raise typer.Exit(code=1)
+
     state = AstaState(owned=parse_ids(owned), total_budget=budget)
+    rules: RosterRules | ClassicRosterRules = (
+        ClassicRosterRules() if fmt == "classic" else RosterRules()
+    )
 
     try:
         result = optimize_roster(
@@ -243,6 +261,7 @@ def asta_optimize(
             prices=world.prices,
             teams=world.teams,
             legality=world.legality,
+            rules=rules,
             lam=lam,
             n_fallbacks=fallbacks,
         )
@@ -360,7 +379,7 @@ def asta_live(
 
     last = None
     for step in rolling_advisory(
-        AstaState(total_budget=budget), world.pool, events,
+        AstaState(total_budget=budget), cast("Sequence[MantraPlayer]", world.pool), events,
         our_team_id=team, value_of=world.value_of, prices=world.prices, teams=world.teams,
         legality=world.legality, lam=lam,
     ):
@@ -565,7 +584,7 @@ def asta_room(
             fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id
         ),
         bridge=bridge,
-        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, names=world.names,
         rules=rules,
         budget=credits,
@@ -645,7 +664,8 @@ def asta_room(
             advice = worker.advice_for(str(lot_fid)) if lot_fid else None
 
         rows = listone_rows(
-            world.pool, AstaState(owned=frame.owned, total_budget=credits),
+            cast("Sequence[MantraPlayer]", world.pool),
+            AstaState(owned=frame.owned, total_budget=credits),
             names=world.names, teams=world.teams, prices=world.prices, value=world.value,
             walkaways=frame.walkaways, limit=limit,
         )
@@ -763,7 +783,7 @@ def asta_calibrate(
 
     table = sweep(
         auctions, alphas,
-        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, budget=float(credits), lam=lam,
     )
     if not table:
@@ -917,7 +937,7 @@ def asta_bid(
     tracker = RoomTracker(
         seat=seat,
         bridge=bridge,
-        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, names=world.names,
         rules=RosterRules(),
         budget=budget,
@@ -1068,7 +1088,7 @@ def asta_bench(
         scenario = load_scenario(replay, name, filename, uuid_key=uuid_key, rung_key=rung_key)
         rows = run_replay(
             scenario,
-            pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+            pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
             legality=world.legality, names=world.names, bridge=bridge, lam=lam,
         )
         failures = bench_checks(name, rows)

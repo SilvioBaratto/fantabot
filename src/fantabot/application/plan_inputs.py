@@ -23,6 +23,7 @@ from fantabot.domain.asta.report import build_pool, build_value
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.sentiment import SentimentWeights
 from fantabot.domain.asta.value import ValueModel
+from fantabot.domain.classic.roles import ClassicPlayer, build_classic_pool
 
 if TYPE_CHECKING:
     from fantabot.domain.shared.values import QuotazioneRow, SentimentRow
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 class PlanInputs:
     """The world a plan is computed against, read once."""
 
-    pool: Sequence[MantraPlayer]
+    pool: Sequence[MantraPlayer | ClassicPlayer]
     value: ValueModel
     prices: Mapping[str, float]
     teams: Mapping[str, str]
@@ -57,6 +58,7 @@ def build_plan_inputs(
     tilt_k: float,
     excluded: Collection[str] = (),
     callable_ids: Collection[str] | None = None,
+    listone: str = "mantra",
 ) -> PlanInputs:
     """Derive the plan world from two already-read tables. Pure.
 
@@ -92,8 +94,18 @@ def build_plan_inputs(
     if excluded:
         quotazioni = {pid: row for pid, row in quotazioni.items() if pid not in excluded}
     roles = {pid: row.ruoli_codice for pid, row in quotazioni.items()}
+    # Classic (sroles=1) is counting over P/D/C/A: a single-role pool and no schema legality.
+    # Mantra (sroles=2) is the bipartite match, so it carries the 11-schemi compat matrix.
+    pool: Sequence[MantraPlayer | ClassicPlayer]
+    legality: dict[str, SchemaLegality]
+    if listone == "classic":
+        pool = build_classic_pool(roles)
+        legality = {}
+    else:
+        pool = build_pool(roles)
+        legality = build_legality(load_compat())
     return PlanInputs(
-        pool=build_pool(roles),
+        pool=pool,
         value=build_value(
             {pid: row.fvm for pid, row in quotazioni.items()},
             priced_ids=set(prices),
@@ -105,6 +117,6 @@ def build_plan_inputs(
         teams={pid: row.squadra for pid, row in quotazioni.items()},
         names={pid: row.nome for pid, row in quotazioni.items()},
         roles=roles,
-        legality=build_legality(load_compat()),
+        legality=legality,
         sentiment=sentiment,
     )

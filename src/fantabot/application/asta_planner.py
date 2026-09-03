@@ -58,6 +58,7 @@ def read_plan_inputs(
     callable_ids: Collection[str] | None = None,
     num_teams: int = 8,
     num_credits: int = 500,
+    listone: str = "mantra",
 ) -> PlanInputs:
     """The I/O half: three reads on one session, then the pure derivation above.
 
@@ -79,11 +80,16 @@ def read_plan_inputs(
     from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     reference = ReferenceRepository(session)
-    sales = AsteRepository(session).mantra_clearing_sales(
-        budget=num_credits, num_teams=num_teams
+    # The clearing-price corpus is Mantra-only today: no Classic asta has been recorded, so a
+    # Classic run prices every player as no-history (same mean, a wider band) from fvm alone.
+    # When a Classic corpus exists, generalise this read on asta_type.
+    sales = (
+        AsteRepository(session).mantra_clearing_sales(budget=num_credits, num_teams=num_teams)
+        if listone == "mantra"
+        else []
     )
     return build_plan_inputs(
-        reference.quotazioni(season, "mantra"),
+        reference.quotazioni(season, listone),
         mean_prices(Sale(player_id, price) for player_id, price in sales),
         sentiment,
         as_of=as_of,
@@ -93,4 +99,5 @@ def read_plan_inputs(
         # `adapters/persistence/models/exclusions.py`.
         excluded=reference.excluded_player_ids(),
         callable_ids=callable_ids,
+        listone=listone,
     )

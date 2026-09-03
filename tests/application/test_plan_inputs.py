@@ -19,6 +19,14 @@ from __future__ import annotations
 
 import _importgraph
 
+from fantabot.application.plan_inputs import build_plan_inputs
+from fantabot.domain.asta.optimizer import optimize_roster
+from fantabot.domain.asta.roles import MantraPlayer
+from fantabot.domain.asta.state import AstaState
+from fantabot.domain.classic.roles import ClassicPlayer
+from fantabot.domain.classic.state import ClassicRosterRules
+from fantabot.domain.shared.values import QuotazioneRow
+
 
 def test_the_pure_half_cannot_reach_a_database() -> None:
     assert not _importgraph.reaches(
@@ -69,3 +77,48 @@ class TestTheLeagueShapeIsAParameter:
         params = inspect.signature(read_plan_inputs).parameters
         assert params["num_teams"].default == 8
         assert params["num_credits"].default == 500
+
+
+class TestTheClassicWorld:
+    """`build_plan_inputs(listone="classic")` builds a Classic pool (single P/D/C/A role each)
+    and no schema legality — the Classic auction prices exactly the same value model, only the
+    composition constraint differs."""
+
+    @staticmethod
+    def _classic_rows() -> dict[str, QuotazioneRow]:
+        rows: dict[str, QuotazioneRow] = {}
+        for role, n, base in (("P", 4, 10), ("D", 12, 20), ("C", 12, 20), ("A", 9, 30)):
+            for i in range(n):
+                pid = f"{role}{i}"
+                rows[pid] = QuotazioneRow(
+                    player_id=pid, nome=pid, squadra=pid, ruoli_codice=(role,),
+                    ruoli=(role,), fvm=base - i,
+                )
+        return rows
+
+    def test_classic_listone_builds_a_classic_pool_and_no_legality(self) -> None:
+        world = build_plan_inputs(
+            self._classic_rows(), {}, None, as_of=None, tilt_k=1.0, listone="classic",
+        )
+        assert world.legality == {}
+        assert all(isinstance(p, ClassicPlayer) for p in world.pool)
+        assert {p.role for p in world.pool} == {"P", "D", "C", "A"}  # type: ignore[union-attr]
+
+    def test_the_classic_world_optimizes_to_the_band(self) -> None:
+        world = build_plan_inputs(
+            self._classic_rows(), {}, None, as_of=None, tilt_k=1.0, listone="classic",
+        )
+        r = optimize_roster(
+            AstaState(total_budget=500.0), world.pool, value=world.value, prices=world.prices,
+            teams=world.teams, legality=world.legality, rules=ClassicRosterRules(), lam=0.0,
+        ).optimal
+        assert len(r) == 25
+
+    def test_mantra_stays_the_default(self) -> None:
+        rows = {
+            "x": QuotazioneRow(player_id="x", nome="x", squadra="X", ruoli_codice=("POR",),
+                               ruoli=("Por",), fvm=10),
+        }
+        world = build_plan_inputs(rows, {}, None, as_of=None, tilt_k=1.0)
+        assert all(isinstance(p, MantraPlayer) for p in world.pool)
+        assert world.legality  # the 11 Mantra schemi are built for the default
