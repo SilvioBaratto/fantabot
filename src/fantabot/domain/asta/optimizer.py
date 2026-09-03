@@ -20,11 +20,19 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule, fieldable_schemi
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, OptimizationResult, Roster, RosterRules
 from fantabot.domain.asta.value import ValueModel
+from fantabot.domain.classic.roles import ClassicPlayer
+from fantabot.domain.classic.state import ClassicRosterRules
+
+#: A pool player in either format — Mantra carries a role set, Classic a single macro role.
+Candidate = MantraPlayer | ClassicPlayer
+#: The roster composition in either format. The optimizer dispatches the fill on which it is.
+CompositionRules = RosterRules | ClassicRosterRules
 
 #: The same-club correlation the naive variance uses. A placeholder until the covariance is
 #: measured from the four seasons of voti (or supplied by the skfolio value layer).
@@ -39,10 +47,10 @@ class InfeasibleRoster(RuntimeError):
 
 
 def build_index(
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[Candidate],
     prices: Mapping[str, float],
     value: ValueModel,
-    rules: RosterRules | None = None,
+    rules: CompositionRules | None = None,
 ) -> _Index:
     """A reusable index for callers that solve the same pool more than once.
 
@@ -172,17 +180,26 @@ class _Index:
     Nothing here can move a number, and the golden harness is what says so.
     """
 
-    __slots__ = ("_cache", "_pool", "cost", "is_goalkeeper", "mean", "sigma", "variance")
+    __slots__ = ("_cache", "_pool", "band", "cost", "is_goalkeeper", "mean", "sigma", "variance")
 
     def __init__(
         self,
-        pool: Sequence[MantraPlayer],
+        pool: Sequence[Candidate],
         prices: Mapping[str, float],
-        rules: RosterRules,
+        rules: CompositionRules,
         value: ValueModel,
     ) -> None:
         self.cost: dict[str, int] = {p.id: planning_cost(p.id, prices) for p in pool}
-        self.is_goalkeeper: dict[str, bool] = {p.id: _is_goalkeeper(p, rules) for p in pool}
+        # The one per-player role fact each format's fill needs: Mantra a goalkeeper/not-gk
+        # boolean, Classic the single macro band. Only the branch matching the pool is built.
+        if isinstance(rules, ClassicRosterRules):
+            self.is_goalkeeper: dict[str, bool] = {}
+            self.band: dict[str, str] = {p.id: p.role for p in pool if isinstance(p, ClassicPlayer)}
+        else:
+            self.is_goalkeeper = {
+                p.id: _is_goalkeeper(p, rules) for p in pool if isinstance(p, MantraPlayer)
+            }
+            self.band = {}
         # `value.value` was called 52,597 times a cycle for two floats that never
         # change within one. The model is a pure function of the player id, so
         # reading it once per player is the same answer — and `sigma` is stored
@@ -200,7 +217,11 @@ class _Index:
         key = id(slot)
         hit = self._cache.get(key)
         if hit is None:
-            hit = frozenset(p.id for p in self._pool if _submission_eligible(p, slot))
+            hit = frozenset(
+                p.id
+                for p in self._pool
+                if isinstance(p, MantraPlayer) and _submission_eligible(p, slot)
+            )
             self._cache[key] = hit
         return hit
 
@@ -366,27 +387,125 @@ def _build_mantra(
     return Roster(tuple(picked), total_cost, objective(picked, value, teams, lam, rho))
 
 
-def _build(
+def _build_classic(
     state: AstaState,
-    by_id: Mapping[str, MantraPlayer],
-    available: Sequence[MantraPlayer],
+    by_id: Mapping[str, ClassicPlayer],
+    available: Sequence[ClassicPlayer],
     value: ValueModel,
-    prices: Mapping[str, float],
     teams: Mapping[str, str],
-    legality: dict[str, SchemaLegality],
-    rules: RosterRules,
+    rules: ClassicRosterRules,
     lam: float,
     rho: float,
     index: _Index,
 ) -> Roster:
-    """Dispatch the roster fill by composition.
+    """Greedy mean-variance fill under four per-role bands. No schema seed.
 
-    Today only the Mantra fill exists (two super-roles + an L1 legal-XI seed). The Classic
-    fill — four per-role bands over P/D/C/A, no schema seed — lands in the next task and is
-    selected here on the rules' composition shape, keeping the Mantra path byte-identical.
+    Mantra guarantees a legal XI by seeding one schema's slots; Classic has no schema, so role
+    coverage is guaranteed the other way — by **forcing**: whenever the mandatory fills still
+    owed (`total_need`) use up every remaining slot, only a still-owed role may be picked, so no
+    band can be starved. Each role also has a hard ceiling. The credit reserve (one per other
+    slot) and the marginal-gain pick are shared with the Mantra fill unchanged.
     """
+    picked: list[str] = list(state.owned)
+    picked_set = set(picked)
+    budget_left = state.remaining_budget
+    buckets = _sigma_by_team(picked, index, teams)
+
+    counts = {role: 0 for role in rules.roles()}
+    for pid in picked:
+        counts[index.band[pid]] += 1
+
+    while len(picked) < rules.size:
+        slots_left = rules.size - len(picked)
+        reserve = slots_left - 1  # keep 1 credit per other remaining slot
+        needs = {role: max(0, rules.min_of(role) - counts[role]) for role in counts}
+        total_need = sum(needs.values())
+
+        candidates: list[ClassicPlayer] = []
+        for player in available:
+            if player.id in picked_set:
+                continue
+            if index.cost[player.id] > budget_left - reserve:
+                continue
+            role = index.band[player.id]
+            if counts[role] >= rules.max_of(role):  # role ceiling
+                continue
+            # If every remaining slot is already owed to a mandatory fill, a role whose floor is
+            # met would starve another band — skip it until there is slack.
+            if needs[role] == 0 and total_need >= slots_left:
+                continue
+            candidates.append(player)
+
+        if not candidates:
+            raise InfeasibleRoster(
+                f"cannot complete the Classic roster: {len(picked)}/{rules.size} filled, "
+                f"{budget_left:.0f} credits left"
+            )
+
+        best = max(
+            candidates,
+            key=lambda p: _marginal_gain(p.id, buckets, index, teams, lam, rho),
+        )
+        picked.append(best.id)
+        picked_set.add(best.id)
+        _remember(buckets, best.id, index, teams)
+        budget_left -= index.cost[best.id]
+        counts[index.band[best.id]] += 1
+
+    for role, count in counts.items():
+        if count < rules.min_of(role):
+            raise InfeasibleRoster(
+                f"the completed Classic roster is short of {role}: {count}/{rules.min_of(role)}"
+            )
+
+    total_cost = state.spent + (state.remaining_budget - budget_left)
+    return Roster(tuple(picked), total_cost, objective(picked, value, teams, lam, rho))
+
+
+def _build(
+    state: AstaState,
+    by_id: Mapping[str, Candidate],
+    available: Sequence[Candidate],
+    value: ValueModel,
+    prices: Mapping[str, float],
+    teams: Mapping[str, str],
+    legality: dict[str, SchemaLegality],
+    rules: CompositionRules,
+    lam: float,
+    rho: float,
+    index: _Index,
+) -> Roster:
+    """Dispatch the roster fill on the composition shape.
+
+    Mantra (two super-roles + an L1 legal-XI seed) and Classic (four per-role bands, no schema)
+    are different algorithms, so each has its own fill. The dispatch guarantees the pool type
+    matches the rules — the casts are that invariant, made explicit — which is what lets
+    `_build_mantra` keep its exact MantraPlayer signature and stay byte-identical.
+    """
+    if isinstance(rules, ClassicRosterRules):
+        return _build_classic(
+            state,
+            cast("Mapping[str, ClassicPlayer]", by_id),
+            cast("Sequence[ClassicPlayer]", available),
+            value,
+            teams,
+            rules,
+            lam,
+            rho,
+            index,
+        )
     return _build_mantra(
-        state, by_id, available, value, prices, teams, legality, rules, lam, rho, index
+        state,
+        cast("Mapping[str, MantraPlayer]", by_id),
+        cast("Sequence[MantraPlayer]", available),
+        value,
+        prices,
+        teams,
+        legality,
+        rules,
+        lam,
+        rho,
+        index,
     )
 
 
@@ -399,13 +518,13 @@ def _fallback_targets(
 
 def optimize_roster(
     state: AstaState,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[Candidate],
     *,
     value: ValueModel,
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules = RosterRules(),
+    rules: CompositionRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
     n_fallbacks: int = 5,
