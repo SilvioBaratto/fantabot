@@ -1,0 +1,8 @@
+# Shell scripts must stay LF: a CRLF shebang (`#!/bin/sh\r`) is an invalid interpreter path
+# in Linux, which would break the Docker test entrypoint on a Windows checkout.
+*.sh text eol=lf
+
+# The golden fixtures are hashed byte-for-byte against a manifest computed on LF; keeping them
+# LF everywhere means the hash matches on any host, not only where git happened to check out LF.
+tests/**/*.json text eol=lf
+tests/**/*.jsonl text eol=lf
