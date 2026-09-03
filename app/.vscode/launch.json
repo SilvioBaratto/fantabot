@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API (Development)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "cwd": "${workspaceFolder}/api",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--port",
+        "8000",
+        "--host",
+        "0.0.0.0",
+        "--log-level",
+        "debug"
+      ],
+      "jinja": true,
+      "envFile": "${workspaceFolder}/api/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "API (Production)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "cwd": "${workspaceFolder}/api",
+      "args": [
+        "app.main:app",
+        "--port",
+        "8000",
+        "--host",
+        "0.0.0.0",
+        "--log-level",
+        "info"
+      ],
+      "jinja": true,
+      "envFile": "${workspaceFolder}/api/.env",
+      "console": "integratedTerminal"
+    }
+  ]
+}

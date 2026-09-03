@@ -1,0 +1,33 @@
+<div class="mx-auto max-w-5xl space-y-6 animate-fade-in-up">
+  <!-- Hero -->
+  <section class="relative overflow-hidden rounded-2xl border border-border bg-surface-raised p-8">
+    <div class="absolute inset-0 bg-gradient-to-br from-primary-light to-accent-light opacity-60"></div>
+    <div class="relative">
+      <span class="inline-flex items-center rounded-full bg-signature/10 text-signature text-xs font-medium px-2.5 py-0.5">
+        New
+      </span>
+      <h1 class="mt-3 text-3xl font-display font-semibold tracking-tight text-text">
+        Welcome back
+      </h1>
+      <p class="mt-2 max-w-prose text-sm text-text-secondary">
+        Your starter shell is ready. Replace this page with your product's home.
+      </p>
+    </div>
+  </section>
+
+  <!-- Stat cards -->
+  <section class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    @for (stat of stats; track stat.label) {
+      <div class="rounded-2xl border border-border bg-surface-raised p-5">
+        <div class="flex items-center justify-between">
+          <lucide-icon [name]="stat.icon" class="w-5 h-5 text-text-secondary" aria-hidden="true" />
+          <span class="rounded-full bg-signature/10 text-signature text-xs font-medium px-2.5 py-0.5">
+            {{ stat.delta }}
+          </span>
+        </div>
+        <p class="mt-4 text-2xl font-display font-semibold text-text">{{ stat.value }}</p>
+        <p class="text-sm text-text-secondary">{{ stat.label }}</p>
+      </div>
+    }
+  </section>
+</div>

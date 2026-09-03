@@ -1,0 +1,15 @@
+<nav
+    aria-label="Primary"
+    class="flex items-stretch bg-surface-raised/80 backdrop-blur-md border-t border-border pb-safe min-h-13">
+  @for (tab of tabs; track tab.route) {
+    <a [routerLink]="tab.route"
+       routerLinkActive="text-primary"
+       ariaCurrentWhenActive="page"
+       [routerLinkActiveOptions]="{ exact: tab.route === '/home' }"
+       [attr.aria-label]="tab.name"
+       class="flex flex-1 flex-col items-center justify-center gap-0.5 text-text-secondary transition-colors">
+      <lucide-icon [name]="tab.icon" class="w-5 h-5" aria-hidden="true" />
+      <span class="text-[10px] font-medium">{{ tab.name }}</span>
+    </a>
+  }
+</nav>

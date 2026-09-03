@@ -1,0 +1,37 @@
+<div class="h-dvh overflow-hidden flex flex-col md:block bg-surface">
+  <!-- Skip link (target: #main-content) -->
+  <a href="#main-content" class="skip-link">Skip to content</a>
+
+  <!-- Mobile header -->
+  <app-navbar class="md:hidden shrink-0">
+    <app-hamburger navbarBrand
+      [open]="isSidebarOpen()"
+      controls="sidebar-drawer"
+      (toggle)="toggleSidebar()"
+    />
+    <span navbarBrand class="text-base font-display font-semibold tracking-tight text-text">Acme</span>
+    <div navbarActions class="w-8"></div>
+  </app-navbar>
+
+  <!-- Sidebar (drawer overlay is owned by DrawerComponent) -->
+  <app-sidebar [isOpen]="isSidebarOpen()" [isMobile]="isMobile()" (closeSidebar)="closeSidebar()"></app-sidebar>
+
+  <!-- Main content -->
+  <!-- overscroll-contain: keeps scroll chains within this region; prevents the OS
+       rubber-band / pull-to-refresh from leaking out when the content hits its boundary. -->
+  <main id="main-content" tabindex="-1" aria-label="Main content"
+        class="md:pl-64 flex-1 min-h-0 overflow-y-auto overscroll-contain md:h-dvh flex flex-col">
+    <router-outlet></router-outlet>
+  </main>
+
+  <!-- Mobile bottom navigation -->
+  <app-bottom-tab-bar class="md:hidden shrink-0" />
+
+  <!-- aria-live route announcer (screen-reader only) -->
+  <div aria-live="polite" aria-atomic="true" class="sr-only">{{ announced() }}</div>
+
+  <!-- Toast outlet -->
+  <div id="toast-outlet">
+    <app-toast />
+  </div>
+</div>

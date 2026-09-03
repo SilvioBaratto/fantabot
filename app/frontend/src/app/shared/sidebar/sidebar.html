@@ -1,0 +1,32 @@
+<aside
+    class="fixed left-0 top-0 z-50 h-screen w-64 bg-surface-raised border-r border-border flex flex-col transition-transform duration-200 md:z-30 md:translate-x-0"
+    [class.translate-x-0]="showSidebar()"
+    [class.-translate-x-full]="!showSidebar()">
+
+  <!-- Header -->
+  <div class="hidden md:flex items-center h-14 px-5 border-b border-border">
+    <span class="text-sm font-semibold tracking-tight text-text">Acme</span>
+  </div>
+
+  <!-- Mobile close -->
+  <div class="flex items-center justify-between h-14 px-4 border-b border-border md:hidden">
+    <span class="text-sm font-semibold tracking-tight text-text">Acme</span>
+    <button (click)="closeSidebar.emit()" class="p-1.5 rounded-md text-text-secondary hover:text-text hover:bg-surface-inset transition-colors" aria-label="Close menu">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="flex-1 px-3 py-3">
+    @for (item of navItems; track item.route) {
+      <a [routerLink]="item.route" routerLinkActive="bg-surface-inset text-text" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: item.route === '/home' }"
+         class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm text-text-secondary hover:text-text hover:bg-surface-inset transition-colors mb-0.5"
+         (click)="onNavClick()">
+        <lucide-icon [name]="item.icon" class="w-4 h-4" aria-hidden="true" />
+        <span>{{ item.name }}</span>
+      </a>
+    }
+  </nav>
+</aside>

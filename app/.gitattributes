@@ -1,0 +1,34 @@
+# Line-ending normalization.
+#
+# Without this file, a Windows clone (Git default core.autocrlf=true) rewrites
+# checked-out text files to CRLF. Shell scripts then carry a trailing \r on
+# their shebang line, so the Linux container looks for the interpreter
+# "/bin/bash\r" and Docker fails the ENTRYPOINT with the misleading error
+# "exec /entrypoint.sh: no such file or directory".
+#
+# `text=auto` stores every text file with LF inside the repo; `eol=lf` on shell
+# scripts forces LF on checkout for EVERYONE regardless of their git config, so
+# the scripts that run inside Linux containers can never be mangled.
+
+* text=auto
+
+# Scripts executed inside Linux containers — always LF.
+*.sh   text eol=lf
+entrypoint.sh text eol=lf
+
+# Windows-only scripts — keep CRLF.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Binary assets — never normalize.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  text
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.pdf  binary

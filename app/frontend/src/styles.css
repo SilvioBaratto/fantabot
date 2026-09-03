@@ -1,0 +1,287 @@
+@import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *):not(:where(.light, .light *)));
+/* `dark:` applies inside a `.dark` subtree, EXCEPT where a nested `.light`
+   re-asserts the light theme (used by the component catalog to show a true
+   light preview even when the global theme is dark). The inner `:where()`
+   keeps the `:not()` at zero specificity so utility ordering is unaffected. */
+
+@theme {
+  /* Fonts */
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, monospace;
+
+  /* Surface */
+  --color-surface: #fafafa;
+  --color-surface-raised: #ffffff;
+  --color-surface-inset: #f4f4f5;
+
+  /* Border */
+  --color-border: #e4e4e7;
+  --color-border-muted: #f4f4f5;
+
+  /* Text */
+  --color-text: #18181b;
+  --color-text-secondary: #52525b;
+  --color-text-tertiary: #6b7280;
+
+  /* Primary — violet */
+  --color-primary: #6d28d9;
+  --color-primary-hover: #5b21b6;
+  --color-primary-light: #f5f3ff;
+
+  /* Accent — indigo */
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-light: #eef2ff;
+
+  /* Signature pop — emerald */
+  --color-signature: #10b981;
+
+  /* Semantic */
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-info: #2563eb;
+}
+
+.dark {
+  /* Surface */
+  --color-surface: #0a0a0b;
+  --color-surface-raised: #161618;
+  --color-surface-inset: #1f1f23;
+
+  /* Border */
+  --color-border: #2e2e33;
+  --color-border-muted: #1f1f23;
+
+  /* Text */
+  --color-text: #fafafa;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+
+  /* Primary — violet lifted for dark bg */
+  --color-primary: #8b5cf6;
+  --color-primary-hover: #7c3aed;
+  --color-primary-light: #1e1535;
+
+  /* Accent — indigo lifted */
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-light: #1e1b4b;
+
+  /* Signature pop — emerald (holds well on dark) */
+  --color-signature: #34d399;
+
+  /* Semantic */
+  --color-danger: #f87171;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-info: #60a5fa;
+}
+
+/* Re-assert the light theme inside a `.dark` ancestor. Mirrors the @theme
+   light values so a `.light`-scoped region renders light regardless of the
+   global theme — the symmetric counterpart to `.dark`. */
+.light {
+  /* Surface */
+  --color-surface: #fafafa;
+  --color-surface-raised: #ffffff;
+  --color-surface-inset: #f4f4f5;
+
+  /* Border */
+  --color-border: #e4e4e7;
+  --color-border-muted: #f4f4f5;
+
+  /* Text */
+  --color-text: #18181b;
+  --color-text-secondary: #52525b;
+  --color-text-tertiary: #6b7280;
+
+  /* Primary — violet */
+  --color-primary: #6d28d9;
+  --color-primary-hover: #5b21b6;
+  --color-primary-light: #f5f3ff;
+
+  /* Accent — indigo */
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-light: #eef2ff;
+
+  /* Signature pop — emerald */
+  --color-signature: #10b981;
+
+  /* Semantic */
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-info: #2563eb;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Prevent iOS auto-zoom on focused inputs */
+  @media (max-width: 767px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+
+  /* iOS safe-area inset utilities — require viewport-fit=cover in <meta viewport> */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Skip navigation link — visually hidden until focused */
+  .skip-link {
+    position: fixed;
+    top: -100%;
+    left: 1rem;
+    z-index: 50;
+    padding: 0.5rem 1rem;
+    background-color: var(--color-surface-raised);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    font-size: 0.875rem;
+    text-decoration: none;
+    transition: top 0.1s;
+  }
+
+  .skip-link:focus {
+    top: 1rem;
+  }
+
+  /* Respect reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Hide scrollbar while keeping scroll functionality */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Suppress all transitions while theme is switching */
+  .theme-transitioning * {
+    transition: none !important;
+  }
+
+  /* Set touch-action manipulation on tappable elements: removes the ~300ms double-tap-zoom
+     delay and double-tap zoom while keeping pinch-to-zoom and pan gestures intact.
+     Scoped to explicit tap targets only; native form controls manage their own touch events.
+     NEVER set user-scalable=no / maximum-scale=1 — pinch zoom must stay enabled (WCAG 1.4.4). */
+  a,
+  button,
+  [role="button"],
+  label {
+    touch-action: manipulation;
+  }
+
+  /* h-dvh / h-svh / h-lvh trade-offs — layout.html uses h-dvh on the shell root and
+     md:h-dvh on the main scroll container (overflow-y-auto):
+       dvh — dynamic: shrinks/grows as the mobile browser toolbar shows/hides. Best for
+             full-screen shells that must exactly track the visible viewport live.
+       svh — small: height with toolbar fully visible (conservative floor). Use when you
+             want a guaranteed minimum without content jumping.
+       lvh — large: height with toolbar fully hidden (expanded ceiling). Avoid for
+             interactive shells; content may be clipped behind the toolbar on iOS.
+     Known fragile: sticky footers + env(safe-area-inset-bottom) when the toolbar hides
+     on iOS Safari — always verify on a real device. Refs: research §1.7, §4. */
+
+  /* scroll-snap utilities (scroll-snap-type / scroll-snap-align / snap-*) are provided
+     by Tailwind v4 core at zero config cost. Apply snap-x snap-mandatory + snap-start
+     to carousel containers when a carousel component is built (YAGNI — none exists yet). */
+}
+
+@layer utilities {
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-inset) 25%,
+      var(--color-surface-raised) 50%,
+      var(--color-surface-inset) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.3s ease-out both;
+  }
+
+  .animate-slide-in {
+    animation: slide-in 0.25s ease-out both;
+  }
+}

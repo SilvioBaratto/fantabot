@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "angular.ng-template",
+    "bradlc.vscode-tailwindcss",
+    "esbenp.prettier-vscode",
+    "ms-azuretools.vscode-docker",
+    "editorconfig.editorconfig",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.black-formatter",
+    "ms-python.debugpy",
+    "charliermarsh.ruff"
+  ]
+}

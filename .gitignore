@@ -52,3 +52,7 @@ scripts/read_classic_lineup.py
 # Untracked-and-unignored is one `git add -A` from publication; ignore before going public.
 .playwright-mcp/
 _pdftext.txt
+
+# Per-phase working notes. SPEC.md is already ignored (line 44); plan.md/todo.md
+# are its siblings and get archived to tasks/archive/ on phase close, not committed.
+tasks/

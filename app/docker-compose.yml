@@ -1,0 +1,75 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: app_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  # FastAPI Backend with hot reload
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    # env_file feeds the container the whole root .env (ENVIRONMENT, DEBUG,
+    # LOG_LEVEL, CORS_ORIGINS, ...). The environment: block is applied AFTER
+    # env_file and overrides ONLY DATABASE_URL — pinning it to the
+    # compose-network host (db:5432) instead of the localhost URL the app uses
+    # outside Docker. Everything else must come from .env, not be hardcoded here.
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/app_db
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    volumes:
+      - ./api:/app
+    networks:
+      - app_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Angular Frontend with nginx and API proxy
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "${FRONTEND_HOST_PORT:-4200}:80"
+    networks:
+      - app_network
+
+  # Database Admin UI
+  adminer:
+    image: adminer:latest
+    restart: always
+    depends_on:
+      - db
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "${ADMINER_HOST_PORT:-8080}:8080"
+    networks:
+      - app_network
+
+volumes:
+  postgres_data:
+
+networks:
+  app_network:

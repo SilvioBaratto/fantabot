@@ -1,0 +1,13 @@
+recursive-include project_initializer/templates *
+recursive-include project_initializer/templates .*
+include project_initializer/templates/.gitignore
+include project_initializer/templates/.env.example
+include project_initializer/templates/api/.env.example
+include project_initializer/templates/api/.dockerignore
+include project_initializer/templates/frontend/.editorconfig
+include project_initializer/templates/frontend/.gitignore
+include project_initializer/templates/frontend/.postcssrc.json
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .git
+global-exclude node_modules

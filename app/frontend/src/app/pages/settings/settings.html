@@ -1,0 +1,27 @@
+<div class="mx-auto max-w-5xl space-y-6 animate-fade-in-up">
+  <div>
+    <h1 class="text-2xl font-display font-semibold tracking-tight text-text">Settings</h1>
+    <p class="mt-1 text-sm text-text-secondary">Manage your workspace preferences.</p>
+  </div>
+
+  <!-- Appearance -->
+  <section class="rounded-2xl border border-border bg-surface-raised p-6">
+    <h2 class="text-sm font-medium text-text">Appearance</h2>
+    <p class="mt-1 text-sm text-text-secondary">Choose how the interface looks.</p>
+
+    <div class="mt-4 grid grid-cols-3 gap-3">
+      @for (option of options; track option.mode) {
+        <button
+            type="button"
+            [attr.data-theme-option]="option.mode"
+            [attr.aria-pressed]="theme() === option.mode"
+            (click)="select(option.mode)"
+            class="flex flex-col items-center gap-2 rounded-xl border border-border px-3 py-4 text-sm text-text-secondary transition-colors hover:bg-surface-inset"
+            [class]="theme() === option.mode ? 'bg-primary-light text-primary ring-1 ring-primary' : ''">
+          <lucide-icon [name]="option.icon" class="w-5 h-5" aria-hidden="true" />
+          <span>{{ option.label }}</span>
+        </button>
+      }
+    </div>
+  </section>
+</div>

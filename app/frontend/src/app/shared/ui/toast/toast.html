@@ -1,0 +1,59 @@
+<!-- Toast stack — bottom-right, above all overlays, clears the iOS home indicator -->
+<div
+  class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pb-safe pointer-events-none"
+  aria-label="Notifications"
+>
+  <!-- Polite region: info / success / warning toasts -->
+  <div aria-live="polite" aria-atomic="false" class="contents">
+    @for (toast of politeToasts(); track toast.id) {
+      <div [class]="itemClasses(toast.variant)" class="pointer-events-auto" role="status">
+        <span class="flex-1 text-sm">{{ toast.message }}</span>
+        <button
+          (click)="dismiss(toast.id)"
+          aria-label="Close notification"
+          class="ml-2 shrink-0 rounded p-0.5 hover:opacity-70 focus-visible:outline focus-visible:outline-2"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+    }
+  </div>
+
+  <!-- Assertive region: error toasts interrupt screen reader immediately -->
+  <div aria-live="assertive" aria-atomic="false" class="contents">
+    @for (toast of errorToasts(); track toast.id) {
+      <div [class]="itemClasses(toast.variant)" class="pointer-events-auto" role="alert">
+        <span class="flex-1 text-sm">{{ toast.message }}</span>
+        <button
+          (click)="dismiss(toast.id)"
+          aria-label="Close notification"
+          class="ml-2 shrink-0 rounded p-0.5 hover:opacity-70 focus-visible:outline focus-visible:outline-2"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+    }
+  </div>
+</div>
