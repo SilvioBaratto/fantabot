@@ -42,6 +42,26 @@ class ClassicRosterRules:
     def max_of(self, role: str) -> int:
         return next(hi for r, _lo, hi in self.bands if r == role)
 
+    def shrunk(self, by: int) -> ClassicRosterRules:
+        """A copy with ``by`` fewer slots, kept feasible. The Classic counterpart to how
+        ``drop_unvaluable`` shrinks the Mantra movement band for an owned player the pool
+        cannot name.
+
+        The dropped player's role is exactly what is unknown (not being in the pool is what put
+        him here), so the size shrinks by ``by`` and each band's floor is trimmed — largest
+        floor first — only as far as needed to keep ``sum(min) <= size``. A named approximation,
+        not a claim about which role he filled.
+        """
+        size = max(0, self.size - by)
+        floors = {role: self.min_of(role) for role in self.roles()}
+        while sum(floors.values()) > size:
+            role = max(floors, key=lambda r: floors[r])
+            if floors[role] == 0:
+                break
+            floors[role] -= 1
+        bands = tuple((role, floors[role], self.max_of(role)) for role in self.roles())
+        return ClassicRosterRules(size=size, bands=bands)
+
 
 def classic_rules(counts: Mapping[str, int], *, size: int | None = None) -> ClassicRosterRules:
     """Build rules from a parsed ``static`` band (``players_settings_data`` / ``minrl``).

@@ -96,10 +96,28 @@ class TestWhatComesBack:
         assert "t3" not in _resolve().seat_by_user.values()
 
 
+class TestBothFormatsResolve:
+    """Phase C3 lifted the Mantra-only refusal: a Classic room now resolves and carries its
+    format + per-role band for the tracker to dispatch on. An unknown format stays refused."""
+
+    def test_a_classic_room_resolves_and_carries_its_band(self) -> None:
+        room = _resolve({
+            **BODY,
+            "asta_type": "classic",
+            "number_of_players_selection": "static",
+            "players_settings_data": {"P": 3, "D": 8, "C": 8, "A": 6},
+        })
+        assert room.asta_type == "classic"
+        assert room.players_settings_data == {"P": 3, "D": 8, "C": 8, "A": 6}
+
+    def test_a_mantra_room_still_resolves(self) -> None:
+        assert _resolve().asta_type == "mantra"
+
+
 class TestWhatIsRefused:
-    def test_a_room_that_is_not_mantra(self) -> None:
-        with pytest.raises(RoomRefused, match="classic"):
-            _resolve({**BODY, "asta_type": "classic"})
+    def test_an_unknown_format_is_refused(self) -> None:
+        with pytest.raises(RoomRefused, match="neither mantra nor classic"):
+            _resolve({**BODY, "asta_type": "roman"})
 
     def test_an_ordered_raise_mode(self) -> None:
         """The `raise_state` array an ordered room expects is undecoded (`docs/fantalab/06

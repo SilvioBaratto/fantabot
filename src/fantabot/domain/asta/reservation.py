@@ -18,6 +18,8 @@ from fantabot.domain.asta.live import AssignmentEvent
 from fantabot.domain.asta.opponents import MIN_BID
 from fantabot.domain.asta.optimizer import (
     DEFAULT_SAME_TEAM_RHO,
+    Candidate,
+    CompositionRules,
     InfeasibleRoster,
     build_index,
     optimize_roster,
@@ -26,6 +28,8 @@ from fantabot.domain.asta.optimizer import (
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, OptimizationResult, RosterRules
 from fantabot.domain.asta.value import ValueModel
+from fantabot.domain.classic.roles import ClassicPlayer
+from fantabot.domain.classic.state import ClassicRosterRules
 
 
 def apply_event(state: AstaState, event: AssignmentEvent, *, our_team_id: str) -> AstaState:
@@ -68,14 +72,14 @@ BARGAIN_MIN_BOOK = 20
 
 
 def opportunistic_walkaway(
-    player: MantraPlayer,
+    player: Candidate,
     *,
-    owned_players: Sequence[MantraPlayer],
+    owned_players: Sequence[Candidate],
     prices: Mapping[str, float],
     plan: Sequence[str],
     owned: Sequence[str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules,
+    rules: CompositionRules,
     max_cap: int,
     beta: float = BARGAIN_BETA,
     min_book: int = BARGAIN_MIN_BOOK,
@@ -128,7 +132,20 @@ def opportunistic_walkaway(
     if ceiling < MIN_BID:
         return None
 
-    keepers = sum(1 for p in owned_players if p.roles <= rules.goalkeeper_roles)
+    # Classic (`sroles=1`): the only band check is the per-role ceiling — a third keeper, or a
+    # ninth defender, makes the rosa unfieldable. Every P/D/C/A role is fielded by some
+    # formation, so there is no unfillable-slot case to test (the Mantra one below).
+    if isinstance(rules, ClassicRosterRules):
+        assert isinstance(player, ClassicPlayer)  # dispatch pairs Classic rules with a Classic pool
+        have = sum(1 for p in owned_players if isinstance(p, ClassicPlayer) and p.role == player.role)
+        if have >= rules.max_of(player.role):
+            return None
+        return ceiling
+
+    assert isinstance(player, MantraPlayer)
+    keepers = sum(
+        1 for p in owned_players if isinstance(p, MantraPlayer) and p.roles <= rules.goalkeeper_roles
+    )
     if player.roles <= rules.goalkeeper_roles:
         if keepers >= rules.max_goalkeepers():
             return None
@@ -273,13 +290,13 @@ def safe_ceiling(passes: Callable[[int], bool], *, lo: int, hi: int) -> int:
 
 def lot_reference(
     state: AstaState,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[Candidate],
     *,
     value: ValueModel,
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules = RosterRules(),
+    rules: CompositionRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
     baseline: float,
@@ -325,13 +342,13 @@ def lot_reference(
 
 def lot_ceiling(
     state: AstaState,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[Candidate],
     *,
     value: ValueModel,
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules = RosterRules(),
+    rules: CompositionRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
     baseline: float,
@@ -426,13 +443,13 @@ def lot_ceiling(
 
 def reservations(
     state: AstaState,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[Candidate],
     *,
     value: ValueModel,
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules = RosterRules(),
+    rules: CompositionRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
     n_targets: int | None = 5,
@@ -503,7 +520,7 @@ def reservations(
 
 def rolling_advisory(
     state: AstaState,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[Candidate],
     events: Iterable[AssignmentEvent],
     *,
     our_team_id: str,
@@ -511,7 +528,7 @@ def rolling_advisory(
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules = RosterRules(),
+    rules: CompositionRules = RosterRules(),
     lam: float = 0.0,
     rho: float = DEFAULT_SAME_TEAM_RHO,
 ) -> Iterator[tuple[AstaState, AssignmentEvent, OptimizationResult, dict[str, float]]]:

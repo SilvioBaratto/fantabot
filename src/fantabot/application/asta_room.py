@@ -55,6 +55,14 @@ from fantabot.domain.asta.reservation import (
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.domain.asta.value import ValueModel
+from fantabot.domain.classic.formations import fieldable_formations
+from fantabot.domain.classic.roles import ClassicPlayer
+from fantabot.domain.classic.state import ClassicRosterRules
+
+#: A pool player and the roster rules in either format — the tracker is handed whichever the
+#: resolved room declares and dispatches the format-specific bits (fieldable count, band gate).
+RoomPlayer = MantraPlayer | ClassicPlayer
+RoomRules = RosterRules | ClassicRosterRules
 
 #: How many sales travel in a copilot brief and on the frame. Three is the room's tempo
 #: without being a transcript.
@@ -101,6 +109,9 @@ class ResolvedRoom:
     #: The Classic `static` per-role band `{P,D,C,A}`, carried so `rules_for_room` can build a
     #: `ClassicRosterRules`. `None` for a Mantra room.
     players_settings_data: Mapping[str, int] | None
+    #: `"mantra"` or `"classic"` — the discriminator the interface reads to pick the listone and
+    #: the rules shape. Carried rather than re-fetched so the two cannot disagree.
+    asta_type: str | None
     asta_mode: str | None
     raise_mode: str | None
     counter_time: int | None
@@ -143,10 +154,12 @@ def resolve_room(
     """
     config = fetch(fantaleague_id)
 
-    if config.asta_type and config.asta_type != "mantra":
+    # Both formats are fielded now (mantra via the 11 schemi, classic via the P/D/C/A bands).
+    # An unknown asta_type is still refused, fail-closed: we can only field what we model.
+    if config.asta_type and config.asta_type not in ("mantra", "classic"):
         raise RoomRefused(
-            f"this room is {config.asta_type}, not mantra. Nothing here can field a Classic "
-            "rosa — domain/asta is Mantra only, twelve role codes across eleven schemi."
+            f"this room is {config.asta_type!r}, neither mantra nor classic — nothing here can "
+            "field that rosa. Bid it by hand."
         )
 
     if config.raise_mode and config.raise_mode != "free":
@@ -180,6 +193,7 @@ def resolve_room(
         min_others=config.min_others,
         max_others=config.max_others,
         players_settings_data=config.players_settings_data,
+        asta_type=config.asta_type,
         asta_mode=config.asta_mode,
         raise_mode=config.raise_mode,
         counter_time=config.counter_time,
@@ -282,13 +296,13 @@ class RoomTracker:
         *,
         seat: BidSeat,
         bridge: Mapping[str, int],
-        pool: Sequence[MantraPlayer],
+        pool: Sequence[RoomPlayer],
         value: ValueModel,
         prices: Mapping[str, float],
         teams: Mapping[str, str],
         legality: dict[str, SchemaLegality],
         names: Mapping[str, str],
-        rules: RosterRules,
+        rules: RoomRules,
         budget: float,
         lam: float,
         ledger: Callable[[], Iterable[AssignmentEvent]],
@@ -349,7 +363,7 @@ class RoomTracker:
         # between polls; a lot sits on the block for 20-60 s at a 2 s poll, so without this
         # the room would pay for the same re-solve thirty times and get the same number.
         # The key changes when a sale lands, which is the moment the lot ends anyway.
-        self._bargain_key: tuple[AstaState, RosterRules] | None = None
+        self._bargain_key: tuple[AstaState, RoomRules] | None = None
         self._bargains: dict[str, int] = {}
         # A separate memo from the one above, and deliberately not collapsed into it: this one
         # caches the plan solve itself (`reservations()`), that one caches per-player ceilings
@@ -358,7 +372,7 @@ class RoomTracker:
         # already stopped needing `rules` refreshed at the same moment a bargain ceiling does,
         # once Task 1.2 generalized who gets priced. One slot, not a dict: `state` never
         # recurs (`taken` only grows), so a dict would retain a frozenset per state forever.
-        self._plan_key: tuple[AstaState, RosterRules] | None = None
+        self._plan_key: tuple[AstaState, RoomRules] | None = None
         self._plan_cache: tuple[tuple[str, ...], dict[str, float], float | None, str | None] = (
             (), {}, None, None,
         )
@@ -433,7 +447,20 @@ class RoomTracker:
         cap = max_bid(credits_left, rules.size - len(state.owned))
 
         owned_players = [p for p in self._pool if p.id in set(state.owned)]
-        schemi_open = len(fieldable_schemi(owned_players, self._legality))
+        # "How many modules can this rosa still field" — Mantra counts schemi via the L1 match,
+        # Classic counts formations via the per-role floor. A display/brief number either way.
+        if isinstance(rules, ClassicRosterRules):
+            counts: dict[str, int] = {}
+            for owned_player in owned_players:
+                if isinstance(owned_player, ClassicPlayer):
+                    counts[owned_player.role] = counts.get(owned_player.role, 0) + 1
+            schemi_open = len(fieldable_formations(counts))
+        else:
+            schemi_open = len(
+                fieldable_schemi(
+                    [p for p in owned_players if isinstance(p, MantraPlayer)], self._legality
+                )
+            )
         # Three, not the whole ledger: a brief carrying two hundred lines is a brief nobody
         # reads, the model included.
         recent = tuple(
@@ -520,7 +547,7 @@ class RoomTracker:
         player_id: str,
         *,
         state: AstaState,
-        rules: RosterRules,
+        rules: RoomRules,
         baseline: float,
         hard_cap: int,
         plan: tuple[str, ...],
@@ -569,10 +596,10 @@ class RoomTracker:
         player_id: str,
         *,
         state: AstaState,
-        rules: RosterRules,
+        rules: RoomRules,
         baseline: float | None,
         plan: tuple[str, ...],
-        owned_players: Sequence[MantraPlayer],
+        owned_players: Sequence[RoomPlayer],
         cap: int,
         allowance: int,
         bargain_spent: int,
@@ -663,8 +690,8 @@ class RoomTracker:
         baseline: float | None,
         schemi_open: int,
         recent: tuple[str, ...],
-        owned_players: Sequence[MantraPlayer],
-        rules: RosterRules,
+        owned_players: Sequence[RoomPlayer],
+        rules: RoomRules,
         bargain_spent: int,
         allowance: int,
     ) -> RoomFrame:

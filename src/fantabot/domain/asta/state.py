@@ -16,6 +16,7 @@ from fantabot.domain.classic.state import ClassicRosterRules, classic_rules
 
 if TYPE_CHECKING:
     from fantabot.domain.asta.roles import MantraPlayer
+    from fantabot.domain.classic.roles import ClassicPlayer
 
 
 @dataclass(frozen=True)
@@ -121,8 +122,10 @@ def rules_for_room(
 
 
 def drop_unvaluable(
-    state: AstaState, pool: Sequence[MantraPlayer], rules: RosterRules
-) -> tuple[AstaState, RosterRules, list[str]]:
+    state: AstaState,
+    pool: Sequence[MantraPlayer | ClassicPlayer],
+    rules: RosterRules | ClassicRosterRules,
+) -> tuple[AstaState, RosterRules | ClassicRosterRules, list[str]]:
     """Set aside owned players the pool cannot name, and shrink the band to match. Pure.
 
     ``optimize_roster`` refuses a state whose ``owned`` holds an id absent from the pool,
@@ -150,6 +153,8 @@ def drop_unvaluable(
         return state, rules, []
 
     kept = replace(state, owned=tuple(pid for pid in state.owned if pid in known))
+    if isinstance(rules, ClassicRosterRules):
+        return kept, rules.shrunk(len(dropped)), dropped
     shrunk = replace(
         rules,
         size=max(0, rules.size - len(dropped)),

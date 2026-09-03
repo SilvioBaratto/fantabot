@@ -539,6 +539,7 @@ def asta_room(
             callable_ids={str(fid) for fid in bridge.values()},
             num_teams=resolved.num_teams or 8,
             num_credits=int(resolved.num_credits or 500),
+            listone=resolved.asta_type or "mantra",
         )
 
     # A stale bridge (the refresh above failed and fell back) is a reason to refuse
@@ -585,11 +586,9 @@ def asta_room(
             fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id
         ),
         bridge=bridge,
-        pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
         legality=world.legality, names=world.names,
-        # Mantra-only until C3 makes RoomTracker format-aware; resolve_room still refuses Classic,
-        # so `rules` is a RosterRules at runtime here.
-        rules=cast("RosterRules", rules),
+        rules=rules,
         budget=credits,
         lam=lam,
         ceiling_alpha=ceiling_alpha,
