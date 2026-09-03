@@ -88,6 +88,9 @@ TREE: dict[str, str] = {
     "test_news_store.py": "domain/news",
     "test_news_store_contract.py": "domain/news",
     "test_news_cost_report.py": "domain/news",
+    # -- domain/classic: the Classic (P/D/C/A) engine -------------------------------------
+    "test_classic_roles.py": "domain/classic",
+    "test_classic_formations.py": "domain/classic",
     # -- domain/mantra, domain/shared, domain/tokens --------------------------------------
     "test_mantra_grid_gates.py": "domain/mantra",
     "test_club_names.py": "domain/shared",

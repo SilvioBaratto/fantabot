@@ -27,6 +27,7 @@ import _importgraph as G
 LAYERS: dict[str, str] = {
     # -- domain: decisions. Pure by intent; the rules below are what make that true.
     "fantabot.domain.asta": "domain",
+    "fantabot.domain.classic": "domain",
     "fantabot.domain.harvest": "domain",
     "fantabot.domain.news": "domain",
     "fantabot.domain.mantra": "domain",
