@@ -6,9 +6,10 @@ deterministic without threading races.
 
 from __future__ import annotations
 
-from app.infrastructure.jobs import BufferingReporter, JobRegistry, registry
-from app.main import app
 from fastapi.testclient import TestClient
+
+from fantabot_app.api.infrastructure.jobs import BufferingReporter, JobRegistry, registry
+from fantabot_app.api.main import app
 
 
 def _inline(run) -> None:

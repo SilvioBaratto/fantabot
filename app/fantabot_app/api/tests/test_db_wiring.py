@@ -13,14 +13,14 @@ import pytest
 
 
 def test_api_database_module_has_no_second_engine() -> None:
-    from app.infrastructure import database
+    from fantabot_app.api.infrastructure import database
 
     assert not hasattr(database, "engine")
     assert not hasattr(database, "SessionLocal")
 
 
 def test_get_db_yields_a_session_from_fantabot_database_manager(monkeypatch) -> None:
-    from app.infrastructure import database
+    from fantabot_app.api.infrastructure import database
 
     sentinel = object()
 

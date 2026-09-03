@@ -65,7 +65,7 @@ def open_browser(url: str, *, opener: Callable[[str], object] = webbrowser.open)
 
 
 def _default_app_factory() -> FastAPI:
-    from app.main import app as fastapi_app
+    from fantabot_app.api.main import app as fastapi_app
 
     application: FastAPI = fastapi_app
     return application

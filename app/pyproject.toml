@@ -39,14 +39,17 @@ fantabot = { path = "..", editable = true }
 packages = ["fantabot_app"]
 
 [tool.pytest.ini_options]
-# Launcher tests only. The FastAPI adapter under api/ has its own pytest config and is
-# run from api/ (its deps are not in the base env).
-testpaths = ["tests"]
+# One suite now that the API is a subpackage (fantabot_app.api): launcher tests plus the
+# API's own tests, run together from app/ (in the app venv).
+testpaths = ["tests", "fantabot_app/api/tests"]
 # Default tier opens zero sockets: integration tests (real Postgres) are opt-in via
 # `pytest -m integration`, matching fantabot's `-m db` discipline.
 addopts = "-q -m 'not integration'"
 markers = [
     "integration: exercises a real bundled Postgres (opens sockets; opt-in)",
+    "e2e: end-to-end tests through the running app",
+    "unit: fast, isolated unit tests",
+    "slow: slow-running tests",
 ]
 
 [tool.ruff]
@@ -57,6 +60,10 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 files = ["fantabot_app"]
+# Tests are excluded from strict typing (fantabot's own convention). main.py is the
+# scaffold app-factory whose endpoint defs are not yet annotated — bring it under strict
+# during Phase 3 hardening, not in the rename.
+exclude = ["fantabot_app/api/tests/.*", "fantabot_app/api/main\\.py"]
 
 # These ship no py.typed marker / stubs; imported lazily inside functions.
 [[tool.mypy.overrides]]
@@ -64,6 +71,5 @@ module = [
     "pixeltable_pgserver", "pixeltable_pgserver.*",
     "fantabot", "fantabot.*",
     "alembic", "alembic.*",
-    "app", "app.*",
 ]
 ignore_missing_imports = true

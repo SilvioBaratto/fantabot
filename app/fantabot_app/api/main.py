@@ -1,28 +1,28 @@
 """FastAPI application factory for FastAPI Template"""
-# ruff: noqa: E402 — load_configuration() MUST run before the imports that
+
 # instantiate Settings (see the comment on the call below), so those imports
 # intentionally sit after a statement. This is the documented app-factory order,
 # not a lint slip.
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Dict, Any
+from typing import Any
 
 # Load configuration into os.environ FIRST, before importing anything that
 # instantiates Settings. load_configuration() walks up to the project .env
 # (CWD-independent, so `cd api && uvicorn` finds the root-level .env); in Docker
 # it is a no-op because the vars are already real env vars injected by compose
 # env_file. Settings then read os.environ only.
-from app.infrastructure.config import load_configuration
+from fantabot_app.api.infrastructure.config import load_configuration
 
 load_configuration()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
-from app.infrastructure.settings import settings
-from app.api.v1.router import api_router
+from fantabot_app.api.infrastructure.settings import settings
+from fantabot_app.api.v1.router import api_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -114,7 +114,7 @@ def setup_health_endpoints(app: FastAPI) -> None:
     """Setup health check and monitoring endpoints"""
 
     @app.get("/")
-    async def read_root() -> Dict[str, Any]:
+    async def read_root() -> dict[str, Any]:
         """Root endpoint with API information"""
         return {
             "message": f"Welcome to the {settings.project_name}!",
@@ -127,7 +127,7 @@ def setup_health_endpoints(app: FastAPI) -> None:
         }
 
     @app.get("/health")
-    async def health_check() -> Dict[str, str]:
+    async def health_check() -> dict[str, str]:
         """Simple health check endpoint - just return OK"""
         return {"status": "ok"}
 
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "app.main:app",
+        "fantabot_app.api.main:app",
         host="0.0.0.0",
         port=8000,
         reload=settings.debug,

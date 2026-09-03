@@ -17,7 +17,7 @@ Two paths are exercised on purpose:
 
 import pytest
 
-from app.main import create_application
+from fantabot_app.api.main import create_application
 
 
 def _schema(client) -> dict:
@@ -66,7 +66,7 @@ def test_when_redoc_requested_then_200_is_returned(client):
 def test_when_production_app_then_custom_route_surfaces_metadata(monkeypatch):
     """when openapi_url is None (production), the custom /openapi.json still
     surfaces contact/license/tag metadata via app.openapi()."""
-    from app import main as main_module
+    from fantabot_app.api import main as main_module
 
     # Force the production branch: debug=False AND not staging => openapi_url=None,
     # so FastAPI registers no built-in /openapi.json and the custom handler is sole.

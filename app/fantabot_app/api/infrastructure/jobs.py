@@ -14,6 +14,7 @@ lines for the job log. The thread factory is injected so tests run jobs synchron
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 import uuid
 from collections.abc import Awaitable, Callable
@@ -50,10 +51,10 @@ def _spawn_daemon(run: Callable[[], None]) -> None:
 
 def _invoke(fn: JobFn, reporter: BufferingReporter) -> Any:
     """Call ``fn``; run it to completion with ``asyncio.run`` if it is async."""
-    if asyncio.iscoroutinefunction(fn):
+    if inspect.iscoroutinefunction(fn):
         return asyncio.run(fn(reporter))
     result = fn(reporter)
-    if asyncio.iscoroutine(result):
+    if inspect.iscoroutine(result):
         return asyncio.run(result)
     return result
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.infrastructure.jobs import registry
+from fantabot_app.api.infrastructure.jobs import registry
 
 router = APIRouter()
 

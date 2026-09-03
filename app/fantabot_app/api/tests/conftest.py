@@ -5,18 +5,17 @@ Pytest Configuration and Shared Fixtures
 This module provides shared fixtures for testing the FastAPI application.
 """
 
-import pytest
-from typing import Generator
+from collections.abc import Generator
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
-from app.infrastructure.database import get_db
-from app.infrastructure.orm.base import Base
-
+from fantabot_app.api.infrastructure.database import get_db
+from fantabot_app.api.infrastructure.orm.base import Base
+from fantabot_app.api.main import app
 
 # Test database URL - use SQLite for fast tests
 TEST_DATABASE_URL = "sqlite:///:memory:"

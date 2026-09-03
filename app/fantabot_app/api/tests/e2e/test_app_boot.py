@@ -7,7 +7,7 @@ lifespan startup (``init_db``) runs against the overridden test session.
 
 import pytest
 
-from app.main import app
+from fantabot_app.api.main import app
 
 
 @pytest.mark.e2e
