@@ -56,9 +56,18 @@ def test_read_db_health_reports_down_database() -> None:
     assert health.tables == []
 
 
-def test_db_health_endpoint_never_500s_without_a_database() -> None:
-    # No FANTABOT_DATABASE_URL / no server in the unit env: the endpoint must degrade open.
+def test_db_health_endpoint_degrades_open_on_db_error(monkeypatch) -> None:
+    # Force the DB layer to fail: the endpoint must never 500, and the test opens no
+    # socket (zero-socket default tier).
+    from fantabot.adapters.persistence import database_manager
+
+    def boom():
+        raise RuntimeError("db unreachable")
+
+    monkeypatch.setattr(database_manager, "get_session", boom)
+
     response = TestClient(app).get("/api/v1/db/health")
     assert response.status_code == 200
     body = response.json()
-    assert "ok" in body and "tables" in body
+    assert body["ok"] is False
+    assert body["tables"] == []

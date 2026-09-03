@@ -1,0 +1,84 @@
+<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="font-display text-3xl font-bold tracking-tight text-text">Accounts</h1>
+    <p class="mt-1 text-sm text-text-secondary">Stored tokens the bot uses to read your leghe.</p>
+  </div>
+  <button
+    type="button"
+    (click)="load()"
+    class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
+  >
+    <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
+    Refresh
+  </button>
+</header>
+
+@if (loading() && !status()) {
+  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+} @else if (errorMsg(); as message) {
+  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
+    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
+    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
+  </section>
+} @else if (status(); as s) {
+  @if (!s.has_key) {
+    <div class="mb-6 flex items-start gap-3 rounded-lg border border-warning/40 bg-surface-raised p-4">
+      <span class="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-warning"></span>
+      <p class="text-sm text-text-secondary">
+        No encryption key is set. Configure <code class="text-text">FANTABOT_ENCRYPTION_KEY</code>
+        before connecting an account, so tokens can be stored.
+      </p>
+    </div>
+  }
+
+  <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
+    <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Leagues</div>
+    @if (s.leagues.length) {
+      @for (l of s.leagues; track l.league_id) {
+        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border-muted px-6 py-4 last:border-b-0">
+          <div>
+            <p class="font-display text-base font-semibold text-text">{{ l.league_name ?? l.league_id }}</p>
+            <p class="mt-0.5 text-xs text-text-tertiary tabular-nums">#{{ l.league_id }}</p>
+          </div>
+          <div class="flex items-center gap-6">
+            <span class="text-sm text-text-secondary tabular-nums">expires {{ l.expires_at | date: 'd MMM y' }}</span>
+            <span
+              class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+              [class.bg-signature]="tone(l.state) === 'ok'"
+              [class.text-surface-raised]="tone(l.state) === 'ok'"
+              [class.bg-warning]="tone(l.state) === 'warn'"
+              [class.bg-danger]="tone(l.state) === 'bad'"
+              [class.text-white]="tone(l.state) !== 'ok'"
+            >
+              {{ l.state }}
+            </span>
+          </div>
+        </div>
+      }
+    } @else {
+      <div class="px-6 py-10 text-center">
+        <p class="font-display text-base font-semibold text-text">No account connected yet</p>
+        <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
+          Connect your fantacalcio account so the bot can read your leghe. Connecting opens a
+          real browser for you to sign in — coming from this screen next.
+        </p>
+      </div>
+    }
+  </section>
+
+  <section class="mt-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+    <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">FantaLab session</div>
+    @if (s.fantalab.length) {
+      @for (f of s.fantalab; track f.user_id) {
+        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-4">
+          <p class="font-display text-base font-semibold text-text">{{ f.user_id }}</p>
+          <span class="text-sm text-text-secondary tabular-nums">
+            captured {{ f.captured_at | date: 'd MMM y' }}
+          </span>
+        </div>
+      }
+    } @else {
+      <div class="px-6 py-6 text-sm text-text-secondary">Not connected.</div>
+    }
+  </section>
+}
