@@ -15,10 +15,13 @@ import json
 from functools import lru_cache
 
 from fantabot.domain.asta.roles import normalize_role
+from fantabot.domain.classic.formations import FORMATIONS
 from fantabot.domain.shared.resources import SCHEMI_FILENAME, data_dir
 
 #: The goalkeeper slot, always `starts[0]`, implicit in `mantra_schemi.json`.
 GK_ROLE = "POR"
+#: The Classic goalkeeper role — its `starts[0]`, the counterpart to Mantra's `POR`.
+CLASSIC_GK_ROLE = "P"
 
 
 @lru_cache(maxsize=1)
@@ -40,7 +43,7 @@ def modules() -> frozenset[str]:
 
 
 def slots(module_code: str) -> tuple[frozenset[str], ...]:
-    """The 11 ordered slot role-sets for a module, GK first — `starts[]` order.
+    """The 11 ordered slot role-sets for a Mantra module, GK first — `starts[]` order.
 
     Raises `ValueError` for a code that is not one of the 11, rather than returning an empty
     schema that would silently accept any assignment.
@@ -49,3 +52,21 @@ def slots(module_code: str) -> tuple[frozenset[str], ...]:
         return _by_code()[module_code]
     except KeyError:
         raise ValueError(f"unknown module code: {module_code!r}") from None
+
+
+def classic_slots(module_code: str) -> tuple[frozenset[str], ...]:
+    """The 11 ordered slot role-sets for a Classic formation, GK first — `starts[]` order.
+
+    The Classic counterpart to `slots`: a formation is a per-role **count** (`352` = 3 D, 5 C,
+    2 A) over single-role buckets, so each slot admits exactly one macro role. Dispatched by
+    format at the builder rather than merged with the Mantra table — the codes `343`/`352`/…
+    exist in **both** and keying by code alone would silently return the Mantra schema.
+    """
+    try:
+        counts = FORMATIONS[module_code]
+    except KeyError:
+        raise ValueError(f"unknown Classic formation code: {module_code!r}") from None
+    ordered: list[frozenset[str]] = [frozenset({CLASSIC_GK_ROLE})]
+    for role in ("D", "C", "A"):
+        ordered.extend(frozenset({role}) for _ in range(counts[role]))
+    return tuple(ordered)

@@ -15,11 +15,15 @@ the `-1` cells, therefore confirms every result (crossed-checked in the tests).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from fantabot.domain.lineup import schema
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.models import RosterPlayer
+
+#: A module code -> its ordered slot role-sets (GK first). `schema.slots` for Mantra,
+#: `schema.classic_slots` for Classic; injected so the builder itself is format-neutral.
+SlotsProvider = Callable[[str], tuple[frozenset[str], ...]]
 
 #: Cost of placing a player in a slot his roles do not cover. Large enough to dominate any
 #: real score, so the matcher uses such an edge only when no feasible assignment exists — a
@@ -32,6 +36,7 @@ def lineup_for_module(
     module_code: str,
     *,
     value: Mapping[int, float],
+    slots_provider: SlotsProvider = schema.slots,
 ) -> list[int] | None:
     """The max-value `starts[]` (11 ids, GK first) for one module, or `None` if the module
     is unknown or the roster cannot field it with natural roles.
@@ -41,7 +46,7 @@ def lineup_for_module(
     fieldable, and a bad code must not crash an unattended run.
     """
     try:
-        slot_sets = schema.slots(module_code)
+        slot_sets = slots_provider(module_code)
     except ValueError:
         return None
     players = list(roster)
@@ -72,6 +77,7 @@ def ranked_lineups(
     modules: Sequence[str],
     *,
     value: Mapping[int, float],
+    slots_provider: SlotsProvider = schema.slots,
 ) -> list[tuple[str, list[int]]]:
     """Every fieldable module's `(module, starts[])`, best `sum(value)` first.
 
@@ -82,7 +88,7 @@ def ranked_lineups(
     """
     scored: list[tuple[float, str, list[int]]] = []
     for code in modules:
-        starts = lineup_for_module(roster, code, value=value)
+        starts = lineup_for_module(roster, code, value=value, slots_provider=slots_provider)
         if starts is None:
             continue
         total = sum(value.get(pid, 0.0) for pid in starts)
@@ -96,10 +102,11 @@ def best_lineup(
     modules: Sequence[str],
     *,
     value: Mapping[int, float],
+    slots_provider: SlotsProvider = schema.slots,
 ) -> tuple[str, list[int]]:
     """`(module, starts[])` maximising `sum(value)`. Raises `NoFieldableModule` when the
     roster fields none of the allowed modules."""
-    ranked = ranked_lineups(roster, modules, value=value)
+    ranked = ranked_lineups(roster, modules, value=value, slots_provider=slots_provider)
     if not ranked:
         raise NoFieldableModule(tuple(modules))
     return ranked[0]
