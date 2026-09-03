@@ -1,0 +1,84 @@
+name: CI
+
+# Runs on every push to main or development, and on PRs targeting them. The suite is Linux-
+# green on a fresh checkout (the host-Windows quirks — cp1252 reads, CRLF hashes, `\` paths —
+# do not exist here), so this gate is expected to pass every time.
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+
+# A newer push to the same ref cancels the older run — no point finishing a superseded commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-type:
+    name: ruff + mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: ruff
+        run: ruff check src tests
+      - name: mypy (strict, src only)
+        run: mypy
+
+  test:
+    name: pytest (socket-free tier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # A throwaway Fernet key for the run — minted, never committed. No real credential.
+      - name: throwaway encryption key
+        run: |
+          KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "FANTABOT_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+      - name: pytest
+        run: pytest -q
+
+  test-db:
+    name: pytest (db integration tier)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fantabot
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fantabot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      FANTABOT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: throwaway encryption key
+        run: |
+          KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "FANTABOT_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+      - name: alembic upgrade head
+        run: alembic upgrade head
+      - name: pytest -m db
+        run: pytest -q -m db
