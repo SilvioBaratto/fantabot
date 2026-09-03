@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff", "mypy"]
+dev = ["pytest>=8", "ruff", "mypy", "httpx"]
 
 [project.scripts]
 fantabot-app = "fantabot_app.cli:main"
