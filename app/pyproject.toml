@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fantabot-app"
+version = "0.1.0"
+description = "Local, user-friendly web UI over fantabot — one command, no Docker."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Silvio Baratto" }]
+keywords = ["fantacalcio", "fantabot", "fastapi", "angular", "local-app"]
+
+# fantabot is a PATH dependency (see [tool.uv.sources]); both live in this repo and
+# nothing is published — install is `uv tool install ./app`. Postgres ships inside the
+# pixeltable-pgserver wheel (bundled PG18), so `uv` stays the only prerequisite.
+dependencies = [
+    "fantabot",
+    "pixeltable-pgserver==0.6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff", "mypy"]
+
+[project.scripts]
+fantabot-app = "fantabot_app.cli:main"
+
+# Resolve the `fantabot` dependency from the sibling repo root as an editable install.
+[tool.uv.sources]
+fantabot = { path = "..", editable = true }
+
+[tool.hatch.build.targets.wheel]
+# The launcher package. The compiled Angular bundle (frontend/dist) is added as package
+# data in S13 so end users need no Node.
+packages = ["fantabot_app"]
+
+[tool.pytest.ini_options]
+# Launcher tests only. The FastAPI adapter under api/ has its own pytest config and is
+# run from api/ (its deps are not in the base env).
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["fantabot_app"]
