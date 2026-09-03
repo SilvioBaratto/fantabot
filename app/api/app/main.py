@@ -22,7 +22,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 
 from app.infrastructure.settings import settings
-from app.infrastructure.database import init_db, close_db
 from app.api.v1.router import api_router
 
 # Configure structured logging
@@ -49,38 +48,15 @@ LICENSE_INFO = {"name": "MIT", "identifier": "MIT"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager for startup and shutdown events.
-    """
-    # Startup
-    logger.info(f"Starting {settings.project_name}...")
-    logger.info(f"Environment: {settings.environment}")
-    logger.info(f"Debug mode: {settings.debug}")
-
-    try:
-        # Initialize database
-        init_db()
-        logger.info("Database initialized successfully")
-
-        logger.info(f"{settings.project_name} startup complete")
-        yield
-
-    except Exception as e:
-        logger.error(f"Startup error: {e}")
-        if settings.is_development:
-            logger.warning("Continuing startup in development mode despite errors")
-            yield
-        else:
-            raise
-
-    # Shutdown
+    """Startup/shutdown. The schema is fantabot's (managed by alembic, provisioned by the
+    launcher), so there is nothing to create here — sessions come from fantabot's lazy
+    ``database_manager`` on first request."""
+    logger.info(f"Starting {settings.project_name} (environment={settings.environment})...")
+    yield
     logger.info(f"Shutting down {settings.project_name}...")
+    from fantabot.adapters.persistence import database_manager
 
-    try:
-        close_db()
-        logger.info("Application shutdown complete")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
+    database_manager.dispose()
 
 
 def create_application() -> FastAPI:
