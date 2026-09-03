@@ -1,0 +1,79 @@
+<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="font-display text-3xl font-bold tracking-tight text-text">System</h1>
+    <p class="mt-1 text-sm text-text-secondary">Your local database and what it holds.</p>
+  </div>
+  <button
+    type="button"
+    (click)="load()"
+    class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
+  >
+    <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
+    Refresh
+  </button>
+</header>
+
+@if (loading() && !health()) {
+  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+} @else if (errorMsg(); as message) {
+  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
+    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
+    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
+  </section>
+} @else if (health(); as h) {
+  <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
+    <div class="h-1 w-full" [class.bg-signature]="h.ok" [class.bg-danger]="!h.ok"></div>
+    <div class="flex flex-wrap items-end gap-x-14 gap-y-6 p-6">
+      <div>
+        <div class="flex items-center gap-2">
+          <span
+            class="h-2.5 w-2.5 rounded-full"
+            [class.bg-signature]="h.ok"
+            [class.bg-danger]="!h.ok"
+          ></span>
+          <span
+            class="font-display text-xl font-semibold"
+            [class.text-signature]="h.ok"
+            [class.text-danger]="!h.ok"
+          >
+            {{ h.ok ? 'Connected' : 'Offline' }}
+          </span>
+        </div>
+        <p class="mt-1 text-sm text-text-secondary">Postgres, local</p>
+      </div>
+
+      <div>
+        <p class="font-display text-5xl font-bold tabular-nums text-text">
+          {{ h.latency_ms | number: '1.0-1' }}<span class="ml-1 text-xl font-medium text-text-tertiary">ms</span>
+        </p>
+        <p class="mt-1 text-sm text-text-secondary">response</p>
+      </div>
+
+      <div>
+        <p class="font-display text-5xl font-bold tabular-nums text-text">{{ h.tables.length }}</p>
+        <p class="mt-1 text-sm text-text-secondary">tables</p>
+      </div>
+    </div>
+  </section>
+
+  @if (h.tables.length) {
+    <section class="mt-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+      <div
+        class="grid grid-cols-[1fr_auto] gap-4 border-b border-border px-6 py-3 text-xs font-semibold text-text-tertiary"
+      >
+        <span>Table</span>
+        <span>Rows</span>
+      </div>
+      @for (t of h.tables; track t.name) {
+        <div
+          class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border-muted px-6 py-2.5 last:border-b-0"
+        >
+          <span class="text-sm text-text" [class.text-text-tertiary]="!t.exists">{{ t.name }}</span>
+          <span class="text-sm tabular-nums text-text-secondary">
+            {{ t.exists ? ((t.row_count ?? 0) | number) : '—' }}
+          </span>
+        </div>
+      }
+    </section>
+  }
+}

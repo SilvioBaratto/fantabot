@@ -6,78 +6,78 @@
    keeps the `:not()` at zero specificity so utility ordering is unaffected. */
 
 @theme {
-  /* Fonts */
-  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  /* Fonts — Archivo carries the sporting personality; Public Sans is the quiet body. */
+  --font-sans: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Archivo', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Fira Code', ui-monospace, monospace;
 
-  /* Surface */
-  --color-surface: #fafafa;
+  /* Surface — stadium concrete: a cool off-white, deliberately not cream */
+  --color-surface: #f4f6f4;
   --color-surface-raised: #ffffff;
-  --color-surface-inset: #f4f4f5;
+  --color-surface-inset: #ecefec;
 
-  /* Border */
-  --color-border: #e4e4e7;
-  --color-border-muted: #f4f4f5;
+  /* Border — faint green-grey */
+  --color-border: #dbe2dc;
+  --color-border-muted: #ecefec;
 
-  /* Text */
-  --color-text: #18181b;
-  --color-text-secondary: #52525b;
-  --color-text-tertiary: #6b7280;
+  /* Text — ink */
+  --color-text: #10161c;
+  --color-text-secondary: #45524b;
+  --color-text-tertiary: #78877e;
 
-  /* Primary — violet */
-  --color-primary: #6d28d9;
-  --color-primary-hover: #5b21b6;
-  --color-primary-light: #f5f3ff;
+  /* Primary — pitch (deep green under floodlights) */
+  --color-primary: #0e3b2e;
+  --color-primary-hover: #0a2c22;
+  --color-primary-light: #e6efe9;
 
-  /* Accent — indigo */
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
-  --color-accent-light: #eef2ff;
+  /* Accent — turf (live green) */
+  --color-accent: #1fa971;
+  --color-accent-hover: #17885b;
+  --color-accent-light: #e4f5ed;
 
-  /* Signature pop — emerald */
-  --color-signature: #10b981;
+  /* Signature pop — turf */
+  --color-signature: #1fa971;
 
-  /* Semantic */
-  --color-danger: #dc2626;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-info: #2563eb;
+  /* Semantic — whistle amber, offside red */
+  --color-danger: #c8452f;
+  --color-success: #1fa971;
+  --color-warning: #e8b93b;
+  --color-info: #2f6fed;
 }
 
 .dark {
-  /* Surface */
-  --color-surface: #0a0a0b;
-  --color-surface-raised: #161618;
-  --color-surface-inset: #1f1f23;
+  /* Surface — night match: deep green-black */
+  --color-surface: #0b1310;
+  --color-surface-raised: #12201a;
+  --color-surface-inset: #182a22;
 
   /* Border */
-  --color-border: #2e2e33;
-  --color-border-muted: #1f1f23;
+  --color-border: #263a30;
+  --color-border-muted: #182a22;
 
   /* Text */
-  --color-text: #fafafa;
-  --color-text-secondary: #a1a1aa;
-  --color-text-tertiary: #71717a;
+  --color-text: #eef3f0;
+  --color-text-secondary: #a7b7ad;
+  --color-text-tertiary: #7c8a82;
 
-  /* Primary — violet lifted for dark bg */
-  --color-primary: #8b5cf6;
-  --color-primary-hover: #7c3aed;
-  --color-primary-light: #1e1535;
+  /* Primary — turf lifted for dark bg */
+  --color-primary: #2fd08a;
+  --color-primary-hover: #27b878;
+  --color-primary-light: #10251c;
 
-  /* Accent — indigo lifted */
-  --color-accent: #6366f1;
-  --color-accent-hover: #4f46e5;
-  --color-accent-light: #1e1b4b;
+  /* Accent — turf lifted */
+  --color-accent: #2fd08a;
+  --color-accent-hover: #27b878;
+  --color-accent-light: #10251c;
 
-  /* Signature pop — emerald (holds well on dark) */
+  /* Signature pop — turf (holds well on dark) */
   --color-signature: #34d399;
 
   /* Semantic */
-  --color-danger: #f87171;
-  --color-success: #4ade80;
-  --color-warning: #fbbf24;
-  --color-info: #60a5fa;
+  --color-danger: #f0715b;
+  --color-success: #34d399;
+  --color-warning: #f0c85a;
+  --color-info: #6ea0f5;
 }
 
 /* Re-assert the light theme inside a `.dark` ancestor. Mirrors the @theme
@@ -85,37 +85,37 @@
    global theme — the symmetric counterpart to `.dark`. */
 .light {
   /* Surface */
-  --color-surface: #fafafa;
+  --color-surface: #f4f6f4;
   --color-surface-raised: #ffffff;
-  --color-surface-inset: #f4f4f5;
+  --color-surface-inset: #ecefec;
 
   /* Border */
-  --color-border: #e4e4e7;
-  --color-border-muted: #f4f4f5;
+  --color-border: #dbe2dc;
+  --color-border-muted: #ecefec;
 
   /* Text */
-  --color-text: #18181b;
-  --color-text-secondary: #52525b;
-  --color-text-tertiary: #6b7280;
+  --color-text: #10161c;
+  --color-text-secondary: #45524b;
+  --color-text-tertiary: #78877e;
 
-  /* Primary — violet */
-  --color-primary: #6d28d9;
-  --color-primary-hover: #5b21b6;
-  --color-primary-light: #f5f3ff;
+  /* Primary — pitch */
+  --color-primary: #0e3b2e;
+  --color-primary-hover: #0a2c22;
+  --color-primary-light: #e6efe9;
 
-  /* Accent — indigo */
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
-  --color-accent-light: #eef2ff;
+  /* Accent — turf */
+  --color-accent: #1fa971;
+  --color-accent-hover: #17885b;
+  --color-accent-light: #e4f5ed;
 
-  /* Signature pop — emerald */
-  --color-signature: #10b981;
+  /* Signature pop — turf */
+  --color-signature: #1fa971;
 
   /* Semantic */
-  --color-danger: #dc2626;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-info: #2563eb;
+  --color-danger: #c8452f;
+  --color-success: #1fa971;
+  --color-warning: #e8b93b;
+  --color-info: #2f6fed;
 }
 
 @layer base {

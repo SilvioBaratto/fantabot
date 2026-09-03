@@ -3,6 +3,7 @@ import { Router, provideRouter } from '@angular/router';
 import { LucideIconConfig } from 'lucide-angular';
 
 import { ICON_PROVIDER } from './../../icons';
+import { NAV_ITEMS } from '../nav-item';
 import { BottomTabBarComponent } from './bottom-tab-bar';
 
 describe('BottomTabBarComponent', () => {
@@ -32,9 +33,9 @@ describe('BottomTabBarComponent', () => {
     return Array.from(fixture.nativeElement.querySelectorAll('nav a'));
   }
 
-  it('when the bar renders, three tabs are returned', async () => {
+  it('when the bar renders, one tab per nav item is returned', async () => {
     const tabs = await renderTabs();
-    expect(tabs.length).toBe(3);
+    expect(tabs.length).toBe(NAV_ITEMS.length);
   });
 
   it('when each tab renders, an aria-label is present', async () => {

@@ -7,8 +7,9 @@ and register them here with ``api_router.include_router(...)``.
 
 from fastapi import APIRouter
 
-from fantabot_app.api.v1.endpoints import jobs
+from fantabot_app.api.v1.endpoints import db, jobs
 
 # Create the main API router
 api_router = APIRouter()
 api_router.include_router(jobs.router)
+api_router.include_router(db.router)

@@ -76,6 +76,9 @@
           "options": {
             "tsConfig": "tsconfig.spec.json",
             "providersFile": "src/test-providers.ts",
+            "setupFiles": [
+              "src/test-setup.ts"
+            ],
             "include": [
               "src/**/*.spec.ts"
             ]
