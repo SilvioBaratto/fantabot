@@ -14,4 +14,11 @@ export class ActionsService {
       {},
     );
   }
+
+  runNewsFetch(season: string): Observable<{ job_id: string }> {
+    return this.http.post<{ job_id: string }>(
+      `${environment.apiUrl}actions/news-fetch?season=${encodeURIComponent(season)}`,
+      {},
+    );
+  }
 }

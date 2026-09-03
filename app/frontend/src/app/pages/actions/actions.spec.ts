@@ -58,4 +58,19 @@ describe('ActionsComponent', () => {
     httpMock.expectNone((r) => r.url.includes('actions/lega-sync'));
     expect(fixture.componentInstance.running()).toBe(false);
   });
+
+  it('starts a news fetch job for the season', () => {
+    const fixture = TestBed.createComponent(ActionsComponent);
+    fixture.detectChanges();
+
+    fixture.componentInstance.runNewsFetch();
+
+    httpMock
+      .expectOne((r) => r.url.includes('actions/news-fetch') && r.url.includes('2026'))
+      .flush({ job_id: 'J2' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.running()).toBe(true);
+    fixture.destroy();
+  });
 });
