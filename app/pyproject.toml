@@ -60,5 +60,10 @@ files = ["fantabot_app"]
 
 # These ship no py.typed marker / stubs; imported lazily inside functions.
 [[tool.mypy.overrides]]
-module = ["pixeltable_pgserver", "pixeltable_pgserver.*", "fantabot", "fantabot.*", "alembic", "alembic.*"]
+module = [
+    "pixeltable_pgserver", "pixeltable_pgserver.*",
+    "fantabot", "fantabot.*",
+    "alembic", "alembic.*",
+    "app", "app.*",
+]
 ignore_missing_imports = true

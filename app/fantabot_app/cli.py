@@ -48,7 +48,13 @@ def setup() -> None:
 @app.command()
 def up() -> None:
     """Start Postgres if needed, boot the API + UI, and open the browser."""
-    typer.echo("up: not yet implemented (F4 — server host)")
+    from fantabot_app import server
+    from fantabot_app.provisioner.postgres import PostgresProvisioner
+
+    typer.echo("Starting local Postgres...")
+    PostgresProvisioner().start()
+    typer.echo("Serving fantabot-app at http://127.0.0.1:8000 (Ctrl-C to stop)...")
+    server.serve()
 
 
 @app.command()
