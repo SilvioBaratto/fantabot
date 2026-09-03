@@ -14,12 +14,19 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from fantabot.domain.lineup.bench import order_bench
+from fantabot.domain.asta.roles import normalize_roles
+from fantabot.domain.classic.roles import normalize_roles as classic_normalize_roles
+from fantabot.domain.classic.roles import role_from_fcrle
+from fantabot.domain.lineup import schema
+from fantabot.domain.lineup.bench import GK_ROLE, order_bench
 from fantabot.domain.lineup.build import ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.marle import roles_from_marle
 from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
 from fantabot.domain.lineup.value import score
+
+#: The Classic goalkeeper role for the bench's slot 0, the counterpart to Mantra's `POR`.
+CLASSIC_GK_ROLE = "P"
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,9 @@ class LineupInputs:
     cmday: int
     tid: int
     bench_size: int
+    #: `"mantra"` or `"classic"` — selects the role source, the slot provider, the normalizer
+    #: and the bench keeper role. Defaults to Mantra so existing callers are unchanged.
+    fmt: str = "mantra"
 
 
 def inputs_from_lineup(
@@ -44,6 +54,7 @@ def inputs_from_lineup(
     competition: int,
     *,
     tid: int,
+    fmt: str = "mantra",
 ) -> tuple[LineupInputs, dict[int, str]]:
     """Turn a `teamLineup_read` response + `settings/lineup` into `LineupInputs` and a
     id->name map. Pure.
@@ -64,7 +75,14 @@ def inputs_from_lineup(
     for row in lineup_info:
         pid = int(row["pid"])
         roster_ids.append(pid)
-        roles_by_id[pid] = roles_from_marle(row.get("role") or [])
+        # Classic reads the single macro role from `fcrle` ({1:P,2:D,3:C,4:A}); Mantra reads the
+        # granular marle codes. A Classic row without `fcrle` yields no role and fails closed at
+        # assemble_roster rather than being read on the wrong scale.
+        if fmt == "classic":
+            fcrle = row.get("fcrle")
+            roles_by_id[pid] = [role_from_fcrle(fcrle)] if fcrle is not None else []
+        else:
+            roles_by_id[pid] = roles_from_marle(row.get("role") or [])
         value_by_id[pid] = float(row.get("indexCompare") or 0.0)
         names[pid] = str(row.get("plyr", pid))
 
@@ -78,6 +96,7 @@ def inputs_from_lineup(
         cmday=int(dto.get("cmday", 0)),
         tid=tid,
         bench_size=int(settings.get("tbench", 12)),
+        fmt=fmt,
     )
     return inputs, names
 
@@ -89,23 +108,31 @@ def plan_lineups(inputs: LineupInputs) -> list[PlannedLineup]:
     (a wrong schema is survived, not fatal). Raises the `domain/lineup` errors
     (`RosterIncomplete`, `NoFieldableModule`, `BenchIncomplete`) unchanged.
     """
+    classic = inputs.fmt == "classic"
     roster = assemble_roster(
         inputs.roster_ids,
         roles_by_id=inputs.roles_by_id,
         fvmma_by_id=inputs.fvmma_by_id,
+        normalize=classic_normalize_roles if classic else normalize_roles,
     )
     scores = score(roster)
+    slots_provider = schema.classic_slots if classic else schema.slots
+    gk_role = CLASSIC_GK_ROLE if classic else GK_ROLE
     plans = [
         PlannedLineup(
             module=module,
             starts=tuple(starts),
-            bench=tuple(order_bench(roster, starts, value=scores, size=inputs.bench_size)),
+            bench=tuple(
+                order_bench(roster, starts, value=scores, size=inputs.bench_size, gk_role=gk_role)
+            ),
             competition=inputs.competition,
             mday=inputs.mday,
             cmday=inputs.cmday,
             tid=inputs.tid,
         )
-        for module, starts in ranked_lineups(roster, inputs.modules, value=scores)
+        for module, starts in ranked_lineups(
+            roster, inputs.modules, value=scores, slots_provider=slots_provider
+        )
     ]
     if not plans:
         raise NoFieldableModule(tuple(inputs.modules))

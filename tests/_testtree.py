@@ -94,6 +94,7 @@ TREE: dict[str, str] = {
     "test_classic_optimizer.py": "domain/classic",
     "test_classic_room.py": "domain/classic",
     "test_classic_lineup.py": "domain/classic",
+    "test_classic_lineup_planner.py": "domain/classic",
     # -- domain/mantra, domain/shared, domain/tokens --------------------------------------
     "test_mantra_grid_gates.py": "domain/mantra",
     "test_club_names.py": "domain/shared",

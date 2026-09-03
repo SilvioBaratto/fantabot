@@ -141,6 +141,8 @@ def _fakes_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         apileague, "lineup_settings", lambda *a, **k: {"mods": ["343"], "tbench": 12}
     )
+    # sroles=2 -> Mantra, the format these fixtures are in (marle-coded lineUpInfo).
+    monkeypatch.setattr(apileague, "roster_settings", lambda *a, **k: {"sroles": 2})
 
 
 def test_plan_builds_and_prints_a_legal_formation(monkeypatch: pytest.MonkeyPatch) -> None:

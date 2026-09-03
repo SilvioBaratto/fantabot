@@ -10,7 +10,7 @@ that mapping. Measured live 2026-09-03 (`docs/classic/task0-capture.md`): fcrle=
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -45,6 +45,16 @@ def normalize_role(code: str) -> str:
     if upper not in CLASSIC_ROLES:
         raise ValueError(f"not a Classic role code: {code!r}")
     return upper
+
+
+def normalize_roles(codes: Iterable[str]) -> frozenset[str]:
+    """Canonicalize a Classic player's role codes to a set, dropping blanks.
+
+    Parallels `domain/asta/roles.normalize_roles` for Mantra. A Classic player has one role, so
+    the set has one element — but the lineup matcher wants a `frozenset` either way, and using
+    it keeps the Classic `assemble_roster` path identical in shape to the Mantra one.
+    """
+    return frozenset(normalize_role(code) for code in codes if code.strip())
 
 
 def role_from_fcrle(value: Any) -> str:

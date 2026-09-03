@@ -89,8 +89,13 @@ def _build_plans(
     )
     body = apileague.teamLineup_read(league_id, comp, store=store)
     lineup_conf = apileague.lineup_settings(league_id, store=store)
+    # Format is detected, never configured: sroles=1 is Classic (P/D/C/A), sroles=2 is Mantra.
+    # This is the cron path, so a flag the operator must remember per-lega would be a footgun.
+    rosters = apileague.roster_settings(league_id, store=store)
+    fmt = "classic" if int(rosters.get("sroles", 2)) == 1 else "mantra"
     inputs, names = inputs_from_lineup(
-        body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp, tid=tid
+        body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp,
+        tid=tid, fmt=fmt,
     )
     return plan_lineups(inputs), names, comp
 
