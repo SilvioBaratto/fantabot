@@ -17,6 +17,11 @@ export const routes: Routes = [
         title: 'Dashboard',
       },
       {
+        path: 'asta',
+        loadComponent: () => import('./pages/asta/asta').then((m) => m.AstaComponent),
+        title: 'Asta',
+      },
+      {
         path: 'accounts',
         loadComponent: () => import('./pages/accounts/accounts').then((m) => m.AccountsComponent),
         title: 'Accounts',
