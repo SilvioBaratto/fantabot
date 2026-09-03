@@ -3,15 +3,61 @@
     <h1 class="font-display text-3xl font-bold tracking-tight text-text">Accounts</h1>
     <p class="mt-1 text-sm text-text-secondary">Stored tokens the bot uses to read your leghe.</p>
   </div>
-  <button
-    type="button"
-    (click)="load()"
-    class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-  >
-    <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
-    Refresh
-  </button>
+  <div class="flex gap-2">
+    <button
+      type="button"
+      (click)="onConnect()"
+      [disabled]="connecting()"
+      class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
+    >
+      <lucide-icon name="plus" class="h-4 w-4"></lucide-icon>
+      Connect account
+    </button>
+    <button
+      type="button"
+      (click)="load()"
+      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
+    >
+      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
+      Refresh
+    </button>
+  </div>
 </header>
+
+@if (connectError(); as error) {
+  <div class="mb-6 rounded-lg border border-danger/40 bg-surface-raised p-4 text-sm text-danger">{{ error }}</div>
+}
+
+@if (connecting()) {
+  <section class="mb-6 overflow-hidden rounded-lg border border-primary/40 bg-surface-raised">
+    <div class="h-1 w-full bg-primary"></div>
+    <div class="p-6">
+      <h2 class="font-display text-lg font-semibold text-text">Sign in in the browser window</h2>
+      <p class="mt-1 text-sm text-text-secondary">
+        A browser opened on this machine. Log in to fantacalcio.it until you can see your
+        leghe, then click Continue — nothing is typed for you.
+      </p>
+      <div class="mt-4 flex gap-2">
+        <button
+          type="button"
+          (click)="onContinue()"
+          [disabled]="finishing()"
+          class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
+        >
+          <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="finishing()"></lucide-icon>
+          {{ finishing() ? 'Finishing…' : 'Continue' }}
+        </button>
+        <button
+          type="button"
+          (click)="cancelConnect()"
+          class="rounded-md border border-border px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </section>
+}
 
 @if (loading() && !status()) {
   <div class="h-40 animate-shimmer rounded-lg border border-border"></div>

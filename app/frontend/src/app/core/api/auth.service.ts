@@ -13,4 +13,18 @@ export class AuthService {
   getStatus(): Observable<AuthStatus> {
     return this.http.get<AuthStatus>(this.url);
   }
+
+  startLogin(league = 0): Observable<{ job_id: string }> {
+    return this.http.post<{ job_id: string }>(
+      `${environment.apiUrl}auth/login?league=${league}`,
+      {},
+    );
+  }
+
+  confirmLogin(jobId: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(
+      `${environment.apiUrl}auth/login/${jobId}/confirm`,
+      {},
+    );
+  }
 }

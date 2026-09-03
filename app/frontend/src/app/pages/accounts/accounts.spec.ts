@@ -82,4 +82,27 @@ describe('AccountsComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('FANTABOT_ENCRYPTION_KEY');
   });
+
+  it('starts a login job and confirms it', async () => {
+    const fixture = TestBed.createComponent(AccountsComponent);
+    fixture.detectChanges();
+    flush({ has_key: true, fantalab: [], leagues: [] });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    fixture.componentInstance.onConnect();
+    httpMock
+      .expectOne((r) => r.url.includes('auth/login') && !r.url.includes('confirm'))
+      .flush({ job_id: 'J1' });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.connecting()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Sign in in the browser window');
+
+    fixture.componentInstance.onContinue();
+    httpMock.expectOne((r) => r.url.includes('/confirm')).flush({ ok: true });
+
+    // pollUntilDone starts interval(1500); with no timer advance it never emits, so no
+    // /jobs request is pending. Destroy the fixture to cancel it before verify.
+    fixture.destroy();
+  });
 });
