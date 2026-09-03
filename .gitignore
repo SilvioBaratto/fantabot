@@ -42,3 +42,8 @@ video/out/
 
 # maintainer-only, never publish
 /SPEC.md
+
+# Task-0 capture tools — throwaway, and they carry the maintainer's own league/room/team
+# ids (and a public Firebase web key). Kept local, never committed to a public repo.
+scripts/capture_*.py
+scripts/read_classic_lineup.py

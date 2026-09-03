@@ -1,0 +1,15 @@
+# Keep the image lean and the build deterministic. .git IS kept — test_links/test_docs
+# read the tracked set via `git ls-files`.
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.playwright-mcp/
+.claude/
+_pdftext.txt
+postgres_data/
+*.egg-info/
+.venv/
+node_modules/

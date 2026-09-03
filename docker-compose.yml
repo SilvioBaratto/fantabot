@@ -1,8 +1,13 @@
-# Database only. fantabot itself stays a host-installed CLI under cron — there
-# is no app service, no Dockerfile and no entrypoint here (SPEC assumption 1).
+# Postgres + Adminer for the app (a host-installed CLI under cron), plus a `tests`
+# service (profile `test`) that runs the full suite in Linux — where the host's
+# Windows quirks (cp1252 reads, CRLF hashes, `\` path separators) do not exist.
 #
 # Host ports are picked to coexist with the other stacks in this workspace:
 # optimizer holds 54320/18081 and clipcraft holds 5433/8090.
+#
+#   docker compose up -d                      # db + adminer only (test service is profiled off)
+#   docker compose run --rm tests             # socket-free tier in Linux
+#   docker compose run --rm tests sh -c "alembic upgrade head && pytest -q -m db"   # db tier
 services:
   # PostgreSQL Database
   db:
@@ -40,6 +45,25 @@ services:
     networks:
       - fantabot_network
     restart: unless-stopped
+
+  # Full test suite in Linux. Profiled `test` so `docker compose up` never starts it;
+  # run it explicitly. The socket-free tier needs no database (the compose dep is there
+  # only for the `-m db` integration tier, which reaches Postgres).
+  tests:
+    build: .
+    image: fantabot-tests
+    container_name: fantabot_tests
+    profiles: ["test"]
+    environment:
+      # Only the db tier talks to the `db` service. The encryption key is NOT set here on
+      # purpose: the image entrypoint mints a throwaway Fernet key at runtime, so no key
+      # literal is committed. Set FANTABOT_ENCRYPTION_KEY in the environment to override.
+      FANTABOT_DATABASE_URL: "postgresql+psycopg2://postgres:postgres@db:5432/fantabot"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fantabot_network
 
 volumes:
   postgres_data:
