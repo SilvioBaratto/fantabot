@@ -22,6 +22,11 @@ export const routes: Routes = [
         title: 'Accounts',
       },
       {
+        path: 'news',
+        loadComponent: () => import('./pages/news/news').then((m) => m.NewsComponent),
+        title: 'News',
+      },
+      {
         path: 'system',
         loadComponent: () => import('./pages/system/system').then((m) => m.SystemComponent),
         title: 'System',
