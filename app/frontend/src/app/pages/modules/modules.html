@@ -1,0 +1,28 @@
+<header class="mb-8">
+  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Mantra modules</h1>
+  <p class="mt-1 text-sm text-text-secondary">The 11 schemi and the roles each slot accepts.</p>
+</header>
+
+@if (loading()) {
+  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+} @else if (errorMsg(); as message) {
+  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
+    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
+    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
+  </section>
+} @else if (grid(); as g) {
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    @for (schema of g.schemi; track schema.nome) {
+      <section class="overflow-hidden rounded-lg border border-border bg-surface-raised p-5">
+        <h2 class="font-display text-lg font-bold tabular-nums text-text">{{ schema.nome }}</h2>
+        <div class="mt-3 flex flex-wrap gap-1.5">
+          @for (slot of schema.slots; track $index) {
+            <span class="rounded border border-border-muted bg-surface-inset px-1.5 py-0.5 text-xs text-text-secondary">
+              {{ slot.join('/') }}
+            </span>
+          }
+        </div>
+      </section>
+    }
+  </div>
+}

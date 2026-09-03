@@ -20,6 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard', route: '/dashboard', icon: 'LayoutDashboard' },
   { name: 'Asta', route: '/asta', icon: 'Sliders' },
   { name: 'Prices', route: '/prices', icon: 'FunctionSquare' },
+  { name: 'Modules', route: '/modules', icon: 'CheckCircle' },
   { name: 'Accounts', route: '/accounts', icon: 'User' },
   { name: 'News', route: '/news', icon: 'MessageSquare' },
   { name: 'System', route: '/system', icon: 'Monitor' },
