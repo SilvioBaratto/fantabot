@@ -68,8 +68,18 @@ def stop() -> None:
 
 @app.command()
 def doctor() -> None:
-    """Report on uv, Postgres, migrations, chromium, and token status."""
-    typer.echo("doctor: not yet implemented (F2 — extended checks)")
+    """Report on python, fantabot, Postgres, the database, and chromium."""
+    from fantabot_app.doctor import run_checks
+
+    failed = 0
+    for check in run_checks():
+        mark = "OK" if check.ok else "XX"
+        if not check.ok:
+            failed += 1
+        typer.echo(f"[{mark}] {check.name}: {check.detail}")
+    if failed:
+        typer.echo(f"\n{failed} check(s) failed.")
+        raise typer.Exit(code=1)
 
 
 def _redact(url: str) -> str:
