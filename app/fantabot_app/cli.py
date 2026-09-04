@@ -31,6 +31,7 @@ def _default(ctx: typer.Context) -> None:
 @app.command()
 def setup() -> None:
     """Provision local Postgres, run migrations, and install chromium."""
+    from fantabot_app import keyfile
     from fantabot_app.provisioner import chromium, migrate
     from fantabot_app.provisioner.postgres import PostgresProvisioner
 
@@ -38,6 +39,8 @@ def setup() -> None:
     typer.echo("Provisioning local Postgres (bundled PG18, no Docker)...")
     url = provisioner.start()
     typer.echo(f"Postgres ready at {_redact(url)}")
+    typer.echo("Preparing the encryption key...")
+    keyfile.load_or_create_key(create=True)  # mint once; never echo the key itself
     typer.echo("Running migrations (alembic upgrade head)...")
     migrate.upgrade_head()
     typer.echo("Installing chromium for headed login...")
@@ -48,11 +51,14 @@ def setup() -> None:
 @app.command()
 def up() -> None:
     """Start Postgres if needed, boot the API + UI, and open the browser."""
-    from fantabot_app import server
+    from fantabot_app import keyfile, server
     from fantabot_app.provisioner.postgres import PostgresProvisioner
 
     typer.echo("Starting local Postgres...")
     PostgresProvisioner().start()
+    # Load (or mint, if setup was skipped) the encryption key into the environment before
+    # the app starts, so connecting an account just works — no manual configuration.
+    keyfile.load_or_create_key(create=True)
     typer.echo("Serving fantabot-app at http://127.0.0.1:8000 (Ctrl-C to stop)...")
     server.serve()
 

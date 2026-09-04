@@ -63,6 +63,14 @@ def _chromium() -> Check:
         return Check("chromium", False, "playwright missing - run `fantabot-app setup`")
 
 
+def _encryption_key() -> Check:
+    from fantabot_app import keyfile
+
+    if os.environ.get(keyfile.ENV_ENCRYPTION_KEY) or keyfile.key_path().exists():
+        return Check("encryption key", True, "present")  # never report the key itself
+    return Check("encryption key", False, "not set - run `fantabot-app setup`")
+
+
 def run_checks() -> list[Check]:
     """Run every check and return the results, in report order."""
-    return [_python(), _fantabot(), _postgres_wheel(), _database(), _chromium()]
+    return [_python(), _fantabot(), _postgres_wheel(), _database(), _encryption_key(), _chromium()]

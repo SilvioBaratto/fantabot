@@ -24,6 +24,13 @@ def test_every_check_has_the_expected_shape() -> None:
         assert isinstance(check.detail, str) and check.detail
 
 
+def test_reports_the_encryption_key_present_when_set(monkeypatch) -> None:
+    monkeypatch.setenv("FANTABOT_ENCRYPTION_KEY", "some-key")
+    key_check = next(c for c in run_checks() if c.name == "encryption key")
+    assert key_check.ok is True
+    assert "some-key" not in key_check.detail  # never leak the key
+
+
 def test_doctor_command_prints_a_report() -> None:
     result = runner.invoke(app, ["doctor"])
     # exit 0 when all pass, 1 when a check fails — either way it prints the report
