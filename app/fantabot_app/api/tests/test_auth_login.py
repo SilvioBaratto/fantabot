@@ -53,3 +53,29 @@ def test_login_blocks_on_prompt_then_confirm_completes(monkeypatch) -> None:
 
 def test_confirm_unknown_job_is_404() -> None:
     assert TestClient(app).post("/api/v1/auth/login/nope/confirm").status_code == 404
+
+
+def test_fantalab_login_blocks_on_prompt_then_confirm_completes(monkeypatch) -> None:
+    # The FantaLab connect route had no test at all: prove its job + gate + confirm wiring
+    # deterministically, with fantalab_login.run faked so no headed browser / socket opens.
+    from fantabot.application import fantalab_login
+
+    def fake_run(**kwargs):
+        kwargs["report"].print("Opening FantaLab")
+        kwargs["prompt"]("Press Enter once logged in")  # blocks on the per-job gate
+        kwargs["report"].print("session captured")
+        return SimpleNamespace(ok=True)
+
+    monkeypatch.setattr(fantalab_login, "run", fake_run)
+
+    client = TestClient(app)
+    job_id = client.post("/api/v1/auth/fantalab-login").json()["job_id"]
+
+    assert _wait(lambda: "Opening FantaLab" in " ".join(_job(client, job_id)["lines"]))
+    assert _job(client, job_id)["status"] == "running"  # blocked on the prompt
+
+    # The confirm endpoint is shared with the lega login (same _login_gates dict).
+    assert client.post(f"/api/v1/auth/login/{job_id}/confirm").status_code == 200
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    assert _job(client, job_id)["ok"] is True

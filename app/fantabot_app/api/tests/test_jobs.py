@@ -78,6 +78,27 @@ def test_registry_runs_an_async_job() -> None:
     assert state.lines == ["async line"]
 
 
+def test_registry_runs_a_sync_fn_that_returns_a_coroutine() -> None:
+    # The distinct branch from the async-def case: a plain `def` job whose *return value*
+    # is a coroutine (e.g. it forwards asyncio work). `iscoroutinefunction` is False, so
+    # `_invoke` must detect the coroutine result and `asyncio.run` it to completion.
+    reg = JobRegistry()
+
+    async def _coro(reporter: BufferingReporter):
+        reporter.print("from coroutine")
+        return True
+
+    def job(reporter: BufferingReporter):
+        return _coro(reporter)  # returns a coroutine object, not an `async def` itself
+
+    job_id = reg.start(job, thread_factory=_inline)
+    state = reg.get(job_id)
+    assert state is not None
+    assert state.status == "done"
+    assert state.lines == ["from coroutine"]
+    assert state.ok is True
+
+
 def test_jobs_endpoint_reports_status_and_404() -> None:
     job_id = registry.start(lambda reporter: reporter.print("done"), thread_factory=_inline)
     client = TestClient(app)

@@ -52,6 +52,22 @@ def test_mount_spa_serves_a_real_asset(tmp_path) -> None:
     assert "console.log" in response.text
 
 
+def test_mount_spa_does_not_serve_files_outside_the_dist_root(tmp_path) -> None:
+    # Security: the catch-all's root-containment guard (server.py:57) must refuse a
+    # `../`-style traversal off the static mount and fall back to index.html, never leak a
+    # file outside dist. Without the `root in candidate.parents` check this serves the secret.
+    dist = _built_dist(tmp_path)
+    (tmp_path / "secret.txt").write_text("TOPSECRET", encoding="utf-8")  # outside dist/
+    app = FastAPI()
+    mount_spa(app, dist)
+
+    # %2F keeps the client from normalising `..` away; the route decodes it to `../secret.txt`.
+    response = TestClient(app).get("/..%2Fsecret.txt")
+    assert response.status_code == 200
+    assert "TOPSECRET" not in response.text  # the outside file is NOT served
+    assert "APP ROOT" in response.text  # fell back to the SPA index
+
+
 def test_mount_spa_shows_placeholder_when_not_built(tmp_path) -> None:
     app = FastAPI()
     mount_spa(app, tmp_path / "does-not-exist")
