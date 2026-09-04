@@ -1,0 +1,97 @@
+name: app-ci
+
+# The fantabot-app (app/) CI: proves the no-Docker cold install on Windows, macOS and
+# Linux (SPEC A1) and runs the app's test suites. Path-filtered so it is independent of
+# fantabot's own ci.yml.
+
+on:
+  push:
+    branches: [main, development, feat/fantabot-app]
+    paths:
+      - "app/**"
+      - ".github/workflows/app-ci.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/app-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Cold install: no Docker, no pre-installed Postgres — uv resolves the locked wheels
+      # (Postgres ships inside pixeltable-pgserver).
+      - name: uv sync (from uv.lock)
+        run: uv sync --extra dev
+
+      - name: Backend tests (default tier — zero sockets)
+        run: uv run pytest
+
+      # A1 proof: provision the real bundled Postgres, connect, stop.
+      - name: Integration (real bundled Postgres, no Docker)
+        run: uv run pytest -m integration
+
+      - name: Lint + types
+        run: |
+          uv run ruff check fantabot_app tests
+          uv run mypy fantabot_app
+
+  frontend:
+    name: frontend + wheel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Frontend tests
+        working-directory: app/frontend
+        run: |
+          npm ci
+          npx ng test --watch=false
+
+      # Build the SPA into fantabot_app/web, then confirm the wheel ships it (no Node for
+      # end users).
+      - name: Build frontend into the wheel
+        run: python scripts/build_frontend.py
+
+      - name: Build wheel and assert the frontend is bundled
+        run: |
+          uv build --wheel
+          python - <<'PY'
+          import glob, zipfile, sys
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          assert any(n.endswith("fantabot_app/web/index.html") for n in names), "web/index.html not in wheel"
+          print("ok:", wheel, "bundles the compiled frontend")
+          PY
