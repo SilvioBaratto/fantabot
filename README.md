@@ -5,6 +5,30 @@ submission, asta iniziale (initial auction), asta di riparazione (repair
 auction) — all handled without a human clicking anything, once the site's DOM
 is mapped and a stats source is wired in.
 
+## Install & run
+
+The easiest way to run the project is the local web app in [`app/`](app/) — one
+command, no Docker. The only thing you install by hand is
+[`uv`](https://docs.astral.sh/uv/); it brings its own Python, Postgres, and compiled
+frontend.
+
+```bash
+uv tool install ./app     # installs the `fantabot-app` command (run from the repo checkout)
+fantabot-app setup        # provisions its own Postgres (bundled PG18), migrates, installs chromium
+fantabot-app              # serves the UI at http://127.0.0.1:8000 and opens your browser
+```
+
+That's the whole install. `fantabot-app setup` is safe to re-run; `fantabot-app` is the
+everyday launch; `fantabot-app doctor` diagnoses a broken setup.
+
+> **Fresh clone?** The compiled UI (`fantabot_app/web`) is a git-ignored build artifact.
+> Released builds bundle it; from a raw checkout, build it once first (needs Node + npm):
+> `python app/scripts/build_frontend.py`. Until you do, the app serves a placeholder page.
+
+Full app documentation — everyday commands, where data lives, developer setup — is in
+[`app/README.md`](app/README.md). The rest of this file documents the underlying
+`fantabot` **CLI** (the engine the app drives) and its developer setup.
+
 ## News sentiment (`fantabot news fetch`)
 
 One Claude Agent SDK query per player over `WebSearch` + `WebFetch`, validated
