@@ -11,9 +11,13 @@ import pytest
 
 
 @pytest.mark.e2e
-def test_when_root_is_requested_then_status_is_operational(client):
-    """when GET / is requested, 200 and status 'operational' are returned."""
-    resp = client.get("/")
+def test_when_api_index_is_requested_then_status_is_operational(client):
+    """when GET /api is requested, 200 and status 'operational' are returned.
+
+    The welcome JSON lives at /api, not /, so the compiled SPA can own the root URL
+    (server.mount_spa). Without the SPA mounted (this fixture), / has no route.
+    """
+    resp = client.get("/api")
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "operational"

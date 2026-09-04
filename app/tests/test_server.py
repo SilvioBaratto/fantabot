@@ -52,6 +52,22 @@ def test_mount_spa_serves_a_real_asset(tmp_path) -> None:
     assert "console.log" in response.text
 
 
+def test_mounted_spa_owns_the_root_url_not_the_api_welcome(tmp_path) -> None:
+    # Regression: the full app registered `@app.get("/")` returning welcome JSON, which
+    # shadowed the SPA catch-all — so `fantabot-app up` opened the browser at `/` and the
+    # user saw API JSON instead of the UI. With the SPA mounted, `/` must serve index.html.
+    from fantabot_app.api.main import create_application
+
+    app = create_application()
+    mount_spa(app, _built_dist(tmp_path))
+    response = TestClient(app).get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "APP ROOT" in response.text  # the SPA index
+    assert "operational" not in response.text  # NOT the API welcome JSON
+
+
 def test_mount_spa_does_not_serve_files_outside_the_dist_root(tmp_path) -> None:
     # Security: the catch-all's root-containment guard (server.py:57) must refuse a
     # `../`-style traversal off the static mount and fall back to index.html, never leak a

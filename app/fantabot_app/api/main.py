@@ -113,9 +113,11 @@ def create_application() -> FastAPI:
 def setup_health_endpoints(app: FastAPI) -> None:
     """Setup health check and monitoring endpoints"""
 
-    @app.get("/")
+    @app.get("/api")
     async def read_root() -> dict[str, Any]:
-        """Root endpoint with API information"""
+        """API index. NOT mounted at `/` — the compiled SPA owns the root URL (see
+        server.mount_spa). Keeping the welcome JSON here means `fantabot-app up` opens the
+        browser on the app, not on this payload."""
         return {
             "message": f"Welcome to the {settings.project_name}!",
             "version": settings.version,
