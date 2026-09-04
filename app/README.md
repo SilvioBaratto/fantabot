@@ -12,12 +12,14 @@ for end users.
 
 ## Install & run
 
-The only thing you install by hand is [**uv**](https://docs.astral.sh/uv/). Everything
-else — the Python runtime, PostgreSQL, and the compiled frontend — comes with the app.
-
-From the repository checkout:
+The tools you install by hand are **git** and [**uv**](https://docs.astral.sh/uv/).
+Everything else — the Python runtime, PostgreSQL, and the compiled frontend — comes with
+the app. Nothing is published, so you install from a clone of this repo:
 
 ```bash
+git clone https://github.com/SilvioBaratto/fantabot.git
+cd fantabot
+
 uv tool install ./app     # installs the `fantabot-app` command (fantabot resolved from ../)
 fantabot-app setup        # provisions Postgres (bundled PG18), migrates, installs chromium
 fantabot-app              # starts everything and opens http://127.0.0.1:8000

@@ -8,12 +8,15 @@ is mapped and a stats source is wired in.
 ## Install & run
 
 The easiest way to run the project is the local web app in [`app/`](app/) — one
-command, no Docker. The only thing you install by hand is
-[`uv`](https://docs.astral.sh/uv/); it brings its own Python, Postgres, and compiled
-frontend.
+command, no Docker. The only tools you install by hand are **git** and
+[`uv`](https://docs.astral.sh/uv/); `uv` brings its own Python, Postgres, and compiled
+frontend. Nothing is published, so you install from a clone of this repo:
 
 ```bash
-uv tool install ./app     # installs the `fantabot-app` command (run from the repo checkout)
+git clone https://github.com/SilvioBaratto/fantabot.git
+cd fantabot
+
+uv tool install ./app     # installs the `fantabot-app` command (fantabot resolved as a path dep)
 fantabot-app setup        # provisions its own Postgres (bundled PG18), migrates, installs chromium
 fantabot-app              # serves the UI at http://127.0.0.1:8000 and opens your browser
 ```
