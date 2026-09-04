@@ -1,63 +1,104 @@
-# Project
+# fantabot-app
 
-Full-stack application with **FastAPI**, **Angular**, and **Docker**, with **bearer-token** authentication.
+A local, single-user web UI over [`fantabot`](../). One command provisions its own
+Postgres (no Docker), runs the FastAPI adapter, and serves the compiled Angular app on a
+single port — then opens your browser. It's a thin adapter over `fantabot`: it reads your
+leghe, rosters, credits, news sentiment, asta plan, target prices, legality and lineup
+**preview**, and runs the safe actions (connect account, lega sync, news fetch). It never
+places a live bid or submits a lineup, and it has no login of its own.
 
-## Getting Started
+Built with **FastAPI** + **Angular**. No Docker, no separate database to install, no Node
+for end users.
+
+## Install & run
+
+The only thing you install by hand is [**uv**](https://docs.astral.sh/uv/). Everything
+else — the Python runtime, PostgreSQL, and the compiled frontend — comes with the app.
+
+From the repository checkout:
 
 ```bash
-# Edit .env with your real keys (ships with working dev defaults)
-docker compose up -d --build
+uv tool install ./app     # installs the `fantabot-app` command (fantabot resolved from ../)
+fantabot-app setup        # provisions Postgres (bundled PG18), migrates, installs chromium
+fantabot-app              # starts everything and opens http://127.0.0.1:8000
 ```
 
-Services will be available at:
-- Frontend: http://localhost:4200
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- Adminer: http://localhost:8080
+That's it. `fantabot-app setup` is safe to re-run; `fantabot-app` is the everyday launch.
+
+> **Fresh clone?** The compiled UI (`fantabot_app/web`) is a build artifact that isn't
+> committed. Released builds bundle it automatically, but if you installed from a fresh
+> checkout, build it once first (needs Node + npm):
+> ```bash
+> python app/scripts/build_frontend.py     # ng build -> fantabot_app/web, then reinstall
+> ```
+> Until you do, the app boots and serves a placeholder page instead of the UI.
+
+## Everyday use
+
+```bash
+fantabot-app            # up (the default): start Postgres if needed, serve UI, open browser
+fantabot-app up         # same as above, explicitly
+fantabot-app stop       # stop the local Postgres the launcher started
+fantabot-app doctor     # health report: python, fantabot, Postgres, database, chromium
+fantabot-app --help
+```
+
+`fantabot-app doctor` is the first thing to run when something is off — it checks each
+piece and tells you which one to fix (it exits non-zero if any check fails).
+
+Everything the app stores lives under `~/.fantabot/` (`pgdata/` is the database,
+`logs/` the logs). Postgres binds to `127.0.0.1` only — this is a local appliance, not a
+server.
 
 ## Development
+
+End users never need this section. To work on the app:
 
 ### Backend (FastAPI)
 
 ```bash
-cd api
-pip install -r requirements.txt
-uvicorn app.main:app --reload          # Runs on :8000
+cd app
+uv venv                          # creates app/.venv
+uv pip install -e ".[dev]"
 
-# Database
-alembic upgrade head                   # Apply migrations
-alembic revision --autogenerate -m "description"
+fantabot-app setup               # provision the database once (exports FANTABOT_DATABASE_URL)
+uvicorn fantabot_app.api.main:app --reload     # dev server on :8000
 
-# Tests
-pytest
+# Tests (default tier opens zero sockets; real-Postgres tests are opt-in)
+python -m pytest
+python -m pytest -m integration  # spins up a real bundled Postgres
 
-# BAML (AI/LLM)
-baml-cli generate
+# Quality (mirrors fantabot)
+ruff check fantabot_app tests
+mypy fantabot_app                # strict
 ```
+
+The database, models, and migrations belong to `fantabot`; the app creates no schema and
+runs no second engine — every session comes from `fantabot`'s `database_manager`.
 
 ### Frontend (Angular)
 
 ```bash
-cd frontend
-npm install --legacy-peer-deps         # See note below
-ng serve                               # Runs on :4200
-ng test
+cd app/frontend
+npm ci
+npm start                        # ng serve on http://localhost:4200 (proxies /api to :8000)
+npm run build                    # production build
+npx ng test --watch=false        # vitest
 ```
 
-> **Why `--legacy-peer-deps`?** `@angular/build` declares an optional peer dependency on
-> `vitest@^4`, but the project pins `vitest@^3`. npm 7+ treats this mismatch as a hard
-> `ERESOLVE` error and aborts `npm install`. `--legacy-peer-deps` skips npm's peer-dependency
-> check and installs anyway. Safe here: `vitest` is a test-only devDependency and Angular's build
-> only optionally peers it, so app build/serve are unaffected.
+The end-user app doesn't run this dev server. For distribution the frontend is compiled
+into the wheel:
 
-## Docker Services
+```bash
+python app/scripts/build_frontend.py     # ng build -> fantabot_app/web (bundled by hatchling)
+```
 
-| Service | Port | Description |
-|---------|------|-------------|
-| `db` | 5433:5432 | PostgreSQL 16 |
-| `api` | 8000:8000 | FastAPI with hot reload |
-| `frontend` | 4200:80 | Angular + nginx |
-| `adminer` | 8080:8080 | Database admin UI |
+`uv.lock` is committed for reproducible installs.
+
+## More
+
+- `app/CLAUDE.md` — layout, rules, and the wiring decisions.
+- `../README.md` — the underlying `fantabot` CLI.
 
 ## License
 
