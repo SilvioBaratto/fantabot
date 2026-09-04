@@ -281,3 +281,6 @@ postgres_data/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+
+# Built frontend, staged into the wheel by scripts/build_frontend.py (or CI).
+/fantabot_app/web/

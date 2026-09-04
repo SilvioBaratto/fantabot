@@ -12,6 +12,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import fantabot_app
+from fantabot_app import server
 from fantabot_app.server import mount_spa, open_browser, serve
 
 
@@ -56,6 +58,11 @@ def test_mount_spa_shows_placeholder_when_not_built(tmp_path) -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
     assert "not built" in response.text.lower()
+
+
+def test_default_dist_is_the_packaged_web_dir() -> None:
+    # S13 packaging target: the built frontend is bundled at fantabot_app/web.
+    assert server.default_dist() == Path(fantabot_app.__file__).parent / "web"
 
 
 def test_open_browser_calls_opener_with_url() -> None:
