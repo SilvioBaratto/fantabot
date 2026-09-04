@@ -3,6 +3,7 @@ import { provideRouter, withComponentInputBinding, withViewTransitions } from '@
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 
 import { routes } from './app.routes';
+import { ICON_PROVIDER } from './icons';
 import { errorInterceptor } from './interceptors/error.interceptor';
 
 export const appConfig: ApplicationConfig = {
@@ -10,5 +11,6 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes, withComponentInputBinding(), withViewTransitions()),
     provideHttpClient(withFetch(), withInterceptors([errorInterceptor])),
+    ICON_PROVIDER,
   ]
 };
