@@ -30,9 +30,28 @@ import httpx
 
 LISTONE_URL = "https://api.fantalab.it/v2/listone"
 
-#: Where the harvest side already keeps its copy. Shared deliberately: two caches of
-#: one mapping is two things to go stale.
-DEFAULT_CACHE = Path("data/aste_live/listone_map.json")
+class _UseDefault:
+    """The type of `USE_DEFAULT`, so mypy can tell the sentinel from a real path."""
+
+
+#: "The harvest home's copy", resolved when the call is made. `None` cannot carry it:
+#: `fetch(cache=None)` already means *do not touch a cache at all*, and both meanings are
+#: needed.
+USE_DEFAULT = _UseDefault()
+
+
+def default_cache() -> Path:
+    """Where the harvest side already keeps its copy — `<harvest home>/listone_map.json`.
+
+    Shared with `harvest load` deliberately: two caches of one mapping is two things to go
+    stale. A function rather than the `Path("data/aste_live/listone_map.json")` constant it
+    replaces, for `config.harvest_dir`'s reason — that literal only resolves from the
+    repository root, so `asta live` and `harvest load` agreed on the bridge only when both
+    were run from there.
+    """
+    from fantabot.config import harvest_dir
+
+    return harvest_dir() / "listone_map.json"
 
 #: Bumped when the cache envelope's own shape changes, not when the listone data does — a
 #: version check is for "can this reader understand the file," not "is the mapping current"
@@ -82,11 +101,12 @@ def _read_cache(path: Path) -> dict[str, Mapping[str, Any]]:
     return entries_only(raw)
 
 
-def from_cache(path: Path = DEFAULT_CACHE) -> dict[str, int]:
+def from_cache(path: Path | None = None) -> dict[str, int]:
     """The mapping the harvest side has already fetched, or `{}`.
 
     Its file stores the whole listone entry per uuid; only the id is wanted here.
     """
+    path = path if path is not None else default_cache()
     return {
         uuid: entry["fantacalcio_id"]
         for uuid, entry in _read_cache(path).items()
@@ -94,9 +114,10 @@ def from_cache(path: Path = DEFAULT_CACHE) -> dict[str, int]:
     }
 
 
-def cache_version(path: Path = DEFAULT_CACHE) -> int | None:
+def cache_version(path: Path | None = None) -> int | None:
     """The envelope version a cache file was written with, or `None` for a pre-version file
     (or one that does not exist / does not parse)."""
+    path = path if path is not None else default_cache()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -105,7 +126,7 @@ def cache_version(path: Path = DEFAULT_CACHE) -> int | None:
     return version if isinstance(version, int) else None
 
 
-def cache_age(path: Path = DEFAULT_CACHE, *, now: datetime | None = None) -> float | None:
+def cache_age(path: Path | None = None, *, now: datetime | None = None) -> float | None:
     """Seconds since the cache was fetched, or `None` when that cannot be known — the file is
     missing, unparseable, or predates the envelope (`fetched_at` did not exist yet).
 
@@ -113,6 +134,7 @@ def cache_age(path: Path = DEFAULT_CACHE, *, now: datetime | None = None) -> flo
     a real clock; the default reads one, because this is the adapter layer and a cache file's
     age is exactly the kind of fact `domain/` is not allowed to ask for itself.
     """
+    path = path if path is not None else default_cache()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -140,7 +162,7 @@ def is_stale(age: float | None, *, max_hours: float) -> bool:
 
 
 def fetch(
-    cache: Path | None = DEFAULT_CACHE,
+    cache: Path | _UseDefault | None = USE_DEFAULT,
     *,
     refresh: bool = False,
     transport: httpx.BaseTransport | None = None,
@@ -165,6 +187,7 @@ def fetch(
     caller already has to handle an empty bridge (a room that has never been resolved before),
     and a bare traceback here would be a worse way to say the same thing.
     """
+    cache = default_cache() if isinstance(cache, _UseDefault) else cache
     if cache is not None and not refresh:
         cached = from_cache(cache)
         if cached:

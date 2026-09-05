@@ -74,6 +74,7 @@ def test_the_command_set_is_exactly_what_is_declared() -> None:
         "db status",
         "db url",
         "db create",
+        "harvest adopt",
     }
 
 

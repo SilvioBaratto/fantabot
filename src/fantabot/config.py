@@ -14,6 +14,34 @@ def bundled_pgdata() -> Path:
     return Path.home() / ".fantabot" / "pgdata"
 
 
+def default_harvest_dir() -> Path:
+    """Where the harvest artefacts live when nothing overrides: ``~/.fantabot/aste_live``.
+
+    Separate from `harvest_dir` below so `Settings` can use it as a default factory
+    without importing itself.
+    """
+    return Path.home() / ".fantabot" / "aste_live"
+
+
+def harvest_dir() -> Path:
+    """The landing zone, the seed and the listone bridge — one home, derived not relative.
+
+    They sat under ``./data/aste_live/``, which only resolves from the repository root.
+    The app's working directory is wherever its launcher was started, so a collector
+    started from the app and a `harvest load` typed in a terminal addressed two different
+    landing zones — the same split that made `bundled_database_url` derive from
+    `bundled_pgdata()` rather than read `.env` (`todo/TODO.md` §1).
+
+    **A fresh `Settings` per call, not the module singleton**, for the reason
+    `bundled_pgdata` is a function: the singleton binds `Path.home()` at import, and both
+    a test that repoints ``HOME`` and a launcher running under another one must see the
+    new path. Constructing it here also keeps ``FANTABOT_HARVEST_DIR`` winning at call
+    time — which is what an operator whose home volume cannot hold 1.4 GB of landing zone
+    reaches for. A few Settings constructions per command is not a cost worth caching.
+    """
+    return Settings().fantabot_harvest_dir
+
+
 def bundled_database_url(database: str = "fantabot") -> str:
     """The DSN of the app's bundled Postgres — the canonical database.
 
@@ -61,6 +89,10 @@ class Settings(BaseSettings):
     lega_email: str = ""
     lega_password: str = ""
     lega_url: str = ""
+
+    # The harvest home (see `harvest_dir`). A `Path`, so an exported value is a path and
+    # not a string that later concatenates wrong.
+    fantabot_harvest_dir: Path = Field(default_factory=default_harvest_dir)
 
     fantabot_data_dir: Path = Path("./data")
     fantabot_storage_state: Path = Path("./data/storage_state.json")

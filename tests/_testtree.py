@@ -160,11 +160,15 @@ TREE: dict[str, str] = {
     # domain module is the reason a rule cannot do this.
     "test_state.py": "adapters/browser",
     "test_config_agent_model.py": "adapters",
-    # config is not an adapter, but its two tests are about what the process talks to.
+    # config is not an adapter, but its three tests are about what the process talks to —
+    # which model, which database, and now which directory holds the harvest artefacts.
     "test_config_database_url.py": "adapters",
+    "test_config_harvest_dir.py": "adapters",
     # -- interface --------------------------------------------------------------------------
     "test_cli_aste_backfill.py": "interface",
     "test_cli_aste_collect.py": "interface",
+    # About `config.harvest_dir`, but what it pins is the four *commands* that default to it.
+    "test_cli_harvest_home.py": "interface",
     "test_cli_command_set.py": "interface",
     "test_cli_config_check.py": "interface",
     "test_cli_db_check.py": "interface",

@@ -16,7 +16,8 @@ the only thing on stdout and a missing DSN exits 2 rather than printing an empty
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -32,6 +33,11 @@ app = typer.Typer(
 ENV_URL = "FANTABOT_DATABASE_URL"
 db_app = typer.Typer(no_args_is_help=True, help="Start, stop and inspect the bundled Postgres.")
 app.add_typer(db_app, name="db")
+harvest_app = typer.Typer(no_args_is_help=True, help="The harvest home under ~/.fantabot.")
+app.add_typer(harvest_app, name="harvest")
+#: Where the artefacts were before the home existed. A module constant rather than a
+#: `Path(...)` in the option, which ruff reads as a call in a default (B008).
+LEGACY_HARVEST_DIR = Path("./data/aste_live")
 
 
 def _provisioner() -> PostgresProvisioner:
@@ -198,6 +204,36 @@ def db_create(name: str = typer.Argument(..., help="Database to create if absent
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f'database "{name}" ready')
+
+
+@harvest_app.command("adopt")
+def harvest_adopt(
+    # `Annotated` rather than this file's older `= typer.Option(...)` style, because a
+    # call in a default is B008 for every annotation ruff does not know to be immutable —
+    # `str` is, `Path` is not, which is why no other command here had to say it this way.
+    source: Annotated[
+        Path, typer.Option("--from", help="Directory the artefacts are in today.")
+    ] = LEGACY_HARVEST_DIR,
+) -> None:
+    """Move an existing landing zone, seed and bridge into the harvest home.
+
+    One-time, and idempotent: a second run finds nothing to move and says so. It refuses
+    rather than moving half of a landing zone — see ``harvest_home`` for which halves.
+    """
+    from fantabot_app import harvest_home
+
+    try:
+        report = harvest_home.adopt(source, harvest_home.harvest_dir())
+    except harvest_home.AdoptRefused as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if not report.moved and not report.skipped:
+        typer.echo(f"nothing to adopt in {source} — the harvest home is {report.destination}")
+        return
+    typer.echo(
+        f"moved {report.moved} file(s) ({report.total_bytes} bytes) into {report.destination}"
+        + (f", {report.skipped} already there" if report.skipped else "")
+    )
 
 
 def _down(state: dict[str, object]) -> str:

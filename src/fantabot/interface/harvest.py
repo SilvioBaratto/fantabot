@@ -33,8 +33,30 @@ if TYPE_CHECKING:  # annotations only
 
 
 
+#: What each of the harvest home's files is called. Named here rather than at each option,
+#: because a default spelled four times is a default that drifts three ways.
+SEED_NAME = "seed.json"
+LANDING_NAME = "live.jsonl"
+LISTONE_NAME = "listone_map.json"
+
+
+def _home(name: str) -> Path:
+    """`<harvest home>/<name>`, resolved when the command runs, never at import.
+
+    Typer evaluates a default in the `def` line once, when this module is imported — which
+    would bind the home of whichever process imported first and defeat the whole point of
+    `config.harvest_dir` being a function. So every path option below defaults to `None`
+    and is resolved through here in the body instead.
+    """
+    from fantabot.config import harvest_dir
+
+    return harvest_dir() / name
+
+
 def aste_scan(
-    seed: Path = typer.Option(..., help="Registry file to merge into and rewrite."),
+    seed: Path | None = typer.Option(
+        None, help="Registry to merge into and rewrite. Default: the harvest home's seed.json."
+    ),
     only: str = typer.Option("", help="Keep one format: mantra or classic. Empty = both."),
 ) -> None:
     """Ask FantaLab which auctions are live and merge them into the registry.
@@ -54,6 +76,7 @@ def aste_scan(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import FantalabSessionMissing
 
+    seed = seed or _home(SEED_NAME)
     cipher = TokenCipher(settings.fantabot_encryption_key)
     # The client is built inside the session, so the bearer is resolved by the adapter
     # and never lands in a local here. `from_store` raises when nothing is stored.
@@ -171,11 +194,15 @@ def _report_written(written: EventWrite) -> None:
 
 
 def aste_load(
-    landing: Path = typer.Argument(..., help="Landing-zone JSONL the collector appends to."),
-    seed: Path = typer.Option(..., help="The scan seed describing each auction."),
-    listone: Path = typer.Option(
-        Path("data/aste_live/listone_map.json"),
-        help="uuid -> fantacalcio_id bridge from GET /v2/listone.",
+    landing: Path | None = typer.Argument(
+        None, help="Landing-zone JSONL the collector appends to. Default: the harvest home's."
+    ),
+    seed: Path | None = typer.Option(
+        None, help="The scan seed describing each auction. Default: the harvest home's."
+    ),
+    listone: Path | None = typer.Option(
+        None,
+        help="uuid -> fantacalcio_id bridge from GET /v2/listone. Default: the harvest home's.",
     ),
     asta_type: str = typer.Option("mantra", help="Format the seed was collected for."),
     follow: bool = typer.Option(False, "--follow", help="Keep reading as the file grows."),
@@ -218,6 +245,9 @@ def aste_load(
     from fantabot.domain.harvest import incremental as incremental
     from fantabot.domain.harvest.backfill import auction_rows, event_rows
 
+    landing = landing or _home(LANDING_NAME)
+    seed = seed or _home(SEED_NAME)
+    listone = listone or _home(LISTONE_NAME)
     if asta_type not in ASTA_TYPES:
         console.print(f"[red]{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}")
         raise typer.Exit(2)
@@ -404,8 +434,12 @@ def aste_load(
 
 
 def aste_collect(
-    out: Path = typer.Option(..., help="Landing-zone JSONL to append to."),
-    seed: Path = typer.Option(None, help="Registry to follow in full. Omit to use --one."),
+    out: Path | None = typer.Option(
+        None, help="Landing-zone JSONL to append to. Default: the harvest home's live.jsonl."
+    ),
+    seed: Path | None = typer.Option(
+        None, help="Registry to follow in full. Omit with --one. Default: the harvest home's."
+    ),
     auction: str = typer.Option("", "--one", help="A single auction uuid to follow."),
     shard: str = typer.Option("", help="Its Firebase shard. Required with --one."),
     pool: int = typer.Option(0, help="Concurrent streams. 0 = the measured default."),
@@ -429,25 +463,41 @@ def aste_collect(
     from fantabot.application.harvest_supervisor import DEFAULT_POOL, Report, Supervisor
     from fantabot.domain.harvest.registry import AuctionConfig, from_seed_row
 
+    out = out or _home(LANDING_NAME)
+    # The home's seed is the default only when no single auction was named: `--seed` being
+    # unset is how this command is *told* there is one auction to follow, so a default that
+    # filled it in unconditionally would turn every `--one` run into a seed run.
+    if seed is None and not auction:
+        seed = _home(SEED_NAME)
     if seed is None and not (auction and shard):
         console.print("[red]Give either --seed, or both --one and --shard.[/red]")
         raise typer.Exit(2)
-
-    def read_seed() -> list[AuctionConfig]:
-        return [
-            from_seed_row(row, asta_type="mantra")
-            for row in json.loads(seed.read_text(encoding="utf-8"))
-        ]
-
-    if seed is not None:
-        configs = read_seed()
-    else:
-        configs = [AuctionConfig(auction_id=auction, db_shard=shard, asta_type="mantra")]
+    if seed is not None and not seed.exists():
+        # Reported, not raised. With `--seed` required this was always a path the operator
+        # had typed; defaulted, the everyday no-argument run reaches it, and a traceback
+        # out of `read_seed` is a poor way to say "run `harvest scan` first".
+        console.print(f"[red]seed file not found: {seed}[/red]")
+        raise typer.Exit(2)
 
     # Only a seed can grow. With --one there is nothing to re-read, and an asta
     # that opens later is an asta the collector never hears about — which is how
     # every room opening after the first scan was lost.
-    reload = read_seed if seed is not None and reload_seed > 0 else None
+    if seed is None:
+        configs = [AuctionConfig(auction_id=auction, db_shard=shard, asta_type="mantra")]
+        reload: Callable[[], list[AuctionConfig]] | None = None
+    else:
+        # Rebound because the closure outlives the narrowing: `seed` is `Path | None` in
+        # this scope, and a re-read hours into an evening must not be able to see `None`.
+        registry = seed
+
+        def read_seed() -> list[AuctionConfig]:
+            return [
+                from_seed_row(row, asta_type="mantra")
+                for row in json.loads(registry.read_text(encoding="utf-8"))
+            ]
+
+        configs = read_seed()
+        reload = read_seed if reload_seed > 0 else None
 
     zone = LandingZone(out)
     limit = pool or DEFAULT_POOL
@@ -505,10 +555,12 @@ def aste_collect(
 
 def aste_backfill(
     events: Path = typer.Argument(..., help="Collector log: one merged state per line."),
-    seed: Path = typer.Option(..., help="The scan seed describing each auction."),
-    listone: Path = typer.Option(
-        Path("data/aste_live/listone_map.json"),
-        help="uuid -> fantacalcio_id bridge from GET /v2/listone.",
+    seed: Path | None = typer.Option(
+        None, help="The scan seed describing each auction. Default: the harvest home's."
+    ),
+    listone: Path | None = typer.Option(
+        None,
+        help="uuid -> fantacalcio_id bridge from GET /v2/listone. Default: the harvest home's.",
     ),
     asta_type: str = typer.Option("mantra", help="Format the seed was collected for."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Build and report, write nothing."),
@@ -528,6 +580,8 @@ def aste_backfill(
     from fantabot.adapters.persistence.models.aste import ASTA_TYPES
     from fantabot.domain.harvest.backfill import build, read_jsonl
 
+    seed = seed or _home(SEED_NAME)
+    listone = listone or _home(LISTONE_NAME)
     # Checked before any work: asta_type is NOT NULL and only two values exist,
     # so a typo caught here beats a constraint violation after building 144,518
     # rows.
