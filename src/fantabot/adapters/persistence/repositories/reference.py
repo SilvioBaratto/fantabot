@@ -121,7 +121,8 @@ class ReferenceRepository(RepositoryBase):
                 )
             ).scalars()
         )
-        names.discard(None)
+        # No `discard(None)`: both columns are `nullable=False` (`models/matches.py:118-119`),
+        # so the union cannot return one, and mypy reads the set as `set[str]`.
         if not names:
             # A fresh database, or one scraped listone-first. Not an error: the
             # placeholder codes stay until fixtures exist to resolve them.
