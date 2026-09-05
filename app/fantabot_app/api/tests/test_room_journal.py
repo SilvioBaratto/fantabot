@@ -14,8 +14,9 @@ something somewhere in this repository:
   the newest, which is the first row a tail-first viewer would try to render.
 * **A missing journal is not an error.** It is "no journal yet", and it names the path it
   looked at, because `fantabot_data_dir` is relative and resolves against whatever working
-  directory the launcher was started in (`SPEC.md` §3.1's footgun, unmoved here on
-  purpose: the artefact is the CLI's).
+  directory the launcher was started in (§3.1's footgun in
+  `tasks/archive/fantalab-in-the-app-spec.md`, unmoved here on purpose: the artefact is
+  the CLI's).
 """
 
 from __future__ import annotations

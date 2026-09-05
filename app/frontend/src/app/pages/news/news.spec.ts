@@ -86,7 +86,8 @@ describe('NewsComponent', () => {
   /**
    * News fetch. It was removed from Synchronize at the operator's request and the
    * endpoint deliberately kept; this is where it lives now — the topic's own page, and
-   * therefore no new nav entry (`SPEC.md` §7: nine tabs became ten, not thirteen).
+   * therefore no new nav entry (§7 of the archived phase spec: nine tabs became ten, not
+   * thirteen).
    */
   describe('news fetch', () => {
     async function ready() {

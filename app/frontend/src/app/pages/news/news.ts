@@ -18,7 +18,8 @@ import { DriftRow, NewsRow } from '../../core/models/news';
 
 /**
  * The job kind this page owns. `GET /jobs` lists every kind; only this one belongs
- * here — the fetch lives on the News page and nowhere else (`SPEC.md` §7).
+ * here — the fetch lives on the News page and nowhere else (§7 of the archived phase
+ * spec, `tasks/archive/fantalab-in-the-app-spec.md`).
  */
 const KIND = 'news-fetch';
 

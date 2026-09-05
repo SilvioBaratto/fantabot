@@ -88,6 +88,65 @@ cd frontend && npx ng test --watch=false  # vitest
   rule kept by review, which is why it is written here.
 - **Actions run as jobs.** Long/interactive use cases (login, sync, news) run on the
   in-process job runner (`api/infrastructure/jobs.py`); the UI polls `GET /jobs/{id}`.
+  `GET /jobs` is the source of truth a page reattaches from, and `?since=N` is how a
+  1.5 s poll costs what happened since the last one instead of the whole log. Both exist
+  because the job id used to live only in Angular component state: a refresh mid-run
+  orphaned the job invisibly *and* re-enabled the button that starts a second one.
+- **One harvest home, and it is derived.** `fantabot.config.harvest_dir()` —
+  `~/.fantabot/aste_live` by default, `FANTABOT_HARVEST_DIR` when exported — holds
+  `live.jsonl`, its `.offset` and `.state`, `seed.json` and `listone_map.json`. The app
+  addresses it through that function and never through a relative path: `./data/aste_live/`
+  resolves only from the repository root, and the app's working directory is wherever its
+  launcher was started, so a collector started from the app and a `harvest load` typed in a
+  terminal used to address two different landing zones. Same argument that made the bundled
+  database canonical. **Set it as a real exported variable, never in `.env`** — a `Settings()`
+  reads `.env` relative to the working directory, which is the split, not the fix.
+- **The role lock has two roles, not one.** `adapters/files/lock.py`, an OS advisory lock
+  per role on `<landing>.<role>.lock`: `COLLECTOR` and `LOADER`. Two collectors double
+  every record and two loaders corrupt each other's ladders, but collector-plus-loader is
+  the *intended* pairing, so one lock would forbid the normal case. The property being
+  bought is that the OS releases it however the holder dies — so "is a collector running?"
+  needs no pid check and stays correct across an app restart, which is what makes the two
+  rules below implementable at all. Its Windows backend is written and unverified
+  (`todo/TODO.md` §4).
+- **The supervisor is a subprocess, and cancellation is not the reason.**
+  `api/infrastructure/processes.py`. `adapters/files/landing.py` states the invariant: a
+  frame that never reached disk is gone, and an evening of auctions does not come back. A
+  daemon thread dies with the server, and `jobs.py` accepts that on the grounds that every
+  fantabot write is an upsert — true of the loader, **false of the collector**.
+  `application/harvest_loader.py` also records a pass holding ~17x its 32 MB window (1.6 GB
+  resident measured), which inside the SPA process means the UI stalls on a timer. It was
+  proven against `harvest load --follow` before it was pointed at `collect`: the loader is
+  idempotent and restartable, the collector is the thing that cannot be re-run, and
+  debugging process control against the irreplaceable one is the wrong order.
+  **Stop sequence:** `SIGINT` to a real pid — not `SIGTERM`, which has no handler on that
+  path; `aste_collect` catches only `KeyboardInterrupt` — then poll the role lock at 250 ms
+  for 15 s, then `SIGKILL`.
+- **The app never resets a load checkpoint.** It shows the offset, the file size and the
+  lag, and it names the command. The Classic recovery *was* an offset reset re-reading
+  1.31 GB; it is the highest-value action in the feature and the only destructive-shaped
+  one, and it stays a terminal act. There is nothing in `POST /harvest/load` that could do
+  it — the offset is the loader's.
+- **`fantabot-app stop` refuses while a collector holds the lock**, names the role and the
+  landing zone, and offers `--force`. A three-hour asta evening is exactly when a stray
+  `stop` costs records, and the landing zone's guarantee is about kills it did not choose.
+  `POST /harvest/collect` refuses in the same spirit when `pool` is below the seed
+  population, naming both numbers: a pool below the population is silent starvation, since
+  a watcher on a live evening does not finish, so a queued auction never gets a permit and
+  never connects at all. That cost 145 of 395 auctions on 2026-08-27. The CLI warns and
+  continues, which is right at a terminal where someone reads the warning; from a browser
+  at 21:00 it is a three-hour run that quietly follows two thirds of an evening.
+- **Collection-time filters are the app's, never.** `harvest scan` exposes no `--only` and
+  `harvest collect` no format selector — `from_seed_row` reads each row's own `asta_type`,
+  so one seed carries both. Filtering is a query. The poller filtering to Mantra is what
+  threw away 85% of the population. A *load* takes a format, because that is a read.
+- **The room journal is the CLI's record, and the screen says so.**
+  `GET /asta/journal` pages `data/room_journal.jsonl` newest-first; the app writes nothing
+  there. It resolves the path absolute deliberately — `fantabot_data_dir` defaults to
+  `./data`, so "there is no journal" and "you are looking in the wrong place" are the same
+  screen until it says where it looked. A line that does not parse is skipped *and
+  counted*: the journal flushes per line, so the one line a crash can tear is the newest,
+  and tail-first that is the first row drawn.
 - **The bundled server's lifetime is explicit.** `PostgresProvisioner` passes
   `cleanup_mode=None` on every path, so Postgres outlives whatever started it and only
   `fantabot-app stop` / `fantabot-app db stop` takes it down. pgserver's default is

@@ -149,8 +149,9 @@ def test_the_news_fetch_trigger_has_exactly_one_home() -> None:
 
     It was removed from Synchronize at the operator's request while
     `ActionsService.runNewsFetch` and `POST /actions/news-fetch` were deliberately kept —
-    which left the app with an endpoint nothing could reach. Rehoused on News (`SPEC.md`
-    §7: the topic's own page, so nine nav tabs became ten and not eleven).
+    which left the app with an endpoint nothing could reach. Rehoused on News (the
+    archived phase spec §7: the topic's own page, so nine nav tabs became ten and not
+    eleven — `tasks/archive/fantalab-in-the-app-spec.md`).
 
     A second copy is the failure this guards: two buttons for a 523-player run through the
     Agent SDK are two runs, and the second one is not free.

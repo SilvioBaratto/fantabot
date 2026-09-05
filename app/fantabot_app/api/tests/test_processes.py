@@ -1,6 +1,7 @@
 """The process supervisor: a real child, its stdout, and the stop sequence.
 
-A subprocess and not a thread, and `SPEC.md` §6 says why. `adapters/files/landing.py`
+A subprocess and not a thread, and §6 of the archived phase spec says why
+(`tasks/archive/fantalab-in-the-app-spec.md`). `adapters/files/landing.py`
 states the invariant the choice protects: a frame that never reached disk is gone, and an
 evening of auctions does not come back. A daemon thread dies with the server, and
 `jobs.py` accepts that on the grounds that every fantabot write is an upsert — true of

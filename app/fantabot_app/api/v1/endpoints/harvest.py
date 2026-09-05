@@ -195,7 +195,8 @@ def harvest_load(asta_type: str = "mantra", follow: bool = True) -> JobStarted:
     What the app must never own is a *collection-time* filter — the thing that decides
     which auctions are ever heard from at all.
 
-    The app never resets a checkpoint (`SPEC.md` §3.2), and there is nothing here that
+    The app never resets a checkpoint (§3.2 of the archived phase spec,
+    `tasks/archive/fantalab-in-the-app-spec.md`), and there is nothing here that
     could: the offset is the loader's, and the only command that moves it backwards stays
     a terminal act.
     """

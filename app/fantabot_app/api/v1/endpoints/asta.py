@@ -6,8 +6,9 @@ lega's latest LeagueSnapshot (size + min roles) instead of the RosterRules(size=
 default. Read-only; degrades open (found=false on no data / DB error).
 
 It also serves the **room journal** — `data/room_journal.jsonl`, which the CLI writes
-and, until this endpoint, nothing read. Same page, per `SPEC.md` §7: the room check and
-the journal are sections of the Asta page rather than a tenth nav entry.
+and, until this endpoint, nothing read. Same page, per §7 of the archived phase spec
+(`tasks/archive/fantalab-in-the-app-spec.md`): the room check and the journal are sections
+of the Asta page rather than a tenth nav entry.
 """
 
 from __future__ import annotations
@@ -126,8 +127,8 @@ def asta_plan(league_id: int, season: str = "2026/27") -> AstaPlan:
 
 #: What `interface/asta.py` writes, under `settings.fantabot_data_dir`. Both `asta room`
 #: and `asta bid` append to the same file; neither marks a run boundary, which is why the
-#: viewer pages a file and not an evening (`SPEC.md` §9 leaves that open on purpose — the
-#: marker would change the artefact the 2026-09-01 audit was done against).
+#: viewer pages a file and not an evening (the archived phase spec §9 leaves that open on
+#: purpose — the marker would change the artefact the 2026-09-01 audit was done against).
 JOURNAL_FILE = "room_journal.jsonl"
 #: One page. The recorded evening is 5,192 rows and 1.6 MB of JSON; the whole of it in one
 #: response is a viewer that renders once and then stalls the tab it opened in.
@@ -282,9 +283,10 @@ def asta_journal(offset: int = 0, limit: int = DEFAULT_JOURNAL_LIMIT) -> Journal
 
     Resolved absolute deliberately: `fantabot_data_dir` defaults to `./data`, which is
     only the repository's `data/` when the process was started from the repository root.
-    That is `SPEC.md` §3.1's footgun and it is *not* fixed here — moving the journal would
-    move an artefact the CLI owns and the 2026-09-01 audit was done against — so the
-    screen says which file it read instead of implying there is only one.
+    That is §3.1's footgun in `tasks/archive/fantalab-in-the-app-spec.md`, and it is *not*
+    fixed here — moving the journal would move an artefact the CLI owns and the 2026-09-01
+    audit was done against — so the screen says which file it read instead of implying
+    there is only one.
     """
     from fantabot.config import settings
 
