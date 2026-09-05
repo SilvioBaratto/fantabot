@@ -130,3 +130,41 @@ def test_every_get_server_call_states_the_cleanup_mode() -> None:
             if not any(kw.arg == "cleanup_mode" for kw in node.keywords):
                 offenders.append(f"{py.relative_to(_package_root())}:{node.lineno}")
     assert offenders == [], f"get_server without an explicit cleanup_mode: {offenders}"
+
+
+def _frontend_source() -> Path | None:
+    """`app/frontend/src`, or None when only the compiled bundle is installed.
+
+    The wheel ships `fantabot_app/web/` and not the Angular sources, so a test that
+    asserted the directory exists would fail for an end user running the suite from an
+    installed copy. Skipping there is right; skipping in the repository is not, which is
+    why this returns a path rather than a boolean.
+    """
+    source = Path(fantabot_app.__file__).parent.parent / "frontend" / "src"
+    return source if source.is_dir() else None
+
+
+def test_the_news_fetch_trigger_has_exactly_one_home() -> None:
+    """One button, on the News page. Not two, and not zero.
+
+    It was removed from Synchronize at the operator's request while
+    `ActionsService.runNewsFetch` and `POST /actions/news-fetch` were deliberately kept —
+    which left the app with an endpoint nothing could reach. Rehoused on News (`SPEC.md`
+    §7: the topic's own page, so nine nav tabs became ten and not eleven).
+
+    A second copy is the failure this guards: two buttons for a 523-player run through the
+    Agent SDK are two runs, and the second one is not free.
+    """
+    source = _frontend_source()
+    if source is None:  # installed from the wheel — sources are not shipped
+        return
+
+    callers = sorted(
+        str(ts.relative_to(source))
+        for ts in source.rglob("*.ts")
+        if ".spec." not in ts.name
+        and "/api/" not in str(ts.relative_to(source)).replace("\\", "/")
+        and "runNewsFetch(" in ts.read_text(encoding="utf-8")
+    )
+
+    assert callers == ["app/pages/news/news.ts"], f"news fetch is triggered from: {callers}"
