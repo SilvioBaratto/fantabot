@@ -58,7 +58,10 @@ import pytest
 from _paths import pkg
 from sqlalchemy import Engine, create_engine, text
 
-pytestmark = pytest.mark.db
+#: This module reads what has actually been scraped, harvested and synced, so it runs
+#: against the canonical database rather than the tier's own empty one. There is no
+#: fixture for 614,163 rows; the session is still rolled back.
+pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
 _NO_FADE_FLAGS = (
     "ARRAY['floor_qi','goalkeeper_no_fade','no_prior_data',"

@@ -24,7 +24,10 @@ from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
-pytestmark = pytest.mark.db
+#: This module reads what has actually been scraped, harvested and synced, so it runs
+#: against the canonical database rather than the tier's own empty one. There is no
+#: fixture for 614,163 rows; the session is still rolled back.
+pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
 
 def test_no_sale_is_priced_at_zero(db_session: Session) -> None:

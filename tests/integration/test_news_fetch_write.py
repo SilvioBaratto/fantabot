@@ -22,7 +22,10 @@ from fantabot.adapters.persistence import database_manager
 from fantabot.application.news_fetcher import FetchResult
 from fantabot.interface.app import app
 
-pytestmark = pytest.mark.db
+#: This module reads what has actually been scraped, harvested and synced, so it runs
+#: against the canonical database rather than the tier's own empty one. There is no
+#: fixture for 614,163 rows; the session is still rolled back.
+pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
 runner = CliRunner()
 #: The run day these tests write and read. A year back, and deliberately **not** today.

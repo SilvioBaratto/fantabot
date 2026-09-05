@@ -92,11 +92,86 @@ os.environ["TERM"] = "dumb"
 os.environ["COLUMNS"] = "200"
 
 
-@pytest.fixture(scope="session")
-def db_engine() -> Generator[Engine, None, None]:
+class CanonicalDatabaseError(RuntimeError):
+    """The `db` tier was pointed at the database the app and the CLI actually use."""
+
+
+def refuse_canonical(test_url: str, canonical_url: str) -> str:
+    """Return *test_url*, unless it names the same database as *canonical_url*.
+
+    A hard failure, not a warning, and by database **name alone** — a `fantabot` on
+    another host is refused too. Fail closed: a false refusal costs one environment
+    variable, a false pass costs a week of readings that cannot be regenerated.
+    """
+    from sqlalchemy.engine import make_url
+
+    test_db = make_url(test_url).database
+    if test_db == make_url(canonical_url).database:
+        raise CanonicalDatabaseError(
+            f"the db tier would write to the canonical database {test_db!r}.\n"
+            f"  canonical: {make_url(canonical_url).render_as_string(hide_password=True)}\n"
+            f"  tier:      {make_url(test_url).render_as_string(hide_password=True)}\n"
+            "Make a separate one and point the tier at it:\n"
+            "  fantabot-app db create fantabot_test\n"
+            '  FANTABOT_DATABASE_URL="$(fantabot-app db url --database fantabot_test)" '
+            "alembic upgrade head\n"
+            '  FANTABOT_TEST_DATABASE_URL="$(fantabot-app db url --database fantabot_test)" '
+            "pytest -m db"
+        )
+    return test_url
+
+
+def tier_database_url(seeded: bool) -> str:
+    """Which database this test gets: the seeded one it reads, or the tier's own.
+
+    Most of the tier writes synthetic rows and needs a schema, nothing more. A minority —
+    the `dbdata` marker — asserts against what has actually been scraped, harvested and
+    synced, and there is no fixture for 614,163 rows: those read the canonical database,
+    inside the same rolled-back transaction as everything else.
+    """
     from fantabot.config import settings
 
-    engine = create_engine(settings.fantabot_database_url, pool_pre_ping=True)
+    if seeded:
+        return settings.fantabot_database_url
+    return refuse_canonical(settings.fantabot_test_database_url, settings.fantabot_database_url)
+
+
+def resolve_tier_dsn(*, seeded: bool) -> str:
+    """`tier_database_url`, turning a refusal into a clean pytest failure.
+
+    The `pytest.fail` sits after the except block rather than inside it, for the reason
+    the reachability failure below carries: raising inside chains the original traceback
+    onto the message, and "During handling of the above exception" is exactly the noise
+    `pytrace=False` exists to remove.
+    """
+    refusal: str | None = None
+    try:
+        return tier_database_url(seeded)
+    except CanonicalDatabaseError as exc:
+        refusal = str(exc)
+    pytest.fail(refusal, pytrace=False)
+
+
+@pytest.fixture(scope="session")
+def _db_engines() -> Generator[dict[str, Engine], None, None]:
+    """One Engine per DSN, for the session. Both tiers may be exercised in one run."""
+    engines: dict[str, Engine] = {}
+    yield engines
+    for engine in engines.values():
+        engine.dispose()
+
+
+@pytest.fixture
+def db_engine(
+    request: pytest.FixtureRequest, _db_engines: dict[str, Engine]
+) -> Generator[Engine, None, None]:
+    url = resolve_tier_dsn(seeded=request.node.get_closest_marker("dbdata") is not None)
+
+    if url in _db_engines:
+        yield _db_engines[url]
+        return
+
+    engine = create_engine(url, pool_pre_ping=True)
 
     detail: str | None = None
     try:
@@ -116,8 +191,8 @@ def db_engine() -> Generator[Engine, None, None]:
             pytrace=False,
         )
 
+    _db_engines[url] = engine
     yield engine
-    engine.dispose()
 
 
 @pytest.fixture

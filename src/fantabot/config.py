@@ -82,6 +82,18 @@ class Settings(BaseSettings):
         default_factory=bundled_database_url,
         repr=False,
     )
+    # Where `pytest -m db` writes. A separate database on the same bundled server, because
+    # the tier's write tests must not be able to reach the canonical one — `pytest -m db`
+    # once deleted a real player's weekly reading. `tests/conftest.py` refuses to run when
+    # this resolves to the same database name as the setting above.
+    #
+    #     fantabot-app db create fantabot_test
+    #     FANTABOT_DATABASE_URL="$(fantabot-app db url --database fantabot_test)" \
+    #       alembic upgrade head
+    fantabot_test_database_url: str = Field(
+        default_factory=lambda: bundled_database_url("fantabot_test"),
+        repr=False,
+    )
 
     # Fernet key for the league_tokens ciphertext column. No validator: this
     # class is instantiated at import (below), so one that rejects a malformed

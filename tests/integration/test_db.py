@@ -10,7 +10,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-pytestmark = pytest.mark.db
+#: This module reads what has actually been scraped, harvested and synced, so it runs
+#: against the canonical database rather than the tier's own empty one. There is no
+#: fixture for 614,163 rows; the session is still rolled back.
+pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
 
 def _synthetic(db_session: Session, count: int) -> list[int]:

@@ -56,8 +56,20 @@ files = ["src"]
 pythonpath = ["src"]
 # The default run must open zero sockets, so the integration tier is opt-in.
 # A command-line -m overrides this value, because the last -m wins.
-addopts = "-m 'not db'"
-markers = ["db: requires a live Postgres (fantabot-app db start)"]
+addopts = "-m 'not db and not integration'"
+markers = [
+    "db: requires a live Postgres (fantabot-app db start)",
+    # A subset of `db`. The rest of the tier writes synthetic rows into a database that
+    # needs only a schema; these read what has actually been scraped, harvested and
+    # synced, so they run against the canonical database. See tests/conftest.py.
+    "dbdata: a `db` test that reads the seeded corpus, not just the schema",
+    # Declared here because a root-level `pytest` collects `app/` too, and the launcher's
+    # integration test starts a real PostgreSQL. Deselecting it keeps the default run's
+    # "zero sockets" promise true from the repository root, not only from `app/`.
+    "integration: the app launcher against a real bundled Postgres (opens sockets)",
+    # Also the app's, and also collected from here. Declared so the root run is warning-free.
+    "e2e: end-to-end, through a running fantabot-app",
+]
 # An exception in a worker thread is a *warning*, not a failure: a test that starts a thread
 # which raises passes green. The socket guard in conftest.py raises, so once anything in this
 # repo does work on a thread — the live room's copilot does — "zero sockets" becomes

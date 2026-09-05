@@ -29,9 +29,10 @@ pytestmark = pytest.mark.db
 @pytest.fixture(scope="module")
 def scratch_dsn() -> Generator[str, None, None]:
     """A fresh, empty database that this module owns and destroys."""
-    from fantabot.config import settings
+    from conftest import resolve_tier_dsn
 
-    url = make_url(settings.fantabot_database_url)
+    dsn = resolve_tier_dsn(seeded=False)
+    url = make_url(dsn)
     admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
 
     with admin.connect() as connection:
@@ -39,11 +40,23 @@ def scratch_dsn() -> Generator[str, None, None]:
         connection.execute(text(f'CREATE DATABASE "{SCRATCH_DB}"'))
 
     try:
-        yield url.set(database=SCRATCH_DB).render_as_string(hide_password=False)
+        yield _with_database(dsn, SCRATCH_DB)
     finally:
         with admin.connect() as connection:
             connection.execute(text(f'DROP DATABASE IF EXISTS "{SCRATCH_DB}" WITH (FORCE)'))
         admin.dispose()
+
+
+def _with_database(dsn: str, name: str) -> str:
+    """Swap the database name textually, never through ``render_as_string``.
+
+    SQLAlchemy re-renders the query with the socket path percent-encoded, and alembic's
+    config is a ``ConfigParser``: it interpolates ``%`` and rejects ``%2F`` outright with
+    ``ValueError: invalid interpolation syntax``. Verified — these two tests failed exactly
+    that way the first time the tier ran against the bundled server.
+    """
+    head, sep, query = dsn.partition("?")
+    return head[: head.rfind("/") + 1] + name + sep + query
 
 
 def _alembic(dsn: str, *args: str) -> subprocess.CompletedProcess[str]:
