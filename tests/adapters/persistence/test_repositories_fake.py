@@ -643,3 +643,40 @@ def test_purge_will_not_delete_a_competition_another_lega_claims() -> None:
     fixtures = next(s for s in session.statements if s.startswith("DELETE FROM league_fixture"))
     assert "NOT IN" in fixtures.upper()
     assert "league_competition" in fixtures
+
+
+class TestCorpusSummaryAnswersForEveryFormat:
+    """The panel this feeds is the instrument every collection run is graded on.
+
+    Both properties below are about what the *shape* of the answer must be, which is why
+    they are here against a fake session rather than in the db tier: neither can be forced
+    from data. A format that has never been collected has to read as zero — a missing row
+    would render as "no data yet" for the one format whose emptiness is the finding.
+    """
+
+    def test_a_format_with_no_rows_reads_as_zero_rather_than_vanishing(self) -> None:
+        from fantabot.adapters.persistence.models.aste import ASTA_TYPES
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
+
+        rows = AsteRepository(_session()).corpus_summary()
+
+        assert [row.asta_type for row in rows] == list(ASTA_TYPES)
+        assert [row.rooms for row in rows] == [0, 0]
+        assert [row.events for row in rows] == [0, 0]
+        assert [row.planner_sales for row in rows] == [0, 0]
+
+    def test_the_league_shape_reaches_the_planner_filter(self) -> None:
+        """8x500 is our room, not a law — `read_plan_inputs` records why that matters.
+
+        A count whose filter is written in cannot answer for the riparazione in January
+        or for a friend's league, and would disagree with `clearing_sales` the moment
+        either is asked about.
+        """
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
+
+        session = _session(literal=True)
+        AsteRepository(session).corpus_summary(num_credits=250, num_teams=10)
+
+        filtered = [sql for sql in session.statements if "FILTER" in sql.upper()]
+        assert filtered, "no FILTER-ed count was built for the planner's own filter"
+        assert any("250" in sql and "10" in sql for sql in filtered)

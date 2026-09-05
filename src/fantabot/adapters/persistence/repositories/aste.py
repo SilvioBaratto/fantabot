@@ -106,8 +106,114 @@ def _chunks(
     return [rows[i : i + size] for i in range(0, len(rows), size)]
 
 
+@dataclass(frozen=True)
+class CorpusRow:
+    """What is stored for one format, from the room down to the sale the planner reads.
+
+    Seven counts, and the last one is the point of the other six. `planner_sales` is what
+    `clearing_sales` returns — the only number a plan is ever built on — and the six above
+    it say *where* a shortfall happened: rooms registered but never followed, frames
+    collected but never reduced, sales recorded with no buyer or no player link.
+
+    The distinction is not academic. On 2026-09-05 the Classic corpus read as 2.1 million
+    events and zero sales for over a week, and there was no screen that could show the
+    difference between "nothing was collected" and "everything was collected and nothing
+    joined". Every field defaults to zero so a format nobody has collected yet reports
+    itself rather than disappearing from the answer.
+    """
+
+    asta_type: str
+    rooms: int = 0
+    rooms_with_events: int = 0
+    events: int = 0
+    assignments: int = 0
+    assignments_with_buyer: int = 0
+    assignments_with_player: int = 0
+    planner_sales: int = 0
+
+
 class AsteRepository(RepositoryBase):
     """Reads and writes for `asta`, `asta_event` and `asta_assignment`."""
+
+    def corpus_summary(
+        self, *, num_credits: int = 500, num_teams: int = 8
+    ) -> list[CorpusRow]:
+        """One `CorpusRow` per format, in `ASTA_TYPES` order. Read-only.
+
+        **The last count must agree with `clearing_sales` exactly**, so it repeats that
+        method's filter rather than approximating it: the buyer and the player link both
+        present, and the room's own shape. A panel whose headline number is *nearly* the
+        corpus is worse than no panel — it would have shown a plausible figure through the
+        week the Classic corpus was actually empty.
+
+        `num_credits`/`num_teams` are parameters for `read_plan_inputs`' reason: 8x500 is
+        our room, and the next asta is the riparazione in January or a friend's league.
+
+        **Four statements, not one, and the split is deliberate.** `rooms_with_events` is
+        an `EXISTS` over `asta` (1,411 index probes on `ix_asta_event_asta_key_seen_at`)
+        rather than a `count(DISTINCT asta_key)` folded into the event count, which would
+        make the whole panel wait on a distinct aggregate over 3.5 million rows. The one
+        unavoidable scan is the exact event count, and nothing else is queued behind it.
+        """
+        from sqlalchemy import exists, func
+
+        rooms = {
+            asta_type: total
+            for asta_type, total in self.session.execute(
+                select(Asta.asta_type, func.count()).group_by(Asta.asta_type)
+            ).all()
+        }
+        with_events = {
+            asta_type: total
+            for asta_type, total in self.session.execute(
+                select(Asta.asta_type, func.count())
+                .where(exists().where(AstaEvent.asta_key == Asta.key))
+                .group_by(Asta.asta_type)
+            ).all()
+        }
+        events = {
+            asta_type: total
+            for asta_type, total in self.session.execute(
+                select(Asta.asta_type, func.count())
+                .join(AstaEvent, AstaEvent.asta_key == Asta.key)
+                .group_by(Asta.asta_type)
+            ).all()
+        }
+        sales: dict[str, tuple[int, int, int, int]] = {
+            row[0]: (row[1], row[2], row[3], row[4])
+            for row in self.session.execute(
+                select(
+                    Asta.asta_type,
+                    func.count(),
+                    func.count().filter(AstaAssignment.buyer_team_id.is_not(None)),
+                    func.count().filter(AstaAssignment.fantacalcio_id.is_not(None)),
+                    func.count().filter(
+                        AstaAssignment.buyer_team_id.is_not(None),
+                        AstaAssignment.fantacalcio_id.is_not(None),
+                        Asta.num_credits == num_credits,
+                        Asta.num_teams == num_teams,
+                    ),
+                )
+                .join(AstaAssignment, AstaAssignment.asta_id == Asta.id)
+                .group_by(Asta.asta_type)
+            ).all()
+        }
+
+        return [
+            CorpusRow(
+                asta_type=asta_type,
+                rooms=rooms.get(asta_type, 0),
+                rooms_with_events=with_events.get(asta_type, 0),
+                events=events.get(asta_type, 0),
+                assignments=counted[0],
+                assignments_with_buyer=counted[1],
+                assignments_with_player=counted[2],
+                planner_sales=counted[3],
+            )
+            for asta_type, counted in (
+                (name, sales.get(name, (0, 0, 0, 0))) for name in ASTA_TYPES
+            )
+        ]
 
     def clearing_sales(
         self, *, asta_type: str = "mantra", budget: int = 500, num_teams: int = 8
