@@ -6,6 +6,7 @@ of the fantabot_app package and assert the two properties the SPEC promises.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -101,3 +102,31 @@ def test_the_boundary_names_the_functions_that_actually_act() -> None:
     source = (Path(__file__).parent / "test_fitness.py").read_text(encoding="utf-8")
     for acting in ("place_raise(", "run_bid_loop(", "decide_bid(", "teamLineup_submit("):
         assert f'"{acting}"' in source, f"{acting} dropped from the v1 boundary"
+
+
+def test_every_get_server_call_states_the_cleanup_mode() -> None:
+    """The bundled server's lifetime is explicit, and pgserver's default is not.
+
+    ``get_server(pgdata)`` defaults to ``cleanup_mode='stop'``: an ``atexit`` hook stops
+    the server when the last handle-holding process exits, so a ``db start`` that omitted
+    it would print a DSN to a server that died with the command. Worse, ``get_server``
+    caches per pgdata and *ignores* the argument on a cache hit, so one bare call anywhere
+    in the package decides the mode for the whole process.
+
+    Read as syntax, not as text: ``_default_postmaster``'s docstring explains why
+    ``get_server(..., start=False)`` is the wrong tool, and a grep would fail on the
+    explanation.
+    """
+    offenders: list[str] = []
+    for py in _source_files(under=_package_root()):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name != "get_server":
+                continue
+            if not any(kw.arg == "cleanup_mode" for kw in node.keywords):
+                offenders.append(f"{py.relative_to(_package_root())}:{node.lineno}")
+    assert offenders == [], f"get_server without an explicit cleanup_mode: {offenders}"
