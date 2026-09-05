@@ -45,13 +45,21 @@ class TeamRoster(BaseModel):
     roster: list[RosterSlot]
 
 
-def build_overview(league_id: int, snapshot: Any, team_count: int) -> LegaOverview:
-    """Map a LeagueSnapshot (or None) to an overview."""
+def build_overview(
+    league_id: int, snapshot: Any, team_count: int, league_name: str | None = None
+) -> LegaOverview:
+    """Map a LeagueSnapshot (or None) to an overview.
+
+    The name is passed in rather than read off the snapshot: `league_snapshot` has no
+    name column (it snapshots settings), and the lega's own name is what `auth login`
+    stored on its token row. Absent a token the name is None and the UI falls back to
+    the id, which is why this stays optional.
+    """
     if snapshot is None:
-        return LegaOverview(league_id=league_id, team_count=team_count)
+        return LegaOverview(league_id=league_id, league_name=league_name, team_count=team_count)
     return LegaOverview(
         league_id=league_id,
-        league_name=None,  # names live on team rows / listone, not the snapshot
+        league_name=league_name,
         captured_at=snapshot.captured_at,
         matchday=snapshot.matchday,
         budget=snapshot.budget,
@@ -91,16 +99,24 @@ def build_rosters(teams: list[Any]) -> list[TeamRoster]:
 @router.get("/lega", response_model=list[LegaOverview], tags=["lega"])
 def lega_list() -> list[LegaOverview]:
     from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
 
     from fantabot_app.api.reads import league as reads
 
     try:
         with database_manager.get_session() as session:
+            # Keyless, like /auth/status: `status()` reads the token rows' metadata and
+            # never decrypts, so the name is available with no encryption key present.
+            names = {row.league_id: row.league_name for row in TokenStore(session).status()}
             overviews = []
             for league_id in reads.all_league_ids(session):
                 snapshot = reads.latest_settings(session, league_id)
                 teams = reads.latest_rosters(session, league_id)
-                overviews.append(build_overview(league_id, snapshot, len(teams)))
+                overviews.append(
+                    build_overview(
+                        league_id, snapshot, len(teams), league_name=names.get(league_id)
+                    )
+                )
         return overviews
     except Exception:  # noqa: BLE001 — degrade open
         return []

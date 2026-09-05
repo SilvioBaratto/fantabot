@@ -36,6 +36,34 @@ def test_build_overview_handles_missing_snapshot() -> None:
     assert overview.team_count == 0
 
 
+def test_build_overview_carries_the_league_name() -> None:
+    """The name comes from the token row; the dashboard titles the card with it."""
+    snapshot = SimpleNamespace(
+        captured_at=datetime(2026, 9, 4, tzinfo=UTC),
+        matchday=3,
+        budget=500,
+        roster_size=25,
+        min_roles=[3, 8, 8, 6],
+        max_roles=[3, 8, 8, 6],
+        modules=["343"],
+        bench_size=9,
+    )
+    overview = build_overview(3584692, snapshot, team_count=6, league_name="Legamiallerotaie")
+    assert overview.league_name == "Legamiallerotaie"
+
+
+def test_build_overview_names_a_lega_with_no_snapshot() -> None:
+    """A lega whose token is stored but whose sync has not run still shows its name."""
+    overview = build_overview(3584692, None, team_count=0, league_name="Legamiallerotaie")
+    assert overview.league_name == "Legamiallerotaie"
+
+
+def test_build_overview_without_a_name_leaves_it_none() -> None:
+    """No token row -> no name, and the UI falls back to the id."""
+    overview = build_overview(3584692, None, team_count=0)
+    assert overview.league_name is None
+
+
 def test_build_rosters_zips_ids_and_costs() -> None:
     team = SimpleNamespace(
         team_id=1,

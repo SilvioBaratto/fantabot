@@ -15,21 +15,39 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 import threading
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+#: Rich console markup: ``[green]``, ``[/green]``, ``[bold]``, ``[yellow]`` and friends.
+#: Deliberately anchored to a closing ``]`` with no nested bracket, so a line that
+#: legitimately contains ``[2, 23]`` (a roster band) or ``[1, 2]`` survives intact.
+_RICH_TAG = re.compile(r"\[/?[a-z][a-z0-9 _.#-]*\]")
+
 
 class BufferingReporter:
-    """A fantabot ``Reporter`` that appends each printed line to a buffer."""
+    """A fantabot ``Reporter`` that appends each printed line to a buffer.
+
+    The use cases it wraps write for a Rich console, so their lines carry markup:
+    ``Encryption key: [green]ok[/green]``. A terminal renders that as colour; a
+    browser renders it as literal square brackets. The markup is stripped here — at
+    the one seam between a Rich-speaking producer and a non-Rich consumer — rather
+    than in the use cases, which are shared with the CLI and are right as they are.
+    """
 
     def __init__(self) -> None:
         self.lines: list[str] = []
+        #: True while the job is parked waiting for the human to confirm. The UI needs
+        #: this to know when to re-enable its button: a login may ask more than once,
+        #: because confirming before the browser has written the credential is a normal
+        #: mistake rather than a failure.
+        self.awaiting_confirm = False
 
     def print(self, *objects: Any, **kwargs: Any) -> None:
-        self.lines.append(" ".join(str(obj) for obj in objects))
+        self.lines.append(_RICH_TAG.sub("", " ".join(str(obj) for obj in objects)))
 
 
 @dataclass
@@ -39,6 +57,13 @@ class JobState:
     lines: list[str] = field(default_factory=list)
     ok: bool | None = None
     error: str | None = None
+    #: The live reporter, held so `awaiting_confirm` reads current state rather than a
+    #: copy — the same reason `lines` is the reporter's own list and not a snapshot.
+    reporter: BufferingReporter | None = None
+
+    @property
+    def awaiting_confirm(self) -> bool:
+        return self.reporter is not None and self.reporter.awaiting_confirm
 
 
 JobFn = Callable[[BufferingReporter], Any | Awaitable[Any]]
@@ -86,7 +111,7 @@ class JobRegistry:
         job_id = id_factory()
         reporter = BufferingReporter()
         # lines is the reporter's own buffer, so /jobs/{id} sees progress live.
-        state = JobState(id=job_id, lines=reporter.lines)
+        state = JobState(id=job_id, lines=reporter.lines, reporter=reporter)
         with self._lock:
             self._jobs[job_id] = state
 

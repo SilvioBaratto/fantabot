@@ -16,6 +16,10 @@ class JobStatus(BaseModel):
     lines: list[str]
     ok: bool | None = None
     error: str | None = None
+    #: True while the job is parked on a confirmation. A login may ask more than once:
+    #: confirming before the browser has written the credential is a normal mistake,
+    #: and the UI re-enables its button on this rather than on the log text.
+    awaiting_confirm: bool = False
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatus, tags=["jobs"])
@@ -29,4 +33,5 @@ def get_job(job_id: str) -> JobStatus:
         lines=list(job.lines),
         ok=job.ok,
         error=job.error,
+        awaiting_confirm=job.awaiting_confirm,
     )

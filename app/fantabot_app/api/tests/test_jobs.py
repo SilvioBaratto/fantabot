@@ -18,9 +18,15 @@ def _inline(run) -> None:
 
 
 def test_buffering_reporter_satisfies_the_reporter_protocol() -> None:
+    """Joins its arguments, and hands the browser text rather than console markup.
+
+    This used to assert the markup survived verbatim. That was never a requirement —
+    only what the reporter happened to do — and it is what put a literal
+    `[green]ok[/green]` on the sign-in panel once the job log was displayed.
+    """
     reporter = BufferingReporter()
     reporter.print("[red]warn[/red]", "extra")
-    assert reporter.lines == ["[red]warn[/red] extra"]
+    assert reporter.lines == ["warn extra"]
 
 
 def test_registry_runs_a_job_and_captures_its_lines() -> None:
@@ -110,3 +116,31 @@ def test_jobs_endpoint_reports_status_and_404() -> None:
     assert "done" in body["lines"]
 
     assert client.get("/api/v1/jobs/unknown").status_code == 404
+
+
+def test_rich_markup_is_stripped_for_the_browser() -> None:
+    """The use cases write for a Rich console; the UI renders their lines verbatim.
+
+    Unstripped, the sign-in panel shows `Encryption key: [green]ok[/green]` — which is
+    what a terminal turns into colour and a browser turns into literal brackets.
+    """
+    reporter = BufferingReporter()
+    reporter.print("Encryption key: [green]ok[/green] (fingerprint aa695c77)")
+    reporter.print("matchday [bold]3[/bold] \u00b7 budget 500")
+
+    assert reporter.lines[0] == "Encryption key: ok (fingerprint aa695c77)"
+    assert reporter.lines[1] == "matchday 3 \u00b7 budget 500"
+
+
+def test_stripping_leaves_real_brackets_alone() -> None:
+    """A roster band is not markup.
+
+    `minrl=[2, 23]` and `[1, 2]` appear in lega output; a greedy tag pattern would
+    eat them and quietly corrupt the numbers the operator is reading.
+    """
+    reporter = BufferingReporter()
+    reporter.print("roles [2, 23] -> [4, 28]")
+    reporter.print("modules ['343', '442']")
+
+    assert reporter.lines[0] == "roles [2, 23] -> [4, 28]"
+    assert reporter.lines[1] == "modules ['343', '442']"

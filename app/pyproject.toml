@@ -34,9 +34,15 @@ fantabot-app = "fantabot_app.cli:main"
 fantabot = { path = "..", editable = true }
 
 [tool.hatch.build.targets.wheel]
-# The launcher package. The compiled Angular bundle (frontend/dist) is added as package
-# data in S13 so end users need no Node.
+# The launcher package, plus the compiled Angular bundle so end users need no Node.
+#
+# `artifacts` is load-bearing, not decoration: `fantabot_app/web/` is a build artifact and
+# is git-ignored (app/.gitignore:286), and hatchling excludes VCS-ignored paths from the
+# wheel by default. Without this line `packages` alone ships the launcher WITHOUT the UI,
+# and the app serves its "frontend is not built yet" placeholder even when
+# `scripts/build_frontend.py` has just staged the bundle — with no build-time error.
 packages = ["fantabot_app"]
+artifacts = ["fantabot_app/web/**"]
 
 [tool.pytest.ini_options]
 # One suite now that the API is a subpackage (fantabot_app.api): launcher tests plus the
