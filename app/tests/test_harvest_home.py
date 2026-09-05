@@ -128,6 +128,56 @@ class TestAdopt:
         assert "live.jsonl" in str(refusal.value)
         assert (destination / "live.jsonl").read_bytes() == b"y" * 999
 
+    def test_a_source_that_is_already_the_home_is_left_alone(self, tmp_path: Path) -> None:
+        """The configuration an operator lands in the moment they set
+        `FANTABOT_HARVEST_DIR` to the directory the artefacts are already in — which is
+        exactly what a full home volume pushes them to do.
+
+        Every file is then "already at the destination at the same size", which the
+        idempotency branch reads as the previous run's own work and finishes by unlinking
+        the source. The source *is* the destination, so that deletes the landing zone: 1.31
+        GB of auction recordings that cannot be collected twice, reported as `moved=0`
+        with no error.
+        """
+        zone = tmp_path / "zone"
+        _landing(zone)
+        (zone / "seed.json").write_text("[]")
+
+        report = harvest_home.adopt(zone, zone, disk_free=_plenty)
+
+        assert report.moved == 0
+        assert sorted(p.name for p in zone.iterdir()) == [
+            "live.jsonl",
+            "live.jsonl.offset",
+            "live.jsonl.state",
+            "seed.json",
+        ]
+
+    def test_the_same_directory_reached_by_a_different_spelling_is_still_the_same(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`./data/aste_live` and an absolute path to it are one directory. Comparing the
+        two `Path` objects would say otherwise, and unlink the lot."""
+        zone = tmp_path / "zone"
+        _landing(zone)
+        monkeypatch.chdir(tmp_path)
+
+        report = harvest_home.adopt(Path("zone"), zone.resolve(), disk_free=_plenty)
+
+        assert report.moved == 0
+        assert (zone / "live.jsonl").exists()
+
+    def test_a_symlinked_source_is_still_the_same_directory(self, tmp_path: Path) -> None:
+        zone = tmp_path / "zone"
+        _landing(zone)
+        link = tmp_path / "link"
+        link.symlink_to(zone)
+
+        report = harvest_home.adopt(link, zone, disk_free=_plenty)
+
+        assert report.moved == 0
+        assert (zone / "live.jsonl").exists()
+
     def test_a_second_run_moves_nothing_and_says_so(self, tmp_path: Path) -> None:
         source, destination = tmp_path / "from", tmp_path / "to"
         _landing(source)

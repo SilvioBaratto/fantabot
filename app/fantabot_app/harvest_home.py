@@ -49,6 +49,21 @@ class Adopted:
     destination: Path
 
 
+def _same_directory(source: Path, destination: Path) -> bool:
+    """Whether two paths name one directory — by identity, not by spelling.
+
+    `./data/aste_live`, an absolute path to it, and a symlink pointing at it are three
+    `Path` objects that compare unequal and are the same directory. `Path.samefile` asks
+    the filesystem (device and inode), which is the only comparison that survives a
+    symlink, a relative path, a trailing slash and a case-insensitive volume.
+    """
+    try:
+        return source.resolve() == destination.resolve() or source.samefile(destination)
+    except OSError:
+        # The destination does not exist yet, which is the ordinary first-run case.
+        return False
+
+
 def _free_bytes(path: Path) -> int:
     """Free space on the volume that will hold `path`, walking up to a directory that exists."""
     probe = path
@@ -135,6 +150,15 @@ def adopt(
     """
     destination = destination if destination is not None else harvest_dir()
     if not source.is_dir():
+        return Adopted(moved=0, skipped=0, total_bytes=0, destination=destination)
+    if _same_directory(source, destination):
+        # Nothing to do, and saying so is not a nicety — it is the difference between this
+        # and deleting the landing zone. Every file would otherwise be "already at the
+        # destination at the same size", which the idempotency branch below reads as the
+        # previous run's own work and finishes by unlinking the source. The source *is* the
+        # destination. An operator whose home volume is too small sets FANTABOT_HARVEST_DIR
+        # to the directory the artefacts are already in, and `adopt`'s own `--from` default
+        # names that same directory: the arrangement is reached by following the advice.
         return Adopted(moved=0, skipped=0, total_bytes=0, destination=destination)
 
     entries = sorted(p for p in source.iterdir() if p.is_file())
