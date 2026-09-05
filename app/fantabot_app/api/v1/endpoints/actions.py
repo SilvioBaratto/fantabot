@@ -44,7 +44,7 @@ def lega_sync_action(league_id: int) -> JobStarted:
         reporter.print(f"wrote {sum(written.values())} rows across {len(written)} tables")
         return result
 
-    return JobStarted(job_id=registry.start(job))
+    return JobStarted(job_id=registry.start(job, kind="lega-sync"))
 
 
 @router.post("/actions/news-fetch", response_model=JobStarted, tags=["actions"])
@@ -102,4 +102,4 @@ def news_fetch_action(season: str = "2026/27", flush_every: int = 5, concurrency
         reporter.print(f"Done: {sink.stored} readings stored, {len(result.failures)} failures.")
         return result
 
-    return JobStarted(job_id=registry.start(job))
+    return JobStarted(job_id=registry.start(job, kind="news-fetch"))

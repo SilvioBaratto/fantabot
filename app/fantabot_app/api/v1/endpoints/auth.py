@@ -34,8 +34,13 @@ from fantabot_app.api.infrastructure.jobs import BufferingReporter, registry
 router = APIRouter()
 
 #: Per-login-job gates: the blocking prompt waits, the confirm endpoint releases.
+#: Keyed by job id and evicted with the job — registered below rather than cleaned up at
+#: each `confirm`, because a login the operator walks away from never confirms, and that
+#: is exactly the case that leaks.
 _login_gates: dict[str, threading.Event] = {}
 _LOGIN_TIMEOUT_S = 600.0
+
+registry.on_evict(lambda job_id: _login_gates.pop(job_id, None))
 
 
 class LoginAbandoned(Exception):
@@ -181,7 +186,7 @@ def auth_login_start(league: int = 0, force: bool = False) -> JobStarted:
             verify=True,
         )
 
-    job_id = registry.start(job)
+    job_id = registry.start(job, kind="auth-login")
     _login_gates[job_id] = gate
     return JobStarted(job_id=job_id)
 
@@ -208,7 +213,7 @@ def fantalab_login_start(browser: str = "", force: bool = False) -> JobStarted:
             prompt=_gate_prompt(reporter, gate),
         )
 
-    job_id = registry.start(job)
+    job_id = registry.start(job, kind="fantalab-login")
     _login_gates[job_id] = gate
     return JobStarted(job_id=job_id)
 
