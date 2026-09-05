@@ -64,7 +64,25 @@ cd frontend && npx ng test --watch=false  # vitest
   does, internally (A7 fitness test). No token in any response.
 - **Thin adapter.** Endpoints call fantabot use cases/repos; no re-added domain/application
   hexagon here.
-- **v1 boundary.** No live bid, no lineup submission (fitness test guards the wiring).
+- **The app never acts. It reads, and it watches.** No live bid, no lineup submission —
+  and that is now a settled decision rather than a v1 deferral: the operator chose "the
+  CLI bids, the app watches", and the app is loopback-only. The bidding locks
+  (`FANTABOT_AUTO_ACT` + `--arm`, first Ctrl-C disarms) are a terminal contract a browser
+  tab cannot reproduce — a closed tab would leave a bidding thread running with nobody
+  attached.
+  The fitness test bans the **acting** names: `teamLineup_submit(`, `decide_bid(`,
+  `place_raise(`, `run_bid_loop(`, `RoomTracker(`. It used to ban the string
+  `application.asta_room`, which is the module that also holds the read-only
+  `resolve_room` and `RoomFrame` — so a room *viewer* failed the guard while
+  `rtdb.place_raise` and `room.run_bid_loop`, the two functions that actually spend
+  credits, were absent from the list and passed. The guard banned the viewer and
+  permitted the bidder; it now does the opposite.
+- **A FantaLab bearer never enters app code.** `rest.fetcher_from(store)` and
+  `LiveAuctionsClient.from_store(store)` resolve it inside the adapter and keep it in a
+  closure, mirroring `apileague.auth_headers(league_id, store=...)`. Callers hand over the
+  store. This is not covered by the A7 fitness test — that scans only for
+  `load_plaintext` and `.decrypt(`, and `FantalabStore.load()` trips neither — so it is a
+  rule kept by review, which is why it is written here.
 - **Actions run as jobs.** Long/interactive use cases (login, sync, news) run on the
   in-process job runner (`api/infrastructure/jobs.py`); the UI polls `GET /jobs/{id}`.
 - **Headed login stays manual.** `POST /auth/login` opens the real browser and the user

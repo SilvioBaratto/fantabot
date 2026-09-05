@@ -67,7 +67,10 @@ src/fantabot/
   domain/        Pure. No I/O, no network, no clock, no framework import.
     asta/        legality, optimizer, reservation, roles, sentiment, state, value,
                  bid, drain, live, opponents, prices, report, stateentry
+    classic/     roles, formations, state — the P/D/C/A engine: one role per player,
+                 so legality is counting, not matching
     lega/        models, parse — the platform's own JSON, translated
+    lineup/      build, schema, models, bench, value, payload, marle, competition, errors
     harvest/     sse, reducer, reconstruct, incremental, registry, compare, backfill,
                  models
     news/        models, mantra, prompt, pool, store, sink, pipeline
@@ -75,9 +78,10 @@ src/fantabot/
     shared/      parsing, club_names, resources, values
     tokens/      claims, crypto, capture, fantalab, status, errors
   application/   Use cases. Orchestrates domain through ports.
-                 asta_planner, harvest_loader, harvest_supervisor, news_fetcher,
-                 mantra_collector, pricing, auth_login, fantalab_login, reporting,
-                 lega_sync
+                 asta_planner, plan_inputs, asta_room, asta_copilot, asta_bench,
+                 asta_calibrate, lineup_planner, harvest_loader, harvest_supervisor,
+                 news_fetcher, mantra_collector, pricing, auth_login, fantalab_login,
+                 reporting, lega_sync
   adapters/      The outside world, one subpackage per kind.
     persistence/ engine, base, models/, repositories/, upserts, scraping, news_pool,
                  news_sentiment
@@ -90,7 +94,7 @@ src/fantabot/
     scraping/    quotazioni, statistiche, voti
   interface/     Typer only. Nothing else may import typer.
                  app (the root, and the one Console), asta, harvest, lega, lineup,
-                 console, options
+                 room_view, console, options
   config.py      settings; the one module both sides may read
   data/          mantra_schemi.json, mantra_compat.json — package data, not runtime state
 ```
@@ -164,14 +168,35 @@ src/fantabot/
 
 ## Known unknowns — resolve before flipping `FANTABOT_AUTO_ACT=true`
 
-- **Lineup submission**: not built, and no longer scaffolded. The Classic modules
-  that stood in for it were deleted rather than left raising `NotImplementedError`
-  against markup nobody had inspected. **Start from `docs/leghe-api.md`**, not from
-  the DOM: the site runs a separate JSON API (`apileague.fantacalcio.it`) with auth
-  reverse-engineered and several read endpoints confirmed working, and the bearer
-  token is an encrypted row in `league_tokens` reachable through
-  `apileague.auth_headers(league_id, store=...)`. Only the submit POST is still
-  undocumented (see "Gaps" in that doc) and needs a live Network capture.
+- ~~**Lineup submission**~~ **Resolved 2026-09-02 (Mantra), 2026-09-04 (Classic).**
+  `fantabot lineup show | plan | submit`, live-verified against both leghe, and it never
+  went near the DOM. The submit POST that `docs/leghe-api.md` listed as the one remaining
+  gap was captured live: `POST /gaming/v1/teamLineup/{division}` — the `gaming/v1`
+  microservice, not `onboarding/v1` — with the body fixed in `domain/lineup/payload.py`.
+  **The XI is an exact max-weight bipartite matching, not a heuristic.**
+  `domain/lineup/build.py` runs Hungarian against each allowed module and takes the argmax;
+  11 slots x ~30 players resolves in microseconds, so no dependency was added. Five things
+  on that path are decisions, not plumbing.
+  **It builds only on natural roles** — the "ok" cells of `mantra_schemi.json`, never the
+  `-1` ones — so a lineup it emits cannot take a malus and is submission-legal by
+  construction. That is the standing guard against `LUP009`.
+  **A refused module is survived, not fatal.** `plan_lineups` returns every fieldable
+  module best-first and the submit walks down that list, because `mantra_schemi.json`'s
+  4-1-4-1 was wrong and the platform said so live on 2026-09-02.
+  **`tid` comes from `my_team`, not from the lineup DTO**, which is empty when a
+  competition has no saved lineup — read there, it submits `tid=0`. The matchday
+  coordinates do come from the DTO, and a missing one (0) refuses to POST rather than
+  guess.
+  **The format is detected, never configured**: `sroles=1` is Classic, `sroles=2` is
+  Mantra (`interface/lineup.py`). This is the cron path, and a per-lega flag the operator
+  has to remember is a footgun.
+  **The value signal is the platform's own `indexCompare`** (`domain/lineup/value.py`) —
+  not a projection, and not sentiment: the scraped `quotazioni`/news ids do not join the
+  league roster, so that seam was removed rather than left dangling. This is the same hole
+  as **Stats source** below, and it is where a better lineup has to come from.
+  Two fields are deliberately open, both confirmed to save: `capt` is empty (no captain)
+  and `swtcMdl` mirrors `mdl`. Submission keeps the usual two locks — `FANTABOT_AUTO_ACT`
+  **and** `--arm` — and is a dry run by default.
 - ~~**The lega itself was not in the database**~~ **Resolved 2026-09-02** by
   `fantabot lega sync`. Three things it settled, each of which had been recorded here
   or in `docs/leghe-api.md` as unknown:
@@ -192,11 +217,14 @@ src/fantabot/
 - **The lega's roster rules changed under us, and nothing noticed.** On 2026-08-26
   `settings/rosters` read `msltc`/`xsltc` = 30/30 and `minrl`=`maxrl`=`[2, 28]`; on
   2026-09-02 it reads **25/32 with `minrl=[2, 23]` and `maxrl=[4, 28]`** — a variable
-  roster size and a real per-role band where there was none. `domain/asta/state.py:41`
-  still defaults `size: int = 30`. That was harmless for an asta that is over, and it is
-  not harmless for a lineup planner that will be told a 32-man rosa is legal. The
-  settings are now snapshotted per sync, so the drift is at least visible; making the
-  planner read them instead of a constant is not done.
+  roster size and a real per-role band where there was none. `domain/asta/state.py:44`
+  still defaults `size: int = 30`. The settings are now snapshotted per sync, so the drift
+  is at least visible, and `rules_for_room` derives a real band from what an asta room
+  declares, with a stated provenance (`ROOM_DECLARED` / `ASSUMED_NOTHING`) rather than
+  prose composed per call site. What is still not done is reading `settings/rosters` *into*
+  `RosterRules`: the lineup path calls that endpoint and takes only `sroles` from it, to
+  detect the format. **This is now an asta-side default, not a lineup hazard** — the weekly
+  lineup fields an XI out of whatever roster exists and never asks how big it may be.
 - ~~**Asta mechanics**~~ **Resolved.** Not the leghe.fantacalcio.it room at all —
   the asta runs on FantaLab, and `asta bid` drives its unauthenticated RTDB
   directly. See `docs/fantalab/06-asta-write-path.md`, verified live 2026-08-28.
@@ -261,11 +289,16 @@ src/fantabot/
   2026-08-26 we know which is which: **`3584692` (Legamiallerotaie) is Classic**
   (`sroles=1`, `minrl=[3,8,8,6]`, 25-man) and **`4103937` (Legamiallerotaie2) is
   Mantra** (`sroles=2`, `minrl=[2,28]`, 30-man). By elimination from the roster
-  settings endpoint, not from field names — see `docs/leghe-api.md`. The Classic
-  role model (`Role` P/D/C/A, `VALID_FORMATIONS`) was deleted with the rest of that
-  scaffolding in W2; nothing here can field a Classic XI, and `domain/asta/` is Mantra
-  only — 12 role codes across 11 schemas on four lines. The schema grid ships as package
-  data at `src/fantabot/data/mantra_schemi.json`.
+  settings endpoint, not from field names — see `docs/leghe-api.md`. **Classic was rebuilt
+  2026-09-03/04**, having been deleted in W2: `domain/classic/` holds the P/D/C/A role model
+  (`roles.py`), the seven modules the platform actually declares (`formations.py` — 343 352
+  433 442 451 532 541, read live from lega 3584692's `lineup_settings.mods`) and the
+  four-role band (`state.py`). It is a **separate seam on purpose**: a Classic player carries
+  exactly one role, so eligibility is equality and legality is counting — pushing that
+  through Mantra's bipartite matcher buys nothing. Mantra stays 12 role codes across 11
+  schemas on four lines, and its schema grid ships as package data at
+  `src/fantabot/data/mantra_schemi.json`. Both the asta (`--format`, and the live room
+  dispatched by format) and the weekly lineup now run either.
 - ~~**`mantra_compat.json` is thin**~~ **Resolved 2026-08-28.** It held one entry
   and ten empty lists; it is now the whole table — 11 schemas × 11 slots × 12
   roles = 1,452 cells — transcribed from the published PDF, which is kept at
@@ -324,13 +357,24 @@ src/fantabot/
   matcher's input, and reading them relative to the working directory meant
   `asta legality` and `mantra-grid --write` agreed only when both ran from the
   repository root.
-- **The `league_*` tables are append-only, and `league_fixture` is the one exception.**
+- **The `league_*` tables are append-only, with two exceptions — `league_fixture` and a
+  whole-lega purge.**
   The snapshot tables are keyed from `captured_at` outward because the point of them is
   the drift — the roster-rules change above is only knowable because two captures
   disagree, and an upsert would have erased it. A fixture does not drift, it fills in:
   the pairing is fixed in August and the points arrive when the round is calculated, so
   its key is natural and a re-sync updates in place. Snapshotting it would write 144 rows
   a sync to record one boolean flipping once per round.
+  The second exception is `LeagueRepository.purge`, which the app's disconnect calls to
+  remove a lega whole. Append-only describes how a *sync* writes, so drift between
+  captures stays visible; it was never a claim that a lega can never be removed. Removing
+  the token alone left the lega on the Dashboard, Asta and Prices pages — every screen but
+  the one that said it was disconnected. **`league_fixture` has no `league_id`**: its only
+  route to a lega is `league_competition.competition_id`, so `purge` resolves those ids
+  into Python *before* any delete runs. Resolve them after and the subquery sees the
+  deletes already applied inside the transaction, the predicate empties, and 144 fixtures
+  become permanently unattributable. The CLI's `fantabot auth forget` is unchanged and
+  still removes the token alone.
 - **2026/27 has no `statistiche` or `match_grain` rows, and that is a stale default, not
   a decision.** `voti.py:57` and `statistiche.py:54` both stop their `DEFAULT_SEASONS` at
   2025/26 — correct when written (the season was preseason, all zeros) and wrong now that
