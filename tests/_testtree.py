@@ -168,6 +168,8 @@ TREE: dict[str, str] = {
     # -- interface --------------------------------------------------------------------------
     "test_cli_aste_backfill.py": "interface",
     "test_cli_aste_collect.py": "interface",
+    # Three database failures, told apart at the command that has to retry one of them.
+    "test_cli_aste_load_errors.py": "interface",
     # About `config.harvest_dir`, but what it pins is the four *commands* that default to it.
     "test_cli_harvest_home.py": "interface",
     "test_cli_command_set.py": "interface",

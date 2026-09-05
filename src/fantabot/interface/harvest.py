@@ -181,6 +181,22 @@ def fantalab_login(
         raise typer.Exit(1) from None
 
 
+def _constraint_of(exc: Exception) -> str:
+    """The constraint a driver says was violated, or the first line of what it did say.
+
+    psycopg2 carries it on ``exc.orig.diag.constraint_name``; another driver may carry
+    nothing. The fallback is the driver's own first line rather than the exception type,
+    because "IntegrityError" is exactly the message that sent an operator looking at the
+    network on 2026-09-05.
+    """
+    orig = getattr(exc, "orig", None)
+    name = getattr(getattr(orig, "diag", None), "constraint_name", None)
+    if name:
+        return str(name)
+    text = str(orig if orig is not None else exc).strip()
+    return text.splitlines()[0] if text else type(exc).__name__
+
+
 def _report_dropped(dropped: DroppedEvents) -> None:
     """Say what did not become an event row.
 
@@ -415,7 +431,7 @@ def aste_load(
             _report_written(written)
         return len(records), max(0, size - new_offset), deferring
 
-    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
     # The loader's role lock, for the run's whole life. A dry run deliberately takes
     # nothing: its checkpoint never moves, so two of them cannot disagree, and refusing a
@@ -430,11 +446,24 @@ def aste_load(
                 # as a quiet evening, which is the one thing it must not read as.
                 console.print(f"[red]{exc}[/red]")
                 raise typer.Exit(2) from None
-            except SQLAlchemyError as exc:
-                # The checkpoint has not moved, so nothing is lost — the next pass
-                # re-reads exactly what this one could not write. Said out loud,
-                # because a raw driver traceback tells you the connection failed and
-                # not that the collector is fine and the catch-up is pending.
+            except IntegrityError as exc:
+                # Ours, not theirs, and the one case retrying cannot fix: the checkpoint
+                # has not moved, so the next pass re-reads the same window and violates
+                # the same constraint. Reported as an outage until 2026-09-05, when a
+                # `UniqueViolation` on `asta.key` — a stranded identity sequence — was
+                # retried behind "database unreachable" for as long as anyone watched.
+                # So it exits non-zero in **both** modes: `--follow` waits for something
+                # that changes, and this does not.
+                console.print(f"[red]constraint violated: {_constraint_of(exc)}[/red]")
+                console.print("The next pass reads the same window and violates it again.")
+                console.print("Collection is unaffected — the landing zone keeps growing.")
+                raise typer.Exit(1) from exc
+            except OperationalError as exc:
+                # The outage, and the only branch that retries. The checkpoint has not
+                # moved, so nothing is lost — the next pass re-reads exactly what this one
+                # could not write. Said out loud, because a raw driver traceback tells you
+                # the connection failed and not that the collector is fine and the
+                # catch-up is pending.
                 console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
                 console.print("Collection is unaffected — the landing zone keeps growing.")
                 console.print("Start it with: [bold]fantabot-app db start[/bold], then re-run.")
@@ -442,6 +471,13 @@ def aste_load(
                     raise typer.Exit(1) from exc
                 time.sleep(interval)
                 continue
+            except SQLAlchemyError as exc:
+                # Neither of the above, and deliberately not folded into either: calling
+                # everything an outage is the defect the two branches above exist to undo,
+                # and guessing again here would rebuild it one type further out.
+                console.print(f"[red]the database refused the write: {type(exc).__name__}[/red]")
+                console.print("Collection is unaffected — the landing zone keeps growing.")
+                raise typer.Exit(1) from exc
 
             suffix = " (dry run — nothing written)" if dry_run else ""
             # Work skipped without a word is work nobody counts.
