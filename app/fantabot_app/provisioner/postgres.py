@@ -12,7 +12,8 @@ Windows/py3.13 (2026-09-03):
   therefore create the application database over a normal SQLAlchemy connection, never
   ``psql``.
 * fantabot's engine is lazy and reads ``FANTABOT_DATABASE_URL`` at first connect, so we
-  export the provisioned URL into the environment and fantabot picks it up unchanged.
+  export the provisioned URL into the environment and fantabot picks it up unchanged —
+  unless the operator exported one first, which wins (see ``PostgresProvisioner``).
 
 The server factory and database creator are injected (defaulting to the real ones) so the
 orchestration is unit-testable without starting Postgres — mirroring how fantabot's own
@@ -30,6 +31,16 @@ from fantabot_app import paths
 
 ENV_DATABASE_URL = "FANTABOT_DATABASE_URL"
 DEFAULT_DB = "fantabot"
+
+
+def _exported_url(environ: MutableMapping[str, str]) -> str | None:
+    """The operator's own ``FANTABOT_DATABASE_URL``, or ``None`` when unset or blank.
+
+    Read once, at construction, and never again: ``start()`` exports the same variable
+    for the bundled server, so a later read could not tell the operator's instruction
+    apart from our own echo of it.
+    """
+    return (environ.get(ENV_DATABASE_URL) or "").strip() or None
 
 
 class _Server(Protocol):
@@ -67,7 +78,18 @@ def _default_create_db(admin_uri: str, dbname: str) -> None:
 
 
 class PostgresProvisioner:
-    """Start/stop a per-user local Postgres and point fantabot at it."""
+    """Start/stop a per-user local Postgres and point fantabot at it.
+
+    **An already-exported ``FANTABOT_DATABASE_URL`` wins.** In that mode this class starts
+    no server, creates no database and never overwrites the variable; ``start()`` returns
+    the exported URL, ``stop()`` is a no-op and ``status()`` reports ``external: True``
+    with ``running: None`` — whether that database is up is not ours to know.
+
+    The asymmetry is deliberate: an export is an explicit instruction from the operator,
+    while a ``.env`` file found by whatever the working directory happens to be is the
+    mechanism that put the CLI and the app on two different databases in the first place.
+    So this reads ``os.environ`` and never ``.env``.
+    """
 
     def __init__(
         self,
@@ -83,10 +105,16 @@ class PostgresProvisioner:
         self._factory = server_factory
         self._create_db = create_db
         self._environ = environ if environ is not None else os.environ
+        self._external = _exported_url(self._environ)
         self._server: _Server | None = None
 
     def start(self) -> str:
-        """Start Postgres (idempotent), ensure the app db, export the URL, return it."""
+        """Start Postgres (idempotent), ensure the app db, export the URL, return it.
+
+        A no-op returning the exported URL when the operator set one.
+        """
+        if self._external is not None:
+            return self._external
         if self._server is None:
             self._pgdata.mkdir(parents=True, exist_ok=True)
             self._server = self._factory(self._pgdata)
@@ -97,17 +125,29 @@ class PostgresProvisioner:
         return url
 
     def database_url(self) -> str:
+        if self._external is not None:
+            return self._external
         if self._server is None:
             raise RuntimeError("Postgres is not started; call start() first")
         return self._server.get_uri(database=self._dbname, driver="psycopg2")
 
     def stop(self) -> None:
+        if self._external is not None:
+            return
         if self._server is not None:
             self._server.stop()
             self._server = None
 
     def status(self) -> dict[str, object]:
+        """Report the server. ``running`` is ``None`` under an external URL — unknown."""
+        if self._external is not None:
+            return {"running": None, "pid": None, "url": self._external, "external": True}
         if self._server is None:
-            return {"running": False, "pid": None, "url": None}
+            return {"running": False, "pid": None, "url": None, "external": False}
         pid = self._server.get_pid()
-        return {"running": pid is not None, "pid": pid, "url": self.database_url()}
+        return {
+            "running": pid is not None,
+            "pid": pid,
+            "url": self.database_url(),
+            "external": False,
+        }

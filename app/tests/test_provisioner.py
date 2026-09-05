@@ -87,3 +87,80 @@ def test_install_chromium_invokes_playwright(tmp_path) -> None:
     commands: list[list[str]] = []
     install_chromium(run=lambda cmd: commands.append(cmd))
     assert commands and "playwright" in commands[0] and "chromium" in commands[0]
+
+
+# --- an exported FANTABOT_DATABASE_URL wins (T2.1) ----------------------------------
+#
+# The split that made `todo/TODO.md` §1.1 possible was this class overwriting the
+# variable at launch. An export is an explicit instruction from the operator; a `.env`
+# file found by whatever the working directory happens to be is not, and is deliberately
+# NOT read here.
+
+EXTERNAL = "postgresql+psycopg2://postgres:@/fantabot?host=%2FUsers%2Fx%2F.fantabot%2Fpgdata"
+
+
+def _never_started(_pgdata):
+    raise AssertionError("the server factory must not be called when the URL is exported")
+
+
+def _external(tmp_path, *, created=None, env=None):
+    return PostgresProvisioner(
+        pgdata=tmp_path / "pgdata",
+        server_factory=_never_started,
+        create_db=lambda admin_uri, dbname: (created if created is not None else []).append(
+            (admin_uri, dbname)
+        ),
+        environ={ENV_DATABASE_URL: EXTERNAL} if env is None else env,
+    )
+
+
+def test_start_returns_an_exported_url_and_starts_no_server(tmp_path) -> None:
+    created: list[tuple[str, str]] = []
+    env = {ENV_DATABASE_URL: EXTERNAL}
+    prov = _external(tmp_path, created=created, env=env)
+
+    assert prov.start() == EXTERNAL
+    assert env[ENV_DATABASE_URL] == EXTERNAL  # never overwritten
+    assert created == []  # not our server; not ours to create a database on
+    assert not (tmp_path / "pgdata").exists()
+
+
+def test_database_url_reports_the_exported_url_without_start(tmp_path) -> None:
+    assert _external(tmp_path).database_url() == EXTERNAL
+
+
+def test_status_reports_the_exported_url_and_an_unknown_running_state(tmp_path) -> None:
+    assert _external(tmp_path).status() == {
+        "running": None,
+        "pid": None,
+        "url": EXTERNAL,
+        "external": True,
+    }
+
+
+def test_stop_is_a_no_op_against_an_external_server(tmp_path) -> None:
+    prov = _external(tmp_path)
+    prov.start()
+    prov.stop()
+    assert prov.database_url() == EXTERNAL
+
+
+def test_a_blank_exported_url_falls_through_to_the_bundled_server(tmp_path) -> None:
+    env = {ENV_DATABASE_URL: "   "}
+    prov = _provisioner(tmp_path, env=env)
+
+    url = prov.start()
+
+    assert url == "postgresql+psycopg2://postgres:@127.0.0.1:55555/fantabot"
+    assert env[ENV_DATABASE_URL] == url
+
+
+def test_the_bundled_server_is_reported_as_not_external(tmp_path) -> None:
+    prov = _provisioner(tmp_path)
+    prov.start()
+    assert prov.status() == {
+        "running": True,
+        "pid": 4242,
+        "url": "postgresql+psycopg2://postgres:@127.0.0.1:55555/fantabot",
+        "external": False,
+    }
