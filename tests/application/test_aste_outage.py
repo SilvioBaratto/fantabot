@@ -39,6 +39,10 @@ CAPTURE = (
     # evening's only record, and one that can block on Postgres at 21:47 loses the lot it
     # was writing as well as the one after it.
     "fantabot.adapters.files.room_journal",
+    # The role lock. It is taken *before* the first frame and held until the last, so a
+    # path from it to Postgres would let a database outage refuse to start a collector —
+    # precisely the power the landing zone exists to deny the database.
+    "fantabot.adapters.files.lock",
 )
 
 

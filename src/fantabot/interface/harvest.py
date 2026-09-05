@@ -19,12 +19,14 @@ runs. ``cli.py`` imports this module at start-up, so a module-level
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
 
+from fantabot.adapters.files.lock import COLLECTOR, LOADER
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:  # annotations only
@@ -51,6 +53,27 @@ def _home(name: str) -> Path:
     from fantabot.config import harvest_dir
 
     return harvest_dir() / name
+
+
+@contextmanager
+def _held(role: str, landing: Path, *, take: bool = True) -> Iterator[None]:
+    """Hold a role for `landing`, or report the refusal as the CLI reports refusals.
+
+    Exit code 2, the same as a missing seed: "you asked for something that cannot be
+    done", not "it went wrong halfway". `take=False` is the dry-run escape — see the one
+    call site that uses it.
+    """
+    from fantabot.adapters.files.lock import RoleBusy, role_lock
+
+    if not take:
+        yield
+        return
+    try:
+        with role_lock(landing, role):
+            yield
+    except RoleBusy as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from None
 
 
 def aste_scan(
@@ -394,43 +417,48 @@ def aste_load(
 
     from sqlalchemy.exc import SQLAlchemyError
 
-    while True:
-        try:
-            carried, behind, deferred = pass_once()
-        except LandingZoneMissing as exc:
-            # Named, with the command that would create it. Silence here reads
-            # as a quiet evening, which is the one thing it must not read as.
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(2) from None
-        except SQLAlchemyError as exc:
-            # The checkpoint has not moved, so nothing is lost — the next pass
-            # re-reads exactly what this one could not write. Said out loud,
-            # because a raw driver traceback tells you the connection failed and
-            # not that the collector is fine and the catch-up is pending.
-            console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-            console.print("Collection is unaffected — the landing zone keeps growing.")
-            console.print("Start it with: [bold]fantabot-app db start[/bold], then re-run.")
-            if not follow:
-                raise typer.Exit(1) from exc
-            time.sleep(interval)
-            continue
+    # The loader's role lock, for the run's whole life. A dry run deliberately takes
+    # nothing: its checkpoint never moves, so two of them cannot disagree, and refusing a
+    # read-only inspection while a real loader follows would be a lock the operator has to
+    # work around rather than one that protects anything.
+    with _held(LOADER, landing, take=not dry_run):
+        while True:
+            try:
+                carried, behind, deferred = pass_once()
+            except LandingZoneMissing as exc:
+                # Named, with the command that would create it. Silence here reads
+                # as a quiet evening, which is the one thing it must not read as.
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(2) from None
+            except SQLAlchemyError as exc:
+                # The checkpoint has not moved, so nothing is lost — the next pass
+                # re-reads exactly what this one could not write. Said out loud,
+                # because a raw driver traceback tells you the connection failed and
+                # not that the collector is fine and the catch-up is pending.
+                console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+                console.print("Collection is unaffected — the landing zone keeps growing.")
+                console.print("Start it with: [bold]fantabot-app db start[/bold], then re-run.")
+                if not follow:
+                    raise typer.Exit(1) from exc
+                time.sleep(interval)
+                continue
 
-        suffix = " (dry run — nothing written)" if dry_run else ""
-        # Work skipped without a word is work nobody counts.
-        note = " · ladders deferred" if deferred else ""
-        # Lag is reported every pass, not only when it is large: a loader that
-        # only speaks up when it is already behind gives no warning it is losing.
-        console.print(f"carried {carried} · {behind} bytes behind{note}{suffix}")
-        if deferred:
-            # A backlog is not a quiet pass, in either mode. One interval per
-            # window turned a thirty-six-pass catch-up into six minutes of
-            # sleeping; returning here instead turned a one-shot load into a
-            # 32 MB one that still exited 0. `--follow` means keep watching
-            # after catching up, never "the only mode that catches up".
-            continue
-        if not follow:
-            return
-        time.sleep(interval)
+            suffix = " (dry run — nothing written)" if dry_run else ""
+            # Work skipped without a word is work nobody counts.
+            note = " · ladders deferred" if deferred else ""
+            # Lag is reported every pass, not only when it is large: a loader that
+            # only speaks up when it is already behind gives no warning it is losing.
+            console.print(f"carried {carried} · {behind} bytes behind{note}{suffix}")
+            if deferred:
+                # A backlog is not a quiet pass, in either mode. One interval per
+                # window turned a thirty-six-pass catch-up into six minutes of
+                # sleeping; returning here instead turned a one-shot load into a
+                # 32 MB one that still exited 0. `--follow` means keep watching
+                # after catching up, never "the only mode that catches up".
+                continue
+            if not follow:
+                return
+            time.sleep(interval)
 
 
 def aste_collect(
@@ -499,58 +527,62 @@ def aste_collect(
         configs = read_seed()
         reload = read_seed if reload_seed > 0 else None
 
-    zone = LandingZone(out)
-    limit = pool or DEFAULT_POOL
-    console.print(f"following {len(configs)} auction(s) -> {out}")
-    if len(configs) > limit:
-        # The bound is ours, and on a live evening it is permanent: a watcher
-        # does not finish, so a queued auction never gets a permit and never
-        # connects at all. Silence here cost 145 of 395 auctions on 2026-08-27.
-        console.print(
-            f"[red]--pool is {limit}: {len(configs) - limit} auction(s) will wait for a "
-            "slot that a live evening never frees. Raise it.[/red]"
-        )
-    if reload is not None:
-        console.print(
-            f"re-reading {seed} every {reload_seed:g}s for new auctions — "
-            "runs until interrupted"
-        )
-
-    async def watch(config: AuctionConfig) -> Outcome:
-        return await watch_auction(
-            config.auction_id,
-            config.db_shard,
-            open_stream=open_stream,
-            on_state=lambda state: zone.write(config.auction_id, state),
-            sleep=asyncio.sleep,
-        )
-
-    supervisor = Supervisor(watch=watch, sleep=asyncio.sleep, pool=limit)
-
-    def heartbeat(report: Report) -> None:
-        """The only thing that speaks during a run with no end.
-
-        `live / expected` is the number that would have shown 250 of 395
-        following, hours before a row count did.
-        """
-        console.print(f"{report.summary()} · {zone.written} states written")
-
-    try:
-        report = asyncio.run(
-            supervisor.run(
-                configs, reload=reload, reload_every=reload_seed, heartbeat=heartbeat
+    # The collector's role lock, held for the run's whole life. Two collectors against one
+    # landing zone write every state twice, and the duplicate is indistinguishable from a
+    # real re-observation once it is on disk.
+    with _held(COLLECTOR, out):
+        zone = LandingZone(out)
+        limit = pool or DEFAULT_POOL
+        console.print(f"following {len(configs)} auction(s) -> {out}")
+        if len(configs) > limit:
+            # The bound is ours, and on a live evening it is permanent: a watcher
+            # does not finish, so a queued auction never gets a permit and never
+            # connects at all. Silence here cost 145 of 395 auctions on 2026-08-27.
+            console.print(
+                f"[red]--pool is {limit}: {len(configs) - limit} auction(s) will wait for a "
+                "slot that a live evening never frees. Raise it.[/red]"
             )
-        )
-    except SinkFailed as exc:
-        # Not a transport problem, and not survivable by reconnecting: if the
-        # sink is failing, continuing would reconnect forever and store nothing.
-        console.print(f"[red]the landing zone failed: {exc}[/red]")
-        raise typer.Exit(1) from exc
-    except KeyboardInterrupt:
-        console.print(f"[yellow]stopped — {zone.written} states written[/yellow]")
-        return
+        if reload is not None:
+            console.print(
+                f"re-reading {seed} every {reload_seed:g}s for new auctions — "
+                "runs until interrupted"
+            )
 
-    console.print(f"{report.summary()} · {zone.written} states written")
+        async def watch(config: AuctionConfig) -> Outcome:
+            return await watch_auction(
+                config.auction_id,
+                config.db_shard,
+                open_stream=open_stream,
+                on_state=lambda state: zone.write(config.auction_id, state),
+                sleep=asyncio.sleep,
+            )
+
+        supervisor = Supervisor(watch=watch, sleep=asyncio.sleep, pool=limit)
+
+        def heartbeat(report: Report) -> None:
+            """The only thing that speaks during a run with no end.
+
+            `live / expected` is the number that would have shown 250 of 395
+            following, hours before a row count did.
+            """
+            console.print(f"{report.summary()} · {zone.written} states written")
+
+        try:
+            report = asyncio.run(
+                supervisor.run(
+                    configs, reload=reload, reload_every=reload_seed, heartbeat=heartbeat
+                )
+            )
+        except SinkFailed as exc:
+            # Not a transport problem, and not survivable by reconnecting: if the
+            # sink is failing, continuing would reconnect forever and store nothing.
+            console.print(f"[red]the landing zone failed: {exc}[/red]")
+            raise typer.Exit(1) from exc
+        except KeyboardInterrupt:
+            console.print(f"[yellow]stopped — {zone.written} states written[/yellow]")
+            return
+
+        console.print(f"{report.summary()} · {zone.written} states written")
 
 
 def aste_backfill(
