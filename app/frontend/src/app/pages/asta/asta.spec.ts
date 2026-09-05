@@ -5,6 +5,7 @@ import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
+import { JournalPage, JournalRow } from '../../core/models/journal';
 import { RoomCheck } from '../../core/models/room';
 import { AstaComponent } from './asta';
 
@@ -57,15 +58,17 @@ describe('AstaComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    httpMock.expectOne((r) => r.url.includes('asta/plan')).flush({
-      found: true,
-      listone: 'mantra',
-      roster_size: 30,
-      total_cost: 500,
-      objective: 1897,
-      budget: 500,
-      players: [{ player_id: '1', nome: 'Svilar', price: 20 }],
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('asta/plan'))
+      .flush({
+        found: true,
+        listone: 'mantra',
+        roster_size: 30,
+        total_cost: 500,
+        objective: 1897,
+        budget: 500,
+        players: [{ player_id: '1', nome: 'Svilar', price: 20 }],
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -177,10 +180,143 @@ describe('AstaComponent', () => {
         roster_provenance: 'read from the room',
       });
 
-      const labels = Array.from(
-        fixture.nativeElement.querySelectorAll('button'),
-      ).map((b) => ((b as HTMLButtonElement).textContent ?? '').toLowerCase());
+      const labels = Array.from(fixture.nativeElement.querySelectorAll('button')).map((b) =>
+        ((b as HTMLButtonElement).textContent ?? '').toLowerCase(),
+      );
       expect(labels.some((l) => /bid|arm|raise|offer/.test(l))).toBe(false);
+    });
+  });
+
+  /**
+   * The room journal. `data/room_journal.jsonl` holds 5,192 rows from 2026-09-01 and
+   * nothing anywhere read it: the audit that found all three bidder defects was done by
+   * hand against the file. It is the CLI's record, and the screen has to say so — the app
+   * never bids, so a journal on an app page is evidence, not a log of what it did.
+   */
+  describe('room journal', () => {
+    async function ready() {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return fixture;
+    }
+
+    function page(over: Partial<JournalPage> = {}): JournalPage {
+      return {
+        ok: true,
+        path: '/Volumes/External SSD/fantabot/data/room_journal.jsonl',
+        exists: true,
+        total: 5192,
+        skipped: 0,
+        offset: 0,
+        limit: 100,
+        rows: [],
+        error: null,
+        ...over,
+      };
+    }
+
+    function journalRow(over: Partial<JournalRow> = {}): JournalRow {
+      return {
+        index: 5192,
+        at_ms: 1788304436211,
+        node: 'auction',
+        lot: 'b894b38e',
+        name: 'Holm',
+        price: 1,
+        walk_away: null,
+        provenance: null,
+        decision: 'hold',
+        reason: null,
+        credits_left: 29,
+        max_cap: 27,
+        owned_count: 27,
+        cycle_ms: null,
+        ...over,
+      };
+    }
+
+    it('costs nothing until it is opened', async () => {
+      // 1.6 MB parsed on every visit to a page whose subject is the plan would be a cost
+      // nobody asked for. The journal is a post-mortem.
+      const fixture = await ready();
+      httpMock.expectNone((r) => r.url.includes('asta/journal'));
+      expect(fixture.nativeElement.textContent).toContain('Room journal');
+    });
+
+    it('renders newest-first and says whose record it is', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(
+          page({
+            rows: [
+              journalRow({ index: 5192, name: 'Holm', decision: 'hold' }),
+              journalRow({ index: 5191, name: 'Zaccagni', decision: 'bid', walk_away: 41 }),
+            ],
+          }),
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Holm');
+      expect(text).toContain('Zaccagni');
+      expect(text).toContain('5192');
+      // The label, not a docstring: this is what the CLI decided, not what the app did.
+      expect(text.toLowerCase()).toContain('cli');
+    });
+
+    it('asks for the next page by offset, and never re-asks for the first', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ rows: [journalRow()] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      fixture.componentInstance.nextPage();
+      const next = httpMock.expectOne((r) => r.url.includes('asta/journal'));
+      expect(next.request.params.get('offset')).toBe('100');
+      next.flush(page({ offset: 100, rows: [journalRow({ index: 5092 })] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('5092');
+    });
+
+    it('names the path and the commands when there is no journal yet', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ exists: false, total: 0, rows: [] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('No journal yet');
+      // Where it looked, because `fantabot_data_dir` is relative to whatever working
+      // directory the launcher was started in.
+      expect(text).toContain('data/room_journal.jsonl');
+      expect(text).toContain('fantabot asta room');
+    });
+
+    it('reports a torn line rather than hiding it', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ total: 5191, skipped: 1, rows: [journalRow()] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('1 line');
     });
   });
 
@@ -192,15 +328,17 @@ describe('AstaComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    httpMock.expectOne((r) => r.url.includes('asta/plan')).flush({
-      found: false,
-      listone: '',
-      roster_size: 0,
-      total_cost: 0,
-      objective: 0,
-      budget: 0,
-      players: [],
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('asta/plan'))
+      .flush({
+        found: false,
+        listone: '',
+        roster_size: 0,
+        total_cost: 0,
+        objective: 0,
+        budget: 0,
+        players: [],
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 

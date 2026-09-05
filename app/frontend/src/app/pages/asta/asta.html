@@ -1,6 +1,8 @@
 <header class="mb-8">
   <h1 class="font-display text-3xl font-bold tracking-tight text-text">Asta plan</h1>
-  <p class="mt-1 text-sm text-text-secondary">The roster the optimizer would buy, on the lega's rules.</p>
+  <p class="mt-1 text-sm text-text-secondary">
+    The roster the optimizer would buy, on the lega's rules.
+  </p>
 </header>
 
 <!-- Room check. A read of a room's configuration — the app never bids (app/CLAUDE.md),
@@ -9,7 +11,9 @@
 <section class="mb-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
   <div class="flex flex-wrap items-end gap-3 p-6">
     <div class="min-w-64 flex-1">
-      <label for="room-url" class="block text-xs font-semibold text-text-tertiary">Room check</label>
+      <label for="room-url" class="block text-xs font-semibold text-text-tertiary"
+        >Room check</label
+      >
       <input
         id="room-url"
         type="text"
@@ -26,7 +30,11 @@
       [disabled]="roomChecking()"
       class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
     >
-      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="roomChecking()"></lucide-icon>
+      <lucide-icon
+        name="loader-2"
+        class="h-4 w-4"
+        [class.animate-spin]="roomChecking()"
+      ></lucide-icon>
       Check
     </button>
   </div>
@@ -48,7 +56,9 @@
         </div>
         <div>
           <dt class="text-xs text-text-tertiary">room</dt>
-          <dd class="text-sm tabular-nums text-text">{{ r.num_teams }} teams &times; {{ r.num_credits }} credits</dd>
+          <dd class="text-sm tabular-nums text-text">
+            {{ r.num_teams }} teams &times; {{ r.num_credits }} credits
+          </dd>
         </div>
         <div class="sm:col-span-2">
           <dt class="text-xs text-text-tertiary">roster</dt>
@@ -56,18 +66,32 @@
             {{ r.roster_size }}
             <!-- The provenance sits beside the number, not behind a hover: a band nobody
                  declared and a band the room stated are different facts. -->
-            <span class="ml-2 text-xs font-normal text-text-secondary">{{ r.roster_provenance }}</span>
+            <span class="ml-2 text-xs font-normal text-text-secondary">{{
+              r.roster_provenance
+            }}</span>
           </dd>
         </div>
       </dl>
     } @else {
       <div class="border-t border-border px-6 py-5">
-        <p class="text-sm font-semibold" [class.text-danger]="r.outcome !== 'bad_link'" [class.text-text]="r.outcome === 'bad_link'">
+        <p
+          class="text-sm font-semibold"
+          [class.text-danger]="r.outcome !== 'bad_link'"
+          [class.text-text]="r.outcome === 'bad_link'"
+        >
           @switch (r.outcome) {
-            @case ('refused') { The room refused us }
-            @case ('bad_link') { That is not a room link }
-            @case ('no_credential') { FantaLab is not connected }
-            @default { Could not reach the room }
+            @case ('refused') {
+              The room refused us
+            }
+            @case ('bad_link') {
+              That is not a room link
+            }
+            @case ('no_credential') {
+              FantaLab is not connected
+            }
+            @default {
+              Could not reach the room
+            }
           }
         </p>
         <p class="mt-1 text-sm text-text-secondary">{{ r.reason }}</p>
@@ -121,30 +145,41 @@
         <div class="flex flex-wrap items-end gap-x-12 gap-y-6 p-6">
           <div>
             <p class="font-display text-5xl font-bold tabular-nums text-text">
-              {{ p.total_cost | number: '1.0-0' }}<span class="text-2xl text-text-tertiary">/{{ p.budget | number: '1.0-0' }}</span>
+              {{ p.total_cost | number: '1.0-0'
+              }}<span class="text-2xl text-text-tertiary">/{{ p.budget | number: '1.0-0' }}</span>
             </p>
             <p class="mt-1 text-sm text-text-secondary">credits spent</p>
           </div>
           <div>
-            <p class="font-display text-5xl font-bold tabular-nums text-text">{{ p.roster_size }}</p>
+            <p class="font-display text-5xl font-bold tabular-nums text-text">
+              {{ p.roster_size }}
+            </p>
             <p class="mt-1 text-sm text-text-secondary">players · {{ p.listone }}</p>
           </div>
           <div>
-            <p class="font-display text-5xl font-bold tabular-nums text-signature">{{ p.objective | number: '1.0-0' }}</p>
+            <p class="font-display text-5xl font-bold tabular-nums text-signature">
+              {{ p.objective | number: '1.0-0' }}
+            </p>
             <p class="mt-1 text-sm text-text-secondary">objective</p>
           </div>
         </div>
       </section>
 
       <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="grid grid-cols-[1fr_auto] gap-4 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary">
+        <div
+          class="grid grid-cols-[1fr_auto] gap-4 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
+        >
           <span>Player</span>
           <span class="text-right">Price</span>
         </div>
         @for (player of players(); track player.player_id) {
-          <div class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border-muted px-6 py-2 last:border-b-0">
+          <div
+            class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border-muted px-6 py-2 last:border-b-0"
+          >
             <span class="text-sm text-text">{{ player.nome }}</span>
-            <span class="text-right text-sm font-semibold tabular-nums text-text-secondary">{{ player.price | number: '1.0-0' }}</span>
+            <span class="text-right text-sm font-semibold tabular-nums text-text-secondary">{{
+              player.price | number: '1.0-0'
+            }}</span>
           </div>
         }
       </section>
@@ -152,9 +187,156 @@
       <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
         <p class="font-display text-base font-semibold text-text">No plan yet</p>
         <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
-          No player pool for this lega and season. Sync the lega and make sure quotazioni are loaded.
+          No player pool for this lega and season. Sync the lega and make sure quotazioni are
+          loaded.
         </p>
       </section>
     }
   }
 }
+
+<!-- The room journal. The CLI's record of a live evening, read back — the app writes
+     nothing here and bids nothing (app/CLAUDE.md). It is a section of this page rather
+     than a tenth nav entry (SPEC.md §7), and it loads on open rather than on arrival:
+     the recorded evening is 5,192 rows and 1.6 MB. -->
+<section class="mt-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+    <div>
+      <h2 class="font-display text-lg font-semibold text-text">Room journal</h2>
+      <p class="mt-0.5 text-sm text-text-secondary">
+        The <span class="font-semibold">CLI's</span> record of a live room — one line per cycle,
+        written by <span class="font-mono text-xs">fantabot asta room</span> and
+        <span class="font-mono text-xs">fantabot asta bid</span>. The app never bids.
+      </p>
+    </div>
+    <button
+      type="button"
+      (click)="toggleJournal()"
+      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
+    >
+      <lucide-icon
+        [name]="journalOpen() ? 'chevron-down' : 'chevron-right'"
+        class="h-4 w-4"
+      ></lucide-icon>
+      {{ journalOpen() ? 'Hide' : 'Show' }}
+    </button>
+  </div>
+
+  @if (journalOpen()) {
+    @if (journalLoading() && !journal()) {
+      <div class="mx-6 mb-6 h-40 animate-shimmer rounded-lg border border-border"></div>
+    } @else if (journalError(); as message) {
+      <div class="border-t border-border px-6 py-5">
+        <p class="text-sm font-semibold text-danger">API unreachable</p>
+        <p class="mt-1 text-sm text-text-secondary">
+          {{ message }} Make sure fantabot-app is running.
+        </p>
+      </div>
+    } @else if (journal(); as j) {
+      @if (!j.ok) {
+        <div class="border-t border-border px-6 py-5">
+          <p class="text-sm font-semibold text-danger">The journal could not be read</p>
+          <p class="mt-1 text-sm text-text-secondary">{{ j.error }}</p>
+          <p class="mt-1 break-all font-mono text-xs text-text-tertiary">{{ j.path }}</p>
+        </div>
+      } @else if (!j.exists || !j.total) {
+        <!-- Not an error, and the path is the whole answer: `fantabot_data_dir` is
+             relative, so it resolves against whatever directory the launcher started in. -->
+        <div class="border-t border-border px-6 py-10 text-center">
+          <p class="font-display text-base font-semibold text-text">No journal yet</p>
+          <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">
+            Nothing at <span class="break-all font-mono text-xs">{{ j.path }}</span
+            >. It is written by
+            <span class="font-mono text-xs">fantabot asta room &lt;url&gt;</span> or
+            <span class="font-mono text-xs">fantabot asta bid</span>, in the terminal.
+          </p>
+        </div>
+      } @else {
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-3"
+        >
+          <p class="text-sm tabular-nums text-text-secondary">
+            {{ journalRange() }}
+            @if (j.skipped) {
+              <!-- Reported, never hidden: the journal flushes per line, so the one line a
+                   crash can tear is the newest — and tail-first that is the first row. -->
+              <span class="ml-2 text-warning">{{ j.skipped }} line(s) skipped, unparseable</span>
+            }
+          </p>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              (click)="previousPage()"
+              [disabled]="!hasPreviousPage() || journalLoading()"
+              class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-40"
+            >
+              Newer
+            </button>
+            <button
+              type="button"
+              (click)="nextPage()"
+              [disabled]="!hasNextPage() || journalLoading()"
+              class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-40"
+            >
+              Older
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <div
+            class="grid min-w-[52rem] grid-cols-[4rem_1fr_5rem_5rem_6rem_5rem_5rem] gap-2 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
+          >
+            <span class="text-right">#</span>
+            <span>Lot</span>
+            <span class="text-right">Price</span>
+            <span class="text-right">Walk-away</span>
+            <span>Decision</span>
+            <span class="text-right">Cap</span>
+            <span class="text-right">Left</span>
+          </div>
+          @for (r of j.rows; track r.index) {
+            <div
+              class="grid min-w-[52rem] grid-cols-[4rem_1fr_5rem_5rem_6rem_5rem_5rem] items-center gap-2 border-b border-border-muted px-6 py-2 last:border-b-0"
+            >
+              <span class="text-right text-xs tabular-nums text-text-tertiary">{{ r.index }}</span>
+              <span class="truncate text-sm text-text">
+                {{ r.name ?? r.lot }}
+                @if (r.reason) {
+                  <span class="ml-2 text-xs text-text-tertiary">{{ r.reason }}</span>
+                }
+              </span>
+              <span class="text-right text-sm tabular-nums text-text-secondary">{{ r.price }}</span>
+              <!-- A null walk-away is rendered as one. It was null on 4,501 of the 5,192
+                   recorded rows, which is what defect B2 looks like in the file; a dash
+                   that reads as zero would hide it. -->
+              <span
+                class="text-right text-sm tabular-nums"
+                [class.text-text-secondary]="r.walk_away !== null"
+                [class.text-warning]="r.walk_away === null"
+                >{{ r.walk_away ?? 'null' }}</span
+              >
+              <span
+                class="text-sm font-medium"
+                [class.text-signature]="r.decision === 'bid'"
+                [class.text-danger]="r.decision === 'pass'"
+                [class.text-text-secondary]="r.decision !== 'bid' && r.decision !== 'pass'"
+                >{{ r.decision }}</span
+              >
+              <span class="text-right text-sm tabular-nums text-text-tertiary">{{
+                r.max_cap
+              }}</span>
+              <span class="text-right text-sm tabular-nums text-text-secondary">{{
+                r.credits_left
+              }}</span>
+            </div>
+          }
+        </div>
+
+        <p class="border-t border-border px-6 py-3 font-mono text-xs break-all text-text-tertiary">
+          {{ j.path }}
+        </p>
+      }
+    }
+  }
+</section>
