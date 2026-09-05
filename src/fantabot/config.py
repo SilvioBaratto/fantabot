@@ -4,6 +4,51 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def bundled_pgdata() -> Path:
+    """Where `fantabot-app` provisions its bundled PostgreSQL 18.
+
+    Computed at call time, not at import: `app/fantabot_app/paths.py` resolves the same
+    directory the same way and for the same reason — a home that differs between
+    processes, and tests that point `HOME` elsewhere.
+    """
+    return Path.home() / ".fantabot" / "pgdata"
+
+
+def bundled_database_url(database: str = "fantabot") -> str:
+    """The DSN of the app's bundled Postgres — the canonical database.
+
+    Derived, not configured, so that a `fantabot` command run from any directory reaches
+    the same database the app writes to. `.env` pointing the CLI at a compose Postgres on
+    `localhost:54321` while the app provisioned its own server is what let a week of
+    Classic auction collection read as lost (`todo/TODO.md` §1).
+
+    **Read from `postmaster.pid` when it is there**, because the DSN's *shape* is not
+    fixed: pgserver listens on a unix socket on macOS/Linux and on 127.0.0.1 with a port
+    it chooses on Windows, and it may place the socket outside pgdata (under `$TMPDIR`,
+    when the pgdata path is too long for `sun_path`). Falling back to the socket form when
+    the file is absent, torn or unreadable keeps this a *default* — `fantabot --help` must
+    not become a traceback because a postmaster died mid-write.
+
+    **Never percent-encoded.** alembic's config is a `ConfigParser`, which interpolates
+    `%` and rejects a `%2F`-encoded socket path with `ValueError: invalid interpolation
+    syntax`. SQLAlchemy parses the raw path fine, spaces included — verified both ways.
+
+    This is a path, not an import: `fantabot` gains no dependency on `fantabot_app`.
+    """
+    pgdata = bundled_pgdata()
+    socket = f"postgresql+psycopg2://postgres:@/{database}?host={pgdata}"
+    try:
+        lines = (pgdata / "postmaster.pid").read_text().splitlines()
+        port, socket_dir, hostname = lines[3].strip(), lines[4].strip(), lines[5].strip()
+    except (OSError, IndexError, ValueError):
+        return socket
+    if socket_dir:
+        return f"postgresql+psycopg2://postgres:@/{database}?host={socket_dir}"
+    if hostname and port:
+        return f"postgresql+psycopg2://postgres:@{hostname}:{port}/{database}"
+    return socket
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -29,14 +74,14 @@ class Settings(BaseSettings):
 
     # The driver must stay +psycopg2. SPEC assumption 3: fantabot is a batch
     # process, and `postgresql+asyncpg://` breaks `alembic upgrade head`.
+    #
+    # The default is the app's bundled server (see `bundled_database_url`), so the CLI and
+    # the app cannot drift onto two databases again. An exported variable and a `.env`
+    # entry both still override, in pydantic-settings' usual order.
     fantabot_database_url: str = Field(
-        default="postgresql+psycopg2://postgres:postgres@localhost:54321/fantabot",
+        default_factory=bundled_database_url,
         repr=False,
     )
-    # Host-side ports only; the containers always listen on 5432 and 8080.
-    # 54320/18081 belong to optimizer and 5433/8090 to clipcraft.
-    fantabot_db_host_port: int = 54321
-    fantabot_adminer_host_port: int = 18082
 
     # Fernet key for the league_tokens ciphertext column. No validator: this
     # class is instantiated at import (below), so one that rejects a malformed

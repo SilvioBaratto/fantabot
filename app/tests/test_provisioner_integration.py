@@ -11,6 +11,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import create_engine, text
 
+from sqlalchemy.engine import make_url
+
 from fantabot_app.provisioner.postgres import ENV_DATABASE_URL, PostgresProvisioner
 
 
@@ -21,7 +23,10 @@ def test_real_provision_start_connect_stop(tmp_path) -> None:
     try:
         url = prov.start()
         assert url.startswith("postgresql+psycopg2://")
-        assert url.endswith("/fantabot")
+        # Not `endswith("/fantabot")`: on macOS/Linux this is the socket form, and the
+        # socket directory lands *after* the database name — under $TMPDIR rather than in
+        # pgdata whenever the pgdata path is too long for sun_path, which a tmp_path is.
+        assert make_url(url).database == "fantabot"
         assert env[ENV_DATABASE_URL] == url
         assert prov.status()["running"] is True
 
