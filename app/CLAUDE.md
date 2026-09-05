@@ -1,7 +1,10 @@
 # CLAUDE.md — `app/` (fantabot-app)
 
-Guidance for Claude Code when working in `app/`. See the repo-root `SPEC.md` and
-`tasks/plan.md` for the full spec and plan.
+Guidance for Claude Code when working in `app/`. **This file is the app's own record** —
+the rules below are the ones a reader cannot infer from the code. There is no app spec
+to point at: the root `SPEC.md` holds only the phase in flight and was overwritten by
+later ones, and closed phases are archived under `tasks/archive/` (maintainer-only, and
+git-ignored, so a checkout does not carry them). `todo/TODO.md` holds the open work.
 
 ## What this is
 
