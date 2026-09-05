@@ -3,6 +3,85 @@
   <p class="mt-1 text-sm text-text-secondary">The roster the optimizer would buy, on the lega's rules.</p>
 </header>
 
+<!-- Room check. A read of a room's configuration — the app never bids (app/CLAUDE.md),
+     and this section deliberately offers no control that could. It is also the only
+     surface that says whether the stored FantaLab credential still authenticates. -->
+<section class="mb-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="flex flex-wrap items-end gap-3 p-6">
+    <div class="min-w-64 flex-1">
+      <label for="room-url" class="block text-xs font-semibold text-text-tertiary">Room check</label>
+      <input
+        id="room-url"
+        type="text"
+        placeholder="https://app.fantalab.it/asta?asta=..."
+        [value]="roomUrl()"
+        (input)="setRoomUrl($any($event.target).value)"
+        (keyup.enter)="checkRoom()"
+        class="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-tertiary"
+      />
+    </div>
+    <button
+      type="button"
+      (click)="checkRoom()"
+      [disabled]="roomChecking()"
+      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
+    >
+      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="roomChecking()"></lucide-icon>
+      Check
+    </button>
+  </div>
+
+  @if (room(); as r) {
+    @if (r.outcome === 'resolved') {
+      <dl class="grid gap-x-10 gap-y-4 border-t border-border px-6 py-5 sm:grid-cols-3">
+        <div>
+          <dt class="text-xs text-text-tertiary">seat</dt>
+          <dd class="text-sm font-medium text-text">{{ r.seat_team_name ?? r.seat_team_id }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-text-tertiary">format &middot; shard</dt>
+          <dd class="text-sm text-text">{{ r.asta_type }} &middot; {{ r.shard ?? 'default' }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-text-tertiary">mode</dt>
+          <dd class="text-sm text-text">{{ r.asta_mode }}/{{ r.raise_mode }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs text-text-tertiary">room</dt>
+          <dd class="text-sm tabular-nums text-text">{{ r.num_teams }} teams &times; {{ r.num_credits }} credits</dd>
+        </div>
+        <div class="sm:col-span-2">
+          <dt class="text-xs text-text-tertiary">roster</dt>
+          <dd class="text-sm tabular-nums text-text">
+            {{ r.roster_size }}
+            <!-- The provenance sits beside the number, not behind a hover: a band nobody
+                 declared and a band the room stated are different facts. -->
+            <span class="ml-2 text-xs font-normal text-text-secondary">{{ r.roster_provenance }}</span>
+          </dd>
+        </div>
+      </dl>
+    } @else {
+      <div class="border-t border-border px-6 py-5">
+        <p class="text-sm font-semibold" [class.text-danger]="r.outcome !== 'bad_link'" [class.text-text]="r.outcome === 'bad_link'">
+          @switch (r.outcome) {
+            @case ('refused') { The room refused us }
+            @case ('bad_link') { That is not a room link }
+            @case ('no_credential') { FantaLab is not connected }
+            @default { Could not reach the room }
+          }
+        </p>
+        <p class="mt-1 text-sm text-text-secondary">{{ r.reason }}</p>
+        @if (r.outcome === 'no_credential') {
+          <p class="mt-2 text-xs text-text-tertiary">
+            Connect FantaLab from the Accounts page, or run
+            <span class="font-mono">fantabot auth fantalab-login</span>.
+          </p>
+        }
+      </div>
+    }
+  }
+</section>
+
 @if (loading()) {
   <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
 } @else if (errorMsg(); as message) {
