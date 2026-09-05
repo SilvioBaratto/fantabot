@@ -379,7 +379,7 @@ def aste_load(
             # not that the collector is fine and the catch-up is pending.
             console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
             console.print("Collection is unaffected — the landing zone keeps growing.")
-            console.print("Start it with: [bold]docker compose up -d[/bold], then re-run.")
+            console.print("Start it with: [bold]fantabot-app db start[/bold], then re-run.")
             if not follow:
                 raise typer.Exit(1) from exc
             time.sleep(interval)

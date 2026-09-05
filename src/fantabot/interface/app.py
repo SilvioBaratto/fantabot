@@ -691,13 +691,24 @@ def db_exclusions() -> None:
             console.print(f"  {'':<7} {'':<20} [dim]{source}[/dim]")
 
 
+def _pg_dump_argv(database_url: str) -> list[str]:
+    """`pg_dump` addressing whatever the DSN addresses, in custom format.
+
+    The driver suffix is stripped because `postgresql+psycopg2://` is SQLAlchemy's
+    spelling and libpq does not know it; everything else — user, password, host, and the
+    `?host=` socket directory the bundled server uses — is a valid libpq connection URI
+    already, so the DSN is handed over whole rather than picked apart into flags.
+    """
+    return ["pg_dump", "-Fc", database_url.replace("+psycopg2://", "://", 1)]
+
+
 def db_dump() -> None:
     """Dump the database to a timestamped file OUTSIDE the repository.
 
-    `docker-compose.yml` mounts a named volume and that is the entire durability
-    story. `docker compose down -v` destroys both 50,634-row match-grain tables, and
-    re-scraping them is roughly 750 GETs per season against a site under no
-    obligation to keep serving 2022/23.
+    One local server holds everything, and that is the entire durability story: losing
+    `~/.fantabot/pgdata` destroys both 50,634-row match-grain tables, and re-scraping
+    them is roughly 750 GETs per season against a site under no obligation to keep
+    serving 2022/23.
 
     The dump lands in `$HOME`, never under the repo: it contains the `league_tokens`
     rows — encrypted, but still credentials — and anything inside the working tree is
@@ -707,14 +718,21 @@ def db_dump() -> None:
     Custom format (`-Fc`), which is what makes `pg_restore` usable and selective.
     To restore into a scratch database::
 
-        docker compose exec -T db psql -U postgres \\
-          -c "DROP DATABASE IF EXISTS fantabot_restore; CREATE DATABASE fantabot_restore;"
-        docker compose exec -T db pg_restore -U postgres -d fantabot_restore \\
-          < ~/fantabot-db-YYYYMMDD.dump
-        FANTABOT_DATABASE_URL=...fantabot_restore fantabot db check
+        fantabot-app db create fantabot_restore
+        pg_restore -d "$(fantabot-app db url --database fantabot_restore)" \\
+          ~/fantabot-db-YYYYMMDD.dump
+        FANTABOT_DATABASE_URL="$(fantabot-app db url --database fantabot_restore)" \\
+          fantabot db check
+
+    After any restore, realign the identity sequences: `COPY` and `pg_restore` write
+    explicit keys without advancing the sequence that owns them, so the next insert
+    repeats one already present (measured 2026-09-05: `asta.key` at 20 against a table
+    maximum of 5,707). Row counts prove the data arrived, not that it can be written to.
     """
     import subprocess
     from datetime import UTC, datetime
+
+    from fantabot.config import settings
 
     out = Path.home() / f"fantabot-db-{datetime.now(UTC):%Y%m%d}.dump"
     # The guard the shell script carried: never write the dump onto the repo's own
@@ -723,16 +741,20 @@ def db_dump() -> None:
         console.print(f"[red]refusing to write the dump onto an external volume: {out}[/red]")
         raise typer.Exit(code=1)
 
-    with out.open("wb") as handle:
-        result = subprocess.run(
-            [
-                "docker", "compose", "exec", "-T", "db",
-                "pg_dump", "-U", "postgres", "-Fc", "fantabot",
-            ],
-            stdout=handle,
+    argv = _pg_dump_argv(settings.fantabot_database_url)
+    try:
+        with out.open("wb") as handle:
+            result = subprocess.run(argv, stdout=handle)
+    except FileNotFoundError:
+        console.print("[red]pg_dump is not on PATH[/red]")
+        console.print(
+            "The bundled server ships one: it lives beside the `postgres` binary in "
+            "pixeltable_pgserver's `pginstall18/bin`."
         )
+        raise typer.Exit(code=1) from None
     if result.returncode != 0:
-        console.print("[red]pg_dump failed — is the compose stack up?[/red]")
+        console.print("[red]pg_dump failed — is the database running?[/red]")
+        console.print("Start it with: [bold]fantabot-app db start[/bold]")
         raise typer.Exit(code=1)
 
     console.print(f"wrote {out} ({out.stat().st_size / 1_048_576:.0f} MB)")
@@ -763,7 +785,7 @@ def db_check() -> None:
         dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
         console.print(f"[red]Cannot reach the database at {dsn}[/red]")
         console.print(f"[red]{type(exc).__name__}: {str(exc).splitlines()[0]}[/red]")
-        console.print("Start it with: [bold]docker compose up -d[/bold]")
+        console.print("Start it with: [bold]fantabot-app db start[/bold]")
         raise typer.Exit(code=1) from None
 
     status = "[green]ok[/green]" if ok else "[red]unhealthy[/red]"
@@ -883,7 +905,7 @@ def token_status(
         dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
         console.print(f"[red]Cannot reach the database at {dsn}[/red]")
         console.print(f"[red]{type(exc).__name__}: {str(exc).splitlines()[0]}[/red]")
-        console.print("Start it with: [bold]docker compose up -d[/bold]")
+        console.print("Start it with: [bold]fantabot-app db start[/bold]")
         raise typer.Exit(code=1) from None
 
     wanted = league or settings.fantabot_league_id

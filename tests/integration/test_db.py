@@ -1,7 +1,7 @@
 """The integration tier's own contract: it connects, and it cleans up.
 
 Everything below is marked ``db`` and is deselected by the default run. Bring
-the stack up first: ``docker compose up -d && alembic upgrade head``.
+the stack up first: ``fantabot-app db start && alembic upgrade head``.
 """
 
 from __future__ import annotations

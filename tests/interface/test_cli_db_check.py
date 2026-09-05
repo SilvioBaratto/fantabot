@@ -91,7 +91,7 @@ def test_an_unreachable_database_exits_nonzero_with_an_instruction(monkeypatch: 
     result = runner.invoke(app, ["db", "check"])
 
     assert result.exit_code != 0
-    assert "docker compose up -d" in result.output
+    assert "fantabot-app db start" in result.output
     assert "Traceback" not in result.output
 
 

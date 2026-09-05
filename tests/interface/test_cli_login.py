@@ -163,7 +163,7 @@ def test_an_unreachable_database_exits_before_the_browser(
 
     assert browser.entered is False
     message = str(caught.value)
-    assert "docker compose up -d" in message
+    assert "fantabot-app db start" in message
     assert "Nothing was opened and nothing was written" in message
 
 

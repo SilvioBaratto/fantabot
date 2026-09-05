@@ -89,7 +89,7 @@ def _preflight_database() -> None:
         raise LoginAborted(
             f"Cannot reach the database at {dsn}\n"
             f"{type(exc).__name__}: {str(exc).splitlines()[0]}\n"
-            "Start it with: docker compose up -d\n"
+            "Start it with: fantabot-app db start\n"
             "Nothing was opened and nothing was written."
         ) from None
 

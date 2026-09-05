@@ -268,7 +268,7 @@ def test_a_dead_database_prints_an_instruction_not_a_traceback(
     result = runner.invoke(app, ["auth", "status"])
 
     assert result.exit_code == 1
-    assert "docker compose up -d" in result.output
+    assert "fantabot-app db start" in result.output
     assert "postgres:postgres@" not in result.output
 
 

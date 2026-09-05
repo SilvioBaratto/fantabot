@@ -13,16 +13,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Markers of the PROJECT ROOT (where the .env and docker-compose.yml live). The
-# walk stops here so the search never escapes into a parent repo or the
-# filesystem root.
-_ROOT_MARKERS = ("docker-compose.yml", ".git")
+# Marker of the PROJECT ROOT (where the .env lives). The walk stops here so the
+# search never escapes into a parent repo or the filesystem root. `docker-compose.yml`
+# was the other marker until the compose stack was deleted; `.git` is the one left.
+_ROOT_MARKERS = (".git",)
 
 
 def _walk_up_for_dotenv(origin: Path) -> Path | None:
     """Ascend from *origin*, returning the first ``.env`` found.
 
-    Stops at a project-root marker (docker-compose.yml / .git) so the search
+    Stops at a project-root marker (`.git`) so the search
     never escapes past the project root.
     """
     for directory in (origin, *origin.parents):

@@ -23,13 +23,25 @@ def test_default_dsn_password_is_not_printed() -> None:
     assert "postgres:postgres@" not in result.output
 
 
-def test_dsn_host_port_and_database_are_still_shown() -> None:
-    """Masking is worthless if it hides what the operator came to check."""
+def test_dsn_host_and_database_are_still_shown() -> None:
+    """Masking is worthless if it hides what the operator came to check.
+
+    It used to assert the compose port, 54321. That number came from `.env`, not from a
+    default, so the assertion was really about the developer's own environment — and it
+    would have kept passing while the CLI and the app sat on two different databases,
+    which is the failure this whole phase exists to close. What is checked now is the
+    thing the operator came for: *which* database.
+
+    Only the database name is asserted, not the host: against the bundled server the host
+    is a filesystem path that Rich truncates to the terminal width, and `config-check`
+    renders through SQLAlchemy's `render_as_string`, which percent-encodes it. Both are
+    display artefacts — `todo/TODO.md` §3.9 — not something to pin here.
+    """
     result = runner.invoke(app, ["config-check"])
 
     assert result.exit_code == 0
-    assert "localhost" in result.output
-    assert "54321" in result.output
+    assert "fantabot_database_url" in result.output
+    assert "postgresql+psycopg2://" in result.output
     assert "fantabot" in result.output
 
 

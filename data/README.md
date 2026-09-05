@@ -20,7 +20,7 @@ wrote nothing. To re-seed from scratch, run the scrapers — they read the live
 site, so the counts below are floors from the capture day, not fixtures.
 
 ```bash
-docker compose up -d          # Postgres on 54321, Adminer on 18082
+fantabot-app db start         # the bundled Postgres at ~/.fantabot/pgdata
 alembic upgrade head
 fantabot db check             # health, row counts, sizes
 ```

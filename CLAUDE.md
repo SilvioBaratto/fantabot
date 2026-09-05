@@ -21,7 +21,7 @@ conda activate fanta        # the only environment; there is no .venv
 pip install -e ".[dev]"     # re-run whenever pyproject.toml changes
 playwright install chromium
 
-docker compose up -d         # Postgres on 54321, Adminer on 18082
+fantabot-app db start        # the bundled Postgres at ~/.fantabot/pgdata (no Docker)
 alembic upgrade head
 fantabot db check            # health, per-table row counts and sizes
 
@@ -46,7 +46,7 @@ fantabot harvest load landing.jsonl --seed seed.json --follow   # landing zone -
 fantabot harvest backfill events.jsonl --seed seed.json         # a recorded evening
 
 pytest                       # default tier: zero sockets, db tests deselected
-pytest -m db                 # integration tier, needs the compose stack
+pytest -m db                 # integration tier, needs `fantabot-app db start`
 ruff check src tests
 mypy
 

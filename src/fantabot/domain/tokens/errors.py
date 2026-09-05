@@ -12,7 +12,7 @@ it, and tracebacks reach pytest output and cron logs. `tests/test_token_secrecy.
 walks `Raise` nodes for exactly this.
 
 Every message names the command that fixes the situation, in the style of
-`cli.py`'s `docker compose up -d`. An error that says what broke but not what to
+`cli.py`'s `fantabot-app db start`. An error that says what broke but not what to
 do is a puzzle, not a diagnostic.
 
 **Naming ruling.** SPEC's Project Structure lists `KeyMismatch`, while SPEC's own

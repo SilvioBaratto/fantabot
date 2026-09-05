@@ -111,7 +111,7 @@ def db_engine() -> Generator[Engine, None, None]:
     if detail is not None:
         engine.dispose()
         pytest.fail(
-            "the database is not reachable — start it with: docker compose up -d\n"
+            "the database is not reachable — start it with: fantabot-app db start\n"
             f"({detail})",
             pytrace=False,
         )

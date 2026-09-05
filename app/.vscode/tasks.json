@@ -2,29 +2,43 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Docker: Up",
+      "label": "DB: Start",
       "type": "shell",
-      "command": "docker compose up -d --build",
+      "command": "fantabot-app db start",
       "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "Docker: Down",
+      "label": "DB: Stop",
       "type": "shell",
-      "command": "docker compose down",
+      "command": "fantabot-app db stop",
       "problemMatcher": []
     },
     {
-      "label": "Docker: Logs",
+      "label": "DB: Status",
       "type": "shell",
-      "command": "docker compose logs -f",
+      "command": "fantabot-app db status",
+      "problemMatcher": []
+    },
+    {
+      "label": "App: Up",
+      "type": "shell",
+      "command": "fantabot-app up",
       "problemMatcher": [],
       "isBackground": true
     },
     {
+      "label": "App: Test",
+      "type": "shell",
+      "command": "python -m pytest",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Frontend: Serve",
       "type": "shell",
-      "command": "ng serve",
+      "command": "npm start",
       "options": { "cwd": "${workspaceFolder}/frontend" },
       "problemMatcher": [],
       "isBackground": true
@@ -32,53 +46,16 @@
     {
       "label": "Frontend: Test",
       "type": "shell",
-      "command": "ng test",
+      "command": "npx ng test --watch=false",
       "options": { "cwd": "${workspaceFolder}/frontend" },
       "problemMatcher": []
     },
     {
-      "label": "API: Serve",
-      "type": "shell",
-      "command": "uvicorn app.main:app --reload --port 8000 --host 0.0.0.0",
-      "options": { "cwd": "${workspaceFolder}/api" },
-      "problemMatcher": [],
-      "isBackground": true
-    },
-    {
-      "label": "API: Test",
-      "type": "shell",
-      "command": "pytest",
-      "options": { "cwd": "${workspaceFolder}/api" },
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "API: Migrate",
+      "label": "Migrate",
       "type": "shell",
       "command": "alembic upgrade head",
-      "options": { "cwd": "${workspaceFolder}/api" },
+      "options": { "cwd": "${workspaceFolder}/.." },
       "problemMatcher": []
-    },
-    {
-      "label": "API: Create Migration",
-      "type": "shell",
-      "command": "alembic revision --autogenerate -m \"${input:migrationName}\"",
-      "options": { "cwd": "${workspaceFolder}/api" },
-      "problemMatcher": []
-    },
-    {
-      "label": "API: BAML Generate",
-      "type": "shell",
-      "command": "baml-cli generate",
-      "options": { "cwd": "${workspaceFolder}/api" },
-      "problemMatcher": []
-    }
-  ],
-  "inputs": [
-    {
-      "id": "migrationName",
-      "type": "promptString",
-      "description": "Migration description (snake_case)"
     }
   ]
 }

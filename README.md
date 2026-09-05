@@ -103,7 +103,7 @@ cp .env.example .env   # fill in LEGA_EMAIL / LEGA_PASSWORD / LEGA_URL / FANTABO
 # open a browser. Never commit it, and never pass it on the command line.
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
-docker compose up -d    # Postgres on 54321, Adminer on http://localhost:18082
+fantabot-app db start   # the bundled Postgres, at ~/.fantabot/pgdata
 alembic upgrade head
 
 # Fill an empty database from the site. This is the only way that works on a
@@ -150,7 +150,7 @@ scripts and `news fetch` all go through the database. See
 each departure from the file layout was made.
 
 ```bash
-docker compose up -d              # db + adminer, nothing else
+fantabot-app db start             # the bundled Postgres; it outlives this command
 alembic upgrade head              # apply migrations
 alembic check                     # do models and migrations still agree?
 ```

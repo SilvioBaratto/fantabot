@@ -19,7 +19,7 @@ empty cell and the literal ``"0,0"`` — are collapsed to NULL on the way in by
 comparisons were protecting.
 
 Prerequisites this module adds to every script that imports it:
-``pip install -e .`` and a running database (``docker compose up -d``).
+``pip install -e .`` and a running database (``fantabot-app db start``).
 """
 
 from __future__ import annotations
