@@ -153,6 +153,7 @@ each departure from the file layout was made.
 fantabot-app db start             # the bundled Postgres; it outlives this command
 alembic upgrade head              # apply migrations
 alembic check                     # do models and migrations still agree?
+fantabot-app db stop              # the only thing that stops it
 ```
 
 ## Commands

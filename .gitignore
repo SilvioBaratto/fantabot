@@ -56,3 +56,7 @@ _pdftext.txt
 # Per-phase working notes. SPEC.md is already ignored (line 44); plan.md/todo.md
 # are its siblings and get archived to tasks/archive/ on phase close, not committed.
 tasks/
+# Maintainer-only backlog: decided-but-not-done work and defects found but not fixed.
+# Same class as the two above, and it was untracked *and* unignored — one `git add -A`
+# from publication, which is exactly how the others came to be listed here.
+todo/

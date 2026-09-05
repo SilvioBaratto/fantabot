@@ -22,6 +22,8 @@ pip install -e ".[dev]"     # re-run whenever pyproject.toml changes
 playwright install chromium
 
 fantabot-app db start        # the bundled Postgres at ~/.fantabot/pgdata (no Docker)
+fantabot-app db status       # provisioned? running? at which DSN?
+fantabot-app db stop         # the only thing that stops it; `up` exiting does not
 alembic upgrade head
 fantabot db check            # health, per-table row counts and sizes
 
@@ -46,7 +48,9 @@ fantabot harvest load landing.jsonl --seed seed.json --follow   # landing zone -
 fantabot harvest backfill events.jsonl --seed seed.json         # a recorded evening
 
 pytest                       # default tier: zero sockets, db tests deselected
-pytest -m db                 # integration tier, needs `fantabot-app db start`
+fantabot-app db create fantabot_test    # once; the db tier never writes to `fantabot`
+FANTABOT_DATABASE_URL="$(fantabot-app db url --database fantabot_test)" alembic upgrade head
+FANTABOT_TEST_DATABASE_URL="$(fantabot-app db url --database fantabot_test)" pytest -m db
 ruff check src tests
 mypy
 
@@ -361,6 +365,24 @@ src/fantabot/
   a suite that queries is a suite nobody runs.
 - Ruff: line length 100, target py311, same `select`/`ignore` as mailwise.
   `mypy --strict` on `src/fantabot` (tests excluded).
+- **One database, and it is the app's.** `fantabot-app` provisions a bundled PostgreSQL 18
+  at `~/.fantabot/pgdata` (no Docker; the server ships inside the `pixeltable-pgserver`
+  wheel), and `fantabot.config` derives its DSN from that path — reading `postmaster.pid`
+  when it is there, because pgserver uses a unix socket on macOS/Linux and 127.0.0.1 on
+  Windows. **Do not set `FANTABOT_DATABASE_URL` in `.env`**: pointing the CLI at a compose
+  Postgres while the app provisioned its own is what let a week of Classic auction
+  collection read as lost, and the derived default is what makes that impossible. An
+  exported variable still wins, everywhere except `db stop`/`db create` — those address
+  `~/.fantabot/pgdata` by path, or `db stop` would be a no-op in the very shell that
+  `db start`'s `export` line configures.
+  **The server's lifetime is explicit.** `fantabot-app db start` leaves Postgres running
+  after the command exits and only `fantabot-app stop` / `db stop` takes it down. The
+  socket DSN is never percent-encoded: alembic's config is a `ConfigParser`, and it
+  rejects `%2F` with `invalid interpolation syntax`.
+  **`pytest -m db` writes to `fantabot_test`, never to `fantabot`** — `tests/conftest.py`
+  refuses to run otherwise, by database name alone. The `dbdata` subset is the exception:
+  those five files read the recorded 614k-row seed, so they run against the canonical
+  database inside the same rolled-back transaction.
 - **The database is the source of truth.** `data/`'s CSVs were the one-time seed and
   nothing reads them any more; the scrapers and `news fetch` write to Postgres. Row
   counts in `data/README.md` are floors, not fixtures — the scrapers read a live site

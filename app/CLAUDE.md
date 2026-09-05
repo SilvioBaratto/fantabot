@@ -85,6 +85,28 @@ cd frontend && npx ng test --watch=false  # vitest
   rule kept by review, which is why it is written here.
 - **Actions run as jobs.** Long/interactive use cases (login, sync, news) run on the
   in-process job runner (`api/infrastructure/jobs.py`); the UI polls `GET /jobs/{id}`.
+- **The bundled server's lifetime is explicit.** `PostgresProvisioner` passes
+  `cleanup_mode=None` on every path, so Postgres outlives whatever started it and only
+  `fantabot-app stop` / `fantabot-app db stop` takes it down. pgserver's default is
+  `'stop'` — an atexit hook that stops the server when the last handle-holding process
+  exits — which would make `db start` print a DSN to a server that died with the command.
+  A fitness test reads the AST and fails on any `get_server(` call without an explicit
+  `cleanup_mode`, because `get_server` caches per pgdata and *ignores* the argument on a
+  cache hit: one bare call anywhere decides the mode for the whole process.
+- **An exported `FANTABOT_DATABASE_URL` wins, and `.env` does not.** `start()` returns it
+  and provisions nothing. The asymmetry is the point: an export is an instruction from the
+  operator, while a `.env` found by whatever the working directory happens to be is the
+  mechanism that put the CLI and the app on two different databases. `db stop`,
+  `db status` and `db create` ignore it and address `~/.fantabot/pgdata` — `db start`
+  prints an `export` line the operator pastes, and a `db stop` that honoured it would be a
+  no-op in exactly that shell.
+- **Disconnect purges; reconnect restores.** `DELETE /auth/league/{id}` removes the lega
+  whole, across six tables — removing the token alone left it on every screen but the one
+  that said it was disconnected. Reconnecting the account brings the lega back (its data
+  on the next sync) and **that is correct**: the operator reconnected the account, so a
+  durable exclusion would be a second, invisible piece of state. The CLI's `fantabot auth
+  forget --league <id>` deliberately still removes the token alone — its one-row-at-a-time,
+  no-`--all` contract is published in `README.md` and pinned by tests.
 - **Headed login stays manual.** `POST /auth/login` opens the real browser and the user
   signs in by hand; a per-job gate + `.../confirm` is the web "press Enter".
 ```
