@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import create_engine, text
-
 from sqlalchemy.engine import make_url
 
 from fantabot_app.provisioner.postgres import ENV_DATABASE_URL, PostgresProvisioner
