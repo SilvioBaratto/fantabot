@@ -83,6 +83,10 @@ LAYERS: dict[str, str] = {
     "fantabot.adapters.persistence.news_sentiment": "adapters",
     "fantabot.adapters": "adapters",
     # -- interface: the CLI, and only the CLI.
+    # `python -m fantabot`, which is how the app's supervisor spawns the CLI: its own
+    # virtualenv has no `fantabot` on PATH. Three lines that call `interface.app`, so it
+    # is the command layer by every rule below — including the one about typer.
+    "fantabot.__main__": "interface",
     "fantabot.interface.app": "interface",
     "fantabot.interface": "interface",
     "fantabot.interface.asta": "interface",

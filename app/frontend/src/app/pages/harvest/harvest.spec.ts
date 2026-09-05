@@ -187,17 +187,73 @@ describe('HarvestComponent', () => {
     expect(fixture.componentInstance.scanning()).toBe(true);
   });
 
-  it('offers no format filter anywhere on the page', async () => {
+  it('offers no format filter on the scan', async () => {
     // `--only` is a collection-time decision and this app must not be able to take it.
-    // Checked as controls rather than as a word: the panel legitimately says "classic"
-    // and "mantra" while counting them, and a substring assertion would ban that too.
-    const root = (await render()).nativeElement as HTMLElement;
+    // Scoped to the seed panel and checked as controls: the *load* panel legitimately
+    // picks a format — a seed holds both and a load carries one — and the seed panel
+    // legitimately prints "classic" and "mantra" while counting them.
+    const seed = (await render()).nativeElement.querySelector('[data-panel="seed"]') as HTMLElement;
 
-    expect(root.querySelector('select')).toBeNull();
-    expect(root.querySelector('input')).toBeNull();
+    expect(seed.querySelector('select')).toBeNull();
+    expect(seed.querySelector('input')).toBeNull();
     expect(
-      [...root.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim().toLowerCase()),
-    ).toEqual(['refresh', 'scan live auctions']);
+      [...seed.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim().toLowerCase()),
+    ).toEqual(['scan live auctions']);
+  });
+
+  // --- the supervised loader ----------------------------------------------------------
+
+  it('starts a supervised load and offers a stop while it runs', async () => {
+    const fixture = await render();
+
+    fixture.componentInstance.runLoad();
+    fixture.detectChanges();
+    const request = httpMock.expectOne(
+      `${environment.apiUrl}harvest/load?asta_type=mantra&follow=true`,
+    );
+    request.flush({ job_id: 'L1' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(request.request.method).toBe('POST');
+    expect(fixture.componentInstance.loaderRunning()).toBe(true);
+  });
+
+  it('asks the server to stop the load rather than forgetting it locally', async () => {
+    // The child outlives the page: forgetting the id here would leave it running with
+    // nothing left that knows how to stop it but the role lock.
+    const fixture = await render();
+    fixture.componentInstance.runLoad();
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}harvest/load?asta_type=mantra&follow=true`)
+      .flush({ job_id: 'L1' });
+    fixture.detectChanges();
+
+    fixture.componentInstance.stopLoad();
+    fixture.detectChanges();
+    const stop = httpMock.expectOne(`${environment.apiUrl}jobs/L1/stop`);
+    stop.flush({ ok: true });
+
+    expect(stop.request.method).toBe('POST');
+  });
+
+  it('reattaches to a load that was already running', async () => {
+    const fixture = await render(CORPUS, SEED, {
+      jobs: [
+        {
+          id: 'L9',
+          kind: 'harvest-load',
+          status: 'running',
+          started_at: '2026-09-05T18:00:00+00:00',
+          line_count: 0,
+          ok: null,
+          stoppable: true,
+        },
+      ],
+    });
+
+    expect(fixture.componentInstance.loaderRunning()).toBe(true);
   });
 
   it('reattaches to a scan that was already running', async () => {

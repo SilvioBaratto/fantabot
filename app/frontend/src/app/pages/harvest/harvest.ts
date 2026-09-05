@@ -19,6 +19,8 @@ import { Corpus, SeedPanel } from '../../core/models/corpus';
 
 /** The job kind this page owns. `GET /jobs` lists every kind; only this one belongs here. */
 const SCAN_KIND = 'harvest-scan';
+/** The supervised child. Not a thread: `processes.py` carries the argument. */
+const LOAD_KIND = 'harvest-load';
 
 /**
  * What the harvest actually put in the database, per format — and what the next collect
@@ -57,6 +59,18 @@ export class HarvestComponent implements OnInit {
   readonly scanStatus = signal<string>('');
   readonly scanOk = signal<boolean | null>(null);
   readonly scanError = signal<string | null>(null);
+
+  readonly loadFormat = signal('mantra');
+  readonly loadFollow = signal(true);
+  readonly loaderRunning = signal(false);
+  readonly loaderLines = signal<string[]>([]);
+  readonly loaderStatus = signal<string>('');
+  readonly loaderOk = signal<boolean | null>(null);
+  readonly loaderError = signal<string | null>(null);
+  /** The server's id for the running child. Stopping is a request, never a local forget. */
+  readonly loaderJobId = signal<string | null>(null);
+
+  readonly formats = ['mantra', 'classic'] as const;
 
   /** `{classic: 1226}` as `[['classic', 1226]]`, because a template cannot iterate a record. */
   readonly seedFormats = computed(() =>
@@ -123,10 +137,63 @@ export class HarvestComponent implements OnInit {
   }
 
   /**
-   * Pick up a scan still running from an earlier page load.
+   * Carry the landing zone into Postgres, supervised as a child process.
    *
-   * The server's listing is the source of truth, so a refresh mid-scan reattaches rather
-   * than re-enabling a button that would start a second one.
+   * The format is a parameter of this read — a seed holds both and a load carries one —
+   * and not the collection-time filter the scan is forbidden.
+   */
+  runLoad(): void {
+    if (this.loaderRunning()) return;
+    this.loaderError.set(null);
+    this.loaderLines.set([]);
+    this.loaderOk.set(null);
+    this.loaderStatus.set('running');
+    this.service
+      .startLoad(this.loadFormat(), this.loadFollow())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.loaderRunning.set(true);
+          this.loaderJobId.set(result.job_id);
+          this.pollLoad(result.job_id);
+        },
+        error: (response: { error?: { detail?: string } }) => {
+          this.loaderStatus.set('');
+          this.loaderError.set(response?.error?.detail ?? 'Could not start the loader.');
+        },
+      });
+  }
+
+  /**
+   * Ask the server to stop the child.
+   *
+   * A request and never a local forget: the child is a subprocess and outlives this page,
+   * so dropping the id here would leave it running with nothing that knows how to stop it
+   * but the role lock. The stop sequence itself — SIGINT, the lock, then SIGKILL — is the
+   * server's, and its escalation shows up in this log.
+   */
+  stopLoad(): void {
+    const jobId = this.loaderJobId();
+    if (!jobId) return;
+    this.jobs
+      .stop(jobId)
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe();
+  }
+
+  /**
+   * Pick up whatever this page owns that is still running from an earlier page load.
+   *
+   * One listing, both kinds: the server's list is the source of truth, so a refresh
+   * mid-run reattaches rather than re-enabling a button that would start a second. The
+   * child matters more than the scan does — it is a subprocess and survives the app
+   * itself, so the only thing that could stop it otherwise is the role lock.
+   *
+   * A listing that cannot be read is not an error worth showing: nothing the operator
+   * asked for has failed, and a red banner on arrival would be about the poll, not them.
    */
   private reattach(): void {
     this.jobs
@@ -136,11 +203,45 @@ export class HarvestComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((list) => {
-        const live = list.jobs.find((job) => job.kind === SCAN_KIND && job.status === 'running');
-        if (!live) return;
-        this.scanning.set(true);
-        this.scanStatus.set('running');
-        this.poll(live.id);
+        const running = (kind: string) =>
+          list.jobs.find((job) => job.kind === kind && job.status === 'running');
+
+        const scan = running(SCAN_KIND);
+        if (scan) {
+          this.scanning.set(true);
+          this.scanStatus.set('running');
+          this.poll(scan.id);
+        }
+
+        const load = running(LOAD_KIND);
+        if (load) {
+          this.loaderRunning.set(true);
+          this.loaderStatus.set('running');
+          this.loaderJobId.set(load.id);
+          this.pollLoad(load.id);
+        }
+      });
+  }
+
+  private pollLoad(jobId: string): void {
+    interval(1500)
+      .pipe(
+        switchMap(() => this.jobs.get(jobId, this.loaderLines().length)),
+        takeWhile((job) => job.status === 'running', true),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((job) => {
+        if (job.lines.length) this.loaderLines.update((shown) => [...shown, ...job.lines]);
+        this.loaderStatus.set(job.status);
+        if (job.status !== 'running') {
+          this.loaderRunning.set(false);
+          this.loaderJobId.set(null);
+          this.loaderOk.set(job.ok);
+          if (job.error) this.loaderError.set(job.error);
+          // The corpus is what a load moves, so this is the one place re-reading it says
+          // something true.
+          this.load();
+        }
       });
   }
 

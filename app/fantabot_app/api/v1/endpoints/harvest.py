@@ -13,6 +13,11 @@ one thing it exists to report.
 **The filter travels with the answer.** `planner_sales` is `clearing_sales` under one
 league shape, and read against another it is a different number — so the shape is in the
 response rather than assumed by whoever renders it.
+
+The reads above are the module's original job. The harvest *lifecycle* triggers live here
+too rather than in `actions.py`, because they are not that module's idiom: an action is a
+use case on a daemon thread, and these spawn and supervise a child process
+(`infrastructure/processes.py`).
 """
 
 from __future__ import annotations
@@ -22,8 +27,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from fantabot_app.api.infrastructure import processes
+from fantabot_app.api.infrastructure.jobs import registry
 
 router = APIRouter()
 
@@ -155,3 +163,49 @@ def harvest_seed() -> SeedPanel:
     from fantabot.config import harvest_dir
 
     return read_seed(harvest_dir() / "seed.json")
+
+
+class JobStarted(BaseModel):
+    job_id: str
+
+
+@router.post("/harvest/load", response_model=JobStarted, tags=["harvest"])
+def harvest_load(asta_type: str = "mantra", follow: bool = True) -> JobStarted:
+    """Carry the landing zone into Postgres, supervised as a child process.
+
+    A subprocess and not a thread — `processes.py` carries the argument. Proven here
+    before it is pointed at `collect`: the loader is idempotent and restartable, the
+    collector is the thing that cannot be re-run, and debugging process control against
+    the irreplaceable one is the wrong order.
+
+    **`asta_type` is not the filter the scan is forbidden.** A load reads one format's
+    auctions out of a seed that holds both, so the format is a parameter of this read.
+    What the app must never own is a *collection-time* filter — the thing that decides
+    which auctions are ever heard from at all.
+
+    The app never resets a checkpoint (`SPEC.md` §3.2), and there is nothing here that
+    could: the offset is the loader's, and the only command that moves it backwards stays
+    a terminal act.
+    """
+    from fantabot.adapters.files.lock import LOADER
+    from fantabot.adapters.persistence.models.aste import ASTA_TYPES
+    from fantabot.config import harvest_dir
+
+    if asta_type not in ASTA_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}",
+        )
+
+    args = ["harvest", "load", "--asta-type", asta_type]
+    if follow:
+        args.append("--follow")
+    job = processes.ProcessJob(
+        processes.fantabot_command(*args),
+        role=LOADER,
+        landing=harvest_dir() / "live.jsonl",
+    )
+    # `stop` is a real callable for the first time: every job before this one was a daemon
+    # thread, which cannot be interrupted from outside, and `JobRegistry.stop` answered
+    # 409 rather than pretending. A supervised process can honestly answer yes.
+    return JobStarted(job_id=registry.start(job.run, kind="harvest-load", stop=job.stop))

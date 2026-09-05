@@ -329,3 +329,84 @@ def test_no_format_filter_is_reachable_from_the_app() -> None:
     operation = schema["paths"]["/api/v1/actions/harvest-scan"]["post"]
 
     assert operation.get("parameters", []) == []
+
+
+# ---------------------------------------------------------------------------------------
+# POST /harvest/load — the supervisor, proven on the idempotent command first.
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def quick_child(monkeypatch, tmp_path):
+    """Point the supervisor at a short-lived real child instead of the fantabot CLI.
+
+    A real child, deliberately: the whole property being tested is what the operating
+    system does with a pipe and a signal, and a fake `Popen` would agree with whatever
+    the implementation happened to do.
+    """
+    import sys
+
+    from fantabot_app.api.infrastructure import processes
+
+    monkeypatch.setenv("FANTABOT_HARVEST_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        processes,
+        "fantabot_command",
+        lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
+    )
+    return tmp_path
+
+
+def test_a_supervised_load_shows_up_in_the_job_list_and_can_be_stopped(quick_child) -> None:
+    client = TestClient(app)
+
+    job_id = client.post("/api/v1/harvest/load?asta_type=classic").json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    row = next(row for row in client.get("/api/v1/jobs").json()["jobs"] if row["id"] == job_id)
+    assert row["kind"] == "harvest-load"
+    # The whole reason T7 could land before this one: a thread job answers 409 here, and
+    # a supervised process is the first kind that can honestly answer yes.
+    assert row["stoppable"] is True
+
+
+def test_the_supervised_command_carries_the_format_and_follow(quick_child) -> None:
+    """`--asta-type` is not the filter the scan is forbidden.
+
+    A load reads one format's auctions out of a seed that holds both, so the format is a
+    parameter of *this* read. What the app must never own is a collection-time filter —
+    the thing that decides which auctions are ever heard from.
+    """
+    client = TestClient(app)
+
+    job_id = client.post("/api/v1/harvest/load?asta_type=classic&follow=true").json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    log = " ".join(_job(client, job_id)["lines"])
+    assert "harvest load --asta-type classic --follow" in log
+
+
+def test_an_unknown_format_is_refused_before_anything_is_spawned(quick_child) -> None:
+    response = TestClient(app).post("/api/v1/harvest/load?asta_type=serie-b")
+
+    assert response.status_code == 400
+    assert "serie-b" in response.json()["detail"]
+
+
+def test_a_second_load_fails_the_job_naming_the_role_and_the_landing_zone(
+    quick_child,
+) -> None:
+    """Killing the app leaves the child running; the next start must find it through the
+    OS. Here the lock stands in for that child."""
+    from fantabot.adapters.files.lock import role_lock
+
+    landing = quick_child / "live.jsonl"
+    client = TestClient(app)
+
+    with role_lock(landing, "loader"):
+        job_id = client.post("/api/v1/harvest/load").json()["job_id"]
+        assert _wait(lambda: _job(client, job_id)["status"] == "error")
+
+    error = _job(client, job_id)["error"]
+    assert "loader" in error
+    assert str(landing) in error

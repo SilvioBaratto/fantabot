@@ -17,7 +17,7 @@
 
 <!-- The registry, beside the corpus and never summed with it: a scan grows the seed
      whether or not one frame was ever received. -->
-<section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+<section data-panel="seed" class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
   <div class="flex flex-wrap items-start justify-between gap-4 p-6">
     <div class="min-w-0">
       <h2 class="font-display text-lg font-semibold text-text">Seed</h2>
@@ -74,6 +74,85 @@
   }
   @if (scanLines().length) {
     <pre class="max-h-48 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of scanLines(); track $index) {{{ line }}
+}</pre>
+  }
+</section>
+
+<!-- The loader, supervised as a child process rather than run on a thread: it holds ~17x
+     its 32 MB window, and it must survive the server it was started from. -->
+<section data-panel="loader" class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="flex flex-wrap items-end justify-between gap-4 p-6">
+    <div>
+      <h2 class="font-display text-lg font-semibold text-text">Loader</h2>
+      <p class="mt-1 text-sm text-text-secondary">
+        Carries the landing zone into Postgres, resuming where the last pass stopped.
+      </p>
+
+      <div class="mt-4 flex flex-wrap items-center gap-4">
+        <label class="flex items-center gap-2 text-sm text-text-secondary">
+          Format
+          <!-- A seed holds both formats and a load carries one, so this is a parameter of
+               the read — not the collection-time filter the scan is forbidden. -->
+          <select
+            [value]="loadFormat()"
+            (change)="loadFormat.set($any($event.target).value)"
+            [disabled]="loaderRunning()"
+            class="rounded-md border border-border bg-surface-inset px-2 py-1 text-sm capitalize text-text disabled:opacity-50"
+          >
+            @for (format of formats; track format) {
+              <option [value]="format" class="capitalize">{{ format }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="flex items-center gap-2 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            [checked]="loadFollow()"
+            (change)="loadFollow.set($any($event.target).checked)"
+            [disabled]="loaderRunning()"
+            class="h-4 w-4 rounded border-border"
+          />
+          Keep following
+        </label>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        (click)="runLoad()"
+        [disabled]="loaderRunning()"
+        class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-inset px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-raised disabled:opacity-50"
+      >
+        <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loaderRunning()"></lucide-icon>
+        {{ loaderRunning() ? 'Loading…' : 'Start loader' }}
+      </button>
+      @if (loaderRunning()) {
+        <button
+          type="button"
+          (click)="stopLoad()"
+          class="inline-flex items-center gap-2 rounded-md border border-danger/40 px-3 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
+        >
+          Stop
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- SPEC §3.2: the app may never reset a load checkpoint. It has no control that could;
+       the recovery that re-reads 1.31 GB stays a terminal act. -->
+  <p class="border-t border-border px-6 py-3 text-xs text-text-tertiary">
+    Stopping asks the child politely first and says so if it has to escalate. The offset
+    only ever moves forward from here — resetting it is
+    <span class="font-mono">fantabot harvest load</span>, at a terminal, deliberately.
+  </p>
+
+  @if (loaderError(); as message) {
+    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
+  }
+  @if (loaderLines().length) {
+    <pre class="max-h-64 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of loaderLines(); track $index) {{{ line }}
 }</pre>
   }
 </section>

@@ -17,4 +17,17 @@ export class HarvestService {
   getSeed(): Observable<SeedPanel> {
     return this.http.get<SeedPanel>(`${environment.apiUrl}harvest/seed`);
   }
+
+  /**
+   * Carry the landing zone into Postgres, supervised as a child process.
+   *
+   * `astaType` is a parameter of the *read* — a seed holds both formats and a load
+   * carries one of them — and not the collection-time filter the scan is forbidden.
+   */
+  startLoad(astaType: string, follow: boolean): Observable<{ job_id: string }> {
+    return this.http.post<{ job_id: string }>(
+      `${environment.apiUrl}harvest/load?asta_type=${encodeURIComponent(astaType)}&follow=${follow}`,
+      {},
+    );
+  }
 }
