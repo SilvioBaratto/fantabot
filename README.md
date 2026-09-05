@@ -166,10 +166,14 @@ fantabot asta legality --rosa "1,2,3"           # which of the 11 schemi this ro
 fantabot asta live --league <id> --db <shard> --team <id>    # advise off a live room
 fantabot asta bid  --league <id> --db <shard> --team <id> --user <id>
 
-fantabot harvest scan --seed seed.json                       # which auctions are live
-fantabot harvest collect --seed seed.json --out landing.jsonl --pool 800
-fantabot harvest load landing.jsonl --seed seed.json --follow
-fantabot harvest backfill events.jsonl --seed seed.json
+# The seed, the landing zone and the listone bridge all default to the harvest home
+# (~/.fantabot/aste_live, or $FANTABOT_HARVEST_DIR). Naming them explicitly overrides the
+# home and resolves against the working directory, which is how one evening ends up with
+# two landing zones and two checkpoints that never meet.
+fantabot harvest scan                                        # which auctions are live
+fantabot harvest collect --pool 800                          # subscribe, append to disk
+fantabot harvest load --follow                               # landing zone -> Postgres
+fantabot harvest backfill events.jsonl                       # a recorded evening
 
 fantabot db check                    # health, per-table row counts and sizes
 fantabot db scrape quotazioni        # also statistiche, voti

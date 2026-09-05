@@ -42,10 +42,12 @@ fantabot news fetch --write             # the weekly run: all 523, both leagues
 fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
 
 fantabot auth fantalab-login                 # headed, manual; session encrypted into Postgres
-fantabot harvest scan --seed seed.json     # which auctions are live, both formats
-fantabot harvest collect --seed seed.json --out landing.jsonl   # subscribe, append to disk
-fantabot harvest load landing.jsonl --seed seed.json --follow   # landing zone -> Postgres
-fantabot harvest backfill events.jsonl --seed seed.json         # a recorded evening
+# Every harvest path defaults to the harvest home — see "One harvest home" below.
+fantabot harvest scan                      # which auctions are live, both formats
+fantabot harvest collect --pool 800        # subscribe, append to the landing zone
+fantabot harvest load --follow             # landing zone -> Postgres
+fantabot harvest backfill events.jsonl     # a recorded evening
+fantabot-app harvest adopt --from ./data/aste_live   # one-time move into the home
 
 pytest                       # default tier: zero sockets, db tests deselected
 fantabot-app db create fantabot_test    # once; the db tier never writes to `fantabot`
@@ -365,6 +367,29 @@ src/fantabot/
   a suite that queries is a suite nobody runs.
 - Ruff: line length 100, target py311, same `select`/`ignore` as mailwise.
   `mypy --strict` on `src/fantabot` (tests excluded).
+- **One harvest home, and it is derived.** `config.harvest_dir()` — `~/.fantabot/aste_live`
+  by default, `FANTABOT_HARVEST_DIR` when set — holds `<home>/live.jsonl`, its `.offset`
+  and `.state`, `<home>/seed.json` and `<home>/listone_map.json`. Same argument as the
+  database below: a
+  `./data/aste_live/` path only resolves from the repository root, and the app's working
+  directory is wherever its launcher was started.
+  **Naming a harvest path explicitly overrides the home and resolves against the cwd.**
+  That is what the flags are for and it is also the footgun: `harvest scan --seed seed.json`
+  *creates* the file it cannot find, so a command copied out of a doc silently starts a
+  second landing zone with its own checkpoint and its own fold state — the stray
+  `<home>/landing.jsonl`, `<home>/mantra_landing.jsonl` and three seeds already sitting
+  in the home are what that looks like after the fact.
+  Both command references were stale for exactly one commit (the flags were *required*
+  before `9e3eaf5`) and are now written without them.
+  **Set it as a real exported variable, never in `.env`** — `harvest_dir()` builds a fresh
+  `Settings()`, which reads `.env` relative to the working directory, so the CLI run from
+  the repository root would see it and the app started anywhere else would not. That is the
+  split, not the fix. `~/.zshenv` is where this machine keeps it; **`cron` does not source
+  it**, so a cron entry must carry the variable itself.
+  **`fantabot-app harvest adopt` refuses when source and destination are one directory**
+  (`samefile`, not `Path` equality) — without that check it deleted the landing zone it was
+  asked to adopt and reported `moved=0` with no error, which is the state an operator
+  reaches by taking the free-space refusal's own advice.
 - **One database, and it is the app's.** `fantabot-app` provisions a bundled PostgreSQL 18
   at `~/.fantabot/pgdata` (no Docker; the server ships inside the `pixeltable-pgserver`
   wheel), and `fantabot.config` derives its DSN from that path — reading `postmaster.pid`
