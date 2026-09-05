@@ -15,6 +15,69 @@
   </button>
 </header>
 
+<!-- The registry, beside the corpus and never summed with it: a scan grows the seed
+     whether or not one frame was ever received. -->
+<section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="flex flex-wrap items-start justify-between gap-4 p-6">
+    <div class="min-w-0">
+      <h2 class="font-display text-lg font-semibold text-text">Seed</h2>
+      @if (seed(); as s) {
+        @if (!s.ok) {
+          <p class="mt-1 text-sm text-danger">
+            The seed could not be read: <span class="font-mono">{{ s.error ?? 'unknown' }}</span>.
+          </p>
+        } @else if (!s.exists) {
+          <p class="mt-1 text-sm text-text-secondary">
+            No seed yet. Scan to write one at
+            <span class="break-all font-mono text-xs">{{ s.path }}</span>.
+          </p>
+        } @else {
+          <p class="mt-2 font-display text-4xl font-bold tabular-nums text-text">
+            {{ s.rows | number }}
+          </p>
+          <p class="mt-1 text-sm text-text-secondary">
+            auctions registered &middot;
+            @for (entry of seedFormats(); track entry[0]) {
+              <span class="capitalize">{{ entry[0] }}</span> {{ entry[1] | number }}@if (!$last) {,&nbsp;}
+            }
+          </p>
+          <p class="mt-2 break-all font-mono text-xs text-text-tertiary">{{ s.path }}</p>
+          @if (s.mtime) {
+            <p class="text-xs text-text-tertiary">last written {{ s.mtime }}</p>
+          }
+        }
+      } @else {
+        <p class="mt-1 text-sm text-text-secondary">Reading the seed&hellip;</p>
+      }
+    </div>
+
+    <button
+      type="button"
+      (click)="runScan()"
+      [disabled]="scanning()"
+      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-inset px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-raised disabled:opacity-50"
+    >
+      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="scanning()"></lucide-icon>
+      {{ scanning() ? 'Scanning…' : 'Scan live auctions' }}
+    </button>
+  </div>
+
+  <!-- A merge adds and updates; it never removes. So a rising count says a scan ran,
+       and says nothing at all about whether an evening was followed. -->
+  <p class="border-t border-border px-6 py-3 text-xs text-text-tertiary">
+    A scan merges both formats into this file: it adds and updates, and never removes.
+    Counted after the merge.
+  </p>
+
+  @if (scanError(); as message) {
+    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
+  }
+  @if (scanLines().length) {
+    <pre class="max-h-48 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of scanLines(); track $index) {{{ line }}
+}</pre>
+  }
+</section>
+
 @if (loading() && !corpus()) {
   <div class="h-56 animate-shimmer rounded-lg border border-border"></div>
 } @else if (errorMsg(); as message) {

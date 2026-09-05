@@ -103,3 +103,62 @@ def news_fetch_action(season: str = "2026/27", flush_every: int = 5, concurrency
         return result
 
     return JobStarted(job_id=registry.start(job, kind="news-fetch"))
+
+
+@router.post("/actions/harvest-scan", response_model=JobStarted, tags=["actions"])
+def harvest_scan_action() -> JobStarted:
+    """Ask FantaLab which auctions are live and merge them into the harvest home's seed.
+
+    **No format filter, deliberately, and none is reachable from here.** Filtering is a
+    query, never a decision taken at collection time: the poller filtering to Mantra is
+    what threw away 85% of the population. The CLI's `--only` is not mirrored.
+
+    `AuthExpired` and `ScanEmpty` fail the job carrying their own messages rather than
+    being flattened into an empty result — both are refusals, and reporting zero
+    auctions would look exactly like a quiet night.
+    """
+
+    def job(reporter: BufferingReporter) -> object:
+        import json
+
+        from fantabot.adapters.http.harvest.client import LiveAuctionsClient
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.adapters.tokens.fantalab_store import FantalabStore
+        from fantabot.config import harvest_dir, settings
+        from fantabot.domain.harvest.registry import from_seed_row, merge, to_seed_rows
+        from fantabot.domain.tokens.crypto import TokenCipher
+
+        seed = harvest_dir() / "seed.json"
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        # Built inside the session so the bearer is resolved by the adapter and never
+        # lands in a local here — the app never handles a plaintext FantaLab token.
+        with database_manager.get_session() as session:
+            client = LiveAuctionsClient.from_store(FantalabStore(session, cipher))
+
+        scanned = client.live_auctions()
+
+        known = []
+        if seed.exists():
+            # The poller-era file has no format column, and everything in it was Mantra.
+            known = [
+                from_seed_row(row, asta_type="mantra")
+                for row in json.loads(seed.read_text(encoding="utf-8"))
+            ]
+
+        merged = merge(known, scanned)
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        seed.write_text(
+            json.dumps(to_seed_rows(merged), ensure_ascii=False, indent=0) + "\n",
+            encoding="utf-8",
+        )
+
+        formats: dict[str, int] = {}
+        for config in scanned:
+            formats[config.asta_type] = formats.get(config.asta_type, 0) + 1
+        reporter.print(
+            f"live {len(scanned)} ({', '.join(f'{k} {v}' for k, v in sorted(formats.items()))})"
+            f" · registry {len(known)} -> {len(merged)} (+{len(merged) - len(known)})"
+        )
+        return True
+
+    return JobStarted(job_id=registry.start(job, kind="harvest-scan"))

@@ -4,7 +4,8 @@ import { TestBed } from '@angular/core/testing';
 import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
-import { Corpus } from '../../core/models/corpus';
+import { Corpus, SeedPanel } from '../../core/models/corpus';
+import { JobList } from '../../core/models/job';
 import { ICON_PROVIDER } from '../../icons';
 import { HarvestComponent } from './harvest';
 
@@ -69,10 +70,24 @@ describe('HarvestComponent', () => {
 
   afterEach(() => httpMock.verify());
 
-  async function render(body: Corpus = CORPUS) {
+  const SEED: SeedPanel = {
+    ok: true,
+    path: '/Users/me/.fantabot/aste_live/seed.json',
+    exists: true,
+    mtime: '2026-09-05T18:04:00+00:00',
+    rows: 1705,
+    formats: { classic: 1226, mantra: 479 },
+    error: null,
+  };
+
+  const NO_JOBS: JobList = { jobs: [] };
+
+  async function render(body: Corpus = CORPUS, seed: SeedPanel = SEED, jobs: JobList = NO_JOBS) {
     const fixture = TestBed.createComponent(HarvestComponent);
-    fixture.detectChanges(); // ngOnInit fires the request
+    fixture.detectChanges(); // ngOnInit fires the reads
     httpMock.expectOne(`${environment.apiUrl}harvest/corpus`).flush(body);
+    httpMock.expectOne(`${environment.apiUrl}harvest/seed`).flush(seed);
+    httpMock.expectOne(`${environment.apiUrl}jobs`).flush(jobs);
     fixture.detectChanges();
     await fixture.whenStable();
     return fixture;
@@ -111,6 +126,8 @@ describe('HarvestComponent', () => {
     const fixture = TestBed.createComponent(HarvestComponent);
     fixture.detectChanges();
     httpMock.expectOne(`${environment.apiUrl}harvest/corpus`).error(new ProgressEvent('error'));
+    httpMock.expectOne(`${environment.apiUrl}harvest/seed`).flush(SEED);
+    httpMock.expectOne(`${environment.apiUrl}jobs`).flush(NO_JOBS);
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -124,5 +141,80 @@ describe('HarvestComponent', () => {
     const fixture = await render({ ...CORPUS, ok: false, formats: [], error: 'OperationalError' });
 
     expect(fixture.nativeElement.textContent).toContain('OperationalError');
+  });
+
+  // --- the seed panel, and the scan that fills it -------------------------------------
+
+  it('renders the seed row count and its per-format split', async () => {
+    const text = (await render()).nativeElement.textContent as string;
+
+    expect(text).toContain('1,705');
+    expect(text).toContain('1,226'); // classic
+    expect(text).toContain('479'); // mantra
+  });
+
+  it('names the seed file and when it was last written', async () => {
+    // The path is the one thing that says which landing zone this app is looking at,
+    // and a scan run from a different working directory would write a different one.
+    const text = (await render()).nativeElement.textContent as string;
+
+    expect(text).toContain('/Users/me/.fantabot/aste_live/seed.json');
+  });
+
+  it('says the seed only ever grows, so a rising count is not evidence of collection', async () => {
+    const text = ((await render()).nativeElement.textContent as string).toLowerCase();
+
+    expect(text).toContain('never removes');
+  });
+
+  it('reports a seed that has never been written rather than zero rows', async () => {
+    const fixture = await render(CORPUS, { ...SEED, exists: false, rows: 0, mtime: null, formats: {} });
+
+    expect(fixture.nativeElement.textContent).toContain('No seed yet');
+  });
+
+  it('starts a scan and streams its lines', async () => {
+    const fixture = await render();
+
+    fixture.componentInstance.runScan();
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}actions/harvest-scan`)
+      .flush({ job_id: 'j1' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.scanning()).toBe(true);
+  });
+
+  it('offers no format filter anywhere on the page', async () => {
+    // `--only` is a collection-time decision and this app must not be able to take it.
+    // Checked as controls rather than as a word: the panel legitimately says "classic"
+    // and "mantra" while counting them, and a substring assertion would ban that too.
+    const root = (await render()).nativeElement as HTMLElement;
+
+    expect(root.querySelector('select')).toBeNull();
+    expect(root.querySelector('input')).toBeNull();
+    expect(
+      [...root.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim().toLowerCase()),
+    ).toEqual(['refresh', 'scan live auctions']);
+  });
+
+  it('reattaches to a scan that was already running', async () => {
+    const fixture = await render(CORPUS, SEED, {
+      jobs: [
+        {
+          id: 'j9',
+          kind: 'harvest-scan',
+          status: 'running',
+          started_at: '2026-09-05T18:00:00+00:00',
+          line_count: 0,
+          ok: null,
+          stoppable: false,
+        },
+      ],
+    });
+
+    expect(fixture.componentInstance.scanning()).toBe(true);
   });
 });

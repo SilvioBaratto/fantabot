@@ -17,6 +17,9 @@ response rather than assumed by whoever renders it.
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from fastapi import APIRouter
@@ -95,3 +98,60 @@ def harvest_corpus(num_credits: int = 500, num_teams: int = 8) -> Corpus:
         return Corpus(
             ok=False, num_credits=num_credits, num_teams=num_teams, error=type(exc).__name__
         )
+
+
+class SeedPanel(BaseModel):
+    """The registry beside the corpus: what a scan added, before anything was collected.
+
+    Registered is not collected — the seed grows on every scan whether or not a single
+    frame arrived — so this panel is deliberately *next to* the corpus rather than part
+    of it, and the counts are never summed together.
+    """
+
+    ok: bool
+    path: str
+    exists: bool
+    mtime: str | None = None
+    rows: int = 0
+    #: Per-format split, counted after the merge the scan wrote.
+    formats: dict[str, int] = {}
+    error: str | None = None
+
+
+def read_seed(path: Path) -> SeedPanel:
+    """Count the seed file at `path`, per format (pure but for the one read).
+
+    A row with no format is a poller-era row and is Mantra, the same fallback
+    `registry.from_seed_row` applies and for the same reason: the eleven-field file
+    predates storing the format, and reading those rows as anything else is how 185
+    Classic auctions came to be labelled Mantra.
+    """
+    from fantabot.domain.harvest.registry import SEED_FIELDS
+
+    fmt_index = SEED_FIELDS.index("asta_type")
+    if not path.exists():
+        # Not the same answer as zero rows: only one of the two names a command.
+        return SeedPanel(ok=True, path=str(path), exists=False)
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        formats: dict[str, int] = {}
+        for row in rows:
+            asta_type = row[fmt_index] if len(row) > fmt_index and row[fmt_index] else "mantra"
+            formats[str(asta_type)] = formats.get(str(asta_type), 0) + 1
+    except Exception as exc:  # noqa: BLE001 — a torn seed is a report, not a 500
+        return SeedPanel(ok=False, path=str(path), exists=True, error=type(exc).__name__)
+    return SeedPanel(
+        ok=True,
+        path=str(path),
+        exists=True,
+        mtime=datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(),
+        rows=len(rows),
+        formats=dict(sorted(formats.items())),
+    )
+
+
+@router.get("/harvest/seed", response_model=SeedPanel, tags=["harvest"])
+def harvest_seed() -> SeedPanel:
+    from fantabot.config import harvest_dir
+
+    return read_seed(harvest_dir() / "seed.json")

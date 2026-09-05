@@ -19,3 +19,20 @@ export interface Corpus {
   formats: CorpusFormat[];
   error: string | null;
 }
+
+/**
+ * The registry beside the corpus: what a scan added, before anything was collected.
+ *
+ * Deliberately a separate panel and never summed with the corpus — a seed grows on
+ * every scan whether or not one frame was received.
+ */
+export interface SeedPanel {
+  ok: boolean;
+  path: string;
+  exists: boolean;
+  mtime: string | null;
+  rows: number;
+  /** Per-format split, counted after the merge the scan wrote. */
+  formats: Record<string, number>;
+  error: string | null;
+}
