@@ -87,9 +87,131 @@ def up() -> None:
     server.serve()
 
 
+#: Where the app serves. `up` prints it; the stop sequence below asks it for the running
+#: collector, because the process that spawned a child is the only one that can stop it
+#: the documented way.
+API_BASE = "http://127.0.0.1:8000/api/v1"
+
+#: The bound on waiting for a collector to let go, and how often the wait looks. The same
+#: numbers as the supervisor's own sequence — see `api/infrastructure/processes.py`.
+COLLECTOR_STOP_GRACE_S = 15.0
+COLLECTOR_STOP_POLL_S = 0.25
+
+
+def _landing() -> Path:
+    """The landing zone of the harvest home, resolved when the command runs."""
+    from fantabot.config import harvest_dir
+
+    return Path(harvest_dir()) / "live.jsonl"
+
+
+def _collector_running(landing: Path) -> bool:
+    """Ask the operating system, by trying to take the role for a moment.
+
+    An advisory lock and not a pid file, and `adapters/files/lock.py` says why: the kernel
+    releases it however the holder dies, so this stays correct across a crash, a `SIGKILL`
+    and an app restart. Taking it and letting go is the *question*; nothing here holds it.
+    """
+    from fantabot.adapters.files.lock import COLLECTOR, RoleBusy, role_lock
+
+    try:
+        with role_lock(landing, COLLECTOR):
+            return False
+    except RoleBusy:
+        return True
+
+
+def _stop_collector(landing: Path) -> bool:
+    """Run the documented stop sequence, through the process that owns the child.
+
+    The launcher has no handle on the collector: it is a child of the *server*, and the
+    server is where SIGINT-then-lock-then-SIGKILL lives. So this asks it over the loopback
+    API rather than reimplementing the sequence against a pid it would have to guess.
+
+    Returns whether the collector is gone. `False` is the honest answer for a collector
+    started at a terminal, or with the app not running — neither is reachable from here,
+    and implying otherwise would be worse than saying so.
+    """
+    import json
+    import time
+    import urllib.error
+    import urllib.request
+
+    def call(path: str, method: str) -> object | None:
+        # A fixed loopback URL, not composed from anything the operator typed.
+        request = urllib.request.Request(f"{API_BASE}{path}", method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=2.0) as response:
+                parsed: object = json.loads(response.read().decode("utf-8"))
+                return parsed
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
+
+    listing = call("/jobs", "GET")
+    jobs = listing.get("jobs", []) if isinstance(listing, dict) else []
+    live = next(
+        (
+            job
+            for job in jobs
+            if job.get("kind") == "harvest-collect" and job.get("status") == "running"
+        ),
+        None,
+    )
+    if live is None:
+        return False
+    if call(f"/jobs/{live['id']}/stop", "POST") is None:
+        return False
+
+    deadline = time.monotonic() + COLLECTOR_STOP_GRACE_S
+    while time.monotonic() < deadline:
+        if not _collector_running(landing):
+            return True
+        time.sleep(COLLECTOR_STOP_POLL_S)
+    return not _collector_running(landing)
+
+
 @app.command()
-def stop() -> None:
-    """Stop the bundled Postgres (the same thing as ``fantabot-app db stop``)."""
+def stop(
+    force: Annotated[
+        bool, typer.Option("--force", help="Stop even while a collector is running.")
+    ] = False,
+) -> None:
+    """Stop the bundled Postgres — refusing while a collector is running.
+
+    A three-hour asta evening is exactly when a stray `stop` costs records, and the
+    landing zone's guarantee is about kills it did not choose. So the default is the
+    answer that cannot lose them, and `--force` is the other one.
+
+    The refusal stops **nothing**, Postgres included. Not because Postgres would harm a
+    collector — it cannot, which is the whole point of the landing zone — but because
+    "stopped most things" is not an answer anyone can act on at 21:47.
+
+    `fantabot-app db stop` is deliberately untouched: it addresses the pgdata path and
+    knows nothing about collectors. Two different answers to "is it safe to stop" inside
+    one CLI would be worse than one.
+    """
+    landing = _landing()
+    if _collector_running(landing):
+        if not force:
+            typer.echo(f"A collector is running: it holds {landing}.", err=True)
+            typer.echo(
+                "Stopped nothing, Postgres included. Stop it from the app's Harvest page, "
+                "or Ctrl-C the terminal it runs in — or re-run with --force.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if _stop_collector(landing):
+            typer.echo("Collector stopped.")
+        else:
+            # Honest rather than reassuring: only the process that spawned the child can
+            # run the documented sequence. Postgres still stops — it is not on the
+            # collection path, and that is exactly why an outage costs catch-up and never
+            # a record.
+            typer.echo(
+                "The collector is still running — it was not started by an app this "
+                f"launcher can reach. Stop it where it runs; it holds {landing}.",
+                err=True,
+            )
     db_stop()
 
 

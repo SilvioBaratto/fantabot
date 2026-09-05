@@ -9,7 +9,10 @@ The provisioner is reached through the `cli._provisioner` seam, so every case he
 under test is the CLI's, and no server is started to test it.
 """
 
+from contextlib import contextmanager
+
 import click
+import pytest
 import typer
 from typer.testing import CliRunner
 
@@ -246,3 +249,103 @@ def test_logs_live_under_fantabot_home() -> None:
 
 def test_home_is_the_fantabot_dir() -> None:
     assert paths.home().name == ".fantabot"
+
+
+# --- stop refuses while a collector runs (SPEC §3.4) -----------------------------------
+#
+# A three-hour asta evening is exactly when a stray `stop` costs records, and the landing
+# zone's guarantee is about kills it did not choose. `db stop` is deliberately untouched:
+# it addresses the pgdata path and knows nothing about collectors.
+
+
+@pytest.fixture
+def harvest_home(monkeypatch, tmp_path):
+    home = tmp_path / "aste_live"
+    home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("FANTABOT_HARVEST_DIR", str(home))
+    return home
+
+
+@contextmanager
+def _collector_holding(home):
+    from fantabot.adapters.files.lock import COLLECTOR, role_lock
+
+    with role_lock(home / "live.jsonl", COLLECTOR):
+        yield home / "live.jsonl"
+
+
+def test_stop_refuses_while_a_collector_holds_the_lock(monkeypatch, tmp_path, harvest_home):
+    _, stopped, _ = _install(monkeypatch, tmp_path)
+
+    with _collector_holding(harvest_home) as landing:
+        result = runner.invoke(app, ["stop"])
+
+    assert result.exit_code != 0
+    assert "collector" in result.output
+    assert str(landing) in result.output
+    # Postgres included: the refusal is "stopped nothing", not "stopped most things".
+    assert stopped == []
+
+
+def test_the_refusal_says_how_to_stop_the_collector_deliberately(
+    monkeypatch, tmp_path, harvest_home
+):
+    _install(monkeypatch, tmp_path)
+
+    with _collector_holding(harvest_home):
+        result = runner.invoke(app, ["stop"])
+
+    assert "--force" in result.output
+
+
+def test_stop_with_no_collector_running_stops_postgres(monkeypatch, tmp_path, harvest_home):
+    _, stopped, _ = _install(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["stop"])
+
+    assert result.exit_code == 0
+    assert stopped == [tmp_path / "pgdata"]
+
+
+def test_force_runs_the_stop_sequence_and_then_stops_postgres(
+    monkeypatch, tmp_path, harvest_home
+):
+    _, stopped, _ = _install(monkeypatch, tmp_path)
+    asked: list = []
+    monkeypatch.setattr(cli, "_stop_collector", lambda landing: asked.append(landing) or True)
+
+    with _collector_holding(harvest_home) as landing:
+        result = runner.invoke(app, ["stop", "--force"])
+
+    assert result.exit_code == 0
+    assert asked == [landing]
+    assert stopped == [tmp_path / "pgdata"]
+
+
+def test_force_says_so_when_the_collector_could_not_be_stopped(
+    monkeypatch, tmp_path, harvest_home
+):
+    """The launcher has no handle on a collector it did not start — only the app that
+    spawned it can run the documented sequence. Saying so is better than implying the
+    collector is gone, and Postgres still stops: it is not on the collection path."""
+    _, stopped, _ = _install(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "_stop_collector", lambda landing: False)
+
+    with _collector_holding(harvest_home):
+        result = runner.invoke(app, ["stop", "--force"])
+
+    assert result.exit_code == 0
+    assert "still" in result.output.lower()
+    assert stopped == [tmp_path / "pgdata"]
+
+
+def test_db_stop_knows_nothing_about_collectors(monkeypatch, tmp_path, harvest_home):
+    """It addresses the pgdata path. A `db stop` that consulted the harvest home would be
+    a second, different answer to "is it safe to stop" in the same CLI."""
+    _, stopped, _ = _install(monkeypatch, tmp_path)
+
+    with _collector_holding(harvest_home):
+        result = runner.invoke(app, ["db", "stop"])
+
+    assert result.exit_code == 0
+    assert stopped == [tmp_path / "pgdata"]
