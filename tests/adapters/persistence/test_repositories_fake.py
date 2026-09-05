@@ -80,24 +80,30 @@ class _FakeResult:
 class _FakeSession:
     """Records every statement, and answers with a queue of canned values."""
 
-    def __init__(self, answers: list[Any] | None = None) -> None:
+    def __init__(self, answers: list[Any] | None = None, *, literal: bool = False) -> None:
         self.statements: list[str] = []
         self._answers = list(answers or [])
+        # Bound parameters render as `:asta_type_1` by default, which is right for the
+        # structural assertions here and useless for asserting *which value* a filter
+        # carries. Opt in per session rather than always: literal binds fail to render
+        # for some types, and every existing assertion is about shape, not values.
+        self._literal = literal
 
     def execute(self, statement: Any, params: dict[str, Any] | None = None) -> _FakeResult:
         # Compiled against the Postgres dialect, not str(): DISTINCT ON and
         # ON CONFLICT are dialect-specific and render as nothing generically,
         # so a generic string would make every SQL assertion here vacuous.
+        kwargs = {"compile_kwargs": {"literal_binds": True}} if self._literal else {}
         try:
-            rendered = str(statement.compile(dialect=postgresql.dialect()))
+            rendered = str(statement.compile(dialect=postgresql.dialect(), **kwargs))
         except Exception:  # pragma: no cover - defensive
             rendered = str(statement)
         self.statements.append(rendered)
         return _FakeResult(self._answers.pop(0) if self._answers else 1)
 
 
-def _session(*answers: Any) -> Any:
-    return _FakeSession(list(answers))
+def _session(*answers: Any, literal: bool = False) -> Any:
+    return _FakeSession(list(answers), literal=literal)
 
 
 class TestTruncateIsAllowlisted:
@@ -402,8 +408,54 @@ class TestLeagueTokenRepository:
         assert "decrypt(" not in source
 
 
+class TestClearingSalesFilterOnTheFormatTheyAreGiven:
+    """The format is a parameter, because there are now two corpora and only one was read.
+
+    `mantra_clearing_sales` named the format in its own identifier and pinned
+    `asta_type = 'mantra'` in the filter, so `read_plan_inputs` had to guard the call with
+    `if listone == "mantra" ... else []`. Every Classic run therefore priced from `fvm`
+    alone — silently, because an empty corpus is a legal input to `mean_prices`.
+
+    Measured 2026-09-05, after the Classic landing zone was re-loaded: 32,100 Classic sales
+    over 453 players in 259 rooms of our own 8x500 shape, against 6,625 Mantra sales over
+    424 players in 49 rooms. The larger corpus was the unread one.
+    """
+
+    def test_the_format_reaches_the_where_clause(self) -> None:
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
+
+        for asta_type in ("classic", "mantra"):
+            session = _session([], literal=True)
+            AsteRepository(session).clearing_sales(asta_type=asta_type)
+
+            where = session.statements[0].split("WHERE", 1)[1]
+            assert f"asta.asta_type = '{asta_type}'" in where
+
+    def test_mantra_stays_the_default_so_no_caller_has_to_change(self) -> None:
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
+
+        session = _session([], literal=True)
+        AsteRepository(session).clearing_sales()
+
+        assert "asta.asta_type = 'mantra'" in session.statements[0]
+
+    def test_an_unknown_format_raises_before_any_sql_is_built(self) -> None:
+        """A typo must not read as "no sales": that is the failure this whole class is about.
+
+        `asta_type` is free text in the column, so an unrecognised value would return an
+        empty list and price a whole roster from `fvm` — the exact silence being removed.
+        """
+        from fantabot.adapters.persistence.repositories.aste import AsteRepository
+
+        session = _session([])
+        with pytest.raises(ValueError, match="asta_type"):
+            AsteRepository(session).clearing_sales(asta_type="Mantra")
+
+        assert session.statements == []
+
+
 class TestClearingSalesAreReadInAStableOrder:
-    """`mantra_clearing_sales` feeds the golden fixture, so its row order is load-bearing.
+    """`clearing_sales` feeds the golden fixture, so its row order is load-bearing.
 
     Postgres has no inherent order, and this query had no `ORDER BY`. Today that is
     harmless — `prices.mean_prices` sums ints, and integer addition is associative — but
@@ -419,7 +471,7 @@ class TestClearingSalesAreReadInAStableOrder:
         session = _session([])
         from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
-        AsteRepository(session).mantra_clearing_sales()
+        AsteRepository(session).clearing_sales()
 
         sql = session.statements[0]
         assert "ORDER BY" in sql, "clearing sales are read in whatever order Postgres returns"

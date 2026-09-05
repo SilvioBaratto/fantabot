@@ -110,11 +110,14 @@ class _FakeAsteRepository:
     def __init__(self, session: Any) -> None:
         self._session = session
 
-    def mantra_clearing_sales(
-        self, *, budget: int = 500, num_teams: int = 8
+    def clearing_sales(
+        self, *, asta_type: str = "mantra", budget: int = 500, num_teams: int = 8
     ) -> list[tuple[str, int]]:
         assert (budget, num_teams) == (500, 8), (
             f"the fixture is the 8x500 league shape; got {num_teams}x{budget}"
+        )
+        assert asta_type == "mantra", (
+            f"the fixture was captured from the Mantra corpus; got {asta_type!r}"
         )
         return load_clearing_sales()
 

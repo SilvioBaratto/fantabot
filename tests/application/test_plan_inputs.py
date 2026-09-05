@@ -17,6 +17,8 @@ say it too.
 
 from __future__ import annotations
 
+from typing import Any
+
 import _importgraph
 
 from fantabot.application.plan_inputs import build_plan_inputs
@@ -122,3 +124,96 @@ class TestTheClassicWorld:
         world = build_plan_inputs(rows, {}, None, as_of=None, tilt_k=1.0)
         assert all(isinstance(p, MantraPlayer) for p in world.pool)
         assert world.legality  # the 11 Mantra schemi are built for the default
+
+
+class TestTheClassicCorpusReachesThePlanner:
+    """`read_plan_inputs` read the corpus behind `if listone == "mantra" ... else []`.
+
+    That guard was correct when it was written — no Classic asta had been recorded — and it
+    was never re-examined once one had. A Classic run therefore got no prices at all, and
+    did so *silently*: an empty mapping is a legal `prices` argument, so nothing raised and
+    nothing warned. Measured over the live pool, the plan then bought a 25-man roster for
+    25 credits of 500 — the budget constraint has nothing to bind against — and 22 of its
+    25 slots differed from the corpus-priced plan.
+
+    Measured 2026-09-05, once the Classic landing zone was re-loaded into this database:
+    32,100 Classic sales over 453 players in 259 rooms of our own 8x500 shape — 4.8x the
+    Mantra corpus the planner *was* reading. The bigger corpus was the discarded one.
+
+    Asserted through `read_plan_inputs` rather than on the repository, because the guard
+    lived here: a repository that takes `asta_type` is no use if its caller still passes a
+    constant.
+    """
+
+    @staticmethod
+    def _rows(listone: str) -> dict[str, QuotazioneRow]:
+        """The two formats do not share a role vocabulary, so the fixture cannot either.
+
+        Classic is P/D/C/A, one role each; Mantra is the 12 codes, and `normalize_role`
+        raises on anything else. The prices under test are keyed by player id, which is
+        the same in both.
+        """
+        codes = ("D", "A") if listone == "classic" else ("DC", "PC")
+        return {
+            "1": QuotazioneRow(player_id="1", nome="Uno", squadra="ATA",
+                               ruoli_codice=(codes[0],), ruoli=(codes[0],), fvm=20),
+            "2": QuotazioneRow(player_id="2", nome="Due", squadra="BOL",
+                               ruoli_codice=(codes[1],), ruoli=(codes[1],), fvm=30),
+        }
+
+    def _read(self, monkeypatch: Any, listone: str) -> tuple[Any, dict[str, Any]]:
+        from fantabot.adapters.persistence.repositories import aste, reference
+        from fantabot.application.asta_planner import read_plan_inputs
+
+        seen: dict[str, Any] = {}
+        rows = self._rows(listone)
+
+        class _Aste:
+            def __init__(self, session: Any) -> None: ...
+
+            def clearing_sales(
+                self, *, asta_type: str = "mantra", budget: int = 500, num_teams: int = 8
+            ) -> list[tuple[str, int]]:
+                seen["asta_type"] = asta_type
+                seen["shape"] = (budget, num_teams)
+                return [("1", 10), ("1", 20), ("2", 60)]
+
+        class _Reference:
+            def __init__(self, session: Any) -> None: ...
+
+            def quotazioni(self, season: str, listone: str) -> dict[str, QuotazioneRow]:
+                return rows
+
+            def excluded_player_ids(self) -> frozenset[str]:
+                return frozenset()
+
+        monkeypatch.setattr(aste, "AsteRepository", _Aste)
+        monkeypatch.setattr(reference, "ReferenceRepository", _Reference)
+
+        world = read_plan_inputs(
+            object(),  # type: ignore[arg-type]
+            season="2026/27",
+            sentiment=None,
+            as_of=None,
+            tilt_k=1.0,
+            listone=listone,
+        )
+        return world, seen
+
+    def test_a_classic_run_reads_the_classic_corpus(self, monkeypatch: Any) -> None:
+        world, seen = self._read(monkeypatch, "classic")
+
+        assert seen["asta_type"] == "classic"
+        assert world.prices == {"1": 15.0, "2": 60.0}
+
+    def test_a_mantra_run_still_reads_the_mantra_corpus(self, monkeypatch: Any) -> None:
+        world, seen = self._read(monkeypatch, "mantra")
+
+        assert seen["asta_type"] == "mantra"
+        assert world.prices == {"1": 15.0, "2": 60.0}
+
+    def test_the_league_shape_is_still_forwarded(self, monkeypatch: Any) -> None:
+        """The 8x500 default is our room, not a constant — `docs/fantalab/00 §13`."""
+        _, seen = self._read(monkeypatch, "classic")
+
+        assert seen["shape"] == (500, 8)

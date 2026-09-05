@@ -20,7 +20,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.adapters.persistence.base import Base
-from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
+from fantabot.adapters.persistence.models.aste import (
+    ASTA_TYPES,
+    Asta,
+    AstaAssignment,
+    AstaEvent,
+)
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
 
 if TYPE_CHECKING:
@@ -104,14 +109,31 @@ def _chunks(
 class AsteRepository(RepositoryBase):
     """Reads and writes for `asta`, `asta_event` and `asta_assignment`."""
 
-    def mantra_clearing_sales(
-        self, *, budget: int = 500, num_teams: int = 8
+    def clearing_sales(
+        self, *, asta_type: str = "mantra", budget: int = 500, num_teams: int = 8
     ) -> list[tuple[str, int]]:
-        """`(player_id, price)` for every Mantra sale in auctions of a given shape.
+        """`(player_id, price)` for every sale in auctions of a given format and shape.
 
-        Restricted to `asta_type = 'mantra'` and the league shape (credits, team count)
-        so the prices are directly comparable to ours without budget normalization; sales
-        with no linked player (`fantacalcio_id IS NULL`) are dropped. Read-only.
+        Restricted to one `asta_type` and the league shape (credits, team count) so the
+        prices are directly comparable to ours without budget normalization; sales with no
+        linked player (`fantacalcio_id IS NULL`) are dropped. Read-only.
+
+        **The format was in the name and in the filter, and that cost a corpus.** This was
+        `mantra_clearing_sales`, so `read_plan_inputs` guarded the call with
+        `if listone == "mantra" ... else []` and a Classic run got no prices at all.
+        Correct when written — no Classic asta had been recorded — and silently wrong from
+        the moment one was, because an empty corpus is a legal input to `mean_prices`.
+
+        What it cost, measured 2026-09-05 over the live 570-player Classic pool: with no
+        prices the optimizer's budget constraint is vacuous, so the plan bought a 25-man
+        roster for **25 credits of 500** and left 475 unspent, and 22 of its 25 slots
+        differ from the plan the corpus produces. Every player also carried the
+        `no_history` variance band (16.0 against 4.0), which flattens `lam`. The corpus
+        itself is 32,100 Classic sales over 453 players in 259 rooms of our own 8x500
+        shape, against 6,625 over 424 in 49 for Mantra: the larger one was unread.
+
+        An unrecognised `asta_type` raises rather than returning `[]`. The column is free
+        text, so a typo would otherwise reproduce exactly the silence above.
 
         **A row with no buyer is not a sale, and this used to return them.** The collector
         records every lot the room calls, and 12,544 of 43,298 assignment rows -- 29% --
@@ -132,11 +154,13 @@ class AsteRepository(RepositoryBase):
         projected columns; `fantacalcio_id` alone is not, since a player sold in several
         auctions has several rows.
         """
+        if asta_type not in ASTA_TYPES:
+            raise ValueError(f"unknown asta_type {asta_type!r}; expected one of {ASTA_TYPES}")
         rows = self.session.execute(
             select(AstaAssignment.fantacalcio_id, AstaAssignment.price)
             .join(Asta, Asta.id == AstaAssignment.asta_id)
             .where(
-                Asta.asta_type == "mantra",
+                Asta.asta_type == asta_type,
                 Asta.num_credits == budget,
                 Asta.num_teams == num_teams,
                 AstaAssignment.fantacalcio_id.is_not(None),

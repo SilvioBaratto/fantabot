@@ -71,6 +71,14 @@ def read_plan_inputs(
 
     The defaults are our league, so no existing caller changes and the golden fixtures stand.
 
+    **`listone` now selects the corpus as well as the pool.** It used to select only the
+    pool: the sales read was guarded by `if listone == "mantra"`, so a Classic run was
+    handed an empty `prices` mapping — and an empty one is legal, so nothing raised. The
+    optimizer then had no cost to spend against and planned a 25-man roster for 25 credits
+    of 500 (measured 2026-09-05). The same argument now reaches
+    `clearing_sales(asta_type=...)`, which is the whole fix — a repository that takes the
+    format is no use while its one caller passes a constant.
+
     `callable_ids` is forwarded untouched. It has to live here as well as on the pure half:
     this is the only door — `asta optimize`, `asta live` and `asta bid` all come through it —
     and it holds a `Session`, not a listone bridge. The bridge is fetched in the interface,
@@ -80,13 +88,13 @@ def read_plan_inputs(
     from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
 
     reference = ReferenceRepository(session)
-    # The clearing-price corpus is Mantra-only today: no Classic asta has been recorded, so a
-    # Classic run prices every player as no-history (same mean, a wider band) from fvm alone.
-    # When a Classic corpus exists, generalise this read on asta_type.
-    sales = (
-        AsteRepository(session).mantra_clearing_sales(budget=num_credits, num_teams=num_teams)
-        if listone == "mantra"
-        else []
+    # The format is a parameter of the read, not a branch around it. It used to be the
+    # latter -- `if listone == "mantra" ... else []` -- under a comment saying no Classic
+    # asta had been recorded. That stopped being true and nothing noticed, because an empty
+    # corpus is a legal `prices` argument, so a Classic run planned against no costs at
+    # all. See `AsteRepository.clearing_sales` for what that cost, measured.
+    sales = AsteRepository(session).clearing_sales(
+        asta_type=listone, budget=num_credits, num_teams=num_teams
     )
     return build_plan_inputs(
         reference.quotazioni(season, listone),

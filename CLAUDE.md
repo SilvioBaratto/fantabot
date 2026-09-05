@@ -299,6 +299,18 @@ src/fantabot/
   schemas on four lines, and its schema grid ships as package data at
   `src/fantabot/data/mantra_schemi.json`. Both the asta (`--format`, and the live room
   dispatched by format) and the weekly lineup now run either.
+  **Both formats now price off a recorded corpus (2026-09-05).** `clearing_sales` was
+  `mantra_clearing_sales` — the format was in its name *and* pinned in its filter — so
+  `read_plan_inputs` guarded the call with `if listone == "mantra" ... else []` and a
+  Classic run got **no prices at all**. Correct the day it was written, and silently wrong
+  from the day a Classic asta was recorded: an empty `prices` mapping is legal, so nothing
+  raised and nothing warned. The symptom was not a slightly-off plan — with no costs the
+  budget constraint is vacuous, and the Classic plan bought its 25-man roster for **25
+  credits of 500**, 22 of those 25 slots differing from the corpus-priced plan. In our own
+  8x500 shape the unread corpus was also the **larger** one: 32,100 Classic sales over 453
+  players in 259 rooms, against 6,625 over 424 in 49 for Mantra. The format is now a
+  parameter of the read, an unknown one raises rather than returning `[]`, and the guard
+  is gone.
 - ~~**`mantra_compat.json` is thin**~~ **Resolved 2026-08-28.** It held one entry
   and ten empty lists; it is now the whole table — 11 schemas × 11 slots × 12
   roles = 1,452 cells — transcribed from the published PDF, which is kept at
