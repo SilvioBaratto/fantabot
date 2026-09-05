@@ -32,6 +32,11 @@ export const routes: Routes = [
         title: 'Modules',
       },
       {
+        path: 'harvest',
+        loadComponent: () => import('./pages/harvest/harvest').then((m) => m.HarvestComponent),
+        title: 'Harvest',
+      },
+      {
         path: 'accounts',
         loadComponent: () => import('./pages/accounts/accounts').then((m) => m.AccountsComponent),
         title: 'Accounts',

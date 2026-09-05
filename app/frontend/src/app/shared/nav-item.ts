@@ -21,6 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Lineup', route: '/lineup', icon: 'ClipboardList' },
   { name: 'Prices', route: '/prices', icon: 'FunctionSquare' },
   { name: 'Modules', route: '/modules', icon: 'CheckCircle' },
+  { name: 'Harvest', route: '/harvest', icon: 'Database' },
   { name: 'Accounts', route: '/accounts', icon: 'User' },
   { name: 'Synchronize', route: '/synchronize', icon: 'RefreshCw' },
   { name: 'News', route: '/news', icon: 'MessageSquare' },
