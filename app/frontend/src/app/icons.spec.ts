@@ -39,10 +39,6 @@ describe('ICON_PROVIDER', () => {
       expect(ICON_PROVIDER.useValue.getIcon('MessageSquare')).toBeTruthy();
     });
 
-    it('returns icon data for Home', () => {
-      expect(ICON_PROVIDER.useValue.getIcon('Home')).toBeTruthy();
-    });
-
     it('returns icon data for LayoutDashboard', () => {
       expect(ICON_PROVIDER.useValue.getIcon('LayoutDashboard')).toBeTruthy();
     });
@@ -51,20 +47,32 @@ describe('ICON_PROVIDER', () => {
       expect(ICON_PROVIDER.useValue.getIcon('User')).toBeTruthy();
     });
 
-    it('returns icon data for LogOut', () => {
-      expect(ICON_PROVIDER.useValue.getIcon('LogOut')).toBeTruthy();
-    });
-
-    it('returns icon data for Sun', () => {
-      expect(ICON_PROVIDER.useValue.getIcon('Sun')).toBeTruthy();
-    });
-
-    it('returns icon data for Moon', () => {
-      expect(ICON_PROVIDER.useValue.getIcon('Moon')).toBeTruthy();
-    });
-
     it('returns icon data for Monitor', () => {
       expect(ICON_PROVIDER.useValue.getIcon('Monitor')).toBeTruthy();
+    });
+
+    it('returns icon data for RefreshCw', () => {
+      expect(ICON_PROVIDER.useValue.getIcon('RefreshCw')).toBeTruthy();
+    });
+  });
+
+  // These names reach the provider as kebab-case string literals in templates,
+  // so `IconName` cannot catch their removal — only this test can.
+  describe('when a kebab-case template name is requested, it resolves', () => {
+    it('returns icon data for loader-2', () => {
+      expect(ICON_PROVIDER.useValue.getIcon('Loader2')).toBeTruthy();
+    });
+
+    it('returns icon data for chevron-right', () => {
+      expect(ICON_PROVIDER.useValue.getIcon('ChevronRight')).toBeTruthy();
+    });
+
+    it('returns icon data for chevron-down', () => {
+      expect(ICON_PROVIDER.useValue.getIcon('ChevronDown')).toBeTruthy();
+    });
+
+    it('returns icon data for plus', () => {
+      expect(ICON_PROVIDER.useValue.getIcon('Plus')).toBeTruthy();
     });
   });
 });

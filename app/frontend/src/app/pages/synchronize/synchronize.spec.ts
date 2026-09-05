@@ -5,14 +5,14 @@ import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
-import { ActionsComponent } from './actions';
+import { SynchronizeComponent } from './synchronize';
 
-describe('ActionsComponent', () => {
+describe('SynchronizeComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ActionsComponent],
+      imports: [SynchronizeComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -33,7 +33,7 @@ describe('ActionsComponent', () => {
   afterEach(() => httpMock.verify());
 
   it('starts a lega sync job for the entered league id', () => {
-    const fixture = TestBed.createComponent(ActionsComponent);
+    const fixture = TestBed.createComponent(SynchronizeComponent);
     fixture.detectChanges();
 
     fixture.componentInstance.setLeagueId('4103937');
@@ -50,7 +50,7 @@ describe('ActionsComponent', () => {
   });
 
   it('does not start when no league id is entered', () => {
-    const fixture = TestBed.createComponent(ActionsComponent);
+    const fixture = TestBed.createComponent(SynchronizeComponent);
     fixture.detectChanges();
 
     fixture.componentInstance.runLegaSync();
@@ -59,18 +59,15 @@ describe('ActionsComponent', () => {
     expect(fixture.componentInstance.running()).toBe(false);
   });
 
-  it('starts a news fetch job for the season', () => {
-    const fixture = TestBed.createComponent(ActionsComponent);
+  it('offers only the lega sync', () => {
+    // News fetch moved off this page; the endpoint and ActionsService.runNewsFetch
+    // both remain, for wherever it lands next.
+    const fixture = TestBed.createComponent(SynchronizeComponent);
     fixture.detectChanges();
 
-    fixture.componentInstance.runNewsFetch();
-
-    httpMock
-      .expectOne((r) => r.url.includes('actions/news-fetch') && r.url.includes('2026'))
-      .flush({ job_id: 'J2' });
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.running()).toBe(true);
-    fixture.destroy();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Lega sync');
+    expect(text).not.toContain('News fetch');
+    httpMock.expectNone((r) => r.url.includes('actions/news-fetch'));
   });
 });

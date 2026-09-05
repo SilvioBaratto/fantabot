@@ -5,12 +5,7 @@ export const routes: Routes = [
     path: '',
     loadComponent: () => import('./shared/layout/layout').then((m) => m.LayoutComponent),
     children: [
-      { path: '', redirectTo: 'home', pathMatch: 'full' },
-      {
-        path: 'home',
-        loadComponent: () => import('./pages/home/home').then((m) => m.HomeComponent),
-        title: 'Home',
-      },
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       {
         path: 'dashboard',
         loadComponent: () => import('./pages/dashboard/dashboard').then((m) => m.DashboardComponent),
@@ -42,9 +37,10 @@ export const routes: Routes = [
         title: 'Accounts',
       },
       {
-        path: 'actions',
-        loadComponent: () => import('./pages/actions/actions').then((m) => m.ActionsComponent),
-        title: 'Actions',
+        path: 'synchronize',
+        loadComponent: () =>
+          import('./pages/synchronize/synchronize').then((m) => m.SynchronizeComponent),
+        title: 'Synchronize',
       },
       {
         path: 'news',
@@ -55,11 +51,6 @@ export const routes: Routes = [
         path: 'system',
         loadComponent: () => import('./pages/system/system').then((m) => m.SystemComponent),
         title: 'System',
-      },
-      {
-        path: 'settings',
-        loadComponent: () => import('./pages/settings/settings').then((m) => m.SettingsComponent),
-        title: 'Settings',
       },
     ],
   },

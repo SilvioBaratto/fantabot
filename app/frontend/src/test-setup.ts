@@ -1,7 +1,7 @@
 // Test-environment polyfills. The default jsdom environment implements neither
-// window.matchMedia nor ResizeObserver, which the responsive shell and the theme
-// service (and their specs, which `vi.spyOn(window, 'matchMedia')`) depend on.
-// Defined configurable + writable so specs can spy on / override them.
+// window.matchMedia nor ResizeObserver, which the responsive shell and its specs
+// (which `vi.spyOn(window, 'matchMedia')`, and so need the property to exist)
+// depend on. Defined configurable + writable so specs can spy on / override them.
 
 if (typeof window !== 'undefined') {
   if (!window.matchMedia) {

@@ -37,11 +37,18 @@ describe('SidebarComponent', () => {
     expect(el.querySelector('lucide-icon')).toBeTruthy();
   });
 
-  it('when the nav renders, the Home, Dashboard and Settings labels are shown', async () => {
+  it('when the nav renders, the Dashboard, Asta and System labels are shown', async () => {
     const el = await render();
     const navText = el.querySelector('nav')!.textContent ?? '';
-    expect(navText).toContain('Home');
     expect(navText).toContain('Dashboard');
-    expect(navText).toContain('Settings');
+    expect(navText).toContain('Asta');
+    expect(navText).toContain('System');
+  });
+
+  it('when the nav renders, the removed starter pages are absent', async () => {
+    const el = await render();
+    const navText = el.querySelector('nav')!.textContent ?? '';
+    expect(navText).not.toContain('Home');
+    expect(navText).not.toContain('Settings');
   });
 });

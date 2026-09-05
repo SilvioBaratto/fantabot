@@ -34,7 +34,6 @@ describe('LayoutComponent', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    document.documentElement.classList.remove('dark', 'theme-transitioning');
   });
 
   async function render(): Promise<HTMLElement> {
@@ -86,7 +85,7 @@ describe('LayoutComponent', () => {
   });
 
   it('when navigation ends, focus moves to main-content', async () => {
-    const routes = [{ path: 'home', component: LayoutComponent }];
+    const routes = [{ path: 'dashboard', component: LayoutComponent }];
     vi.spyOn(window, 'matchMedia').mockReturnValue({
       matches: false,
       addEventListener: () => {},
@@ -117,7 +116,7 @@ describe('LayoutComponent', () => {
     const main = fixture.nativeElement.querySelector('#main-content') as HTMLElement;
     expect(main).toBeTruthy();
 
-    await router.navigate(['/home']);
+    await router.navigate(['/dashboard']);
     fixture.detectChanges();
     await fixture.whenStable();
 

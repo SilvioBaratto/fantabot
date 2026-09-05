@@ -1,9 +1,9 @@
 @import 'tailwindcss';
-@custom-variant dark (&:where(.dark, .dark *):not(:where(.light, .light *)));
-/* `dark:` applies inside a `.dark` subtree, EXCEPT where a nested `.light`
-   re-asserts the light theme (used by the component catalog to show a true
-   light preview even when the global theme is dark). The inner `:where()`
-   keeps the `:not()` at zero specificity so utility ordering is unaffected. */
+
+/* This app is light-only: there is no `dark:` variant, no `.dark` / `.light`
+   palette override and no theme service. `@theme` below is the whole palette.
+   `color-scheme: light` in the base layer stops the browser from dark-theming
+   form controls and scrollbars when the OS is set to dark. */
 
 @theme {
   /* Fonts — Archivo carries the sporting personality; Public Sans is the quiet body. */
@@ -45,81 +45,9 @@
   --color-info: #2f6fed;
 }
 
-.dark {
-  /* Surface — night match: deep green-black */
-  --color-surface: #0b1310;
-  --color-surface-raised: #12201a;
-  --color-surface-inset: #182a22;
-
-  /* Border */
-  --color-border: #263a30;
-  --color-border-muted: #182a22;
-
-  /* Text */
-  --color-text: #eef3f0;
-  --color-text-secondary: #a7b7ad;
-  --color-text-tertiary: #7c8a82;
-
-  /* Primary — turf lifted for dark bg */
-  --color-primary: #2fd08a;
-  --color-primary-hover: #27b878;
-  --color-primary-light: #10251c;
-
-  /* Accent — turf lifted */
-  --color-accent: #2fd08a;
-  --color-accent-hover: #27b878;
-  --color-accent-light: #10251c;
-
-  /* Signature pop — turf (holds well on dark) */
-  --color-signature: #34d399;
-
-  /* Semantic */
-  --color-danger: #f0715b;
-  --color-success: #34d399;
-  --color-warning: #f0c85a;
-  --color-info: #6ea0f5;
-}
-
-/* Re-assert the light theme inside a `.dark` ancestor. Mirrors the @theme
-   light values so a `.light`-scoped region renders light regardless of the
-   global theme — the symmetric counterpart to `.dark`. */
-.light {
-  /* Surface */
-  --color-surface: #f4f6f4;
-  --color-surface-raised: #ffffff;
-  --color-surface-inset: #ecefec;
-
-  /* Border */
-  --color-border: #dbe2dc;
-  --color-border-muted: #ecefec;
-
-  /* Text */
-  --color-text: #10161c;
-  --color-text-secondary: #45524b;
-  --color-text-tertiary: #78877e;
-
-  /* Primary — pitch */
-  --color-primary: #0e3b2e;
-  --color-primary-hover: #0a2c22;
-  --color-primary-light: #e6efe9;
-
-  /* Accent — turf */
-  --color-accent: #1fa971;
-  --color-accent-hover: #17885b;
-  --color-accent-light: #e4f5ed;
-
-  /* Signature pop — turf */
-  --color-signature: #1fa971;
-
-  /* Semantic */
-  --color-danger: #c8452f;
-  --color-success: #1fa971;
-  --color-warning: #e8b93b;
-  --color-info: #2f6fed;
-}
-
 @layer base {
   html {
+    color-scheme: light;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -200,11 +128,6 @@
 
   .scrollbar-hidden::-webkit-scrollbar {
     display: none;
-  }
-
-  /* Suppress all transitions while theme is switching */
-  .theme-transitioning * {
-    transition: none !important;
   }
 
   /* Set touch-action manipulation on tappable elements: removes the ~300ms double-tap-zoom

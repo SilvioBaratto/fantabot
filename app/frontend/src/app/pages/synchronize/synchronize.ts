@@ -13,19 +13,18 @@ import { ActionsService } from '../../core/api/actions.service';
 import { JobsService } from '../../core/api/jobs.service';
 
 @Component({
-  selector: 'app-actions',
+  selector: 'app-synchronize',
   imports: [LucideAngularModule],
-  templateUrl: './actions.html',
+  templateUrl: './synchronize.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block p-6 md:p-8' },
 })
-export class ActionsComponent {
+export class SynchronizeComponent {
   private readonly actions = inject(ActionsService);
   private readonly jobs = inject(JobsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly leagueId = signal<number | null>(null);
-  readonly season = signal('2026/27');
   readonly running = signal(false);
   readonly lines = signal<string[]>([]);
   readonly jobStatus = signal<string>('');
@@ -37,19 +36,10 @@ export class ActionsComponent {
     this.leagueId.set(Number.isFinite(parsed) && value.trim() !== '' ? parsed : null);
   }
 
-  setSeason(value: string): void {
-    this.season.set(value);
-  }
-
   runLegaSync(): void {
     const id = this.leagueId();
     if (!id || this.running()) return;
     this.startJob(this.actions.runLegaSync(id));
-  }
-
-  runNewsFetch(): void {
-    if (this.running() || !this.season().trim()) return;
-    this.startJob(this.actions.runNewsFetch(this.season()));
   }
 
   private startJob(request: Observable<{ job_id: string }>): void {

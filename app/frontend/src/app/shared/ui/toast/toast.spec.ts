@@ -185,7 +185,7 @@ describe('ToastComponent', () => {
     expect(container.className).toContain('pb-safe');
   });
 
-  // --- dark-mode tokens ---
+  // --- design tokens ---
 
   it('when rendered, no hardcoded hex colors appear in inline element styles', () => {
     const hexPattern = /#[0-9a-fA-F]{3,8}\b/;

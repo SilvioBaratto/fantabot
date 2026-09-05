@@ -4,4 +4,6 @@ export interface JobStatus {
   lines: string[];
   ok: boolean | null;
   error: string | null;
+  /** True while the job is parked waiting for you to confirm. */
+  awaiting_confirm?: boolean;
 }

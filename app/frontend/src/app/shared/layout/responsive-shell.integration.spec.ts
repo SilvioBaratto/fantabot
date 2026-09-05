@@ -58,7 +58,6 @@ describe('Responsive shell (integration)', () => {
 
   afterEach(() => {
     window.ResizeObserver = originalResizeObserver;
-    document.documentElement.classList.remove('dark', 'theme-transitioning');
   });
 
   /** Run ngOnInit once, then drive the signals and re-render deterministically. */

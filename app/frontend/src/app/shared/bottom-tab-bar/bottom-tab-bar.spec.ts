@@ -48,21 +48,21 @@ describe('BottomTabBarComponent', () => {
     expect(tabs.every((t) => !!t.querySelector('lucide-icon'))).toBe(true);
   });
 
-  it('when the tabs render, the Home, Dashboard and Settings labels are shown', async () => {
+  it('when the tabs render, the Dashboard, Asta and System labels are shown', async () => {
     const tabs = await renderTabs();
     const text = tabs.map((t) => t.textContent).join(' ');
-    expect(text).toContain('Home');
     expect(text).toContain('Dashboard');
-    expect(text).toContain('Settings');
+    expect(text).toContain('Asta');
+    expect(text).toContain('System');
   });
 
   it('when a tab is active, aria-current page is exposed on the anchor', async () => {
-    // Use a real /home route so RouterLinkActive activates and sets aria-current.
+    // Use a real /dashboard route so RouterLinkActive activates and sets aria-current.
     const { RouterTestingModule } = await import('@angular/router/testing');
     await TestBed.configureTestingModule({
       imports: [BottomTabBarComponent],
       providers: [
-        provideRouter([{ path: 'home', component: BottomTabBarComponent }]),
+        provideRouter([{ path: 'dashboard', component: BottomTabBarComponent }]),
         ICON_PROVIDER,
         {
           provide: LucideIconConfig,
@@ -77,7 +77,7 @@ describe('BottomTabBarComponent', () => {
     }).compileComponents();
 
     const router = TestBed.inject(Router);
-    await router.navigate(['/home']);
+    await router.navigate(['/dashboard']);
     const fixture = TestBed.createComponent(BottomTabBarComponent);
     fixture.detectChanges();
     await fixture.whenStable();

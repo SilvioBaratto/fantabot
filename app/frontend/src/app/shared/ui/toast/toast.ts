@@ -3,10 +3,10 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { Toast, ToastService, ToastVariant } from './toast.service';
 
 const VARIANT_CLASSES: Record<ToastVariant, string> = {
-  info: 'bg-info/10 border-info/30 text-info dark:bg-info/20',
-  success: 'bg-success/10 border-success/30 text-success dark:bg-success/20',
-  warning: 'bg-warning/10 border-warning/30 text-warning dark:bg-warning/20',
-  error: 'bg-danger/10 border-danger/30 text-danger dark:bg-danger/20',
+  info: 'bg-info/10 border-info/30 text-info',
+  success: 'bg-success/10 border-success/30 text-success',
+  warning: 'bg-warning/10 border-warning/30 text-warning',
+  error: 'bg-danger/10 border-danger/30 text-danger',
 };
 
 const ITEM_BASE =

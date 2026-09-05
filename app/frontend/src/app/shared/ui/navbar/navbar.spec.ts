@@ -60,9 +60,9 @@ describe('NavbarComponent — actions projection', () => {
   });
 });
 
-// ── dark-mode tokens ─────────────────────────────────────────────────────────
+// ── design tokens ────────────────────────────────────────────────────────────
 
-describe('NavbarComponent — dark-mode tokens', () => {
+describe('NavbarComponent — design tokens', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({ imports: [NavbarComponent] }).compileComponents();
   });

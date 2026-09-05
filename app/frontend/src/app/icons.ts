@@ -1,27 +1,18 @@
 import { LUCIDE_ICONS, LucideIconProvider } from 'lucide-angular';
 import {
-  ArrowUp,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   CircleCheckBig,
   ClipboardList,
-  House,
-  Info,
   LayoutDashboard,
   Loader2,
-  LogOut,
   Menu,
   MessageSquare,
   Monitor,
-  Moon,
   Plus,
-  Search,
-  Settings,
-  Settings2,
+  RefreshCw,
   SlidersVertical,
   SquareFunction,
-  Sun,
   User,
   X,
 } from 'lucide-angular';
@@ -29,31 +20,26 @@ import {
 // LucideIconProvider matches template names by converting kebab-case to PascalCase
 // and looking up the result in this map's keys. Most entries use the icon's own
 // PascalCase identifier as the key; the aliased entries below map the deprecated
-// names (CheckCircle, Sliders, FunctionSquare, Home) to their canonical
+// names (CheckCircle, Sliders, FunctionSquare) to their canonical
 // (non-deprecated) counterparts in lucide-angular ≥ 0.477.
+//
+// Registered icons are exactly the ones the app renders: every entry is reachable
+// either through `IconName` (type-checked) or through a kebab-case literal in a
+// template (not type-checked — grep `lucide-icon` before removing one).
 const icons = {
-  ArrowUp,
   CheckCircle: CircleCheckBig,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   ClipboardList,
   FunctionSquare: SquareFunction,
-  Home: House,
-  Info,
   LayoutDashboard,
   Loader2,
-  LogOut,
   Menu,
   MessageSquare,
   Monitor,
-  Moon,
   Plus,
-  Search,
-  Settings,
-  Settings2,
+  RefreshCw,
   Sliders: SlidersVertical,
-  Sun,
   User,
   X,
 };

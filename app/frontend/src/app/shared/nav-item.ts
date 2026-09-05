@@ -16,15 +16,13 @@ export interface NavItem {
  * and the mobile bottom-tab-bar so the two surfaces cannot drift out of sync.
  */
 export const NAV_ITEMS: NavItem[] = [
-  { name: 'Home', route: '/home', icon: 'Home' },
   { name: 'Dashboard', route: '/dashboard', icon: 'LayoutDashboard' },
   { name: 'Asta', route: '/asta', icon: 'Sliders' },
   { name: 'Lineup', route: '/lineup', icon: 'ClipboardList' },
   { name: 'Prices', route: '/prices', icon: 'FunctionSquare' },
   { name: 'Modules', route: '/modules', icon: 'CheckCircle' },
   { name: 'Accounts', route: '/accounts', icon: 'User' },
-  { name: 'Actions', route: '/actions', icon: 'Plus' },
+  { name: 'Synchronize', route: '/synchronize', icon: 'RefreshCw' },
   { name: 'News', route: '/news', icon: 'MessageSquare' },
   { name: 'System', route: '/system', icon: 'Monitor' },
-  { name: 'Settings', route: '/settings', icon: 'Settings' },
 ];

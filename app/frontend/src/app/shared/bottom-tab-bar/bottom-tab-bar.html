@@ -5,7 +5,7 @@
     <a [routerLink]="tab.route"
        routerLinkActive="text-primary"
        ariaCurrentWhenActive="page"
-       [routerLinkActiveOptions]="{ exact: tab.route === '/home' }"
+       [routerLinkActiveOptions]="{ exact: tab.route === '/dashboard' }"
        [attr.aria-label]="tab.name"
        class="flex flex-1 flex-col items-center justify-center gap-0.5 text-text-secondary transition-colors">
       <lucide-icon [name]="tab.icon" class="w-5 h-5" aria-hidden="true" />

@@ -33,22 +33,38 @@
     <div class="h-1 w-full bg-primary"></div>
     <div class="p-6">
       <h2 class="font-display text-lg font-semibold text-text">Sign in in the browser window</h2>
-      <p class="mt-1 text-sm text-text-secondary">
-        A browser opened on this machine. Log in to fantacalcio.it until you can see your
-        leghe, then click Continue — nothing is typed for you.
-      </p>
+      @if (connectKind() === 'fantalab') {
+        <p class="mt-1 text-sm text-text-secondary">
+          A browser opened on this machine. Sign in to FantaLab — nothing is typed for
+          you — then click Continue.
+        </p>
+      } @else {
+        <p class="mt-1 text-sm text-text-secondary">
+          A browser opened on this machine. Sign in to fantacalcio.it — nothing is typed
+          for you — then click Continue.
+        </p>
+      }
+      <!-- The job's own output, live. It was always being written; nothing displayed
+           it, because the UI only started polling after the Continue button. -->
+      @if (captureLog().length) {
+        <pre class="mt-4 max-h-40 overflow-y-auto rounded-md bg-surface-inset px-3 py-2 font-mono text-xs text-text-secondary">@for (line of captureLog(); track $index) {{{ line }}
+}</pre>
+      }
+
       <div class="mt-4 flex gap-2">
         <button
           type="button"
+          data-confirm-signin
           (click)="onContinue()"
           [disabled]="finishing()"
           class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
         >
           <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="finishing()"></lucide-icon>
-          {{ finishing() ? 'Finishing…' : 'Continue' }}
+          {{ finishing() ? 'Reading…' : 'Continue' }}
         </button>
         <button
           type="button"
+          data-cancel-connect
           (click)="cancelConnect()"
           class="rounded-md border border-border px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
         >
@@ -58,6 +74,10 @@
     </div>
   </section>
 }
+
+<!-- Rendered empty up-front so a screen reader is already watching it when the
+     capture finishes on its own; never role="alert", and never focused. -->
+<div role="status" aria-live="polite" class="sr-only">{{ captureStatus() }}</div>
 
 @if (loading() && !status()) {
   <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
@@ -81,24 +101,73 @@
     <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Leagues</div>
     @if (s.leagues.length) {
       @for (l of s.leagues; track l.league_id) {
-        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border-muted px-6 py-4 last:border-b-0">
-          <div>
-            <p class="font-display text-base font-semibold text-text">{{ l.league_name ?? l.league_id }}</p>
-            <p class="mt-0.5 text-xs text-text-tertiary tabular-nums">#{{ l.league_id }}</p>
+        <div class="border-b border-border-muted px-6 py-4 last:border-b-0">
+          <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+            <div>
+              <p class="font-display text-base font-semibold text-text">{{ l.league_name ?? l.league_id }}</p>
+              <p class="mt-0.5 text-xs text-text-tertiary tabular-nums">#{{ l.league_id }}</p>
+            </div>
+            <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
+              <span class="text-sm text-text-secondary tabular-nums">expires {{ l.expires_at | date: 'd MMM y' }}</span>
+              <span
+                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                [class.bg-signature]="tone(l.state) === 'ok'"
+                [class.text-surface-raised]="tone(l.state) === 'ok'"
+                [class.bg-warning]="tone(l.state) === 'warn'"
+                [class.bg-danger]="tone(l.state) === 'bad'"
+                [class.text-white]="tone(l.state) !== 'ok'"
+              >
+                {{ l.state }}
+              </span>
+              <!-- Stays in place while armed, disabled rather than swapped out: the confirm
+                   used to render over this button's own footprint, so a double-click armed
+                   and confirmed in one gesture. Disabled here, the second click hits nothing. -->
+              <button
+                type="button"
+                [attr.data-disconnect-league]="l.league_id"
+                [attr.aria-label]="'Disconnect ' + (l.league_name ?? l.league_id)"
+                (click)="armDisconnect(rowKey('league', l.league_id))"
+                [disabled]="disconnectBusy()"
+                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-secondary"
+              >
+                Disconnect
+              </button>
+            </div>
           </div>
-          <div class="flex items-center gap-6">
-            <span class="text-sm text-text-secondary tabular-nums">expires {{ l.expires_at | date: 'd MMM y' }}</span>
-            <span
-              class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-              [class.bg-signature]="tone(l.state) === 'ok'"
-              [class.text-surface-raised]="tone(l.state) === 'ok'"
-              [class.bg-warning]="tone(l.state) === 'warn'"
-              [class.bg-danger]="tone(l.state) === 'bad'"
-              [class.text-white]="tone(l.state) !== 'ok'"
+
+          @if (pendingId() === rowKey('league', l.league_id)) {
+            <!-- Its own line, so the destructive button never overlaps the one that armed it
+                 and the cluster cannot overflow the card's `overflow-hidden` on a phone. -->
+            <div
+              role="group"
+              aria-live="polite"
+              [attr.aria-label]="'Confirm disconnecting ' + (l.league_name ?? l.league_id)"
+              class="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3"
             >
-              {{ l.state }}
-            </span>
-          </div>
+              <span class="mr-auto text-sm text-text-secondary">
+                Disconnect {{ l.league_name ?? l.league_id }}? This removes the stored
+                token <em class="not-italic font-medium text-text">and everything the
+                last sync saved</em> — rosters, credits, calendar and player pool. The
+                lega disappears from every page until you connect and sync again.
+              </span>
+              <button
+                type="button"
+                (click)="disarmDisconnect()"
+                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                [attr.data-confirm-league]="l.league_id"
+                (click)="disconnectLeague(l.league_id)"
+                [disabled]="removingId() !== null"
+                class="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {{ removingId() === rowKey('league', l.league_id) ? 'Removing…' : 'Remove' }}
+              </button>
+            </div>
+          }
         </div>
       }
     } @else {
@@ -113,18 +182,78 @@
   </section>
 
   <section class="mt-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-    <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">FantaLab session</div>
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-6 py-3">
+      <span class="text-sm font-semibold text-text">FantaLab session</span>
+      <!-- Scoped to this card rather than the page header: "Connect account" above
+           captures the lega tokens, and the two credentials are unrelated. -->
+      <button
+        type="button"
+        data-connect-fantalab
+        (click)="onConnectFantalab()"
+        [disabled]="connecting()"
+        class="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
+      >
+        <lucide-icon name="plus" class="h-4 w-4"></lucide-icon>
+        {{ s.fantalab.length ? 'Reconnect FantaLab' : 'Connect FantaLab' }}
+      </button>
+    </div>
     @if (s.fantalab.length) {
       @for (f of s.fantalab; track f.user_id) {
-        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-4">
-          <p class="font-display text-base font-semibold text-text">{{ f.user_id }}</p>
-          <span class="text-sm text-text-secondary tabular-nums">
-            captured {{ f.captured_at | date: 'd MMM y' }}
-          </span>
+        <div class="px-6 py-4">
+          <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+            <p class="font-display text-base font-semibold text-text">{{ f.user_id }}</p>
+            <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
+              <span class="text-sm text-text-secondary tabular-nums">
+                captured {{ f.captured_at | date: 'd MMM y' }}
+              </span>
+              <button
+                type="button"
+                [attr.data-disconnect-fantalab]="f.user_id"
+                [attr.aria-label]="'Disconnect FantaLab session ' + f.user_id"
+                (click)="armDisconnect(rowKey('fantalab', f.user_id))"
+                [disabled]="disconnectBusy()"
+                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-secondary"
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+
+          @if (pendingId() === rowKey('fantalab', f.user_id)) {
+            <div
+              role="group"
+              aria-live="polite"
+              [attr.aria-label]="'Confirm disconnecting FantaLab session ' + f.user_id"
+              class="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3"
+            >
+              <span class="mr-auto text-sm text-text-secondary">
+                Remove the stored FantaLab session for {{ f.user_id }}?
+              </span>
+              <button
+                type="button"
+                (click)="disarmDisconnect()"
+                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                [attr.data-confirm-fantalab]="f.user_id"
+                (click)="disconnectFantalab(f.user_id)"
+                [disabled]="removingId() !== null"
+                class="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {{ removingId() === rowKey('fantalab', f.user_id) ? 'Removing…' : 'Remove' }}
+              </button>
+            </div>
+          }
         </div>
       }
     } @else {
-      <div class="px-6 py-6 text-sm text-text-secondary">Not connected.</div>
+      <div class="px-6 py-6 text-sm text-text-secondary">
+        Not connected. FantaLab hosts the asta — the bot needs this only to watch or bid
+        in one, not to read your leghe.
+      </div>
     }
   </section>
 }
