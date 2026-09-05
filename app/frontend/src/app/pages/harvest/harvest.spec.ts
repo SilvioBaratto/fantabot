@@ -77,6 +77,7 @@ describe('HarvestComponent', () => {
     mtime: '2026-09-05T18:04:00+00:00',
     rows: 1705,
     formats: { classic: 1226, mantra: 479 },
+    default_pool: 1000,
     error: null,
   };
 
@@ -272,5 +273,79 @@ describe('HarvestComponent', () => {
     });
 
     expect(fixture.componentInstance.scanning()).toBe(true);
+  });
+
+  // --- the collector ------------------------------------------------------------------
+
+  it('pre-fills the pool above the population, never at the default below it', async () => {
+    // 1,705 rows against a default of 1,000. A pool below the population is silent
+    // starvation: a watcher on a live evening does not finish, so a queued auction never
+    // gets a permit and never connects. That cost 145 of 395 auctions on 2026-08-27.
+    const fixture = await render();
+
+    expect(fixture.componentInstance.pool()).toBe(1705);
+  });
+
+  it('takes the default pool from the server rather than hardcoding it', async () => {
+    const fixture = await render(CORPUS, { ...SEED, rows: 12, default_pool: 1000 });
+
+    expect(fixture.componentInstance.pool()).toBe(1000);
+  });
+
+  it('starts a collect with the pool it shows', async () => {
+    const fixture = await render();
+
+    fixture.componentInstance.runCollect();
+    fixture.detectChanges();
+    const request = httpMock.expectOne(`${environment.apiUrl}harvest/collect?pool=1705`);
+    request.flush({ job_id: 'C1' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.collecting()).toBe(true);
+  });
+
+  it("shows the server's refusal verbatim when the pool is below the population", async () => {
+    // The refusal carries both numbers. Replacing it with a generic message here is how
+    // the one fact the operator needs stops reaching them.
+    const fixture = await render();
+
+    fixture.componentInstance.runCollect();
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}harvest/collect?pool=1705`)
+      .flush({ detail: 'pool is 1000 and the seed holds 1705 auction(s)' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.textContent).toContain('1705');
+    expect(fixture.componentInstance.collecting()).toBe(false);
+  });
+
+  it('offers no format selector on the collector', async () => {
+    // `from_seed_row` reads each row's own format, so one seed carries both.
+    const panel = (await render()).nativeElement.querySelector(
+      '[data-panel="collector"]',
+    ) as HTMLElement;
+
+    expect(panel.querySelector('select')).toBeNull();
+  });
+
+  it('reattaches to a collect that was already running', async () => {
+    const fixture = await render(CORPUS, SEED, {
+      jobs: [
+        {
+          id: 'C9',
+          kind: 'harvest-collect',
+          status: 'running',
+          started_at: '2026-09-05T21:00:00+00:00',
+          line_count: 0,
+          ok: null,
+          stoppable: true,
+        },
+      ],
+    });
+
+    expect(fixture.componentInstance.collecting()).toBe(true);
   });
 });

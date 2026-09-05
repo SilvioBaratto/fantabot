@@ -157,6 +157,72 @@
   }
 </section>
 
+<!-- The irreplaceable one, and therefore last. A frame that never reached disk is gone,
+     and an evening of auctions does not come back. -->
+<section data-panel="collector" class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="flex flex-wrap items-end justify-between gap-4 p-6">
+    <div>
+      <h2 class="font-display text-lg font-semibold text-text">Collector</h2>
+      <p class="mt-1 text-sm text-text-secondary">
+        Subscribes to every auction in the seed and appends each state to the landing zone.
+      </p>
+
+      <label class="mt-4 flex items-center gap-2 text-sm text-text-secondary">
+        Pool
+        <!-- No format selector, deliberately: one seed carries both, and each row states
+             its own. A selector here would be the collection-time filter again. -->
+        <input
+          type="number"
+          min="1"
+          [value]="pool()"
+          (change)="pool.set(+$any($event.target).value)"
+          [disabled]="collecting()"
+          class="w-28 rounded-md border border-border bg-surface-inset px-2 py-1 text-sm tabular-nums text-text disabled:opacity-50"
+        />
+        @if (seed(); as s) {
+          <span class="text-xs text-text-tertiary">of {{ s.rows | number }} registered</span>
+        }
+      </label>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        (click)="runCollect()"
+        [disabled]="collecting()"
+        class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-inset px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-raised disabled:opacity-50"
+      >
+        <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="collecting()"></lucide-icon>
+        {{ collecting() ? 'Collecting…' : 'Start collector' }}
+      </button>
+      @if (collecting()) {
+        <button
+          type="button"
+          (click)="stopCollect()"
+          class="inline-flex items-center gap-2 rounded-md border border-danger/40 px-3 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
+        >
+          Stop
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- The bound is ours and on a live evening it is permanent: a watcher does not finish,
+       so a queued auction never gets a permit and never connects. 145 of 395, 2026-08-27. -->
+  <p class="border-t border-border px-6 py-3 text-xs text-text-tertiary">
+    A pool below the number registered is silent starvation — those auctions wait for a slot
+    a live evening never frees. Starting is refused rather than trimmed.
+  </p>
+
+  @if (collectError(); as message) {
+    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
+  }
+  @if (collectLines().length) {
+    <pre class="max-h-64 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of collectLines(); track $index) {{{ line }}
+}</pre>
+  }
+</section>
+
 @if (loading() && !corpus()) {
   <div class="h-56 animate-shimmer rounded-lg border border-border"></div>
 } @else if (errorMsg(); as message) {

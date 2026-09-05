@@ -410,3 +410,126 @@ def test_a_second_load_fails_the_job_naming_the_role_and_the_landing_zone(
     error = _job(client, job_id)["error"]
     assert "loader" in error
     assert str(landing) in error
+
+
+# ---------------------------------------------------------------------------------------
+# POST /harvest/collect — the irreplaceable one, on the supervisor the loader proved.
+# ---------------------------------------------------------------------------------------
+
+
+def _seed_of(home, count: int, asta_type: str = "mantra") -> None:
+    _write_seed(
+        home / "seed.json",
+        [
+            [f"a{i}", "1", 8, 500, 2, 28, "m", "r", 30, 60, f"Room {i}", asta_type]
+            for i in range(count)
+        ],
+    )
+
+
+def test_a_pool_below_the_population_refuses_before_anything_is_spawned(quick_child) -> None:
+    """Silent starvation, and the number is measured: a watcher on a live evening does not
+    finish, so a queued auction never gets a permit and never connects at all. That cost
+    145 of 395 auctions on 2026-08-27."""
+    _seed_of(quick_child, 1705)
+
+    response = TestClient(app).post("/api/v1/harvest/collect?pool=1000")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "1000" in detail and "1705" in detail, detail
+    assert "pool" in detail
+
+
+def test_a_pool_at_the_population_is_accepted(quick_child) -> None:
+    _seed_of(quick_child, 4)
+    client = TestClient(app)
+
+    job_id = client.post("/api/v1/harvest/collect?pool=4").json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    assert "harvest collect --pool 4" in " ".join(_job(client, job_id)["lines"])
+
+
+def test_a_missing_seed_is_refused_by_name_rather_than_followed_as_nothing(
+    quick_child,
+) -> None:
+    """A collect with an empty registry is a three-hour run that follows no auction, and
+    it looks exactly like a quiet night from the outside."""
+    response = TestClient(app).post("/api/v1/harvest/collect?pool=1000")
+
+    assert response.status_code == 400
+    assert "scan" in response.json()["detail"].lower()
+
+
+def test_no_format_selector_exists_in_the_endpoint(quick_child) -> None:
+    """`from_seed_row` reads each row's own `asta_type`, so one seed carries both.
+
+    A selector here would be the collection-time filter again, wearing the name of a
+    convenience.
+    """
+    schema = TestClient(app).get("/openapi.json").json()
+    names = [
+        p["name"] for p in schema["paths"]["/api/v1/harvest/collect"]["post"].get("parameters", [])
+    ]
+
+    assert names == ["pool"]
+
+
+def test_the_heartbeat_reaches_the_job_log(monkeypatch, quick_child) -> None:
+    """`live / expected` is the only thing that speaks during a run with no end."""
+    import sys
+
+    from fantabot_app.api.infrastructure import processes
+
+    _seed_of(quick_child, 2)
+    monkeypatch.setattr(
+        processes,
+        "fantabot_command",
+        lambda *args: [sys.executable, "-c", "print('live 2 / expected 2', flush=True)"],
+    )
+    client = TestClient(app)
+
+    job_id = client.post("/api/v1/harvest/collect?pool=2").json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    assert "live 2 / expected 2" in _job(client, job_id)["lines"]
+
+
+def test_a_second_collect_fails_the_job_naming_the_collector_role(quick_child) -> None:
+    from fantabot.adapters.files.lock import role_lock
+
+    _seed_of(quick_child, 2)
+    landing = quick_child / "live.jsonl"
+    client = TestClient(app)
+
+    with role_lock(landing, "collector"):
+        job_id = client.post("/api/v1/harvest/collect?pool=2").json()["job_id"]
+        assert _wait(lambda: _job(client, job_id)["status"] == "error")
+
+    error = _job(client, job_id)["error"]
+    assert "collector" in error
+    assert str(landing) in error
+
+
+def test_the_collect_job_is_stoppable(quick_child) -> None:
+    _seed_of(quick_child, 2)
+    client = TestClient(app)
+
+    job_id = client.post("/api/v1/harvest/collect?pool=2").json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    row = next(r for r in client.get("/api/v1/jobs").json()["jobs"] if r["id"] == job_id)
+    assert row["kind"] == "harvest-collect"
+    assert row["stoppable"] is True
+
+
+def test_the_seed_panel_carries_the_pool_the_next_collect_would_use(quick_child) -> None:
+    """So the UI does not have to hardcode 1000 beside a constant that moved once already."""
+    from fantabot.application.harvest_supervisor import DEFAULT_POOL
+
+    _seed_of(quick_child, 3)
+
+    panel = TestClient(app).get("/api/v1/harvest/seed").json()
+
+    assert panel["default_pool"] == DEFAULT_POOL

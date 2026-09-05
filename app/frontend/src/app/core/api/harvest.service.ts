@@ -30,4 +30,17 @@ export class HarvestService {
       {},
     );
   }
+
+  /**
+   * Subscribe to the live auctions in the seed and append every state to the landing zone.
+   *
+   * `pool` and nothing else: one seed carries both formats, and a selector here would be
+   * the collection-time filter again.
+   */
+  startCollect(pool: number): Observable<{ job_id: string }> {
+    return this.http.post<{ job_id: string }>(
+      `${environment.apiUrl}harvest/collect?pool=${pool}`,
+      {},
+    );
+  }
 }

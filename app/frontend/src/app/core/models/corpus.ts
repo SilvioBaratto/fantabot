@@ -34,5 +34,13 @@ export interface SeedPanel {
   rows: number;
   /** Per-format split, counted after the merge the scan wrote. */
   formats: Record<string, number>;
+  /**
+   * What a collect would use for `--pool` if it were not told otherwise.
+   *
+   * Carried from the server so the pre-fill can be `max(default, rows)` without this
+   * file hardcoding a constant that has already moved once — it was 250 on the evening
+   * the population was 649.
+   */
+  default_pool: number;
   error: string | null;
 }

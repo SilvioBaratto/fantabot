@@ -123,6 +123,10 @@ class SeedPanel(BaseModel):
     rows: int = 0
     #: Per-format split, counted after the merge the scan wrote.
     formats: dict[str, int] = {}
+    #: What a collect would use for `--pool` if it were not told otherwise. Carried here
+    #: so the UI can pre-fill against `rows` without hardcoding a constant that has
+    #: already moved once — it was 250 on the evening the population was 649.
+    default_pool: int = 0
     error: str | None = None
 
 
@@ -134,12 +138,13 @@ def read_seed(path: Path) -> SeedPanel:
     predates storing the format, and reading those rows as anything else is how 185
     Classic auctions came to be labelled Mantra.
     """
+    from fantabot.application.harvest_supervisor import DEFAULT_POOL
     from fantabot.domain.harvest.registry import SEED_FIELDS
 
     fmt_index = SEED_FIELDS.index("asta_type")
     if not path.exists():
         # Not the same answer as zero rows: only one of the two names a command.
-        return SeedPanel(ok=True, path=str(path), exists=False)
+        return SeedPanel(ok=True, path=str(path), exists=False, default_pool=DEFAULT_POOL)
     try:
         rows = json.loads(path.read_text(encoding="utf-8"))
         formats: dict[str, int] = {}
@@ -147,7 +152,13 @@ def read_seed(path: Path) -> SeedPanel:
             asta_type = row[fmt_index] if len(row) > fmt_index and row[fmt_index] else "mantra"
             formats[str(asta_type)] = formats.get(str(asta_type), 0) + 1
     except Exception as exc:  # noqa: BLE001 — a torn seed is a report, not a 500
-        return SeedPanel(ok=False, path=str(path), exists=True, error=type(exc).__name__)
+        return SeedPanel(
+            ok=False,
+            path=str(path),
+            exists=True,
+            default_pool=DEFAULT_POOL,
+            error=type(exc).__name__,
+        )
     return SeedPanel(
         ok=True,
         path=str(path),
@@ -155,6 +166,7 @@ def read_seed(path: Path) -> SeedPanel:
         mtime=datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(),
         rows=len(rows),
         formats=dict(sorted(formats.items())),
+        default_pool=DEFAULT_POOL,
     )
 
 
@@ -209,3 +221,59 @@ def harvest_load(asta_type: str = "mantra", follow: bool = True) -> JobStarted:
     # thread, which cannot be interrupted from outside, and `JobRegistry.stop` answered
     # 409 rather than pretending. A supervised process can honestly answer yes.
     return JobStarted(job_id=registry.start(job.run, kind="harvest-load", stop=job.stop))
+
+
+@router.post("/harvest/collect", response_model=JobStarted, tags=["harvest"])
+def harvest_collect(pool: int = 0) -> JobStarted:
+    """Subscribe to the live auctions in the seed and append every state to the landing zone.
+
+    The irreplaceable one, and therefore last: the loader is idempotent and restartable
+    and proved the supervisor first. A frame that never reached disk is gone, and an
+    evening of auctions does not come back.
+
+    **It refuses to start when `pool` is below the population, naming both numbers.** The
+    bound is ours and on a live evening it is permanent: a watcher does not finish, so a
+    queued auction never gets a permit and never connects at all. That cost 145 of 395
+    auctions on 2026-08-27, silently, and today's seed is 1,705 rows against a
+    `DEFAULT_POOL` of 1,000. The CLI warns and continues, which is right at a terminal
+    where someone reads the warning; from a browser, at 21:00, it is a three-hour run that
+    quietly follows two thirds of an evening.
+
+    **No format selector, and none is reachable.** `from_seed_row` reads each row's own
+    `asta_type`, so one seed carries both — a selector here would be the collection-time
+    filter again, wearing the name of a convenience.
+    """
+    from fantabot.adapters.files.lock import COLLECTOR
+    from fantabot.application.harvest_supervisor import DEFAULT_POOL
+    from fantabot.config import harvest_dir
+
+    home = harvest_dir()
+    seed = read_seed(home / "seed.json")
+    if not seed.exists:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"no seed at {seed.path}. Scan first — a collect with an empty registry "
+                "follows no auction for three hours and looks like a quiet night."
+            ),
+        )
+    if not seed.ok:
+        raise HTTPException(status_code=400, detail=f"the seed could not be read: {seed.error}")
+
+    limit = pool or DEFAULT_POOL
+    if limit < seed.rows:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"pool is {limit} and the seed holds {seed.rows} auction(s): "
+                f"{seed.rows - limit} would wait for a slot that a live evening never "
+                f"frees. Raise pool to at least {seed.rows}."
+            ),
+        )
+
+    job = processes.ProcessJob(
+        processes.fantabot_command("harvest", "collect", "--pool", str(limit)),
+        role=COLLECTOR,
+        landing=home / "live.jsonl",
+    )
+    return JobStarted(job_id=registry.start(job.run, kind="harvest-collect", stop=job.stop))
