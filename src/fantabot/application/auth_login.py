@@ -14,12 +14,17 @@ uses.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fantabot.application.login_wait import (
+    MAX_CONFIRMS,
+    CredentialNotThere,
+    read_credential,
+)
 from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.capture import CapturedToken, parse_storage_state
 from fantabot.domain.tokens.crypto import TokenCipher
@@ -96,8 +101,20 @@ def _preflight_database() -> None:
 BrowserFactory = Callable[[], AbstractContextManager[Any]]
 
 
+#: Reads one snapshot of the browser's storage. Bound by `interface/` to
+#: `adapters.browser.capture.read_storage_state`, so this layer names no browser.
+StateReader = Callable[[Any], Mapping[str, Any]]
+
+
 def _prompt(message: str) -> str:
-    return input(message)
+    """The terminal's own confirmation gesture.
+
+    The use case describes the *condition* ("once you are logged in…") and each
+    interface supplies the gesture: Enter here, a button on the web. The use case
+    used to spell "Press Enter", which the web UI then showed to someone who had no
+    Enter to press and a Continue button in front of them.
+    """
+    return input(f"Press Enter {message}... ")
 
 
 def run(
@@ -107,6 +124,7 @@ def run(
     verify: bool = True,
     save_session: bool = False,
     browser_factory: BrowserFactory,
+    read_state: StateReader,
     transport: object | None = None,
     prompt: Callable[[str], str] = _prompt,
     now: datetime | None = None,
@@ -147,6 +165,7 @@ def run(
         verify=verify,
         save_session=save_session,
         browser_factory=browser_factory,
+        read_state=read_state,
         transport=transport,
         prompt=prompt,
         moment=moment,
@@ -166,28 +185,49 @@ def _all_valid(rows: Sequence[TokenStatus], moment: datetime, league: int) -> bo
     return bool(wanted) and all(moment < row.expires_at for row in wanted)
 
 
-def _read_blob(
-    ctx: Any, prompt: Callable[[str], str], report: Reporter
+
+
+def _confirm_until_captured(
+    read_state: Callable[[], Mapping[str, Any]],
+    *,
+    prompt: Callable[[str], str],
+    report: Reporter,
+    condition: str,
 ) -> list[CapturedToken]:
-    """One `localStorage` read, with one explicit human-confirmed re-read.
+    """Ask, read once, and ask again if the browser has not written it yet."""
+    for _ in range(MAX_CONFIRMS):
+        prompt(condition)
+        try:
+            return read_credential(
+                read_state,
+                parse_storage_state,
+                is_complete=_blob_is_complete,
+                # NOT the whole TokenError family: LeagueMismatch means the blob is
+                # present and lying about itself, which no amount of asking fixes.
+                not_ready=(NoLeaguesFound,),
+                report=report,
+            )
+        except CredentialNotThere:
+            report.print(
+                "[yellow]Not signed in yet — the browser has not written your leghe.[/yellow]\n"
+                "Finish signing in until the league list is on screen, then confirm again."
+            )
+    raise LoginAborted(
+        f"still no leghe in the browser after {MAX_CONFIRMS} confirmations. Nothing was "
+        "written.",
+        code=1,
+    )
 
-    The likeliest real-world failure of this whole phase is pressing Enter
-    before the Angular SPA has finished writing `LEAGUES2024_LOCAL` — a wasted
-    password and captcha, for a timing race. So on a failed parse the human is
-    *asked* to let it read again, rather than the code silently polling, which
-    would contradict SPEC assumption 3's "one read" while claiming to honour it.
 
-    Still zero clicks and zero selectors either way.
+def _blob_is_complete(_captured: list[CapturedToken]) -> bool:
+    """A parsed lega blob is always finished.
+
+    `LEAGUES2024_LOCAL` is one `localStorage` key holding one JSON array, written
+    by a single `setItem`, so there is no half-written state to settle for the way
+    there is for FantaLab's four separate keys. A successful parse is the whole
+    thing; the settle path in `await_capture` never fires here.
     """
-    try:
-        return parse_storage_state(dict(ctx.storage_state()))
-    except NoLeaguesFound:
-        report.print(
-            "[yellow]LEAGUES2024_LOCAL not found — the page may still be "
-            "loading.[/yellow]"
-        )
-        prompt("Press Enter to read again, or Ctrl-C to abort... ")
-        return parse_storage_state(dict(ctx.storage_state()))
+    return True
 
 
 def _capture(
@@ -197,6 +237,7 @@ def _capture(
     verify: bool,
     save_session: bool,
     browser_factory: BrowserFactory,
+    read_state: StateReader,
     transport: object | None,
     prompt: Callable[[str], str],
     report: Reporter,
@@ -214,18 +255,26 @@ def _capture(
     # fires and the browser lands on a dead URL. Observed on a real run before
     # anyone had filled it in. `lega_url` is kept for the lega-specific pages a
     # future roster reader will need; nothing uses it today.
-    report.print(f"\nOpening {LOGIN_URL} — log in, then press Enter here.")
+    report.print(f"\nOpening {LOGIN_URL} — sign in there, then confirm.")
 
     with browser_factory() as ctx:
         page = ctx.new_page()
         page.goto(LOGIN_URL)
-        prompt("Press Enter once you are logged in and can see your leghe... ")
 
-        # Read INSIDE the body. After the context closes this call raises, and
-        # the failure would only appear during a real login — which is why the
-        # fake browser in the tests asserts on the ordering rather than trusting
-        # it.
-        captured = _read_blob(ctx, prompt, report)
+        # The human is the trigger, and that is a measured decision rather than an
+        # unexamined inheritance from the CLI. Polling for the credential instead
+        # opened a burst of tabs over the login form every two seconds — see
+        # `login_wait`'s module docstring.
+        #
+        # Confirming a moment early is the common mistake, not an error: it used to
+        # spend a minute re-reading (a burst of tabs each time, over the page still
+        # being used) and then kill the login. Now it costs one read and another ask.
+        captured = _confirm_until_captured(
+            lambda: read_state(ctx),
+            prompt=prompt,
+            report=report,
+            condition="once you are logged in and can see your leghe",
+        )
         state_blob = dict(ctx.storage_state()) if save_session else None
 
     report.print(f"  read LEAGUES2024_LOCAL: {len(captured)} leghe")

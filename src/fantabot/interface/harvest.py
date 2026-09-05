@@ -28,6 +28,7 @@ import typer
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:  # annotations only
+    from fantabot.adapters.persistence.repositories.aste import EventWrite
     from fantabot.domain.harvest.backfill import DroppedEvents
 
 
@@ -51,16 +52,20 @@ def aste_scan(
     from fantabot.config import settings
     from fantabot.domain.harvest.registry import from_seed_row, merge, to_seed_rows
     from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import FantalabSessionMissing
 
     cipher = TokenCipher(settings.fantabot_encryption_key)
-    with database_manager.get_session() as session:
-        stored = FantalabStore(session, cipher).load()
-    if stored is None or not stored.id_token:
-        console.print("[red]No FantaLab session stored. Run: fantabot auth fantalab-login[/red]")
-        raise typer.Exit(2)
+    # The client is built inside the session, so the bearer is resolved by the adapter
+    # and never lands in a local here. `from_store` raises when nothing is stored.
+    try:
+        with database_manager.get_session() as session:
+            client = LiveAuctionsClient.from_store(FantalabStore(session, cipher))
+    except FantalabSessionMissing as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from None
 
     try:
-        scanned = LiveAuctionsClient(stored.id_token).live_auctions()
+        scanned = client.live_auctions()
     except (AuthExpired, ScanEmpty) as exc:
         # Both are refusals, not empty results. Reporting zero here would look
         # exactly like a quiet night and the next scan would never be run.
@@ -109,19 +114,25 @@ def fantalab_login(
     No `storage_state.json` is written. That file would hold three credentials
     in the clear; they go from browser memory through Fernet into Postgres.
     """
-    from fantabot.adapters.browser.capture import real_browser
+    from fantabot.adapters.browser.capture import read_storage_state, real_browser
     from fantabot.application.fantalab_login import LoginAborted
     from fantabot.application.fantalab_login import run as run_login
+    from fantabot.application.login_wait import CaptureUnreadable
+    from fantabot.domain.tokens.errors import SignInWindowClosed
 
     try:
         run_login(
             force=force,
             browser_factory=lambda: real_browser(browser or None),
+            read_state=read_storage_state,
             report=console,
         )
     except LoginAborted as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(exc.code) from None
+    except (SignInWindowClosed, CaptureUnreadable) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
 
 
 def _report_dropped(dropped: DroppedEvents) -> None:
@@ -136,6 +147,27 @@ def _report_dropped(dropped: DroppedEvents) -> None:
         return
     colour = "yellow" if dropped.malformed_state or dropped.bad_timestamp else "dim"
     console.print(f"[{colour}]{dropped.total} record(s) dropped — {dropped.summary()}[/{colour}]")
+
+
+def _report_written(written: EventWrite) -> None:
+    """Say what reached the table, and shout when rows were thrown away.
+
+    Only the discard is loud. A window that is entirely `already_present` is the
+    normal shape of a re-read and warning about it every pass would train the
+    operator to ignore the line that matters.
+
+    The line that matters is `unknown auction`: those events named an auction with
+    no `asta` row, so they were dropped with nowhere to go and the byte offset moved
+    on regardless. Reporting a full write while discarding every row is how 2.1
+    million Classic events stayed missing for a week.
+    """
+    if written.discarded:
+        console.print(
+            f"[red]{written.unknown_auction} event(s) DISCARDED — no auction row to "
+            f"attach them to. Re-scan the seed before this window is passed.[/red]"
+        )
+    elif written.inserted:
+        console.print(f"[dim]events: {written.summary()}[/dim]")
 
 
 def aste_load(
@@ -313,7 +345,7 @@ def aste_load(
             with database_manager.get_session() as session:
                 repo = AsteRepository(session)
                 repo.upsert_auctions(auctions)
-                repo.upsert_events(events)
+                written = repo.upsert_events(events)
                 repo.upsert_assignments(assignments)
                 session.commit()
             # Order matters: the write commits, then the two checkpoints move
@@ -326,6 +358,8 @@ def aste_load(
         if unlinked:
             console.print(f"[yellow]{unlinked} assignment(s) carry no player link[/yellow]")
         _report_dropped(dropped)
+        if not dry_run:
+            _report_written(written)
         return len(records), max(0, size - new_offset), deferring
 
     from sqlalchemy.exc import SQLAlchemyError

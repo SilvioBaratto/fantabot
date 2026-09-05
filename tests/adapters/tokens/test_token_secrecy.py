@@ -189,7 +189,16 @@ def test_decrypt_is_confined_to_its_allowed_files() -> None:
 ROOT_APP = "fantabot.interface.app"
 
 #: Modules outside `tokens/` that hold a plaintext token at some point.
-LOOSE_TOKEN_HANDLERS = ("fantabot.adapters.http.apileague", "fantabot.application.auth_login")
+#:
+#: `login_wait` earns its place by volume rather than by role: it re-reads the browser's
+#: storage once a second for up to ten minutes, so a single login puts a credential
+#: through it hundreds of times. Its heartbeat must therefore print constant strings and
+#: elapsed minutes only — never a length, a prefix, or a boolean derived from a value.
+LOOSE_TOKEN_HANDLERS = (
+    "fantabot.adapters.http.apileague",
+    "fantabot.application.auth_login",
+    "fantabot.application.login_wait",
+)
 
 
 def _scanned_sources() -> list[Path]:

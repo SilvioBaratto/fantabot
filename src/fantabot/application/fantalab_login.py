@@ -19,12 +19,17 @@ a real browser is expensive to waste on a missing key or a stopped database.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fantabot.application.login_wait import (
+    MAX_CONFIRMS,
+    CredentialNotThere,
+    read_credential,
+)
 from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.errors import KeyMissing, TokenError
@@ -54,8 +59,20 @@ class FantalabLoginResult:
 BrowserFactory = Callable[[], AbstractContextManager[Any]]
 
 
+#: Reads one snapshot of the browser's storage. Bound by `interface/` to
+#: `adapters.browser.capture.read_storage_state`, so this layer names no browser.
+StateReader = Callable[[Any], Mapping[str, Any]]
+
+
 def _prompt(message: str) -> str:
-    return input(message)
+    """The terminal's own confirmation gesture.
+
+    The use case describes the *condition* ("once you are logged in…") and each
+    interface supplies the gesture: Enter here, a button on the web. The use case
+    used to spell "Press Enter", which the web UI then showed to someone who had no
+    Enter to press and a Continue button in front of them.
+    """
+    return input(f"Press Enter {message}... ")
 
 
 def _preflight_key() -> TokenCipher:
@@ -90,30 +107,57 @@ def _preflight_database() -> None:
         ) from None
 
 
-def _read_session(
-    ctx: Any, prompt: Callable[[str], str], report: Reporter
+def _confirm_until_captured(
+    read_state: Callable[[], Mapping[str, Any]],
+    *,
+    prompt: Callable[[str], str],
+    report: Reporter,
 ) -> FantalabSession:
-    """One `storage_state` read, with one human-confirmed retry.
+    """Ask, read once, and ask again if the browser has not written the session yet."""
+    for _ in range(MAX_CONFIRMS):
+        prompt("once you are signed in and the page has loaded")
+        try:
+            return read_credential(
+                read_state,
+                parse_fantalab_storage,
+                is_complete=_session_is_complete,
+                # Every TokenError `parse_fantalab_storage` raises means "not written
+                # yet" — no origin, no refresh_token, no user_id. It has no
+                # malformed-blob case the way the lega parser does.
+                not_ready=(TokenError,),
+                report=report,
+            )
+        except CredentialNotThere:
+            report.print(
+                "[yellow]Not signed in yet — no FantaLab session in the browser.[/yellow]\n"
+                "Finish signing in until the auction list has loaded, then confirm again."
+            )
+    raise LoginAborted(
+        f"still no FantaLab session after {MAX_CONFIRMS} confirmations. Nothing was "
+        "written.",
+        code=1,
+    )
 
-    The likeliest failure is pressing Enter before the SPA has finished writing
-    its tokens — a wasted sign-in for a timing race. So on a failed parse the
-    human is *asked* to let it read again, rather than the code silently
-    polling, which would contradict the one-read rule while claiming to honour it.
 
-    Still zero clicks and zero selectors either way.
+def _session_is_complete(session: FantalabSession) -> bool:
+    """Every optional credential is present, not just the two mandatory ones.
+
+    `parse_fantalab_storage` requires `refresh_token` and `user_id`; `id_token` and
+    `access_token` are `entries.get(...)`. The SPA writes the four keys separately,
+    so a read landing between them parses cleanly and yields a thinner session than
+    the one the browser is about to finish writing. Under a human-paced Enter that
+    race was mostly hidden by how long a person takes; under a one-second poll it
+    would not be. So an incomplete session is held until it stops changing rather
+    than stored on sight — see `await_capture`.
     """
-    try:
-        return parse_fantalab_storage(dict(ctx.storage_state()))
-    except TokenError as first:
-        report.print(f"[yellow]{first}[/yellow]")
-        prompt("Press Enter to read again, or Ctrl-C to abort... ")
-        return parse_fantalab_storage(dict(ctx.storage_state()))
+    return session.id_token is not None and session.access_token is not None
 
 
 def run(
     *,
     force: bool = False,
     browser_factory: BrowserFactory,
+    read_state: StateReader,
     prompt: Callable[[str], str] = _prompt,
     now: datetime | None = None,
     report: Reporter,
@@ -144,14 +188,15 @@ def run(
     report.print(
         f"\nOpening a browser at {LOGIN_URL}.\n"
         "Sign in yourself — this program types nothing and clicks nothing.\n"
-        "When the auction list has finished loading, come back here."
+        "Then confirm, once the auction list has finished loading."
     )
 
     with browser_factory() as ctx:
         page = ctx.new_page()
         page.goto(LOGIN_URL)
-        prompt("\nPress Enter once you are signed in and the page has loaded... ")
-        captured = _read_session(ctx, prompt, report)
+        captured = _confirm_until_captured(
+            lambda: read_state(ctx), prompt=prompt, report=report
+        )
 
     with database_manager.get_session() as session:
         FantalabStore(session, cipher).save(captured, now=moment)

@@ -112,6 +112,69 @@ def test_events_without_a_last_update_are_kept_not_collapsed(db_session: Session
     assert _count(db_session, AstaEvent) == 2
 
 
+def test_the_write_reports_what_landed_and_what_was_already_there(
+    db_session: Session,
+) -> None:
+    """The count must be what went in, not what was offered.
+
+    `ON CONFLICT DO NOTHING` means a re-read window inserts nothing, and reporting
+    the offered length would call that a full write.
+    """
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    rows = [_event(1000), _event(1001)]
+
+    first = repo.upsert_events(rows)
+    db_session.flush()
+    assert (first.inserted, first.already_present, first.unknown_auction) == (2, 0, 0)
+
+    second = repo.upsert_events(rows)
+    db_session.flush()
+    assert (second.inserted, second.already_present, second.unknown_auction) == (0, 2, 0)
+    assert second.discarded is False  # absorbing a repeat is the design, not a fault
+    assert _count(db_session, AstaEvent) == 2
+
+
+def test_events_for_an_unregistered_auction_are_reported_as_discarded(
+    db_session: Session,
+) -> None:
+    """The defect this type was added for.
+
+    Rows naming an auction with no `asta` row have no key to hang on and are thrown
+    away. The method used to return `len(chunk)` regardless, so a load could discard
+    everything it was handed and still report a full write — which is how 2.1 million
+    Classic events stayed missing for a week while the loader read to EOF, advanced
+    its offset and printed success.
+    """
+    repo = AsteRepository(db_session)
+    # Deliberately no `upsert_auctions`: the events name an auction that is not there.
+    written = repo.upsert_events([_event(1000), _event(1001)])
+    db_session.flush()
+
+    assert written.inserted == 0
+    assert written.unknown_auction == 2
+    assert written.discarded is True
+    assert written.offered == 2
+    assert _count(db_session, AstaEvent) == 0
+    assert "2 with no auction row" in written.summary()
+
+
+def test_a_partly_unregistered_window_reports_both_halves(db_session: Session) -> None:
+    """A mixed window is the realistic case, and the one a total would hide."""
+    repo = AsteRepository(db_session)
+    repo.upsert_auctions([_auction()])
+    known = _event(1000)
+    stranger = _event(1001) | {"asta_id": "no-such-auction"}
+
+    written = repo.upsert_events([known, stranger])
+    db_session.flush()
+
+    assert written.inserted == 1
+    assert written.unknown_auction == 1
+    assert written.discarded is True
+    assert _count(db_session, AstaEvent) == 1
+
+
 def test_re_registering_an_auction_does_not_rewrite_when_we_first_met_it(
     db_session: Session,
 ) -> None:

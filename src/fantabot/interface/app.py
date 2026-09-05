@@ -929,13 +929,15 @@ def login(
 
     Running it again when every token is still valid opens no browser at all.
     """
-    from fantabot.adapters.browser.capture import real_browser
+    from fantabot.adapters.browser.capture import read_storage_state, real_browser
     from fantabot.application import auth_login as login_module
-    from fantabot.domain.tokens.errors import TokenError
+    from fantabot.application.login_wait import CaptureUnreadable
+    from fantabot.domain.tokens.errors import SignInWindowClosed, TokenError
 
     try:
         login_module.run(
             browser_factory=real_browser,
+            read_state=read_storage_state,
             league=league,
             force=force,
             verify=verify,
@@ -945,6 +947,11 @@ def login(
     except login_module.LoginAborted as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=exc.code) from None
+    except (SignInWindowClosed, CaptureUnreadable) as exc:
+        # Reported apart from TokenError so the message names what the human did,
+        # rather than "no leghe found in the browser session".
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
     except TokenError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None

@@ -114,6 +114,51 @@ class LeagueMismatch(TokenError):
         )
 
 
+class FantalabSessionMissing(TokenError):
+    """No stored FantaLab session, or one with no usable bearer.
+
+    Raised before a socket opens, like `TokenMissing` — the remedy is a command, not
+    a retry.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "no FantaLab session is stored — run `fantabot auth fantalab-login`, or "
+            "connect FantaLab from the Accounts page."
+        )
+
+
+class SignInWindowClosed(Exception):
+    """The human closed the sign-in window before a credential appeared.
+
+    **Deliberately not a `TokenError`.** The capture loop waits by treating every
+    `TokenError` as "not ready yet, look again"; if this were part of that family
+    the one terminal signal would be swallowed and the loop would sit out its whole
+    deadline after the window had already gone.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "the sign-in window was closed before you finished signing in. "
+            "Nothing was written."
+        )
+
+
+class StorageReadFailed(Exception):
+    """One read of the browser's storage failed. Very likely transient.
+
+    Playwright collects `localStorage` for *every* origin the context has visited,
+    opening a temporary page and navigating to each one that has no page of its own.
+    On an ad-funded site the origin set fills with third-party trackers, and any one
+    of them failing to load aborts the whole collection — observed live as
+    ``net::ERR_ABORTED; maybe frame was detached?`` while navigating to
+    ``safeframe.googlesyndication.com``.
+
+    That says nothing about the credential, so the capture loop retries. It is not a
+    `TokenError`: those describe the credential, and this describes the pipe.
+    """
+
+
 class NoLeaguesFound(TokenError):
     """`LEAGUES2024_LOCAL` was absent, or held no leghe."""
 

@@ -162,10 +162,20 @@ def _show(
                     ).scalar_one()
                 table.add_row(name, str(last) if last else "[dim]mai[/dim]", str(rows))
             # `league_fixture` upserts and has no `captured_at`; its freshness is the
-            # newest `updated_at`, and its size is the whole table for this lega's
-            # competitions — which is why it is counted separately rather than skipped.
+            # newest `updated_at`, and it is counted separately rather than skipped.
+            #
+            # It also has no `league_id`, so the count has to reach the lega through
+            # `league_competition`. It used to have no WHERE clause at all, under a
+            # comment claiming it counted "this lega's competitions": harmless while one
+            # lega owned every row, and wrong the moment a second lega exists or one is
+            # disconnected — the survivor's calendar would be reported as the other's.
+            comp_ids = select(LeagueCompetition.competition_id).where(
+                LeagueCompetition.league_id == league_id
+            )
             fixtures = session.execute(
-                select(func.count(), func.max(LeagueFixture.updated_at))
+                select(func.count(), func.max(LeagueFixture.updated_at)).where(
+                    LeagueFixture.competition_id.in_(comp_ids)
+                )
             ).one()
             table.add_row("league_fixture", str(fixtures[1] or ""), str(fixtures[0]))
     except SQLAlchemyError as exc:

@@ -1,6 +1,6 @@
 """Writes for the lega snapshot tables (`adapters/persistence/models/league.py`).
 
-**Append-only, never an upsert — with one recorded exception.** That module's own
+**Append-only, never an upsert — with two recorded exceptions.** That module's own
 docstring states the reason: these are point-in-time captures keyed on `captured_at`,
 and the point is the drift between them. Overwriting one in place would be the one thing
 this table exists to refuse — a plain `INSERT`, not `ON CONFLICT DO UPDATE`, is what the
@@ -12,6 +12,12 @@ points arrive when the round is calculated. Snapshotting it would write 144 rows
 to record one boolean flipping once per round, so that one table upserts. Every other
 method here inserts.
 
+The second exception is `purge`, which deletes. Append-only describes how a *sync*
+writes, so that drift between captures stays visible — it was never a claim that a lega
+can never be removed. The app's "Disconnect" removes an account, and leaving its captures
+behind would mean a lega the operator has disconnected still appearing on every other
+screen. Nothing else deletes from these tables.
+
 `captured_at` is the table's own `now()` default and is deliberately *not* passed in: one
 `lega sync` writes several tables and each row stamps itself, which is why a sync's rows
 share a second rather than an identity. When a query needs "the last capture", it asks
@@ -21,7 +27,10 @@ for the max per table, not for a shared token.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.adapters.persistence.models.league import (
@@ -43,6 +52,17 @@ from fantabot.domain.lega.models import (
     TeamRoster,
 )
 from fantabot.domain.shared.league import TeamSnapshot
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
+
+
+def _rows(result: Any) -> int:
+    """`Session.execute` is typed `Result`, which has no `rowcount` — only
+    `CursorResult` does. Narrowed explicitly rather than with a `type: ignore`, so a
+    change that stops returning a cursor result fails here and not at runtime. Same
+    reasoning as `LeagueTokenRepository.delete`."""
+    return int(cast("CursorResult[Any]", result).rowcount or 0)
 
 
 class LeagueRepository(RepositoryBase):
@@ -189,3 +209,76 @@ class LeagueRepository(RepositoryBase):
                 )
             )
         return len(rows)
+
+    def competition_ids(self, league_id: int) -> list[int]:
+        """Every competition this lega has ever been recorded under.
+
+        Two sources, unioned, and both are needed. `league_competition` is what
+        `lega sync` writes today. `league_snapshot.competition_id` is a legacy column
+        the current writer never sets — but older captures did, so a lega synced before
+        `league_competition` existed has its competition recorded only there.
+
+        Neither is filtered by `captured_at`: these are snapshot tables, and a
+        competition dropped from the newest capture still owns fixtures written under
+        an older one.
+        """
+        from_competitions = select(LeagueCompetition.competition_id).where(
+            LeagueCompetition.league_id == league_id
+        )
+        from_snapshots = select(LeagueSnapshot.competition_id).where(
+            LeagueSnapshot.league_id == league_id,
+            LeagueSnapshot.competition_id.is_not(None),
+        )
+        rows = self.session.execute(from_competitions.union(from_snapshots)).scalars().all()
+        return sorted({int(row) for row in rows if row is not None})
+
+    def purge(self, league_id: int) -> dict[str, int]:
+        """Delete every stored row belonging to one lega. Returns rows removed per table.
+
+        **Order is load-bearing in exactly one place.** `league_fixture` has no
+        `league_id` column — its only route to a lega is `league_competition`. So the
+        competition ids are resolved *first*, into Python, before any statement runs.
+        Resolve them afterwards and the subquery sees the deletes already applied within
+        the transaction, the predicate goes empty, and 144 fixtures become permanently
+        unattributable to any lega. Nothing else here has a cross-table reference, so
+        the remaining order is free.
+
+        The fixture delete carries a second predicate that should never fire: it
+        excludes competitions another lega also claims. The platform stamps one owning
+        lega per competition (`lid` on `GET /league/competitions`), so a shared id would
+        mean that contract is wrong — better to leave a stranger's calendar alone and
+        find out than to delete it silently.
+
+        The token is not touched here: it belongs to `TokenStore`, and the caller
+        removes it last so a failure anywhere leaves the operator their recovery handle.
+        """
+        comp_ids = self.competition_ids(league_id)
+        removed: dict[str, int] = {}
+
+        if comp_ids:
+            others = select(LeagueCompetition.competition_id).where(
+                LeagueCompetition.league_id != league_id
+            )
+            result = self.session.execute(
+                sql_delete(LeagueFixture).where(
+                    LeagueFixture.competition_id.in_(comp_ids),
+                    LeagueFixture.competition_id.not_in(others),
+                )
+            )
+            removed["league_fixture"] = _rows(result)
+        else:
+            removed["league_fixture"] = 0
+
+        for model in (
+            LeagueCompetition,
+            LeagueCustomRole,
+            LeaguePlayerPool,
+            LeagueTeamSnapshot,
+            LeagueSnapshot,
+        ):
+            result = self.session.execute(
+                sql_delete(model).where(model.league_id == league_id)
+            )
+            removed[str(model.__tablename__)] = _rows(result)
+
+        return removed

@@ -15,6 +15,7 @@ import _tokens
 import pytest
 
 from fantabot.application import auth_login as login
+from fantabot.application import login_wait
 from fantabot.application.auth_login import LoginAborted
 from fantabot.domain.tokens.status import TokenStatus
 from fantabot.interface.console import console
@@ -119,7 +120,7 @@ def test_a_missing_key_exits_two_and_opens_no_browser(monkeypatch: pytest.Monkey
     browser = _FakeBrowser()
 
     with pytest.raises(LoginAborted) as caught:
-        login.run(report=console, browser_factory=browser, now=NOW)
+        login.run(report=console, browser_factory=browser, now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert caught.value.code == 2
     assert browser.entered is False
@@ -137,7 +138,7 @@ def test_a_malformed_key_names_the_shape_and_opens_no_browser(
     browser = _FakeBrowser()
 
     with pytest.raises(LoginAborted) as caught:
-        login.run(report=console, browser_factory=browser, now=NOW)
+        login.run(report=console, browser_factory=browser, now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert browser.entered is False
     assert "44-character urlsafe-base64" in str(caught.value)
@@ -158,7 +159,7 @@ def test_an_unreachable_database_exits_before_the_browser(
     browser = _FakeBrowser()
 
     with pytest.raises(LoginAborted) as caught:
-        login.run(report=console, browser_factory=browser, now=NOW)
+        login.run(report=console, browser_factory=browser, now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert browser.entered is False
     message = str(caught.value)
@@ -186,7 +187,7 @@ def test_the_database_error_never_prints_the_dsn_password(
     monkeypatch.setattr(database_manager, "get_session", lambda: boom())
 
     with pytest.raises(LoginAborted) as caught:
-        login.run(report=console, browser_factory=_FakeBrowser(), now=NOW)
+        login.run(report=console, browser_factory=_FakeBrowser(), now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert "S3cr3tCanary" not in str(caught.value)
 
@@ -201,7 +202,7 @@ def test_all_tokens_valid_opens_no_browser(
     stub_db["rows"].extend([a_status(league_id=3584692), a_status(league_id=4103937)])
     browser = _FakeBrowser()
 
-    result = login.run(report=console, browser_factory=browser, now=NOW)
+    result = login.run(report=console, browser_factory=browser, now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert browser.entered is False
     assert result.browser_opened is False
@@ -213,7 +214,7 @@ def test_an_expired_token_opens_the_browser(stub_db: Any, with_key: None) -> Non
     stub_db["rows"].append(a_status(expires_at=NOW - timedelta(days=1)))
     ctx = _FakeContext()
 
-    result = login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    result = login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.entered is True
     assert result.browser_opened is True
@@ -226,7 +227,7 @@ def test_force_opens_the_browser_even_when_everything_is_valid(
     stub_db["rows"].append(a_status())
     ctx = _FakeContext()
 
-    login.run(report=console, browser_factory=ctx, force=True, verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=ctx, force=True, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.entered is True
 
@@ -234,7 +235,7 @@ def test_force_opens_the_browser_even_when_everything_is_valid(
 def test_an_empty_table_opens_the_browser(stub_db: Any, with_key: None) -> None:
     ctx = _FakeContext()
 
-    login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.entered is True
 
@@ -249,7 +250,7 @@ def test_league_restricts_which_leghe_must_be_valid(stub_db: Any, with_key: None
     )
     browser = _FakeBrowser()
 
-    result = login.run(report=console, browser_factory=browser, league=4103937, now=NOW)
+    result = login.run(report=console, browser_factory=browser, league=4103937, now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert browser.entered is False
     assert result.browser_opened is False
@@ -267,8 +268,7 @@ def test_league_naming_an_expired_lega_opens_the_browser(
     ctx = _FakeContext()
 
     login.run(report=console, 
-        browser_factory=ctx, league=3584692, verify=False, prompt=_answers(""), now=NOW
-    )
+        browser_factory=ctx, league=3584692, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.entered is True
 
@@ -278,7 +278,7 @@ def test_no_preflight_output_contains_the_key(
 ) -> None:
     stub_db["rows"].append(a_status())
 
-    login.run(report=console, browser_factory=_FakeBrowser(), now=NOW)
+    login.run(report=console, browser_factory=_FakeBrowser(), now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert GOOD_KEY[:8] not in capsys.readouterr().out
 
@@ -338,13 +338,24 @@ class _FakeContext:
         return self.blob
 
 
-def _answers(*replies: str) -> Any:
-    queue = list(replies)
+def _confirm(_message: str) -> str:
+    """Stands in for the human clicking Continue / pressing Enter."""
+    return ""
 
-    def prompt(message: str) -> str:
-        return queue.pop(0) if queue else ""
 
-    return prompt
+def _read_state(ctx: Any) -> dict[str, Any]:
+    """What `adapters.browser.capture.read_storage_state` does, without playwright."""
+    return dict(ctx.storage_state())
+
+
+@pytest.fixture(autouse=True)
+def _instant_poll(monkeypatch: Any) -> None:
+    """No real waiting. The capture loop polls; the suite must still sleep zero seconds.
+
+    Patched on the module rather than passed in, so `run()` keeps a signature with no
+    test-only knobs on it.
+    """
+    monkeypatch.setattr(login_wait, "POLL_INTERVAL_S", 0.0)
 
 
 def test_storage_state_is_read_before_the_context_closes(
@@ -353,7 +364,7 @@ def test_storage_state_is_read_before_the_context_closes(
     """The single easiest way to break this task, invisible until a real login."""
     ctx = _FakeContext()
 
-    login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.reads >= 1
     assert ctx.closed is True
@@ -364,10 +375,18 @@ def test_the_page_is_navigated_and_nothing_else(stub_db: Any, with_key: None) ->
 
     The surface most likely to accrete a `wait_for_selector` later is the one
     with no guard, so this asserts the recorded call list exactly.
+
+    Precise about what it guarantees, now that the capture polls. The claim is that
+    this program never clicks, types into, or navigates the login page — not that no
+    script runs anywhere in the browser. `storage_state()` is a context-channel call
+    that evaluates a collector in Chromium's *isolated utility world*, invisible to the
+    site's own JavaScript, and it may open a temporary blank page for an origin no open
+    page holds. Neither reaches this Page object, which is what the anti-flagging rule
+    is actually about.
     """
     ctx = _FakeContext()
 
-    login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.page.calls == ["goto"], f"the page was interacted with: {ctx.page.calls}"
 
@@ -375,7 +394,7 @@ def test_the_page_is_navigated_and_nothing_else(stub_db: Any, with_key: None) ->
 def test_both_leghe_are_stored(stub_db: Any, with_key: None) -> None:
     ctx = _FakeContext()
 
-    result = login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    result = login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert sorted(result.stored) == sorted([_tokens.LEGA_CLASSIC, _tokens.LEGA_MANTRA])
 
@@ -396,7 +415,7 @@ def test_a_crossed_l_id_stores_nothing(stub_db: Any, with_key: None) -> None:
     ctx = _FakeContext(blob=crossed)
 
     with pytest.raises(LeagueMismatch):
-        login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+        login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert stub_db["writes"] == []
 
@@ -411,9 +430,8 @@ def test_league_restricts_the_ciphertext_but_not_the_stamp(
         browser_factory=ctx,
         league=_tokens.LEGA_MANTRA,
         verify=False,
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
 
     assert result.stored == [_tokens.LEGA_MANTRA]
     assert sorted(stub_db["stamped"]) == sorted([_tokens.LEGA_CLASSIC, _tokens.LEGA_MANTRA])
@@ -425,7 +443,7 @@ def test_league_naming_an_absent_lega_exits_nonzero_and_stores_nothing(
     ctx = _FakeContext()
 
     with pytest.raises(LoginAborted) as caught:
-        login.run(report=console, browser_factory=ctx, league=9911111, verify=False, prompt=_answers(""), now=NOW)
+        login.run(report=console, browser_factory=ctx, league=9911111, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert caught.value.code == 1
     assert "9911111" in str(caught.value)
@@ -439,8 +457,7 @@ def test_an_unparseable_blob_prompts_for_one_explicit_reread(
     ctx = _FakeContext(fail_first=True)
 
     result = login.run(report=console, 
-        browser_factory=ctx, verify=False, prompt=_answers("", ""), now=NOW
-    )
+        browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.reads == 2
     assert len(result.stored) == 2
@@ -458,7 +475,7 @@ def test_the_default_run_writes_no_session_file(
     monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
     monkeypatch.setattr(config.settings, "fantabot_data_dir", tmp_path)
 
-    result = login.run(report=console, browser_factory=_FakeContext(), verify=False, prompt=_answers(""), now=NOW)
+    result = login.run(report=console, browser_factory=_FakeContext(), verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert target.exists() is False
     assert result.session_saved is False
@@ -477,9 +494,8 @@ def test_save_session_writes_it(
         browser_factory=_FakeContext(),
         verify=False,
         save_session=True,
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
 
     assert target.exists() is True
     assert result.session_saved is True
@@ -501,7 +517,7 @@ def test_a_stale_session_file_is_warned_about_and_left_alone(
     monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
     monkeypatch.setattr(config.settings, "fantabot_data_dir", tmp_path)
 
-    login.run(report=console, browser_factory=_FakeContext(), verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=_FakeContext(), verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert target.stat().st_mtime_ns == before
     assert "left untouched" in capsys.readouterr().out
@@ -512,7 +528,7 @@ def test_no_printed_line_contains_a_token(
 ) -> None:
     ctx = _FakeContext()
 
-    login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     output = capsys.readouterr().out
     for one in _tokens.storage_state()["origins"][0]["localStorage"]:
@@ -551,9 +567,8 @@ def test_no_verify_stores_without_firing_a_request(stub_db: Any, with_key: None)
         browser_factory=_FakeContext(),
         verify=False,
         transport=_exploding_transport(),
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
 
     assert len(result.stored) == 2
     assert result.verified == []
@@ -563,9 +578,8 @@ def test_a_200_marks_each_lega_verified(stub_db: Any, with_key: None) -> None:
     result = login.run(report=console, 
         browser_factory=_FakeContext(),
         transport=_transport(),
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
 
     assert sorted(result.verified) == sorted([_tokens.LEGA_CLASSIC, _tokens.LEGA_MANTRA])
     assert result.failures == []
@@ -578,9 +592,8 @@ def test_a_rejected_token_is_reported_but_the_row_stays_stored(
     result = login.run(report=console, 
         browser_factory=_FakeContext(),
         transport=_transport(401, {"code": "ATH001"}),
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
 
     assert len(result.stored) == 2
     assert result.verified == []
@@ -596,9 +609,8 @@ def test_the_report_contains_no_token_and_no_key(
     login.run(report=console, 
         browser_factory=_FakeContext(),
         transport=_transport(),
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
     output = capsys.readouterr().out
 
     assert GOOD_KEY[:8] not in output
@@ -616,9 +628,8 @@ def test_every_printed_line_is_derivable_without_a_decrypt(
     login.run(report=console, 
         browser_factory=_FakeContext(),
         transport=_transport(),
-        prompt=_answers(""),
-        now=NOW,
-    )
+        read_state=_read_state,
+        now=NOW, prompt=_confirm)
     output = capsys.readouterr().out
 
     assert str(_tokens.TEAM_MANTRA) in output
@@ -653,7 +664,7 @@ def test_login_is_registered_with_all_four_flags() -> None:
 def test_a_missing_key_exits_two_through_the_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SC 1, through the real Typer command rather than login.run(report=console, )."""
+    """SC 1, through the real Typer command rather than login.run(report=console, read_state=_read_state, prompt=_confirm)."""
     from typer.testing import CliRunner
 
     from fantabot import config
@@ -711,7 +722,61 @@ def test_login_navigates_to_the_site_root_not_to_lega_url(
             return self.page
 
     ctx = _Recording()
-    login.run(report=console, browser_factory=ctx, verify=False, prompt=_answers(""), now=NOW)
+    login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
 
     assert ctx.urls == [login.LOGIN_URL]
     assert "nome-della-tua-lega" not in ctx.urls[0]
+
+
+def test_confirming_too_early_asks_again_instead_of_killing_the_login(
+    stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The reported bug: an early confirmation used to end the login.
+
+    It spent a minute re-reading — a burst of tabs across the page each time, because
+    `storage_state` navigates a temporary page to every visited origin — and then
+    failed the job, so the human had to start again with a fresh browser. Now the
+    early read costs one attempt and the flow asks again.
+    """
+    ctx = _FakeContext(fail_first=True)
+    confirmations = {"n": 0}
+
+    def confirm(_message: str) -> str:
+        confirmations["n"] += 1
+        return ""
+
+    result = login.run(
+        report=console,
+        browser_factory=ctx,
+        verify=False,
+        read_state=_read_state,
+        prompt=confirm,
+        now=NOW,
+    )
+
+    assert confirmations["n"] == 2  # asked again rather than giving up
+    assert ctx.reads == 2  # and the early confirmation cost exactly one read
+    assert len(result.stored) == 2
+    assert "Not signed in yet" in capsys.readouterr().out
+
+
+def test_a_run_of_early_confirmations_eventually_stops(
+    stub_db: Any, with_key: None
+) -> None:
+    """Asking again forever would be its own trap."""
+    from fantabot.application.login_wait import MAX_CONFIRMS
+
+    ctx = _FakeContext(blob={"cookies": [], "origins": []})
+
+    with pytest.raises(LoginAborted):
+        login.run(
+            report=console,
+            browser_factory=ctx,
+            verify=False,
+            read_state=_read_state,
+            prompt=_confirm,
+            now=NOW,
+        )
+
+    assert ctx.reads == MAX_CONFIRMS
+    assert stub_db["writes"] == []

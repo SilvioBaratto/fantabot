@@ -110,6 +110,8 @@ TREE: dict[str, str] = {
     # -- application ----------------------------------------------------------------------
     "test_asta_bench.py": "application",
     "test_lineup_planner.py": "application",
+    # The capture loop that replaced "press Enter once you are logged in".
+    "test_login_wait.py": "application",
     "test_lega_sync.py": "application",
     "test_asta_calibrate.py": "application",
     "test_plan_inputs.py": "application",

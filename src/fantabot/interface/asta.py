@@ -477,18 +477,24 @@ def asta_room(
 
     cipher = TokenCipher(settings.fantabot_encryption_key)
     with database_manager.get_session() as session:
-        stored = FantalabStore(session, cipher).load()
-    if stored is None or not stored.id_token or not stored.user_id:
-        console.print("[red]No FantaLab session stored. Run: fantabot auth fantalab-login[/red]")
-        raise typer.Exit(code=2)
+        store = FantalabStore(session, cipher)
+        stored = store.load()
+        if stored is None or not stored.user_id:
+            console.print(
+                "[red]No FantaLab session stored. Run: fantabot auth fantalab-login[/red]"
+            )
+            raise typer.Exit(code=2)
+        our_user_id = stored.user_id
+        # Bound while the session is open, and the bearer is resolved inside the adapter
+        # rather than read out here: `resolve_room` takes a callable, so neither this
+        # frame nor the application layer ever holds a credential.
+        fetch = rest.fetcher_from(store)
 
-    # The token is bound here and goes no further: `resolve_room` takes a callable, so the
-    # application layer never holds a credential and cannot render one by accident.
     try:
         resolved = resolve_room(
             fantaleague_id,
-            user_id=stored.user_id,
-            fetch=lambda fl: rest.fetch_league(fl, token=stored.id_token),
+            user_id=our_user_id,
+            fetch=fetch,
         )
     except RoomRefused as exc:
         console.print(f"[red]{exc}[/red]")

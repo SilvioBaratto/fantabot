@@ -70,6 +70,24 @@ class LiveAuctionsClient:
         self._token = token
         self._get = get or _httpx_get
 
+    @classmethod
+    def from_store(
+        cls, store: Any, user_id: str | None = None, get: Getter | None = None
+    ) -> LiveAuctionsClient:
+        """Build one from the encrypted store, resolving the bearer here.
+
+        The seam `apileague.auth_headers(league_id, store=...)` already has. A caller
+        that reads `store.load().id_token` to pass it in is holding a credential for the
+        length of that expression, and every new consumer repeats the mistake. Callers
+        hand over the store; only this module ever names a token.
+
+        ``store`` is typed loosely so this module does not import the token package for
+        a type it only forwards.
+        """
+        from fantabot.adapters.http.fantalab.rest import bearer_from
+
+        return cls(bearer_from(store, user_id), get=get)
+
     def live_auctions(self) -> Sequence[AuctionConfig]:
         """Every live auction, in every format.
 

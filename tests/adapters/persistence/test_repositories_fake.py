@@ -483,3 +483,111 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
 
         assert "tokens.crypto" not in source
         assert "decrypt(" not in source
+
+
+# --- LeagueRepository.purge -----------------------------------------------------------
+
+
+class _RecordingSession:
+    """Records every statement compiled to SQL, and answers the id lookup."""
+
+    def __init__(self, competition_ids: list[int] | None = None) -> None:
+        self.statements: list[str] = []
+        self._competition_ids = competition_ids if competition_ids is not None else []
+
+    def execute(self, statement: Any) -> Any:
+        sql = str(statement.compile(dialect=postgresql.dialect()))
+        self.statements.append(sql)
+        session = self
+
+        class _Result:
+            rowcount = 1
+
+            def scalars(self) -> Any:
+                class _Scalars:
+                    @staticmethod
+                    def all() -> list[int]:
+                        return session._competition_ids
+
+                return _Scalars()
+
+        return _Result()
+
+
+def test_purge_resolves_competition_ids_before_deleting_the_competitions() -> None:
+    """The one ordering constraint, and the only one that cannot be recovered from.
+
+    `league_fixture` has no `league_id`; its only route to a lega is
+    `league_competition`. Delete the competitions first and, inside the same
+    transaction, the subquery sees them gone — the predicate empties and the fixtures
+    become permanently unattributable to any lega.
+    """
+    from fantabot.adapters.persistence.repositories.league import LeagueRepository
+
+    session = _RecordingSession(competition_ids=[311681, 177318])
+    LeagueRepository(session).purge(4103937)
+
+    kinds = [
+        ("SELECT" if sql.lstrip().upper().startswith("SELECT") else "DELETE", sql)
+        for sql in session.statements
+    ]
+    first_delete = next(i for i, (kind, _) in enumerate(kinds) if kind == "DELETE")
+    assert kinds[first_delete][1].startswith("DELETE FROM league_fixture")
+    # Every id lookup happened before any delete.
+    assert all(kind == "SELECT" for kind, _ in kinds[:first_delete])
+
+    order = [sql.split()[2] for kind, sql in kinds if kind == "DELETE"]
+    assert order.index("league_fixture") < order.index("league_competition")
+
+
+def test_purge_touches_only_lega_owned_tables() -> None:
+    """Never the global reference tables the surviving lega still needs.
+
+    `read_plan_inputs` builds an asta plan out of players, quotazioni, statistiche and
+    player_sentiment. Deleting any of them on a disconnect would break the other lega.
+    """
+    from fantabot.adapters.persistence.repositories.league import LeagueRepository
+
+    session = _RecordingSession(competition_ids=[311681])
+    LeagueRepository(session).purge(4103937)
+
+    deleted = {sql.split()[2] for sql in session.statements if sql.startswith("DELETE")}
+    assert deleted == {
+        "league_fixture",
+        "league_competition",
+        "league_custom_role",
+        "league_player_pool",
+        "league_team_snapshot",
+        "league_snapshot",
+    }
+    # The token is the caller's job, removed last so a failure leaves a way back.
+    assert "league_tokens" not in deleted
+    for shared in ("players", "teams", "quotazioni", "statistiche", "player_sentiment", "asta"):
+        assert shared not in deleted
+
+
+def test_purge_skips_the_fixture_delete_when_the_lega_has_no_competitions() -> None:
+    """An unbounded `IN ()` would otherwise be built from an empty id set."""
+    from fantabot.adapters.persistence.repositories.league import LeagueRepository
+
+    session = _RecordingSession(competition_ids=[])
+    removed = LeagueRepository(session).purge(4103937)
+
+    assert removed["league_fixture"] == 0
+    assert not any(sql.startswith("DELETE FROM league_fixture") for sql in session.statements)
+
+
+def test_purge_will_not_delete_a_competition_another_lega_claims() -> None:
+    """Should never fire — the platform stamps one owning lega per competition.
+
+    Kept because if it ever does fire, the alternative is silently deleting another
+    lega's calendar.
+    """
+    from fantabot.adapters.persistence.repositories.league import LeagueRepository
+
+    session = _RecordingSession(competition_ids=[311681])
+    LeagueRepository(session).purge(4103937)
+
+    fixtures = next(s for s in session.statements if s.startswith("DELETE FROM league_fixture"))
+    assert "NOT IN" in fixtures.upper()
+    assert "league_competition" in fixtures

@@ -8,10 +8,14 @@ The saved-session file it depended on is still written under ``login --save-sess
 and is still read by nothing; that is recorded at ``state.py``.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
+from typing import Any
 
 from playwright.sync_api import BrowserContext, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
+
+from fantabot.domain.tokens.errors import SignInWindowClosed, StorageReadFailed
 
 
 @contextmanager
@@ -59,3 +63,32 @@ def real_browser(channel: str | None = None) -> AbstractContextManager[BrowserCo
     only the default was pointing the wrong way.
     """
     return interactive_login_context(channel)
+
+
+def read_storage_state(ctx: BrowserContext) -> Mapping[str, Any]:
+    """One read of the browser's storage, for the capture loop to poll.
+
+    Two things this must not do, both of which have bitten before.
+
+    **Never `path=`.** That form json.dumps the whole state to disk, which for
+    FantaLab means `refresh_token`, `id_token` and `access_token` in cleartext in a
+    file. The values go from browser memory to Fernet to Postgres with no plaintext
+    stop in between.
+
+    **Translate the closed window here.** A human shutting the browser is the one
+    terminal condition the loop must not sit out, and Playwright reports it as
+    `TargetClosedError` — which 1.62 does not export from `playwright.sync_api`
+    (only `Error`, `TimeoutError`, `WebError`). Hence the name check rather than an
+    import that would break on a version bump. The translation lives in the adapter
+    because `application/` may not import playwright at all.
+    """
+    try:
+        return dict(ctx.storage_state())
+    except PlaywrightError as exc:
+        if type(exc).__name__ == "TargetClosedError":
+            raise SignInWindowClosed() from None
+        # Anything else is the collector, not the credential: the whole call aborts if
+        # a single visited origin fails to load, which on an ad-funded site is a
+        # routine event rather than a reason to abandon a login. Message dropped
+        # deliberately — Playwright's call log names every origin it walked.
+        raise StorageReadFailed() from None

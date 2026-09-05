@@ -27,6 +27,7 @@ import json
 import tracemalloc
 from pathlib import Path
 
+from fantabot.adapters.persistence.repositories.aste import EventWrite
 from fantabot.application.harvest_loader import (
     DEFAULT_WINDOW_BYTES,
     catching_up,
@@ -255,8 +256,10 @@ class TestTheFollowLoopCatchesUpWithoutWaitingBetweenPasses:
             def upsert_auctions(self, rows: object) -> int:
                 return 0
 
-            def upsert_events(self, rows: object) -> int:
-                return 0
+            def upsert_events(self, rows: object) -> EventWrite:
+                # The real one returns a breakdown, not a count. A fake that returns
+                # an int hides the very reporting this type exists to force.
+                return EventWrite()
 
             def upsert_assignments(self, rows: object) -> int:
                 return 0
@@ -387,9 +390,9 @@ class _FakeDatabase:
             def upsert_auctions(self, rows: object) -> int:
                 return 0
 
-            def upsert_events(self, rows: list) -> int:  # type: ignore[type-arg]
+            def upsert_events(self, rows: list) -> EventWrite:  # type: ignore[type-arg]
                 record.event_batches.append(len(rows))
-                return len(rows)
+                return EventWrite(inserted=len(rows))
 
             def upsert_assignments(self, rows: list) -> int:  # type: ignore[type-arg]
                 record.assignment_batches.append(len(rows))

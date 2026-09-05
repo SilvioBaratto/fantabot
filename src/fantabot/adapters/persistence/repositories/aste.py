@@ -13,7 +13,8 @@ must keep its parameter list inside Postgres's 65,535 bound.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -21,6 +22,50 @@ from sqlalchemy.dialects.postgresql import insert
 from fantabot.adapters.persistence.base import Base
 from fantabot.adapters.persistence.models.aste import Asta, AstaAssignment, AstaEvent
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
+
+
+@dataclass(frozen=True)
+class EventWrite:
+    """What ``upsert_events`` actually did, split by what each outcome means.
+
+    A count is returned rather than a bare total because the three outcomes are not
+    interchangeable. ``already_present`` is the normal state of a re-read window and
+    says the loader is working. ``unknown_auction`` says rows were **thrown away** —
+    the events named an auction with no ``asta`` row, so there was no key to hang
+    them on.
+
+    This type exists because the method used to return ``len(chunk)`` regardless: a
+    load could discard every row it was handed and still report a full write. On
+    2026-09-05 that hid 2.1 million Classic events for over a week — the loader read
+    1.31 GB to EOF, advanced its offset, reported success, and stored nothing. The
+    method that says how much it wrote must be able to be wrong out loud.
+    """
+
+    inserted: int = 0
+    already_present: int = 0
+    unknown_auction: int = 0
+
+    @property
+    def offered(self) -> int:
+        return self.inserted + self.already_present + self.unknown_auction
+
+    @property
+    def discarded(self) -> bool:
+        """True when rows were dropped for want of an auction to attach them to.
+
+        Deliberately not true for ``already_present``: absorbing a repeat is the
+        design, and a caller that warned about it would cry wolf every pass.
+        """
+        return self.unknown_auction > 0
+
+    def summary(self) -> str:
+        return (
+            f"{self.inserted} new · {self.already_present} already stored · "
+            f"{self.unknown_auction} with no auction row"
+        )
 
 #: Postgres refuses a statement with more bind parameters than this.
 PARAMETER_LIMIT = 65_535
@@ -195,7 +240,7 @@ class AsteRepository(RepositoryBase):
             written += len(chunk)
         return written
 
-    def upsert_events(self, rows: Sequence[dict[str, Any]]) -> int:
+    def upsert_events(self, rows: Sequence[dict[str, Any]]) -> EventWrite:
         """Append observed states, absorbing the repeats a restart produces.
 
         The conflict target is the *partial* index, so the statement has to
@@ -214,7 +259,7 @@ class AsteRepository(RepositoryBase):
         already talking to Postgres, and the collection path is unchanged.
         """
         if not rows:
-            return 0
+            return EventWrite()
 
         keys = self._keys_for(sorted({str(r["asta_id"]) for r in rows}))
         translated = [
@@ -222,20 +267,33 @@ class AsteRepository(RepositoryBase):
             for row in rows
             if str(row["asta_id"]) in keys
         ]
+        # Counted, not merely skipped. These rows are gone: nothing downstream will
+        # ever see them again, because the byte offset advances whether or not they
+        # landed.
+        unknown = len(rows) - len(translated)
         if not translated:
-            return 0
+            return EventWrite(unknown_auction=unknown)
 
-        written = 0
+        inserted = 0
         for chunk in _chunks(translated, AstaEvent):
             statement = insert(AstaEvent).values(list(chunk))
-            self.session.execute(
+            result = self.session.execute(
                 statement.on_conflict_do_nothing(
                     index_elements=["asta_key", "last_update"],
                     index_where=AstaEvent.__table__.c.last_update.isnot(None),
                 )
             )
-            written += len(chunk)
-        return written
+            # `rowcount` after ON CONFLICT DO NOTHING is the number of rows that
+            # actually went in — `len(chunk)` is what was offered, which is the
+            # distinction this method used to lose. Narrowed rather than ignored,
+            # like `LeagueTokenRepository.delete`: `Session.execute` is typed
+            # `Result`, and only `CursorResult` carries a rowcount.
+            inserted += int(cast("CursorResult[Any]", result).rowcount or 0)
+        return EventWrite(
+            inserted=inserted,
+            already_present=len(translated) - inserted,
+            unknown_auction=unknown,
+        )
 
     def _keys_for(self, asta_ids: Sequence[str]) -> dict[str, int]:
         """``asta.id`` -> ``asta.key`` for the auctions named, ids absent omitted.

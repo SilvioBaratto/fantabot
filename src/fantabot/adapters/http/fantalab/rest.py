@@ -18,11 +18,13 @@ own errors (an httpx traceback renders request headers) — deferred to the admi
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+from fantabot.domain.tokens.errors import FantalabSessionMissing
 
 FETCH_PATH = "/fantaleague/fetch"
 LIVE_PATH = "/fantaleagues/live"
@@ -245,18 +247,71 @@ def _headers(token: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def bearer_from(store: Any, user_id: str | None = None) -> str:
+    """Resolve the stored session's bearer, here rather than in the caller.
+
+    The seam `apileague.auth_headers(league_id, store=...)` already has, for the same
+    reason: a caller that receives a plaintext token holds a credential, and the whole
+    point of the encrypted store is that only the adapter that needs the string ever
+    sees one. Without this, every consumer — the CLI today, an HTTP endpoint tomorrow —
+    keeps a bearer in its own frame.
+
+    ``store`` is typed loosely on purpose: naming `FantalabStore` here would make this
+    module import the token package for a type it only forwards.
+    """
+    session = store.load(user_id)
+    if session is None or not session.id_token:
+        raise FantalabSessionMissing()
+    return str(session.id_token)
+
+
+def fetcher_from(
+    store: Any,
+    user_id: str | None = None,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> Callable[[str], RoomConfig]:
+    """A bound ``fetch_league`` whose bearer is resolved now and held only in here.
+
+    Call it while the database session is open — resolving the token needs a query —
+    and the returned callable can outlive that session.
+
+    This exists so no caller has to write ``token=stored.id_token``. That expression is
+    the credential leaving the adapter: harmless in a CLI frame, and the thing that
+    would put a bearer inside an HTTP endpoint the first time one is written. The
+    closure keeps it in this module, which is the only place that needs the string.
+    """
+    token = bearer_from(store, user_id)
+
+    def fetch(fantaleague_id: str) -> RoomConfig:
+        return fetch_league(
+            fantaleague_id, token=token, transport=transport, timeout=timeout
+        )
+
+    return fetch
+
+
 def fetch_league(
     fantaleague_id: str,
     *,
+    store: Any | None = None,
+    user_id: str | None = None,
     token: str | None = None,
     transport: httpx.BaseTransport | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> RoomConfig:
     """``POST /fantaleague/fetch`` → the room config. **Needs a Bearer** (`401` without one).
 
+    Pass ``store`` (a `FantalabStore`), not ``token``: the bearer is then resolved inside
+    this module and never enters the caller's frame. ``token`` remains for the tests,
+    which inject a string rather than build a cipher and a database.
+
     ``transport`` is injectable so tests never construct a real one — what keeps this in the
     socket-free tier. A participant bot does not call this; it is given the shard and seat.
     """
+    if store is not None:
+        token = bearer_from(store, user_id)
     with httpx.Client(
         base_url=_base_url(), headers=_headers(token), timeout=timeout, transport=transport
     ) as client:
@@ -317,6 +372,7 @@ __all__ = [
     "RoomConfig",
     "Seat",
     "fetch_league",
+    "fetcher_from",
     "join_team",
     "live_leagues",
     "parse_league",

@@ -15,8 +15,26 @@ from typing import Any
 
 import pytest
 
+from fantabot.application import login_wait
 from fantabot.application.fantalab_login import FantalabLoginResult, run
 from fantabot.interface.console import console
+
+
+def _confirm(_message: str) -> str:
+    """Stands in for the human clicking Continue / pressing Enter."""
+    return ""
+
+
+def _read_state(ctx: Any) -> dict[str, Any]:
+    """What `adapters.browser.capture.read_storage_state` does, without playwright."""
+    return dict(ctx.storage_state())
+
+
+@pytest.fixture(autouse=True)
+def _instant_poll(monkeypatch: Any) -> None:
+    """No real waiting. The capture loop polls; the suite must still sleep zero seconds."""
+    monkeypatch.setattr(login_wait, "POLL_INTERVAL_S", 0.0)
+
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -111,8 +129,8 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: _FakeContext) -> 
     import fantabot.adapters.persistence as db_module
 
     monkeypatch.setattr(db_module.database_manager, "get_session", lambda: _Session())
-    result = run(report=console, browser_factory=lambda: ctx, prompt=lambda _m: "",
-                 now=datetime(2026, 8, 27, tzinfo=UTC))
+    result = run(report=console, browser_factory=lambda: ctx, read_state=_read_state,
+                 now=datetime(2026, 8, 27, tzinfo=UTC), prompt=_confirm)
     return result, saved
 
 
@@ -120,7 +138,14 @@ def test_the_page_is_navigated_once_and_never_touched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A scripted sign-in is what gets accounts flagged. The recorded call list
-    is asserted exactly, so any future click fails this rather than shipping."""
+    is asserted exactly, so any future click fails this rather than shipping.
+
+    Precise about what it guarantees, now that the capture polls. The claim is that
+    this program never clicks, types into, or navigates the login page — not that no
+    script runs anywhere in the browser. `storage_state()` is a context-channel call
+    that evaluates a collector in Chromium's *isolated utility world*, invisible to the
+    site's own JavaScript. It does not reach this Page object, which is what the rule
+    is actually about."""
     ctx = _FakeContext(STORAGE)
     _run(tmp_path, monkeypatch, ctx)
     assert ctx.page.calls == ["goto"], f"the page was interacted with: {ctx.page.calls}"

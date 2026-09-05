@@ -214,6 +214,23 @@ class FantalabSessionRepository(RepositoryBase):
         if row is not None:
             row.last_used_at = at
 
+    def delete(self, user_id: str) -> bool:
+        """Remove one account's session. ``True`` if there was one.
+
+        Fetched by identity and deleted, mirroring `mark_used` above rather than
+        `LeagueTokenRepository.delete`'s Core statement: `user_id` is the primary
+        key, so the lookup costs one identity-map hit and the `CursorResult`
+        narrowing that form needs for `rowcount` is not required here.
+
+        Removing a session is the only way to replace one: `fantalab_login.run`
+        refuses to open a browser while any row is stored unless it is forced.
+        """
+        row = self.session.get(FantalabSession, user_id)
+        if row is None:
+            return False
+        self.session.delete(row)
+        return True
+
     def describe(self) -> list[tuple[str, datetime, datetime | None]]:
         """`(user_id, captured_at, last_used_at)` per stored session.
 
