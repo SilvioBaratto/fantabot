@@ -30,6 +30,15 @@ here:
   "nothing stored" and "stored under another key" are both "the credential is not usable"
   and both need something done by hand.
 
+**No route catches bare `Exception`.** Each names the families it can actually fail on —
+`SQLAlchemyError` for the database, `TokenError` and its subclasses for the platform, the
+planner's own refusals — and anything else reaches FastAPI as a 500. That is deliberate and
+it is what *fail closed on a decision* means at the limit: a 500 is logged, alarming and
+unmistakably a fault, where a bare handler turns an unanticipated bug into a tidy page
+saying "we could not ask". An earlier version allowed one bare handler per route as the
+`unreachable` outcome; the criterion said none, and the criterion is right — the set of
+things that can go wrong here is small enough to name.
+
 **Pinned as tuples, and compared for exact equality by the tests.** A route that gains an
 outcome must say so; a route that loses one must delete its name. That is the same ratchet
 `tests/test_layers.py` keeps, for the same reason: a set that only ever grows stops meaning
@@ -66,9 +75,12 @@ LINEUP_PLAN_OUTCOMES = (
     "unreachable",
 )
 
-#: `GET /asta/target-prices`. `no_data` is a real answer here rather than a failure: the
-#: fit needs training seasons of `statistiche`, and a fresh install has none.
-TARGET_PRICES_OUTCOMES = ("priced", "no_data", "unreachable")
+#: `GET /asta/target-prices`. `no_data` is a real answer here rather than a failure: the fit
+#: needs training seasons of `statistiche`, and a fresh install has none. `unknown_system` is
+#: separate from it because the remedies differ — fix the spelling, or scrape a season — and
+#: one screen over two remedies is the defect this module exists for. `system` reaches a
+#: `WHERE listone = :system`, so an unrecognised value selected no rows and read as "no data".
+TARGET_PRICES_OUTCOMES = ("priced", "no_data", "unknown_system", "unreachable")
 
 
 def because(exc: Exception) -> str:

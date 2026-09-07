@@ -107,9 +107,16 @@ class TestTheCommandsExposeIt:
     They have to: none of them can read the room's own shape. `asta bid` is unauthenticated
     and cannot even read its `asta_type` — which is why `--format` exists — and a wrong shape
     prices against somebody else's game as surely as a wrong format does.
+
+    `asta optimize` was the sixth site and the one this class originally missed: it took
+    `PlanRequest`'s 8x500 default, which is explicit in the code and unreachable to the
+    operator. "All six sites pass an explicit shape" was 5 of 6 until the Checkpoint B audit
+    said so.
     """
 
-    @pytest.mark.parametrize("command", ["asta_live", "asta_calibrate", "asta_bid"])
+    @pytest.mark.parametrize(
+        "command", ["asta_optimize", "asta_live", "asta_calibrate", "asta_bid"]
+    )
     def test_the_shape_is_an_option(self, command: str) -> None:
         import inspect
 

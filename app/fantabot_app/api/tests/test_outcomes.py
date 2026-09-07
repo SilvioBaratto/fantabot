@@ -29,6 +29,7 @@ from typing import Any, Self
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.outcomes import (
@@ -87,28 +88,44 @@ class TestTheRoutesReturnOnlyWhatTheyPin:
         )
 
     @pytest.mark.parametrize("filename", ["asta.py", "lineup.py", "pricing.py"])
-    def test_the_only_bare_except_is_the_last_named_outcome(self, filename: str) -> None:
-        """`except Exception` is allowed exactly once per decision route, as `unreachable`.
+    def test_no_decision_route_catches_bare_exception(self, filename: str) -> None:
+        """The criterion, literally: `except Exception` in none of the three.
 
-        Not banned outright: something has to catch a driver nobody anticipated, and a 500
-        is a worse screen than "we could not ask". What is banned is it being the *first*
-        answer — which is what it was.
+        An earlier version of this test allowed one per route as the `unreachable` outcome,
+        on the argument that banning it trades "we could not ask" for a 500. That was a
+        weaker rule substituted for a written one, and the written one is right: a 500 is
+        logged, alarming and unmistakably a fault, where a bare handler turns an
+        unanticipated bug into a tidy page. The set of things that can actually go wrong on
+        these routes is small enough to name — `SQLAlchemyError`, `OSError`, `TokenError`
+        and the planner's own refusals — and anything outside it is a bug in this repository.
         """
         source = (ENDPOINTS / filename).read_text(encoding="utf-8")
-        tree = ast.parse(source)
         bare = [
-            handler
-            for handler in ast.walk(tree)
+            handler.lineno
+            for handler in ast.walk(ast.parse(source))
             if isinstance(handler, ast.ExceptHandler)
             and isinstance(handler.type, ast.Name)
-            and handler.type.id == "Exception"
+            and handler.type.id in {"Exception", "BaseException"}
         ]
-        for handler in bare:
-            body = ast.get_source_segment(source, handler) or ""
-            assert '"unreachable"' in body or '"no_credential"' in body, (
-                f"{filename}:{handler.lineno} catches Exception and does not map it to a "
-                "named outcome — that is the `found=False` this task removed"
-            )
+
+        assert not bare, (
+            f"{filename} catches bare Exception at {bare}. Name the families the route can "
+            "actually fail on; let the rest reach FastAPI as a 500."
+        )
+
+    @pytest.mark.parametrize("filename", ["asta.py", "lineup.py", "pricing.py"])
+    def test_and_the_scan_would_notice_one(self, filename: str) -> None:
+        """A ban that cannot fire reads as compliance. This proves the walk finds one."""
+        planted = ast.parse("try:\n    pass\nexcept Exception:\n    pass\n")
+        found = [
+            h
+            for h in ast.walk(planted)
+            if isinstance(h, ast.ExceptHandler)
+            and isinstance(h.type, ast.Name)
+            and h.type.id == "Exception"
+        ]
+
+        assert len(found) == 1
 
 
 class TestFourFailuresFourScreens:
@@ -120,14 +137,14 @@ class TestFourFailuresFourScreens:
         from fantabot.adapters.persistence import database_manager
 
         def boom() -> None:
-            raise RuntimeError("db unreachable")
+            raise OperationalError("SELECT 1", {}, OSError("db unreachable"))
 
         monkeypatch.setattr(database_manager, "get_session", boom)
 
         body = _plan()
 
         assert body["outcome"] == "unreachable"
-        assert "RuntimeError" in body["reason"]
+        assert "OperationalError" in body["reason"]
 
     def test_a_lega_that_was_never_synced_is_no_lega(
         self, monkeypatch: pytest.MonkeyPatch
@@ -186,6 +203,20 @@ class TestFourFailuresFourScreens:
 
         assert body["outcome"] == outcome
         assert body["reason"], "a named outcome with no reason is half the fix"
+
+    def test_an_unknown_system_is_its_own_screen_not_no_data(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`system` reaches a `WHERE listone = :system`, so a typo selected no rows and read
+        as "no training data" — sending the operator to scrape a season when the fix is a
+        spelling. Two remedies behind one screen is what this module exists to stop."""
+        with TestClient(app) as client:
+            body = client.get(
+                "/api/v1/asta/target-prices", params={"system": "mantr"}
+            ).json()
+
+        assert body["outcome"] == "unknown_system", body
+        assert "classic" in body["reason"] and "mantra" in body["reason"]
 
     def test_the_five_refusals_are_five_distinct_screens(
         self, monkeypatch: pytest.MonkeyPatch

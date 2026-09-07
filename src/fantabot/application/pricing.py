@@ -108,6 +108,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from fantabot.adapters.persistence import scraping as _db
+from fantabot.adapters.persistence.models.reference import LISTONI
 from fantabot.domain.shared.values import BiasRow, PlayerQuote, PriorStats
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]
@@ -451,6 +452,27 @@ def build_report(
     )
 
 
+class UnknownSystem(ValueError):
+    """A listone this model does not price. Refused rather than answered with an empty fit.
+
+    `system` is free text on the way in and reaches a `WHERE listone = :system`, so an
+    unrecognised value selects no rows — and an empty fit is indistinguishable from "there
+    is no training data yet". Two different remedies (fix the spelling / scrape a season)
+    behind one screen is the defect T31 is about, so this refuses by name.
+    """
+
+    def __init__(self, system: str) -> None:
+        super().__init__(
+            f"unknown system {system!r}; expected one of {', '.join(sorted(LISTONI))}"
+        )
+        self.system = system
+
+
+def _require_known(system: str) -> None:
+    if system not in LISTONI:
+        raise UnknownSystem(system)
+
+
 def fit(system: str = "classic", top_n: int = 15) -> PricingReport:
     """Fit, price, and report. **Reads only — nothing is written.**
 
@@ -464,6 +486,7 @@ def fit(system: str = "classic", top_n: int = 15) -> PricingReport:
     three stages read their tables once between them, and the fade counts come from the
     rows the fit used rather than from two more queries.
     """
+    _require_known(system)
     bias_rows, prior_stats, universe = _read(system)
     fades = fit_fades(bias_rows, prior_stats, system)
     team_factors = discount_factors(bias_rows)
@@ -485,6 +508,7 @@ def run(system: str = "classic", top_n: int = 15) -> PricingReport:
     `db price` and `POST /asta/target-prices` — the two callers that mean to write. The
     fit is `fit()`'s, run once and stored; the read-only half has no second copy of it.
     """
+    _require_known(system)
     bias_rows, prior_stats, universe = _read(system)
     fades = fit_fades(bias_rows, prior_stats, system)
     team_factors = discount_factors(bias_rows)

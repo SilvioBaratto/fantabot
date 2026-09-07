@@ -64,6 +64,7 @@ def lineup_plan(league_id: int) -> LineupPlan:
         TokenError,
         TokenRejected,
     )
+    from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot_app.api.outcomes import because
 
@@ -80,8 +81,10 @@ def lineup_plan(league_id: int) -> LineupPlan:
     # not be reported as a missing lineup.
     try:
         cipher = TokenCipher(key)
-    except Exception as exc:  # noqa: BLE001 — a malformed key is a credential problem
-        return LineupPlan(found=False, outcome="no_credential", reason=because(exc))
+    except TokenError as exc:
+        # `TokenCipher` raises `KeyMissing`/`KeyMalformed`, both `TokenError`. Named, so a
+        # different failure in the constructor is a 500 and not a misleading "not connected".
+        return LineupPlan(found=False, outcome="no_credential", reason=str(exc))
 
     try:
         with database_manager.get_session() as session:
@@ -116,7 +119,10 @@ def lineup_plan(league_id: int) -> LineupPlan:
         # Nothing stored, stored under another key, expired, or for another lega. Each
         # says so in its own words and each names something the operator does by hand.
         return LineupPlan(found=False, outcome="no_credential", reason=str(exc))
-    except Exception as exc:  # noqa: BLE001 — the last named outcome, not a catch-all
+    except (SQLAlchemyError, OSError) as exc:
+        # The database, or the socket under it. `apileague` never lets an `httpx` exception
+        # out — it maps them onto `TokenError` above, precisely so a traceback cannot render
+        # the Authorization header — so this is the local half of "could not ask".
         return LineupPlan(found=False, outcome="unreachable", reason=because(exc))
 
     if not plans:

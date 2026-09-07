@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.v1.endpoints.pricing import build_report
@@ -50,7 +51,9 @@ def test_target_prices_degrades_open_on_error(monkeypatch) -> None:
     from fantabot.application import pricing
 
     def boom(**_kwargs):
-        raise RuntimeError("no data")
+        # A driver failure. Since 1.7 this route catches `SQLAlchemyError`/`OSError` and
+        # `LookupError`, and nothing else — a bare `RuntimeError` is now a 500, on purpose.
+        raise OperationalError("SELECT 1", {}, OSError("no data"))
 
     monkeypatch.setattr(pricing, "fit", boom)
 

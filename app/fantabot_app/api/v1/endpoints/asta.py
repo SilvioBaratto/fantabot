@@ -33,6 +33,7 @@ from fantabot.adapters.files.room_journal import read_rows
 from fantabot.application.plan_request import WALK_AWAY_UNPRICED
 from fastapi import APIRouter
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
 router = APIRouter()
 
@@ -276,10 +277,12 @@ def asta_plan(
         # The rosa cannot be seeded at all. A different screen from an empty pool: there
         # are players, and no legal eleven among them.
         return AstaPlan(found=False, outcome="infeasible", reason=str(exc))
-    except Exception as exc:  # noqa: BLE001 — the last named outcome, not a catch-all
-        # Everything left is "we could not ask": the database would not open, a driver
-        # failed, a migration is missing. Typed and one line, because a traceback on a page
-        # says the call failed and not which of five things failed.
+    except (SQLAlchemyError, OSError) as exc:
+        # "We could not ask": the database would not open, a migration is missing, a socket
+        # died. Named rather than caught bare — anything outside these families is a bug in
+        # this repository and reaches FastAPI as a 500, which is louder than a tidy page.
+        # Typed and one line, because a traceback on a page says the call failed and not
+        # which of five things failed.
         return AstaPlan(found=False, outcome="unreachable", reason=because(exc))
 
     world = planned.world

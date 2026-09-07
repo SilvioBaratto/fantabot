@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.v1.endpoints.lineup import build_lineup_plan
@@ -52,7 +53,7 @@ def test_lineup_plan_no_key_reason_is_distinct_from_not_connected(monkeypatch) -
     monkeypatch.setattr(crypto, "TokenCipher", lambda _key: object())  # accept the fake key
 
     def boom():
-        raise RuntimeError("db unreachable")
+        raise OperationalError("SELECT 1", {}, OSError("db unreachable"))
 
     monkeypatch.setattr(database_manager, "get_session", boom)
     connected = TestClient(app).get("/api/v1/lineup/plan?league_id=4103937").json()
@@ -68,7 +69,7 @@ def test_lineup_plan_degrades_open_without_a_platform_call(monkeypatch) -> None:
     from fantabot.adapters.persistence import database_manager
 
     def boom():
-        raise RuntimeError("db unreachable")
+        raise OperationalError("SELECT 1", {}, OSError("db unreachable"))
 
     monkeypatch.setattr(database_manager, "get_session", boom)
 

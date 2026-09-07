@@ -89,6 +89,7 @@ def build_report(report: Any) -> TargetPricesReport:
 def _report(system: str, top_n: int, *, store: bool) -> TargetPricesReport:
     """The fit, and the two routes' shared refusals. `store` is the only difference."""
     from fantabot.application import pricing
+    from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot_app.api.outcomes import because
 
@@ -96,11 +97,14 @@ def _report(system: str, top_n: int, *, store: bool) -> TargetPricesReport:
         report = pricing.run(system=system, top_n=top_n) if store else pricing.fit(
             system=system, top_n=top_n
         )
-    except (LookupError, ValueError) as exc:
-        # Nothing to fit on. `LookupError` covers `NoCorpus`; `ValueError` covers an
-        # unrecognised system, which the fit refuses rather than treating as empty.
+    except pricing.UnknownSystem as exc:
+        # Its own screen. It used to select no rows and read as "no data", which sends the
+        # operator to scrape a season when the fix is a spelling.
+        return TargetPricesReport(found=False, outcome="unknown_system", reason=str(exc))
+    except LookupError as exc:
+        # Nothing to fit on — `NoCorpus` and its kin.
         return TargetPricesReport(found=False, outcome="no_data", reason=str(exc))
-    except Exception as exc:  # noqa: BLE001 — the last named outcome, not a catch-all
+    except (SQLAlchemyError, OSError) as exc:
         return TargetPricesReport(found=False, outcome="unreachable", reason=because(exc))
 
     if not report.fades and not report.biggest_bumps and not report.biggest_cuts:

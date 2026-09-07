@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.v1.endpoints.asta import build_roster_rules
@@ -33,7 +34,9 @@ def test_asta_plan_degrades_open_on_db_error(monkeypatch) -> None:
     from fantabot.adapters.persistence import database_manager
 
     def boom():
-        raise RuntimeError("db unreachable")
+        # A real driver failure, not a bare RuntimeError: since 1.7 the route names
+        # the families it catches, so an induced failure has to be one of them.
+        raise OperationalError("SELECT 1", {}, OSError("db unreachable"))
 
     monkeypatch.setattr(database_manager, "get_session", boom)
 

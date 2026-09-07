@@ -191,6 +191,8 @@ def asta_optimize(
     fmt: str = typer.Option(
         "mantra", "--format", help="Roster format: mantra (30-man, schemi) or classic (P/D/C/A)."
     ),
+    teams: CorpusTeams = DEFAULT_NUM_TEAMS,
+    credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
@@ -237,6 +239,12 @@ def asta_optimize(
         sentiment=sentiment,
         sentiment_run=parse_run_date(sentiment_run),
         callable_ids=None if ids is None else frozenset(ids),
+        # Stated, not inherited. This was the sixth of the six call sites and the only one
+        # that could not be told a shape: it took `PlanRequest`'s 8x500 default, which is
+        # explicit in the code and unreachable to the operator — the "numero scritto nel
+        # codice" `docs/fantalab/00 §13` calls a bug, and this task's own premise.
+        num_teams=teams,
+        num_credits=credits,
     )
 
     try:
