@@ -36,8 +36,13 @@ app/
     doctor.py               # environment checks
     provisioner/            # postgres (pixeltable_pgserver) + migrate + chromium
     api/                    # the FastAPI adapter (was top-level `app`, renamed in R1b)
-      main.py  infrastructure/{settings,database,jobs,orm}  v1/{router,endpoints}  schemas/
+      main.py  infrastructure/{settings,database,jobs,processes,...}  v1/{router,endpoints}
+      reads/                # read models the endpoints render
       tests/                # api tests (pytest)
+      #  No `orm/` and no `schemas/`: deleted in T43. Both were scaffold. `Base` was an
+      #  empty DeclarativeBase, so create_all/drop_all built and dropped zero tables, and
+      #  no route declares Depends(get_db), so the test override overrode nothing.
+      #  Persistence is fantabot's; this layer holds no models of its own.
     web/                    # compiled Angular bundle (git-ignored build artifact; in the wheel)
   frontend/                 # Angular 21 (Tailwind v4, signals, standalone, OnPush)
   scripts/build_frontend.py # ng build -> fantabot_app/web (run before install / in CI)

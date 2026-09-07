@@ -17,11 +17,23 @@ def _package_root() -> Path:
     return Path(fantabot_app.__file__).parent
 
 
-def _source_files(*, under: Path) -> list[Path]:
+def _source_files(*, under: Path, include_tests: bool = False) -> list[Path]:
+    """Every tracked module under *under*, tests excluded by default.
+
+    ``include_tests`` is a parameter and not the new default, and that distinction is
+    load-bearing. This helper is shared by every fitness test in the file, the acting ban
+    among them — and the acting ban is a substring scan for names like ``place_raise(``,
+    which the tests for an acting path will legitimately contain. Widening the scan here
+    would silently point that ban at its own test suite the day the first acting endpoint
+    is written.
+
+    Exactly one caller opts in: the second-engine test, whose subject *is* the test
+    conftest.
+    """
     return [
         py
         for py in under.rglob("*.py")
-        if "tests" not in py.parts and "__pycache__" not in py.parts
+        if "__pycache__" not in py.parts and (include_tests or "tests" not in py.parts)
     ]
 
 
@@ -31,10 +43,17 @@ def test_api_holds_no_second_sqlalchemy_engine() -> None:
     The HTTP adapter (``fantabot_app.api``) must not build its own engine or sessionmaker.
     (The provisioner is deliberately excluded: it uses a *transient* admin engine only to
     CREATE the database before fantabot connects, and disposes it immediately.)
+
+    **``api/tests/`` is scanned too, and it used to be exempt.** The exemption was
+    covering the only ``create_engine``/``sessionmaker`` pair anywhere under ``api/``:
+    the test conftest built a SQLite engine to ``create_all`` an empty ``DeclarativeBase``
+    and override a ``get_db`` no route depends on — zero tables, an override that
+    overrode nothing, and precisely what this test forbids. The scaffold is gone and the
+    exemption with it.
     """
     api_root = _package_root() / "api"
     offenders: list[str] = []
-    for py in _source_files(under=api_root):
+    for py in _source_files(under=api_root, include_tests=True):
         text = py.read_text(encoding="utf-8")
         if "create_engine(" in text or re.search(r"\bsessionmaker\(", text):
             offenders.append(str(py.relative_to(_package_root())))
