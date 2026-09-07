@@ -17,6 +17,9 @@ a layer is easiest to break.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from pathlib import Path
+
 import _importgraph as G
 
 # --------------------------------------------------------------------------------------
@@ -140,6 +143,19 @@ CLI_ONLY = ("typer",)
 #: them an injected `Reporter`; one still does the second.
 FORBIDDEN_TO_APPLICATION = ("typer", "rich", "fantabot.interface", "playwright")
 
+#: The writing names, and the adapter each lives in. `interface/` holds no decision the
+#: app also needs, and the sharpest form of that rule is the acting one: a command body
+#: that submits a lineup or raises a bid is a decision the app can only reach by
+#: reimplementing it — which is how `endpoints/asta.py` came to build a `PlanRequest`
+#: that differed from `asta optimize`'s in ten inputs.
+#:
+#: **Reads stay legal.** The printers need `my_team`, `read_snapshot` and the rest; a
+#: rule against the whole adapter would forbid `lineup show` from showing anything.
+WRITING_NAMES: dict[str, str] = {
+    "teamLineup_submit": "fantabot.adapters.http.apileague",
+    "place_raise": "fantabot.adapters.http.fantalab.rtdb",
+}
+
 
 def _violations(rule: object) -> set[tuple[str, str]]:
     """`(module, target)` for every module that breaks `rule`. Sorted set, for equality."""
@@ -170,6 +186,48 @@ EXPECTED_DOMAIN_VIOLATIONS: set[tuple[str, str]] = set()
 EXPECTED_CLI_VIOLATIONS: set[tuple[str, str]] = set()
 
 EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = set()
+
+#: The T-spine ratchet. Two entries, both scheduled for deletion: `lineup.py:247`
+#: (`teamLineup_submit`) by 3.3, and `asta.py:576`/`:1000` (`place_raise`, both handed to
+#: a `room.LotRouter`) by 3.9b. Recorded as `(module, name)` rather than per line so a
+#: reformat is not a false failure — the question is whether the command layer can act,
+#: not how many times it says so.
+EXPECTED_WRITING_VIOLATIONS: set[tuple[str, str]] = {
+    ("fantabot.interface.asta", "place_raise"),
+    ("fantabot.interface.lineup", "teamLineup_submit"),
+}
+
+
+
+def writing_violations(
+    modules: Iterable[str],
+    *,
+    names_used: Callable[[str], frozenset[str]],
+    reaches: Callable[[str, str], bool],
+    layer: Callable[[str], str],
+) -> set[tuple[str, str]]:
+    """`(module, name)` for every interface module that names a writing call.
+
+    The lookups are arguments rather than `G.` calls so the two failures this rule has
+    to catch — a new writing call, and a ratchet entry outliving its fix — can be tested
+    against a synthetic tree. Testing them against the real one would mean editing
+    `src/` to prove a test works, and the edit is what the test is for.
+
+    Both conditions are required. A name alone is not enough (`place_raise` appears in
+    `interface/asta.py`'s prose about arming), and reaching the adapter alone is not
+    either (every printer imports it).
+    """
+    found: set[tuple[str, str]] = set()
+    for module in modules:
+        if module in UNPLACED or layer(module) != "interface":
+            continue
+        used = names_used(module)
+        found.update(
+            (module, name)
+            for name, owner in WRITING_NAMES.items()
+            if name in used and reaches(module, owner)
+        )
+    return found
 
 
 def _report(actual: set[tuple[str, str]], expected: set[tuple[str, str]]) -> str:
@@ -211,6 +269,69 @@ def test_only_the_interface_layer_knows_about_typer() -> None:
         "a command framework escaped the command layer:\n"
         + _report(actual, EXPECTED_CLI_VIOLATIONS)
     )
+
+
+def test_the_command_layer_holds_no_decision_the_app_also_needs() -> None:
+    """`interface/` may parse options, print, and choose an exit code. It may not act."""
+    actual = writing_violations(
+        G.modules(), names_used=G.names_used, reaches=G.reaches, layer=layer_of
+    )
+    assert actual == EXPECTED_WRITING_VIOLATIONS, (
+        "the command layer's acting calls moved:\n"
+        + _report(actual, EXPECTED_WRITING_VIOLATIONS)
+    )
+
+
+class TestTheWritingRuleItself:
+    """The two ways this rule goes quiet, exercised against a tree that is not `src/`.
+
+    Neither is hypothetical. A rule keyed on a function name is empty the day that
+    function is renamed, and a ratchet whose entries outlive their fixes is an
+    allowlist — which is the failure the domain ratchet's exact-equality comparison was
+    introduced to prevent, one layer down.
+    """
+
+    @staticmethod
+    def _fake(used: dict[str, set[str]], layers: dict[str, str]) -> dict[str, object]:
+        return {
+            "names_used": lambda m: frozenset(used.get(m, ())),
+            "reaches": lambda _m, _t: True,
+            "layer": lambda m: layers.get(m, "unplaced"),
+        }
+
+    def test_a_new_writing_call_from_the_command_layer_is_a_violation(self) -> None:
+        fake = self._fake(
+            {"fantabot.interface.newcmd": {"place_raise"}},
+            {"fantabot.interface.newcmd": "interface"},
+        )
+        assert writing_violations(["fantabot.interface.newcmd"], **fake) == {  # type: ignore[arg-type]
+            ("fantabot.interface.newcmd", "place_raise")
+        }
+
+    def test_the_same_call_from_application_is_not(self) -> None:
+        """That is the destination, not a leak: 3.3 and 3.9b move these calls there."""
+        fake = self._fake(
+            {"fantabot.application.asta_session": {"place_raise"}},
+            {"fantabot.application.asta_session": "application"},
+        )
+        assert writing_violations(["fantabot.application.asta_session"], **fake) == set()  # type: ignore[arg-type]
+
+    def test_naming_a_writing_call_in_prose_is_not_a_violation(self) -> None:
+        """`interface/asta.py` explains arming by naming `place_raise` twice."""
+        module = "fantabot.interface.asta"
+        assert "place_raise" in Path(G.SRC / "fantabot" / "interface" / "asta.py").read_text(
+            encoding="utf-8"
+        )
+        prose_only = self._fake({module: set()}, {module: "interface"})
+        assert writing_violations([module], **prose_only) == set()  # type: ignore[arg-type]
+
+    def test_every_writing_name_still_exists_in_the_adapter_it_names(self) -> None:
+        """A renamed function empties this rule silently; this is what makes it fail."""
+        for name, owner in WRITING_NAMES.items():
+            assert name in G.defines(owner), (
+                f"{owner} no longer defines {name!r} — the writing rule is scanning for a "
+                "name that does not exist, so it currently forbids nothing"
+            )
 
 
 class TestTheTableItself:

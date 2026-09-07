@@ -139,3 +139,54 @@ def why(module: str, target: str) -> list[str]:
             seen.add(name)
             queue.append([*path, name])
     return []
+
+
+@cache
+def names_used(module: str) -> frozenset[str]:
+    """Every attribute and bare name the module's own code refers to, at any depth.
+
+    References, not only calls. ``write=rtdb.place_raise`` hands the same power to
+    whoever holds the callable, and a rule that counted only ``ast.Call`` nodes would
+    be satisfied by moving the lambda one frame up — which is where `interface/asta.py`
+    already puts it.
+
+    Names in strings do not count, which is the reason for an AST walk rather than a
+    grep: `interface/asta.py` names `place_raise` twice in prose explaining why arming
+    takes two locks, and a text scan would report those as calls.
+    """
+    path = _path_of(module)
+    if path is None:
+        return frozenset()
+
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Attribute):
+            found.add(node.attr)
+        elif isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.ImportFrom):
+            found.update(alias.asname or alias.name for alias in node.names)
+    return frozenset(found)
+
+
+@cache
+def defines(module: str) -> frozenset[str]:
+    """The top-level names `module` binds: functions, classes and assignments.
+
+    A rule that names a function in another module is silently empty once that function
+    is renamed — the same failure `_paths.pkgs` exists to prevent one directory up. This
+    is what lets the rule assert its own subject still exists.
+    """
+    path = _path_of(module)
+    if path is None:
+        return frozenset()
+
+    found: set[str] = set()
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            found.add(node.name)
+        elif isinstance(node, ast.Assign):
+            found.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            found.add(node.target.id)
+    return frozenset(found)

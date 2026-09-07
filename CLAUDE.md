@@ -119,8 +119,20 @@ src/fantabot/
   does a fixed one whose line nobody deleted.
 * **`application/` orchestrates and does not present.** It takes a `Reporter`
   (`application/reporting.py`) and a `BrowserFactory` rather than importing the Console
-  or Playwright. One violation is recorded: `pricing.run` builds Rich tables.
+  or Playwright. `EXPECTED_APPLICATION_VIOLATIONS` is the **empty set**: the note that
+  `pricing.run` builds Rich tables was true when it was written and has not been since —
+  it takes no `Reporter` at all, and its presentation is entirely in `interface/app.py`.
 * **`interface/` is the only importer of typer**, and holds the one `Console()`.
+* **`interface/` holds no decision the app also needs.** A Typer body may parse options,
+  print, and choose an exit code. The sharpest form of that is the acting one, and it is
+  the form `test_layers.py` enforces: no module under `interface/` may name a **writing**
+  call from `adapters/http/apileague.py` or `adapters/http/fantalab/rtdb.py`. Reads stay
+  legal — the printers need `my_team` and `read_snapshot`. The ratchet holds exactly two
+  entries, `lineup.py`'s `teamLineup_submit` and `asta.py`'s `place_raise`, and both are
+  emptied by the phase that lifts them into `application/`. What the rule is really about
+  is the *other* copy: a decision the app cannot call is a decision the app reimplements,
+  which is how `GET /asta/plan` came to build a plan differing from `asta optimize`'s in
+  ten inputs.
 * **The database is never on the collection path.** `tests/application/test_aste_outage.py`
   walks the imports of every capture module and fails if any can reach persistence. An
   outage must cost catch-up time and never a record.
