@@ -487,6 +487,15 @@ def aste_load(
                     if not follow:
                         raise typer.Exit(1) from exc
                     time.sleep(interval)
+                    # Checked here too, and this is the branch that most needs it: it is
+                    # the only one that loops for ever by design. Its `continue` skips the
+                    # check at the bottom of the loop, so without this the Stop button is
+                    # dead in exactly the state an operator most wants it — database down,
+                    # loader retrying on a timer — and on Windows, where no signal is sent,
+                    # the only reachable stop was the 15 s grace and SIGKILL.
+                    if (stage := read_stop(stop_file)) is not None:
+                        console.print(f"[yellow]stopped ({stage})[/yellow]")
+                        return
                     continue
                 except SQLAlchemyError as exc:
                     # Neither of the above, and deliberately not folded into either: calling

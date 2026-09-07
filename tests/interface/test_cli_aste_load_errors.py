@@ -279,31 +279,42 @@ class TestTheLoaderHonoursTheStopFlag:
             "to SIGKILL on the operator's first click"
         )
 
-    def test_following_stops_when_the_flag_is_set(self, home, monkeypatch) -> None:
-        """The button has to do something. `--follow` sleeps between passes, and that
-        sleep is the natural place to look — a pass itself must not be interrupted."""
+    def test_the_outage_retry_loop_can_be_stopped(self, home, failing_write, monkeypatch) -> None:
+        """The outage branch is the one that loops **for ever by design**, and it was the
+        one branch that never looked at the flag.
+
+        That is the worst place to be unstoppable: the database is down, the loader is
+        retrying on a timer, and the Stop button in front of the operator does nothing —
+        on Windows, where no signal is sent, nothing at all. The `continue` skipped the
+        check at the bottom of the loop, so the only reachable stop was the 15 s grace and
+        SIGKILL.
+
+        Driven through `failing_write` rather than a live database on purpose: the default
+        tier opens zero sockets, and this is exactly the state the test needs anyway.
+        """
         from fantabot.adapters.files.lock import LOADER
         from fantabot.adapters.files.stopflag import request_stop, stop_path
 
-        landing = _landing(home)
-        flag = stop_path(landing, LOADER)
+        _landing(home)
+        failing_write(OperationalError("SELECT 1", {}, Exception("could not connect")))
+        flag = stop_path(home / "live.jsonl", LOADER)
         slept: list[float] = []
 
         def ask_to_stop(seconds: float) -> None:
             slept.append(seconds)
-            request_stop(flag)  # the operator clicks Stop between passes
+            request_stop(flag)  # the operator clicks Stop while the outage is retrying
             if len(slept) >= 3:
                 # The bound is the test's, not the loader's. Without it a loader that
-                # ignores the flag follows for ever and this hangs the suite instead of
-                # failing it — which is how it behaved before the fix.
+                # ignores the flag retries for ever and this hangs the suite instead of
+                # failing it — which is exactly how it behaved before the fix.
                 raise KeyboardInterrupt
 
         monkeypatch.setattr("time.sleep", ask_to_stop)
 
-        result = _run(str(landing), "--follow", "--interval", "0.01")
+        result = _run("--follow", "--interval", "0.01")
 
         assert result.exit_code == 0, result.output
-        assert len(slept) == 1, f"it kept following after the flag was set: {slept}"
+        assert len(slept) == 1, f"it kept retrying after the flag was set: {slept}"
         assert "stopped" in _plain(result.output).lower(), result.output
 
     def test_a_run_that_was_never_asked_to_stop_leaves_no_flag_behind(self, home) -> None:
