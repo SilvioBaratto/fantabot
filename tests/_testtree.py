@@ -122,6 +122,7 @@ TREE: dict[str, str] = {
     "test_walk_aways.py": "application",
     "test_asta_room_resolve.py": "application",
     "test_asta_room_memo.py": "application",
+    "test_asta_room_stall.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",
     "test_aste_loader.py": "application",

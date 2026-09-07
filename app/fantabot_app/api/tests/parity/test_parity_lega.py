@@ -15,6 +15,7 @@ one read, rather than two reads that can disagree about which capture is the new
 from __future__ import annotations
 
 from collections.abc import Callable
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from typer.testing import Result
@@ -50,16 +51,53 @@ def test_the_rosters_endpoint_zips_the_two_parallel_arrays(
     assert [slot["cost"] for slot in team["roster"]] == [10, 20, 70]
 
 
-def test_the_command_reaches_the_same_capture(
-    seeded_db: SeededWorld, cli: Callable[..., Result]
+def test_the_command_and_the_endpoint_report_the_same_capture(
+    seeded_db: SeededWorld, api: TestClient, cli: Callable[..., Result]
 ) -> None:
-    """Not a text diff — a Rich table compared against JSON fails on a column width and
-    gets deleted. What is asserted is that the command ran against *this* database and
-    found the lega, rather than reporting it unreachable and exiting 1."""
-    result = cli("lega", "show", "--league", str(seeded_db.league_id))
+    """The named pair, actually compared — the real command against the real endpoint.
+
+    An earlier version only checked that each *reached* the lega: the command did not report
+    it unreachable, and a separate test called `capture_inventory` directly. Both surfaces
+    were touched and neither was put beside the other, so a `lega show` that silently read a
+    different capture than `/lega` would have passed.
+
+    What is compared is decision content, not rendered text — the tier's own rule, and a test
+    that diffed a Rich table against JSON would fail on a column width and get deleted. So
+    the command's `capture_inventory` call is spied on while it runs, and what *it* returned
+    is compared against what the endpoint returned. One function, two callers, one answer.
+    """
+    from fantabot.application import lega_reads
+
+    captured: list[object] = []
+    real = lega_reads.capture_inventory
+
+    def spy(session: object, league_id: int) -> object:
+        rows = real(session, league_id)
+        captured.append(rows)
+        return rows
+
+    with patch.object(lega_reads, "capture_inventory", spy):
+        result = cli("lega", "show", "--league", str(seeded_db.league_id))
 
     assert "database unreachable" not in result.output
-    assert str(seeded_db.league_id) in result.output
+    assert captured, "`lega show` never called capture_inventory — the spy did not take"
+    (rows,) = captured
+    inventory = {row.table: row for row in rows}  # type: ignore[attr-defined]
+
+    body = api.get("/api/v1/lega").json()
+    (overview,) = [row for row in body if row["league_id"] == seeded_db.league_id]
+    teams = api.get(f"/api/v1/lega/{seeded_db.league_id}/rosters").json()
+
+    # The endpoint's team_count is the command's league_team_snapshot row count. Two
+    # projections of one read, and the numbers have to be the same number.
+    assert overview["team_count"] == inventory["league_team_snapshot"].rows
+    assert len(teams) == inventory["league_team_snapshot"].rows
+    # And they are looking at the same capture, not merely at the same lega.
+    assert overview["captured_at"] is not None
+    assert inventory["league_snapshot"].captured_at is not None
+    assert overview["captured_at"].startswith(
+        inventory["league_snapshot"].captured_at.date().isoformat()
+    )
 
 
 def test_both_surfaces_read_the_same_capture_through_the_same_function(
