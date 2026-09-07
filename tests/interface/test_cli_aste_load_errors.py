@@ -238,3 +238,82 @@ def test_the_three_branches_are_disjoint_types() -> None:
     assert not issubclass(OperationalError, IntegrityError)
     assert issubclass(IntegrityError, SQLAlchemyError)
     assert issubclass(OperationalError, SQLAlchemyError)
+
+
+
+# -- the cooperative stop, on the loader ---------------------------------------------------
+
+
+class TestTheLoaderHonoursTheStopFlag:
+    """`POST /harvest/load` registers `stop=job.stop`, so the app renders a Stop button
+    for this command. It wrote a flag into a file the loader never read.
+
+    Two consequences, and the second is the one that bites. On Windows — where
+    `ProcessJob.stop` now sends no signal at all — the first click was a complete no-op,
+    which is *worse* than the `CTRL_BREAK_EVENT` it replaced. And because nothing ever
+    cleared the loader's flag, it latched: `<landing>.loader.stop` kept
+    `{"state": "exit"}` for ever, so every later run's **first** click read a stale exit,
+    skipped the disarm stage entirely and went straight to the 15 s grace and `SIGKILL`.
+
+    That is exactly the latching failure `stopflag.py`'s docstring says the design
+    prevents. It was true of the collector, which clears on start, and false of the
+    loader, which did not: the contract was written as universal and implemented in one
+    of two roles.
+    """
+
+    def test_a_stale_flag_from_a_dead_run_does_not_stop_this_one(self, home) -> None:
+        from fantabot.adapters.files.lock import LOADER
+        from fantabot.adapters.files.stopflag import read_stop, request_stop, stop_path
+
+        landing = _landing(home)
+        flag = stop_path(landing, LOADER)
+        request_stop(flag)
+        request_stop(flag)
+        assert read_stop(flag) == "exit", "a dead run left the flag at exit"
+
+        result = _run(str(landing), "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        assert read_stop(flag) is None, (
+            "the loader must clear a stale flag as it starts, or its next stop escalates "
+            "to SIGKILL on the operator's first click"
+        )
+
+    def test_following_stops_when_the_flag_is_set(self, home, monkeypatch) -> None:
+        """The button has to do something. `--follow` sleeps between passes, and that
+        sleep is the natural place to look — a pass itself must not be interrupted."""
+        from fantabot.adapters.files.lock import LOADER
+        from fantabot.adapters.files.stopflag import request_stop, stop_path
+
+        landing = _landing(home)
+        flag = stop_path(landing, LOADER)
+        slept: list[float] = []
+
+        def ask_to_stop(seconds: float) -> None:
+            slept.append(seconds)
+            request_stop(flag)  # the operator clicks Stop between passes
+            if len(slept) >= 3:
+                # The bound is the test's, not the loader's. Without it a loader that
+                # ignores the flag follows for ever and this hangs the suite instead of
+                # failing it — which is how it behaved before the fix.
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr("time.sleep", ask_to_stop)
+
+        result = _run(str(landing), "--follow", "--interval", "0.01")
+
+        assert result.exit_code == 0, result.output
+        assert len(slept) == 1, f"it kept following after the flag was set: {slept}"
+        assert "stopped" in _plain(result.output).lower(), result.output
+
+    def test_a_run_that_was_never_asked_to_stop_leaves_no_flag_behind(self, home) -> None:
+        """A `.stop` file left in the harvest home makes `ls` there lie about what is
+        happening — the same reason the collector clears its own on the way out."""
+        from fantabot.adapters.files.lock import LOADER
+        from fantabot.adapters.files.stopflag import stop_path
+
+        landing = _landing(home)
+
+        _run(str(landing), "--dry-run")
+
+        assert not stop_path(landing, LOADER).exists()

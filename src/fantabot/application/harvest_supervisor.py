@@ -286,5 +286,32 @@ class Supervisor:
         # `return_exceptions`: a watcher cancelled mid-flight is not a failure to report,
         # and an unretrieved one is logged by asyncio at collection time — a burst of
         # those buries the line that says the run was stopped.
-        await asyncio.gather(*tasks, return_exceptions=True)
+        settled = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # But retrieving them is not the same as discarding them. `reap()` runs only at a
+        # reload-cycle boundary, so a `SinkFailed` sits in a completed watcher for up to
+        # `reload_every` seconds; a stop resolving inside that window used to collect it
+        # here as a *value* and drop it, and the run returned `stopped='exit'` over a full
+        # disk. Under SIGINT the same interleaving at least left asyncio's "Task exception
+        # was never retrieved" in the job log, so swallowing it here made a failure
+        # quieter than the mechanism this replaced.
+        #
+        # **The sink failure outranks the stop.** `SinkFailed` means writes are not
+        # landing — it exists because retrying turns a full disk into a loop that
+        # reconnects for ever and stores nothing. "You asked me to stop" is the less
+        # urgent of the two things to say, and `report.stopped` is lost with the raise
+        # deliberately: the operator who clicked Stop already knows they clicked it.
+        #
+        # `CancelledError` is excluded because it is how a stop *works*, not a failure.
+        failure = next(
+            (
+                outcome
+                for outcome in settled
+                if isinstance(outcome, BaseException)
+                and not isinstance(outcome, asyncio.CancelledError)
+            ),
+            None,
+        )
+        if failure is not None:
+            raise failure
         return report

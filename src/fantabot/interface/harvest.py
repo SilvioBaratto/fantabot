@@ -263,6 +263,8 @@ def aste_load(
     import json
     import time
 
+    from fantabot.adapters.files.stopflag import clear_stop, read_stop, stop_path
+
     # Aliased: the `listone` *parameter* (a Path) already holds this name in this function's
     # scope, and `entries_only` is what makes this reader tolerant of the versioned envelope
     # (`version`, `count`, `season`, `fetched_at`) a cache file now carries alongside its
@@ -438,63 +440,93 @@ def aste_load(
     # read-only inspection while a real loader follows would be a lock the operator has to
     # work around rather than one that protects anything.
     with _held(LOADER, landing, take=not dry_run):
-        while True:
-            try:
-                carried, behind, deferred = pass_once()
-            except LandingZoneMissing as exc:
-                # Named, with the command that would create it. Silence here reads
-                # as a quiet evening, which is the one thing it must not read as.
-                console.print(f"[red]{exc}[/red]")
-                raise typer.Exit(2) from None
-            except IntegrityError as exc:
-                # Ours, not theirs, and the one case retrying cannot fix: the checkpoint
-                # has not moved, so the next pass re-reads the same window and violates
-                # the same constraint. Reported as an outage until 2026-09-05, when a
-                # `UniqueViolation` on `asta.key` — a stranded identity sequence — was
-                # retried behind "database unreachable" for as long as anyone watched.
-                # So it exits non-zero in **both** modes: `--follow` waits for something
-                # that changes, and this does not.
-                console.print(f"[red]constraint violated: {_constraint_of(exc)}[/red]")
-                console.print("The next pass reads the same window and violates it again.")
-                console.print("Collection is unaffected — the landing zone keeps growing.")
-                raise typer.Exit(1) from exc
-            except OperationalError as exc:
-                # The outage, and the only branch that retries. The checkpoint has not
-                # moved, so nothing is lost — the next pass re-reads exactly what this one
-                # could not write. Said out loud, because a raw driver traceback tells you
-                # the connection failed and not that the collector is fine and the
-                # catch-up is pending.
-                console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-                console.print("Collection is unaffected — the landing zone keeps growing.")
-                console.print("Start it with: [bold]fantabot-app db start[/bold], then re-run.")
-                if not follow:
+        # The loader's half of the cooperative stop. `POST /harvest/load` registers a stop
+        # for this command, so the app draws a Stop button for it; until now that button
+        # wrote a flag into a file nobody read, and on Windows — where `ProcessJob.stop`
+        # sends no signal at all — the first click did nothing whatsoever.
+        #
+        # The clear is the load-bearing half. Nothing ever removed the loader's flag, so
+        # it latched: `<landing>.loader.stop` kept `{"state": "exit"}` for ever, and every
+        # later run's *first* click read that stale exit, skipped the disarm stage and went
+        # straight to the 15 s grace and SIGKILL. That is precisely the latching failure
+        # `stopflag` exists to prevent — its contract was written as universal and only the
+        # collector implemented it. Clearing here is safe because the role lock above is
+        # ours, so nothing else can be waiting on what this erases.
+        stop_file = stop_path(landing, LOADER)
+        clear_stop(stop_file)
+        try:
+            while True:
+                try:
+                    carried, behind, deferred = pass_once()
+                except LandingZoneMissing as exc:
+                    # Named, with the command that would create it. Silence here reads
+                    # as a quiet evening, which is the one thing it must not read as.
+                    console.print(f"[red]{exc}[/red]")
+                    raise typer.Exit(2) from None
+                except IntegrityError as exc:
+                    # Ours, not theirs, and the one case retrying cannot fix: the checkpoint
+                    # has not moved, so the next pass re-reads the same window and violates
+                    # the same constraint. Reported as an outage until 2026-09-05, when a
+                    # `UniqueViolation` on `asta.key` — a stranded identity sequence — was
+                    # retried behind "database unreachable" for as long as anyone watched.
+                    # So it exits non-zero in **both** modes: `--follow` waits for something
+                    # that changes, and this does not.
+                    console.print(f"[red]constraint violated: {_constraint_of(exc)}[/red]")
+                    console.print("The next pass reads the same window and violates it again.")
+                    console.print("Collection is unaffected — the landing zone keeps growing.")
                     raise typer.Exit(1) from exc
-                time.sleep(interval)
-                continue
-            except SQLAlchemyError as exc:
-                # Neither of the above, and deliberately not folded into either: calling
-                # everything an outage is the defect the two branches above exist to undo,
-                # and guessing again here would rebuild it one type further out.
-                console.print(f"[red]the database refused the write: {type(exc).__name__}[/red]")
-                console.print("Collection is unaffected — the landing zone keeps growing.")
-                raise typer.Exit(1) from exc
+                except OperationalError as exc:
+                    # The outage, and the only branch that retries. The checkpoint has not
+                    # moved, so nothing is lost — the next pass re-reads exactly what this one
+                    # could not write. Said out loud, because a raw driver traceback tells you
+                    # the connection failed and not that the collector is fine and the
+                    # catch-up is pending.
+                    console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+                    console.print("Collection is unaffected — the landing zone keeps growing.")
+                    console.print("Start it with: [bold]fantabot-app db start[/bold], then re-run.")
+                    if not follow:
+                        raise typer.Exit(1) from exc
+                    time.sleep(interval)
+                    continue
+                except SQLAlchemyError as exc:
+                    # Neither of the above, and deliberately not folded into either: calling
+                    # everything an outage is the defect the two branches above exist to undo,
+                    # and guessing again here would rebuild it one type further out.
+                    console.print(f"[red]the database refused the write: {type(exc).__name__}[/red]")
+                    console.print("Collection is unaffected — the landing zone keeps growing.")
+                    raise typer.Exit(1) from exc
 
-            suffix = " (dry run — nothing written)" if dry_run else ""
-            # Work skipped without a word is work nobody counts.
-            note = " · ladders deferred" if deferred else ""
-            # Lag is reported every pass, not only when it is large: a loader that
-            # only speaks up when it is already behind gives no warning it is losing.
-            console.print(f"carried {carried} · {behind} bytes behind{note}{suffix}")
-            if deferred:
-                # A backlog is not a quiet pass, in either mode. One interval per
-                # window turned a thirty-six-pass catch-up into six minutes of
-                # sleeping; returning here instead turned a one-shot load into a
-                # 32 MB one that still exited 0. `--follow` means keep watching
-                # after catching up, never "the only mode that catches up".
-                continue
-            if not follow:
-                return
-            time.sleep(interval)
+                suffix = " (dry run — nothing written)" if dry_run else ""
+                # Work skipped without a word is work nobody counts.
+                note = " · ladders deferred" if deferred else ""
+                # Lag is reported every pass, not only when it is large: a loader that
+                # only speaks up when it is already behind gives no warning it is losing.
+                console.print(f"carried {carried} · {behind} bytes behind{note}{suffix}")
+                if deferred:
+                    # A backlog is not a quiet pass, in either mode. One interval per
+                    # window turned a thirty-six-pass catch-up into six minutes of
+                    # sleeping; returning here instead turned a one-shot load into a
+                    # 32 MB one that still exited 0. `--follow` means keep watching
+                    # after catching up, never "the only mode that catches up".
+                    continue
+                if not follow:
+                    return
+                time.sleep(interval)
+                # Read between passes, never inside one. A pass is a read-and-commit, and
+                # a stop that interrupted it would ask the loader to abandon a window it
+                # has already carried — the checkpoint's whole contract is that it moves
+                # only after the commit.
+                #
+                # Both stages wind the loader down. It has nothing to disarm, exactly like
+                # the collector: the flag says which stage was asked, and what a stage
+                # *means* is the command's to decide.
+                if (stage := read_stop(stop_file)) is not None:
+                    console.print(f"[yellow]stopped ({stage})[/yellow]")
+                    return
+        finally:
+            # Ours to clear however the run ended, including the error exits: a `.stop`
+            # left in the harvest home makes `ls` there lie about what is running.
+            clear_stop(stop_file)
 
 
 def aste_collect(

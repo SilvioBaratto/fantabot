@@ -458,3 +458,61 @@ def test_a_stop_works_on_a_reloading_run_too() -> None:
     )
 
     assert report.stopped == "exit"
+
+
+def test_a_stop_that_races_a_sink_failure_still_raises_it() -> None:
+    """A full disk must not be reported as a clean stop.
+
+    `reap()` runs only at a reload-cycle boundary, so a `SinkFailed` sits in a completed
+    watcher for up to `reload_every` seconds. If the stop resolves inside that window,
+    `follow()` is still running, and the cancellation path's
+    `gather(..., return_exceptions=True)` retrieves the exception as a *value* and drops
+    it: `run()` returns `Report(stopped='exit')`, `harvest collect` prints
+    "stopped (exit)" and exits 0, and the operator is told the evening was collected.
+
+    Not a hypothetical, and not merely a lost exception. Before the flag existed, this
+    same interleaving under SIGINT left asyncio's `Task exception was never retrieved`
+    plus the traceback on stderr, which `Popen(stderr=STDOUT)` merged into the job log.
+    The cooperative stop deleted that diagnostic, so this is the one place the phase made
+    a failure quieter than it found it.
+
+    **The sink failure wins over the stop, deliberately.** `SinkFailed` means writes are
+    not landing — the reason it exists is that retrying turns a full disk into a loop
+    that reconnects for ever and stores nothing. "You asked me to stop" is the less
+    urgent of the two things to say.
+    """
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        raise SinkFailed("disk full")
+
+    async def sleep_a_whole_reload_window(_seconds: float) -> None:
+        # The real shape: `reload_every=60.0`, so `reap()` does not run for a minute.
+        await asyncio.sleep(10)
+
+    async def stop() -> str:
+        await asyncio.sleep(0.05)  # the operator clicks Stop inside that window
+        return "exit"
+
+    with pytest.raises(SinkFailed):
+        asyncio.run(
+            Supervisor(watch=watch, sleep=sleep_a_whole_reload_window).run(
+                _configs(5), reload=lambda: _configs(5), reload_every=60.0, stop=stop
+            )
+        )
+
+
+def test_a_stop_on_a_healthy_run_raises_nothing() -> None:
+    """The ablation for the test above: cancelling live watchers is the ordinary way a
+    stop ends, and `CancelledError` must not be mistaken for a failure to report."""
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        await asyncio.sleep(3600)
+        return Outcome.ENDED
+
+    async def stop() -> str:
+        await asyncio.sleep(0)
+        return "exit"
+
+    report = asyncio.run(
+        Supervisor(watch=watch, sleep=_no_sleep).run(_configs(4), stop=stop)
+    )
+
+    assert report.stopped == "exit"
