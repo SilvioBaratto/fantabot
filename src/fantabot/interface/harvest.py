@@ -520,8 +520,10 @@ def aste_collect(
     """
     import asyncio
     import json
+    import os
 
     from fantabot.adapters.files.landing import LandingZone
+    from fantabot.adapters.files.stopflag import clear_stop, stop_path, wait_for_stop
     from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed, watch_auction
     from fantabot.adapters.http.harvest.transport import open_stream
     from fantabot.application.harvest_supervisor import DEFAULT_POOL, Report, Supervisor
@@ -603,10 +605,31 @@ def aste_collect(
             """
             console.print(f"{report.summary()} · {zone.written} states written")
 
+        # The cooperative stop, and it is not an alternative to Ctrl-C — it is the only
+        # one a supervisor has. `CTRL_BREAK_EVENT`, the sole signal that reaches a child
+        # process group on Windows, arrives as SIGBREAK and terminates the interpreter
+        # before `except KeyboardInterrupt` below can run, so a supervised collector there
+        # never ran its own shutdown at all. This is polled, so the shutdown is always
+        # ours. See `adapters/files/stopflag`.
+        #
+        # The collector has nothing to disarm, so it honours *both* stages as "wind down"
+        # — the same way its first Ctrl-C already ends it while `asta bid`'s first one
+        # only disarms. The flag carries which stage was asked; what a stage means is the
+        # command's to decide.
+        flag = stop_path(out)
+        pid = os.getpid()
+
+        async def stop() -> str:
+            return await wait_for_stop(flag, pid=pid, sleep=asyncio.sleep)
+
         try:
             report = asyncio.run(
                 supervisor.run(
-                    configs, reload=reload, reload_every=reload_seed, heartbeat=heartbeat
+                    configs,
+                    reload=reload,
+                    reload_every=reload_seed,
+                    heartbeat=heartbeat,
+                    stop=stop,
                 )
             )
         except SinkFailed as exc:
@@ -616,6 +639,17 @@ def aste_collect(
             raise typer.Exit(1) from exc
         except KeyboardInterrupt:
             console.print(f"[yellow]stopped — {zone.written} states written[/yellow]")
+            return
+        finally:
+            # Ours to clear, whichever way the run ended. The flag is addressed to this
+            # pid so a leftover cannot latch onto the next run, but leaving `.stop` files
+            # in the harvest home would make `ls` there lie about what is happening.
+            clear_stop(flag)
+
+        if report.stopped is not None:
+            console.print(
+                f"[yellow]stopped ({report.stopped}) — {zone.written} states written[/yellow]"
+            )
             return
 
         console.print(f"{report.summary()} · {zone.written} states written")

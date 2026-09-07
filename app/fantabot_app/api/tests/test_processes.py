@@ -16,7 +16,6 @@ fake `Popen` would agree with whatever the implementation happened to do.
 
 from __future__ import annotations
 
-import signal
 import subprocess
 import sys
 import time
@@ -53,6 +52,29 @@ signal.signal(signal.SIGINT, signal.SIG_IGN)
 print("ignoring", flush=True)
 sys.stdout.flush()
 while True:
+    time.sleep(0.05)
+"""
+
+#: Ignores SIGINT and polls the stop flag instead — a stand-in for what `harvest collect`
+#: does, and the only child in this file that can be stopped on Windows. It says which
+#: stage it was asked for, so a test can tell the two apart without reading the file
+#: itself.
+#:
+#: `sys.path` is extended rather than assumed: this runs under the *app's* interpreter,
+#: which has `fantabot` installed, but the test has to work from a source checkout too.
+FLAG_POLLER = """
+import os, signal, sys, time
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+from fantabot.adapters.files.stopflag import read_stop, stop_path
+from pathlib import Path
+flag = stop_path(Path(sys.argv[1]))
+print("polling", flush=True)
+while True:
+    state = read_stop(flag, pid=os.getpid())
+    if state is not None:
+        print("saw " + state, flush=True)
+        if state == "exit":
+            sys.exit(0)
     time.sleep(0.05)
 """
 
@@ -137,9 +159,22 @@ def test_stop_sends_sigint_and_the_child_exits_cleanly(tmp_path: Path) -> None:
     assert job.returncode == 0
 
 
-def test_a_child_that_ignores_sigint_is_killed_and_the_log_says_so(tmp_path: Path) -> None:
+def test_a_child_that_ignores_everything_is_killed_and_the_log_says_so(tmp_path: Path) -> None:
     """The escalation is visible rather than silent: a job that was killed and one that
-    stopped politely are the same row otherwise, and only one of them lost work."""
+    stopped politely are the same row otherwise, and only one of them lost work.
+
+    **Two stops, not one, and that is the contract change.** The kill is stage two's, not
+    stage one's: *disarm* does not mean "die", and a grace timer started at stage one
+    would kill a child doing exactly what it was asked — `asta bid` disarmed keeps
+    drawing. This child ignores both the signal and the flag, which is the only way to
+    reach the escalation at all.
+
+    The return code is asserted as "not clean" rather than as `-SIGKILL`. On Windows
+    `Popen.kill` is `TerminateProcess` and there is no negative signal number to compare
+    against, so the old form failed there for a reason that had nothing to do with the
+    escalation working. What is platform-independent is our own log line, and that is
+    what says a kill happened.
+    """
     reporter = BufferingReporter()
     job = ProcessJob(
         _python(STUBBORN),
@@ -152,10 +187,13 @@ def test_a_child_that_ignores_sigint_is_killed_and_the_log_says_so(tmp_path: Pat
     assert _wait(lambda: "ignoring" in reporter.lines), reporter.lines
 
     job.stop()
+    assert job.running, "stage one asks; it does not kill"
+
+    job.stop()
 
     assert _wait(lambda: not job.running)
     assert any("SIGKILL" in line for line in reporter.lines), reporter.lines
-    assert job.returncode == -signal.SIGKILL
+    assert job.returncode != 0
 
 
 def test_stop_polls_the_role_lock_rather_than_sleeping_out_the_grace(tmp_path: Path) -> None:
@@ -210,3 +248,82 @@ def test_stopping_a_job_that_never_started_is_a_no_op(tmp_path: Path) -> None:
     job.stop()  # must not raise
 
     assert not job.running
+
+
+# -- the cooperative stop ---------------------------------------------------------------
+
+
+def test_the_first_stop_disarms_and_the_second_exits(tmp_path: Path) -> None:
+    """The two-stage gesture, proven end to end against a real child and **without
+    naming SIGKILL** — spec criterion 2.
+
+    This child ignores SIGINT, so nothing here can be passing because of the POSIX
+    signal: the flag is the only thing reaching it. That is the same position every
+    supervised child is in on Windows, where `CTRL_BREAK_EVENT` arrives as SIGBREAK and
+    kills the interpreter before its `except KeyboardInterrupt` runs (`exited
+    3221225786`, the runner's own log). Making the assertion platform-independent is the
+    point: the mechanism this proves is the one that runs everywhere.
+    """
+    landing = tmp_path / "live.jsonl"
+    reporter = BufferingReporter()
+    job = ProcessJob(
+        _python(FLAG_POLLER) + [str(landing)],
+        role="loader",
+        landing=landing,
+        grace_s=0.4,
+        poll_s=0.05,
+    )
+    _run_in_thread(job, reporter)
+    assert _wait(lambda: "polling" in reporter.lines), reporter.lines
+
+    job.stop()
+
+    assert _wait(lambda: "saw disarm" in reporter.lines), reporter.lines
+    assert job.running, "disarm is not exit: a disarmed run keeps drawing"
+
+    job.stop()
+
+    assert _wait(lambda: not job.running), reporter.lines
+    assert "saw exit" in reporter.lines, reporter.lines
+    assert job.returncode == 0, "the child ran its own shutdown, it was not killed"
+
+
+def test_the_stop_is_announced_as_a_flag_write(tmp_path: Path) -> None:
+    """A stop that says only "SIGINT" would be describing the half that does not work on
+    the platform this was built for."""
+    landing = tmp_path / "live.jsonl"
+    reporter = BufferingReporter()
+    job = ProcessJob(
+        _python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing, grace_s=0.4
+    )
+    _run_in_thread(job, reporter)
+    assert _wait(lambda: "polling" in reporter.lines)
+
+    job.stop()
+    assert _wait(lambda: "saw disarm" in reporter.lines), reporter.lines
+
+    assert any("disarm" in line and "stopping" in line for line in reporter.lines), reporter.lines
+
+
+def test_the_flag_names_the_child_not_the_supervisor(tmp_path: Path) -> None:
+    """The addressee is the child's pid. Written with the app's own, every supervised
+    child in the app would read a flag meant for a sibling — and the app's pid is the one
+    number that is trivially to hand at the point the flag is written."""
+    import json
+    import os
+
+    from fantabot.adapters.files.stopflag import stop_path
+
+    landing = tmp_path / "live.jsonl"
+    reporter = BufferingReporter()
+    job = ProcessJob(_python(POLITE), role="loader", landing=landing, grace_s=0.4)
+    _run_in_thread(job, reporter)
+    assert _wait(lambda: "first" in reporter.lines)
+    child_pid = job.pid
+
+    job.stop()
+    assert _wait(lambda: not job.running)
+
+    written = json.loads(stop_path(landing).read_text(encoding="utf-8"))
+    assert written["pid"] == child_pid
+    assert written["pid"] != os.getpid()

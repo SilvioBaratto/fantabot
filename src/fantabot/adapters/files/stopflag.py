@@ -44,6 +44,7 @@ make the portable half of the stop platform-dependent again.
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Final
 
@@ -118,3 +119,33 @@ def request_stop(path: Path, *, pid: int) -> str:
 def clear_stop(path: Path) -> None:
     """Forget any request. Not an error when there is none — that is the ordinary case."""
     path.unlink(missing_ok=True)
+
+
+#: How often a waiter looks. Short enough that a stop feels immediate on the one evening
+#: it is used, long enough that the poll costs nothing across three hours: 12 stats a
+#: minute against a file the OS has cached.
+POLL_S: Final = 5.0
+
+
+async def wait_for_stop(
+    path: Path,
+    *,
+    pid: int,
+    sleep: Callable[[float], Awaitable[None]],
+    poll_s: float = POLL_S,
+) -> str:
+    """Block until a stop is requested of *pid*, then return the stage.
+
+    The flag is checked **before** the first sleep, so a request that landed while the
+    caller was still starting up is not held for a whole poll interval.
+
+    `sleep` is injected for the reason every clock in this repository is: a test that
+    waited the real cadence would either be slow or be a race. It takes the same shape as
+    `Supervisor`'s, so both can be handed `asyncio.sleep` at the one call site that has a
+    running loop.
+    """
+    while True:
+        state = read_stop(path, pid=pid)
+        if state is not None:
+            return state
+        await sleep(poll_s)

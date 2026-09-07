@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 
 from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed
@@ -62,6 +63,12 @@ Reload = Callable[[], list[AuctionConfig]]
 #: during a run that has no end.
 Heartbeat = Callable[["Report"], None]
 
+#: Resolves when someone outside the process asks this run to stop, with the stage they
+#: asked for. `adapters/files/stopflag.wait_for_stop` is the one implementation; it is a
+#: parameter because the supervisor may not read a file, and because a test that waited
+#: on a real one would be a race.
+Stop = Callable[[], Awaitable[str]]
+
 
 @dataclass
 class Report:
@@ -80,6 +87,10 @@ class Report:
     live: int = 0
     adopted: int = 0
     reload_failures: int = 0
+    #: The stage that ended this run, or `None` if nothing asked it to stop. Not a bool:
+    #: the two stages mean different things to different commands, and a caller that has
+    #: to say *why* it stopped cannot recover that from `True`.
+    stopped: str | None = None
 
     def summary(self) -> str:
         line = (
@@ -117,6 +128,7 @@ class Supervisor:
         reload_every: float = 60.0,
         reloads: int | None = None,
         heartbeat: Heartbeat | None = None,
+        stop: Stop | None = None,
     ) -> Report:
         """Follow every auction until each ends or gives up.
 
@@ -134,6 +146,14 @@ class Supervisor:
         run says nothing between "following N auctions" and the summary it only
         prints if it ever stops — which is how 145 starved watchers went
         unnoticed for an evening.
+
+        ``stop`` is the cooperative shutdown: an awaitable that resolves when someone
+        outside this process asks the run to end, with the stage they asked for. It is
+        raced against the watchers, and when it wins every watcher is cancelled and
+        ``report.stopped`` carries the stage. Without it the run ends only when the
+        auctions do, which is what a terminal run relies on ``KeyboardInterrupt`` for —
+        and what has no equivalent on Windows, where the only signal that reaches a child
+        kills it before its own shutdown runs. See ``adapters/files/stopflag``.
         """
         report = Report()
         semaphore = asyncio.Semaphore(self._pool)
@@ -205,29 +225,66 @@ class Supervisor:
                     other.cancel()
                 raise failure
 
-        adopt(configs)
-        if reload is None:
+        async def follow() -> None:
+            """Every watcher, to the end of the run. Both shapes of it."""
+            if reload is None:
+                await asyncio.gather(*tasks)
+                return
+
+            cycles = 0
+            while reloads is None or cycles < reloads:
+                cycles += 1
+                await self._sleep(reload_every)
+                if heartbeat is not None:
+                    heartbeat(report)
+                reap()
+                try:
+                    batch = reload()
+                except Exception:
+                    # A half-written seed costs one cycle. Letting it out would kill
+                    # every watcher already running, which is the opposite of what a
+                    # reload is for.
+                    report.reload_failures += 1
+                    continue
+                before = len(started)
+                adopt(batch)
+                report.adopted += len(started) - before
+
             await asyncio.gather(*tasks)
+
+        adopt(configs)
+        if stop is None:
+            await follow()
             return report
 
-        cycles = 0
-        while reloads is None or cycles < reloads:
-            cycles += 1
-            await self._sleep(reload_every)
-            if heartbeat is not None:
-                heartbeat(report)
-            reap()
-            try:
-                batch = reload()
-            except Exception:
-                # A half-written seed costs one cycle. Letting it out would kill
-                # every watcher already running, which is the opposite of what a
-                # reload is for.
-                report.reload_failures += 1
-                continue
-            before = len(started)
-            adopt(batch)
-            report.adopted += len(started) - before
+        # The race lives here rather than around `run` because *this* is what owns
+        # `tasks`. A racer outside would have to reach in to cancel the watchers, and the
+        # one thing a stop must not do is return while they are still streaming — the
+        # process would then hold the role lock with nobody watching it.
+        work = asyncio.create_task(follow())
+        # `ensure_future`, not `create_task`: `Stop` is declared as returning an
+        # `Awaitable` so a caller may hand over anything awaitable, and `create_task`
+        # accepts only a coroutine.
+        waiting = asyncio.ensure_future(stop())
+        await asyncio.wait({work, waiting}, return_when=asyncio.FIRST_COMPLETED)
 
-        await asyncio.gather(*tasks)
+        if work.done():
+            # The ordinary end: every auction finished. Cancel the waiter, or the process
+            # sits on a poll that will never fire.
+            waiting.cancel()
+            with suppress(asyncio.CancelledError):
+                await waiting
+            await work  # re-raises whatever `follow` raised; `SinkFailed` is the one
+            return report
+
+        report.stopped = waiting.result()
+        for task in tasks:
+            task.cancel()
+        work.cancel()
+        with suppress(asyncio.CancelledError):
+            await work
+        # `return_exceptions`: a watcher cancelled mid-flight is not a failure to report,
+        # and an unretrieved one is logged by asyncio at collection time — a burst of
+        # those buries the line that says the run was stopped.
+        await asyncio.gather(*tasks, return_exceptions=True)
         return report

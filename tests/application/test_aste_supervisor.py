@@ -357,3 +357,104 @@ class TestTheShortfallIsVisible:
         assert "2/5 live" in beats[0], (
             f"the shortfall has to be in the line itself, not inferred: {beats[0]}"
         )
+
+
+# -- the cooperative stop ------------------------------------------------------------------
+
+
+def test_a_stop_request_ends_the_run_and_the_report_says_it_was_stopped() -> None:
+    """The supervisor is where the cancellation belongs, because it is what owns the task
+    set. A racer bolted on outside it would have to reach in to cancel the watchers, and
+    the one thing this must not do is leave them running after the run returns."""
+    running: list[str] = []
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        running.append(config.auction_id)
+        await asyncio.sleep(3600)  # a live auction does not finish
+        return Outcome.ENDED
+
+    async def stop() -> str:
+        await asyncio.sleep(0)
+        return "exit"
+
+    report = asyncio.run(
+        Supervisor(watch=watch, sleep=_no_sleep).run(_configs(3), stop=stop)
+    )
+
+    assert report.stopped == "exit"
+    assert len(running) == 3
+
+
+def test_a_stop_cancels_every_watcher_still_in_flight() -> None:
+    """`report.stopped` set while a watcher kept streaming would be the worst of both:
+    the run says it stopped and the process will not exit."""
+    cancelled: list[str] = []
+
+    async def watch(config: AuctionConfig, **_k: Any) -> Outcome:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            cancelled.append(config.auction_id)
+            raise
+        return Outcome.ENDED
+
+    async def stop() -> str:
+        await asyncio.sleep(0)
+        return "disarm"
+
+    asyncio.run(Supervisor(watch=watch, sleep=_no_sleep).run(_configs(4), stop=stop))
+
+    assert sorted(cancelled) == [f"a-{i}" for i in range(4)]
+
+
+def test_without_a_stop_nothing_changes() -> None:
+    """The ablation. `stopped` is `None` on every run that was not asked to stop, so a
+    caller cannot read "it finished" and "it was stopped" as the same outcome."""
+
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        return Outcome.ENDED
+
+    report = _run(Supervisor(watch=watch, sleep=_no_sleep), _configs(2))
+
+    assert report.stopped is None
+    assert report.ended == 2
+
+
+def test_a_run_that_finishes_first_is_not_reported_as_stopped() -> None:
+    """A stop waiter that never fires must not keep the process alive after every watcher
+    is done — the waiter is cancelled by the run, not the other way round."""
+
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        return Outcome.ENDED
+
+    async def stop() -> str:
+        await asyncio.sleep(3600)
+        return "exit"
+
+    report = asyncio.run(
+        Supervisor(watch=watch, sleep=_no_sleep).run(_configs(2), stop=stop)
+    )
+
+    assert report.stopped is None
+    assert report.ended == 2
+
+
+def test_a_stop_works_on_a_reloading_run_too() -> None:
+    """The evening shape: `--seed` set, so the run is the reload loop rather than a
+    `gather`. Both paths have to honour the flag, and they are different code."""
+
+    async def watch(_config: AuctionConfig, **_k: Any) -> Outcome:
+        await asyncio.sleep(3600)
+        return Outcome.ENDED
+
+    async def stop() -> str:
+        await asyncio.sleep(0)
+        return "exit"
+
+    report = asyncio.run(
+        Supervisor(watch=watch, sleep=_no_sleep).run(
+            _configs(2), reload=lambda: _configs(2), reload_every=0.0, stop=stop
+        )
+    )
+
+    assert report.stopped == "exit"

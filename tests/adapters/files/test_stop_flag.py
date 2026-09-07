@@ -25,6 +25,7 @@ recorded pid, because pid 40122 may since have become a browser. Here the pid is
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from fantabot.adapters.files.stopflag import (
     read_stop,
     request_stop,
     stop_path,
+    wait_for_stop,
 )
 
 
@@ -145,3 +147,61 @@ class TestTheModuleItself:
 
         assert "import signal" not in source
         assert "signal." not in source
+
+
+class TestWaiting:
+    """`wait_for_stop` is the polling half, and the sleep is injected for the usual
+    reason: a test that waited a real cadence would either be slow or be a race."""
+
+    def test_it_returns_the_stage_that_was_asked_for(self, tmp_path: Path) -> None:
+        path = stop_path(tmp_path / "live.jsonl")
+        request_stop(path, pid=4242)
+        ticks = 0
+
+        async def sleep(_seconds: float) -> None:
+            nonlocal ticks
+            ticks += 1
+
+        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == DISARM
+
+    def test_it_keeps_looking_until_the_flag_appears(self, tmp_path: Path) -> None:
+        """The flag is written by another process *while* this one is waiting, which is
+        the only sequence that ever happens in production."""
+        path = stop_path(tmp_path / "live.jsonl")
+        ticks = 0
+
+        async def sleep(_seconds: float) -> None:
+            nonlocal ticks
+            ticks += 1
+            if ticks == 3:
+                request_stop(path, pid=4242)
+
+        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == DISARM
+        assert ticks == 3
+
+    def test_it_ignores_a_flag_addressed_to_another_run(self, tmp_path: Path) -> None:
+        """The stale-flag case, from the waiter's side: it must not return on someone
+        else's request, or a dead run's leftover would stop this one at its first poll."""
+        path = stop_path(tmp_path / "live.jsonl")
+        request_stop(path, pid=1111)
+        request_stop(path, pid=1111)
+        ticks = 0
+
+        async def sleep(_seconds: float) -> None:
+            nonlocal ticks
+            ticks += 1
+            if ticks == 4:
+                request_stop(path, pid=4242)
+
+        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == DISARM
+        assert ticks == 4
+
+    def test_it_reports_exit_when_that_is_the_stage(self, tmp_path: Path) -> None:
+        path = stop_path(tmp_path / "live.jsonl")
+        request_stop(path, pid=4242)
+        request_stop(path, pid=4242)
+
+        async def sleep(_seconds: float) -> None:
+            raise AssertionError("the flag was already set; nothing to wait for")
+
+        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == EXIT

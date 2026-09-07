@@ -13,16 +13,35 @@ parent; both problems go away with it.
 loader is idempotent and restartable, the collector is the thing that cannot be re-run,
 and debugging process control against the irreplaceable one is the wrong order.
 
-**The stop sequence** is `SIGINT` to a real pid — *not* `SIGTERM`, which has no handler
-on this path: `aste_collect` catches only `KeyboardInterrupt` — then poll at 250 ms for
-15 s, then `SIGKILL`. The landing zone is safe under all three: `LandingZone.write`
-opens, appends one line and closes per record, chosen because the collector was killed
-eleven times in eight hours on 2026-08-26 and lost reconnect time, never a written
-record.
+**The stop sequence** is a flag, then `SIGINT`, then poll at 250 ms for 15 s, then
+`SIGKILL`. The landing zone is safe under all four: `LandingZone.write` opens, appends one
+line and closes per record, chosen because the collector was killed eleven times in eight
+hours on 2026-08-26 and lost reconnect time, never a written record.
 
-**The Windows path is written and unverified**: `CTRL_BREAK_EVENT` into a child created
-with `CREATE_NEW_PROCESS_GROUP`. Recorded as untested in `todo/TODO.md` §4, beside the
-role lock's own Windows backend, which is unverified for the same reason.
+**The flag comes first because it is the only part that works everywhere.** The signal
+half was `CTRL_BREAK_EVENT` on Windows, and the runner showed what that does: it reaches
+a Python child as SIGBREAK and terminates it *before* `except KeyboardInterrupt` runs —
+`exited 3221225786`, `STATUS_CONTROL_C_EXIT`, the child's own shutdown line never
+printed. Which also made the `SIGKILL` escalation behind it unreachable, so the one
+platform that most needed the escalation was the one that could not get there. A polled
+file has no such asymmetry: the child chooses when to look. See
+`fantabot.adapters.files.stopflag`.
+
+`SIGINT` is still sent on POSIX, and still not `SIGTERM` — `aste_collect` catches only
+`KeyboardInterrupt`, so a `SIGTERM` would take the default action and kill the collector
+outright, which is what the escalation exists to avoid doing first. It is kept rather
+than replaced because it is the proven path here and it ends a child that predates the
+flag; the two race, and either one runs the same shutdown.
+
+**Two stages, and the child decides what they mean.** The first stop writes *disarm*, the
+second *exit*. `harvest collect` has nothing to disarm and winds down on either, exactly
+as its first Ctrl-C already ends it while `asta bid`'s first one only disarms. The flag
+carries which stage was asked; the meaning is the command's.
+
+**`CREATE_NEW_PROCESS_GROUP` is kept** even though nothing signals into that group any
+more: it is also what stops a console `Ctrl-C` at the app from propagating into a
+collector, which is precisely the accident the role lock and the landing zone exist to
+survive. Unverified on this machine, like the rest of the Windows path.
 """
 
 from __future__ import annotations
@@ -35,6 +54,8 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+from fantabot.adapters.files.stopflag import EXIT, request_stop, stop_path
 
 from fantabot_app.api.infrastructure.jobs import BufferingReporter
 
@@ -163,11 +184,27 @@ class ProcessJob:
         return process.returncode == 0
 
     def stop(self) -> None:
-        """`SIGINT`, then wait on the role lock, then `SIGKILL`. Safe to call twice.
+        """Flag, then `SIGINT`, then wait on the role lock, then `SIGKILL`.
 
-        `SIGINT` and not `SIGTERM`: `aste_collect` catches only `KeyboardInterrupt`, so a
-        `SIGTERM` would take the default action and kill the collector outright — which is
-        what the escalation exists to avoid doing first.
+        **Safe to call twice, and the second call means more than the first.** The flag
+        escalates: *disarm*, then *exit*. That is deliberate rather than incidental — it
+        is the terminal's two-Ctrl-C gesture, reproduced for a caller that is an HTTP
+        request rather than a keyboard. Everything after the flag is idempotent, so a
+        second stop costs one more signal and nothing else.
+
+        The escalation state lives in the flag file, not in this object, so it survives
+        the app restarting between an operator's two clicks — and so a browser tab that
+        reloaded does not silently rewind the gesture to stage one.
+
+        **Only *exit* waits, and only *exit* escalates.** *Disarm* does not mean "die":
+        `asta bid` disarmed keeps drawing the room, which is the whole reason the gesture
+        has two stages. A grace timer started at stage one would `SIGKILL` a child that is
+        doing exactly what it was asked. So stage one asks and returns; stage two waits
+        the grace and then kills.
+
+        A collector still stops on the first click, and that is the child's decision, not
+        this method's: it has nothing to disarm and winds down on either stage, the same
+        way its first Ctrl-C already ends it.
 
         The wait watches the **role lock**, not only the exit status. The lock is what a
         second start consults, so releasing it is the event that matters; and the kernel
@@ -178,7 +215,11 @@ class ProcessJob:
             return
 
         reporter_pid = process.pid
+        stage = self._request_stop(process)
         self._signal(process)
+        if stage != EXIT:
+            return
+
         deadline = self._clock() + self.grace_s
         while self._clock() < deadline:
             if process.poll() is not None and self._role_is_free():
@@ -201,16 +242,39 @@ class ProcessJob:
         exist in the `subprocess` module off Windows at all, so naming it directly is a
         `mypy` error on this machine and an `AttributeError` on the next.
 
-        Unverified on this machine; see the module docstring and `todo/TODO.md` §4.
+        Nothing sends into that group any more — see `_signal` — but the flag is kept:
+        it is also what stops a console `Ctrl-C` at the app from propagating into a
+        collector. Unverified on this machine; see the module docstring.
         """
         if os.name == "nt":  # pragma: no cover - POSIX here
             return int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         return 0
 
+    def _request_stop(self, process: subprocess.Popen[str]) -> str:
+        """Write the flag, addressed to the **child's** pid, and say which stage.
+
+        The child's, not this process's: every supervised job in the app shares one
+        parent, so a flag written with the app's pid would be read by every sibling as
+        its own. `Popen.pid` is the child directly — there is no shell in between — so it
+        is the same number the child gets from `os.getpid()`.
+        """
+        # Annotated because `fantabot` ships no `py.typed`, so this venv's mypy reads
+        # every symbol from it as `Any` and a bare `return` here is `Any` out of a `str`
+        # function. The marker is the real fix and is a change of its own.
+        stage: str = request_stop(stop_path(self.landing), pid=process.pid)
+        self._print(f"stopping: {stage} flag for pid {process.pid}")
+        return stage
+
     def _signal(self, process: subprocess.Popen[str]) -> None:
+        """SIGINT on POSIX, nothing on Windows — where the flag above is the whole stop.
+
+        The `CTRL_BREAK_EVENT` that used to be here did not work: it reaches a Python
+        child as SIGBREAK and terminates it before `except KeyboardInterrupt` runs, so the
+        child's own shutdown never ran and the SIGKILL escalation behind it was
+        unreachable. Sending nothing is not a regression from that; it is the removal of
+        something that only ever looked like a stop.
+        """
         if os.name == "nt":  # pragma: no cover - POSIX here
-            self._print(f"stopping: CTRL_BREAK_EVENT to pid {process.pid}")
-            process.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
             return
         self._print(f"stopping: SIGINT to pid {process.pid}")
         process.send_signal(signal.SIGINT)
