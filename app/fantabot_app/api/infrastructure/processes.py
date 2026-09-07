@@ -55,7 +55,13 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from fantabot.adapters.files.stopflag import EXIT, request_stop, stop_path
+from fantabot.adapters.files.stopflag import (
+    EXIT,
+    PRECLEARED_ENV,
+    clear_stop,
+    request_stop,
+    stop_path,
+)
 
 from fantabot_app.api.infrastructure.jobs import BufferingReporter
 
@@ -148,7 +154,17 @@ class ProcessJob:
         from fantabot.adapters.files.lock import role_lock
 
         with role_lock(self.landing, self.role):
-            pass  # RoleBusy propagates; the caller reports it.
+            # Cleared here, holding the lock, *before* the child exists — which is what
+            # makes this a happens-before rather than a shorter race. `start` returns the
+            # moment `Popen` does and the UI renders Stop on that response, but the child
+            # needs a fifth of a second to boot; a click in that window used to be written
+            # and then unlinked unread by the child's own startup clear. Now the slate is
+            # clean before there is anything to click Stop on, so every click after this
+            # point is a request the child will see.
+            #
+            # It also still removes what a `SIGKILL`ed predecessor left: stage two's kill
+            # runs no `finally`, so the flag survives holding `exit`.
+            clear_stop(stop_path(self.landing, self.role))
 
         with self._lock:
             # An argv list, never a shell: nothing here is composed from user input.
@@ -159,6 +175,11 @@ class ProcessJob:
                 text=True,
                 bufsize=1,  # line-buffered: a job that buffers until exit looks hung
                 creationflags=self._creation_flags(),
+                # Told, not inferred: the child must not clear the flag again, or it
+                # reopens the window this just closed. A terminal run sees no such
+                # variable and keeps clearing, which is where the staleness guard still
+                # has to live.
+                env={**os.environ, PRECLEARED_ENV: "1"},
             )
             return self._process
 

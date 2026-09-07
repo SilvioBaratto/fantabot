@@ -263,7 +263,12 @@ def aste_load(
     import json
     import time
 
-    from fantabot.adapters.files.stopflag import clear_stop, read_stop, stop_path
+    from fantabot.adapters.files.stopflag import (
+        clear_stop,
+        clear_unless_precleared,
+        read_stop,
+        stop_path,
+    )
 
     # Aliased: the `listone` *parameter* (a Path) already holds this name in this function's
     # scope, and `entries_only` is what makes this reader tolerant of the versioned envelope
@@ -453,7 +458,7 @@ def aste_load(
         # collector implemented it. Clearing here is safe because the role lock above is
         # ours, so nothing else can be waiting on what this erases.
         stop_file = stop_path(landing, LOADER)
-        clear_stop(stop_file)
+        clear_unless_precleared(stop_file)
         try:
             while True:
                 try:
@@ -563,7 +568,12 @@ def aste_collect(
     import json
 
     from fantabot.adapters.files.landing import LandingZone
-    from fantabot.adapters.files.stopflag import clear_stop, stop_path, wait_for_stop
+    from fantabot.adapters.files.stopflag import (
+        clear_stop,
+        clear_unless_precleared,
+        stop_path,
+        wait_for_stop,
+    )
     from fantabot.adapters.http.harvest.stream import Outcome, SinkFailed, watch_auction
     from fantabot.adapters.http.harvest.transport import open_stream
     from fantabot.application.harvest_supervisor import DEFAULT_POOL, Report, Supervisor
@@ -662,7 +672,7 @@ def aste_collect(
         # startup for a reason that expired. We are inside `_held`, so the role lock is
         # ours and nothing else can be waiting on what this erases.
         flag = stop_path(out, COLLECTOR)
-        clear_stop(flag)
+        clear_unless_precleared(flag)
 
         async def stop() -> str:
             return await wait_for_stop(flag, sleep=asyncio.sleep)

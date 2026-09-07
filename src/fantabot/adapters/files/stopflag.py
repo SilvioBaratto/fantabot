@@ -41,9 +41,21 @@ holds the lock owns the flag. Collector and loader are the *intended* pairing on
 landing zone, so the role has to be in the name or a stop aimed at one would stop the
 other.
 
-Staleness is then the holder's own business: a run **clears the flag as it starts**. It
-holds the lock, so nothing else can be relying on what it erases, and no request written
-before it began was written for it.
+Staleness is then handled by clearing the flag when a run starts — but **not by the run
+itself**, and that distinction is the whole of `clear_unless_precleared`.
+
+An earlier version had the child clear its own flag and justified it as *"no request
+written before it began was written for it"*. That is false for a supervisor:
+`ProcessJob.start` returns the moment `Popen` does, the UI renders Stop on that response,
+and the child needs a fifth of a second to boot Python, run its lazy imports and parse its
+seed. A click inside that window was written, logged, and then unlinked unread by the very
+clear that was supposed to protect it. On POSIX the SIGINT covered it; on Windows, where
+no signal is sent, the click was simply lost.
+
+So the clear belongs to whoever can act **before the child exists**. `ProcessJob.start`
+already holds the role lock before it spawns, so it clears there and sets `PRECLEARED_ENV`
+— a real happens-before, not a shorter race. A terminal run has no supervisor and still
+needs the guard, so the child clears only when nothing has told it not to.
 
 **No database, and no `signal`.** This module is polled from the collection path, so it
 carries `lock.py`'s rule: nothing here may reach persistence, or a database outage could
@@ -54,7 +66,8 @@ make the portable half of the stop platform-dependent again.
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable
+import os
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Final
 
@@ -67,6 +80,10 @@ EXIT: Final = "exit"
 
 #: In escalation order. `request_stop` walks it and stops at the end.
 STAGES: Final = (DISARM, EXIT)
+
+#: Set by a supervisor that has already cleared the flag *before* spawning this process.
+#: A child that sees it must not clear again — see `clear_unless_precleared`.
+PRECLEARED_ENV: Final = "FANTABOT_STOP_FLAG_PRECLEARED"
 
 
 def stop_path(base: Path, role: str) -> Path:
@@ -165,3 +182,28 @@ async def wait_for_stop(
         if state is not None:
             return state
         await sleep(poll_s)
+
+
+def clear_unless_precleared(path: Path, *, env: Mapping[str, str] | None = None) -> bool:
+    """Clear the flag for a starting run, unless a supervisor already did. Returns whether.
+
+    **This exists because "clear on start" and "do not lose a click" are in conflict, and
+    only one owner can hold both.** A run that clears its own flag closes the staleness
+    hole and opens a startup window: `ProcessJob.start` returns the moment `Popen` does,
+    the UI renders Stop on that response, and the child needs a fifth of a second to boot
+    Python, run its lazy imports and parse its seed. A click inside that window was
+    written, logged, and then unlinked unread by the very clear that was protecting it.
+
+    So the owner is whoever can act *before the child exists*. `ProcessJob.start` already
+    holds the role lock before it spawns; clearing there is a real happens-before, not a
+    shorter window, and it sets `PRECLEARED_ENV` so the child knows not to undo it.
+
+    A terminal run has no supervisor and still needs the staleness guard, which is why
+    this is a condition rather than a deletion: nothing else would remove the `exit` a
+    `SIGKILL`ed predecessor left behind, and the next run's first click would escalate
+    immediately.
+    """
+    if (env if env is not None else os.environ).get(PRECLEARED_ENV):
+        return False
+    clear_stop(path)
+    return True

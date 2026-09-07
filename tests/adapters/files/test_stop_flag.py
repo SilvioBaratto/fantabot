@@ -29,11 +29,15 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from fantabot.adapters.files.lock import COLLECTOR, LOADER
 from fantabot.adapters.files.stopflag import (
     DISARM,
     EXIT,
+    PRECLEARED_ENV,
     clear_stop,
+    clear_unless_precleared,
     read_stop,
     request_stop,
     stop_path,
@@ -235,3 +239,58 @@ class TestWaiting:
             raise AssertionError("the flag was already set; nothing to wait for")
 
         assert asyncio.run(wait_for_stop(path, sleep=sleep)) == EXIT
+
+
+class TestWhoClearsOnStart:
+    """Clearing on start and not losing a click are in conflict, and only one owner can
+    hold both.
+
+    A run that clears its own flag closes the staleness hole and opens a startup window:
+    `ProcessJob.start` returns the moment `Popen` does, the UI renders Stop on that
+    response, and the child needs a fifth of a second to boot. A click inside that window
+    was written, logged, and then unlinked unread by the very clear protecting it.
+
+    So the owner is whoever can act *before the child exists* — the supervisor, holding
+    the role lock it already takes. A terminal run has no supervisor and still needs the
+    guard, so this is a condition rather than a deletion.
+    """
+
+    def test_a_terminal_run_clears_its_own_stale_flag(self, tmp_path: Path) -> None:
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        request_stop(path)
+
+        assert clear_unless_precleared(path, env={}) is True
+        assert read_stop(path) is None
+
+    def test_a_supervised_run_leaves_the_flag_alone(self, tmp_path: Path) -> None:
+        """The click that arrived while this child was booting lives here. Clearing it
+        would be the child erasing its own stop request."""
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+
+        assert clear_unless_precleared(path, env={PRECLEARED_ENV: "1"}) is False
+        assert read_stop(path) == DISARM
+
+    def test_it_reads_the_real_environment_when_none_is_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The CLI calls this with no `env`, so the default has to be the live one — an
+        injectable that silently defaults to empty would disable the whole mechanism in
+        production while every test still passed."""
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        monkeypatch.setenv(PRECLEARED_ENV, "1")
+
+        assert clear_unless_precleared(path) is False
+        assert read_stop(path) == DISARM
+
+    def test_an_empty_value_is_not_a_supervisor(self, tmp_path: Path) -> None:
+        """`env={PRECLEARED_ENV: ""}` is how a variable looks when something unset it
+        badly. Treating that as "a supervisor cleared for me" would silently reopen the
+        latch on a terminal run."""
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+
+        assert clear_unless_precleared(path, env={PRECLEARED_ENV: ""}) is True
+        assert read_stop(path) is None

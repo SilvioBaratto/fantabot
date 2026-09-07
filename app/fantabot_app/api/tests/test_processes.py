@@ -61,20 +61,26 @@ while True:
 #: stage it was asked for, so a test can tell the two apart without reading the file
 #: itself.
 #:
-#: It clears the flag before announcing itself, which is exactly what `aste_collect` does
-#: and is the whole staleness story: a run that died at *exit* left the flag on disk, and
-#: reading it at startup would quit for a reason that expired.
+#: It clears the flag before announcing itself **through the same conditional the real
+#: commands use** — `clear_unless_precleared`. That matters: a supervised child must not
+#: clear, because `ProcessJob.start` already did it before the child existed, and clearing
+#: again would erase a click made while this was still booting.
 #:
 #: `saw disarm` is printed once rather than every 50 ms — the loop would otherwise flood
 #: the job log with twenty lines a second while disarmed, which is the state a room sits
 #: in for as long as the operator wants to keep watching it.
+#: The same child, but slow to reach its own startup code — which is what the real
+#: commands are. `harvest collect` spends 0.13-0.32 s warm on interpreter boot, lazy
+#: imports, the seed parse and the role lock before it ever touches the flag; this stub
+#: reaches it in 0.03 s, which is fast enough to hide the startup window entirely. The
+#: sleep is not padding: without it the window test passes for the wrong reason.
 FLAG_POLLER = """
 import signal, sys, time
 signal.signal(signal.SIGINT, signal.SIG_IGN)
 from pathlib import Path
-from fantabot.adapters.files.stopflag import clear_stop, read_stop, stop_path
+from fantabot.adapters.files.stopflag import clear_unless_precleared, read_stop, stop_path
 flag = stop_path(Path(sys.argv[1]), "loader")
-clear_stop(flag)
+clear_unless_precleared(flag)
 print("polling", flush=True)
 seen = None
 while True:
@@ -373,5 +379,79 @@ def test_the_flag_is_named_for_the_role_and_holds_only_the_stage(tmp_path: Path)
     assert json.loads(flag.read_text(encoding="utf-8")) == {"state": "disarm"}
     assert stop_path(landing, "collector") != flag
 
+    job.stop()
+    assert _wait(lambda: not job.running)
+
+
+#: `FLAG_POLLER`, delayed. Spliced rather than duplicated so the two cannot drift.
+SLOW_FLAG_POLLER = FLAG_POLLER.replace(
+    'print("polling", flush=True)', 'time.sleep(1.0)\nprint("polling", flush=True)'
+).replace("clear_stop(flag)", "time.sleep(1.0)\nclear_stop(flag)")
+
+
+def test_a_stop_clicked_before_the_child_boots_is_not_lost(tmp_path: Path) -> None:
+    """The startup window, closed.
+
+    `start()` returns the moment `Popen` does and the UI renders Stop on that response —
+    but the child needs a fifth of a second to boot Python, run its lazy imports and parse
+    its seed. A click inside that window used to be written, logged, and then **unlinked
+    unread** by the child's own startup clear. On POSIX the SIGINT covered it; on Windows,
+    where no signal is sent, the click was simply lost and the operator clicked again.
+
+    `stopflag.py`'s docstring claimed the opposite — *"no request written before it began
+    was written for it"* — which is exactly false for a supervisor that has just spawned
+    the child.
+
+    The fix is a real happens-before, not a shorter window: `start()` clears the flag
+    **while it holds the role lock, before `Popen`**, so the slate is clean before the
+    child exists; and it tells the child so, which is why the child must not clear again.
+
+    This test stops the job with no delay at all — the child is still booting — and
+    requires the request to survive.
+    """
+    landing = tmp_path / "live.jsonl"
+    reporter = BufferingReporter()
+    job = ProcessJob(
+        _python(SLOW_FLAG_POLLER) + [str(landing)],
+        role="loader",
+        landing=landing,
+        grace_s=0.4,
+        poll_s=0.05,
+    )
+    _run_in_thread(job, reporter)
+    assert _wait(lambda: job.pid is not None), "the child never spawned"
+
+    job.stop()  # no wait: the child has not reached its own startup code yet
+
+    assert _wait(lambda: "saw disarm" in reporter.lines, timeout=20.0), reporter.lines
+
+    job.stop()
+    assert _wait(lambda: not job.running), reporter.lines
+
+
+def test_start_clears_a_flag_left_by_a_killed_predecessor(tmp_path: Path) -> None:
+    """The other half of moving the clear to the supervisor: it must still remove a stale
+    flag, or the escalation path plants one that never goes away.
+
+    A child ended by `SIGKILL` — which stage two does — never runs its own `finally`, so
+    the flag survives holding `exit`. Without this the next run's *first* click would read
+    that stale exit and escalate immediately.
+    """
+    from fantabot.adapters.files.stopflag import read_stop, request_stop, stop_path
+
+    landing = tmp_path / "live.jsonl"
+    flag = stop_path(landing, "loader")
+    request_stop(flag)
+    request_stop(flag)
+    assert read_stop(flag) == "exit", "a killed predecessor left the flag at exit"
+
+    reporter = BufferingReporter()
+    job = ProcessJob(_python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing)
+    _run_in_thread(job, reporter)
+    assert _wait(lambda: "polling" in reporter.lines), reporter.lines
+
+    assert read_stop(flag) is None, "start() must clear before it spawns"
+
+    job.stop()
     job.stop()
     assert _wait(lambda: not job.running)
