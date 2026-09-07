@@ -23,6 +23,23 @@ and does not license.
 There is **no Docker** (the compose/Dockerfile scaffold was removed), no auth/JWT of its
 own, no BAML. The clean architecture lives in `fantabot`; this is a thin adapter over it.
 
+**Windows is supported and cannot be dogfooded.** The operator runs Linux and macOS; the
+people who install this from GitHub may be on Windows. That is not a matrix leg kept green
+out of habit — for those users the bundled-Postgres install *is* the product, and nobody
+here will notice it breaking by using it. Two consequences, and they are why several
+things in this tree look more careful than they need to:
+
+* **`app-ci`'s Windows job is the only evidence that exists.** A Windows defect is found
+  there or it is found by a user. Hence T42c's path filter naming `src/` files: the
+  supervised child's OS-specific modules are exercised on Windows *there and nowhere
+  else*, and `app/**` alone meant a change to `lock.py` triggered no Windows job at all.
+* **The cooperative stop flag is Windows-only in practice.** `ProcessJob.stop` writes the
+  flag and then sends SIGINT microseconds later, while the child polls at
+  `stopflag.POLL_S` = 5 s — so on POSIX the signal always wins and `harvest collect` ends
+  through `except KeyboardInterrupt` exactly as it always did. The flag path is what runs
+  for a Windows user, and CI is the only place it is ever exercised. Do not treat a test
+  of it as ceremony.
+
 ## Layout
 
 ```
