@@ -568,13 +568,22 @@ def asta_room(
     )
     journal = RoomJournal(journal_path())
     # `cycle_ms` is measured here, not in `application/` — the clock stays out of that layer.
-    # One slot rather than a return value from `cycle` itself: `target_of` starts the clock
-    # right before calling it, and this closure (handed to `RoomTracker` as `journal`) reads
-    # it back the moment the row `cycle` builds internally is about to be written.
-    cycle_started = [0.0]
+    #
+    # **The clock starts at the top of the poll, not at `cycle`.** It used to start inside
+    # `target_of`, which is only reached when a lot is on the block — so `waiting` and
+    # `error` rows, the two that mean "the loop is in trouble", were the only rows with no
+    # timing at all. One field, one meaning: the whole poll, read included. Nothing is lost
+    # by the redefinition — `cycle_ms` postdates the 2026-09-01 evening and is null across
+    # every recorded row.
+    cycle_started = [time.perf_counter()]
 
     def _timed_journal(row: Mapping[str, Any]) -> None:
         journal.write({**row, "cycle_ms": round((time.perf_counter() - cycle_started[0]) * 1000, 1)})
+
+    def _timed_read() -> Any:
+        """The loop's first act each poll, so it is where the poll's clock starts."""
+        cycle_started[0] = time.perf_counter()
+        return router.read_lot()[0]
 
     tracker = RoomTracker(
         seat=Seat(
@@ -634,7 +643,6 @@ def asta_room(
         worker.start()
 
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        cycle_started[0] = time.perf_counter()
         frame = tracker.cycle(
             snapshot, now_ms=int(time.time() * 1000), node=router.node
         )
@@ -684,12 +692,12 @@ def asta_room(
         that already journaled; journaling again would double the row for the same poll.
         """
         if "waiting for a lot" in line:
-            journal.write(waiting_row(now_ms=int(time.time() * 1000)))
+            _timed_journal(waiting_row(now_ms=int(time.time() * 1000)))
 
     def on_error(exc: Exception, consecutive: int) -> None:
         """A failed poll: shown on the screen the operator is actually looking at, and now
         journaled too — a run reporting a stall used to leave no record of why."""
-        journal.write(error_row(exc, now_ms=int(time.time() * 1000)))
+        _timed_journal(error_row(exc, now_ms=int(time.time() * 1000)))
         live.update(
             error_overlay(
                 screen[0] if screen else None,
@@ -707,7 +715,7 @@ def asta_room(
             remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
             max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), rules.size),
             target_of=target_of,
-            read=lambda: router.read_lot()[0],
+            read=_timed_read,
             # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
             # writer captured at loop start would keep bidding after the operator disarmed.
             write=lambda payload: bid_writer(
@@ -954,13 +962,19 @@ def asta_bid(
         console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
     journal = RoomJournal(journal_path())
-    # `cycle_ms` measured here, not in `application/` — see `asta_room`'s identical wiring.
-    cycle_started = [0.0]
+    # `cycle_ms` measured here, not in `application/` — see `asta_room`'s identical wiring,
+    # including why the clock starts at the top of the poll rather than at `cycle`.
+    cycle_started = [time.perf_counter()]
 
     def _timed_journal(row: Mapping[str, Any]) -> None:
         journal.write(
             {**row, "cycle_ms": round((time.perf_counter() - cycle_started[0]) * 1000, 1)}
         )
+
+    def _timed_read() -> Any:
+        """The loop's first act each poll, so it is where the poll's clock starts."""
+        cycle_started[0] = time.perf_counter()
+        return router.read_lot()[0]
 
     tracker = RoomTracker(
         seat=seat,
@@ -1003,7 +1017,6 @@ def asta_bid(
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
         import time as _time
 
-        cycle_started[0] = _time.perf_counter()
         frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000), node=router.node)
         latest.append(frame)
         # Said once rather than once per poll: at a 2 s cycle the same line would scroll the
@@ -1027,13 +1040,13 @@ def asta_bid(
         identical heartbeat for why only this one line qualifies."""
         console.print(line)
         if "waiting for a lot" in line:
-            journal.write(waiting_row(now_ms=int(time.time() * 1000)))
+            _timed_journal(waiting_row(now_ms=int(time.time() * 1000)))
 
     def on_error(exc: Exception, consecutive: int) -> None:
         """Replaces `run_bid_loop`'s own fallback (which only ever printed) so a failed poll
         leaves a record, not just a line that scrolled away."""
         console.print(f"[red]{type(exc).__name__}: {exc} ({consecutive} in a row)[/red]")
-        journal.write(error_row(exc, now_ms=int(time.time() * 1000)))
+        _timed_journal(error_row(exc, now_ms=int(time.time() * 1000)))
 
     report = room.run_bid_loop(
         seat=seat,
@@ -1041,7 +1054,7 @@ def asta_bid(
         remaining_budget=_remaining,
         max_cap=_cap,
         target_of=target_of,
-        read=lambda: router.read_lot()[0],
+        read=_timed_read,
         write=bid_writer(
             auto_act=settings.fantabot_auto_act,
             arm=arm,
