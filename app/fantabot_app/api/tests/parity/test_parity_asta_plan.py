@@ -285,3 +285,74 @@ def test_sentiment_on_with_no_feed_says_so_rather_than_showing_a_blank(
 
     assert body["found"] is False
     assert body["reason"] and "news fetch" in body["reason"], body
+
+
+def test_the_page_carries_a_walk_away_beside_the_corpus_price(
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+) -> None:
+    """Two numbers, two labels. The page had one — the observed mean clearing price —
+    under the heading "Price", which reads as advice about what to pay.
+
+    The number an operator actually bids against is the *prezzo di rinuncia*, and
+    `lot_ceiling`, `lot_reference` and `reservations` had zero call sites anywhere under
+    `app/` before 1.8.
+    """
+    from fantabot_app.api.v1.endpoints.asta import WALK_AWAY_AT_BUDGET, WALK_AWAY_MARGINAL
+
+    body = api.get(
+        "/api/v1/asta/plan",
+        params={"league_id": seeded_db.league_id, "season": seeded_db.season},
+    ).json()
+
+    assert body["found"] is True, body
+    priced = [row for row in body["players"] if row["walk_away"] is not None]
+    assert priced, "no row carried a walk-away"
+
+    for row in priced:
+        assert row["walk_away_provenance"] in {WALK_AWAY_MARGINAL, WALK_AWAY_AT_BUDGET}
+        # Two distinct facts. The corpus price is what the market paid; the walk-away is
+        # what this rosa would pay. A page showing one of them under both labels would be
+        # the defect restated.
+        assert "price" in row and "walk_away" in row
+
+
+def test_a_walk_away_of_zero_is_not_rendered_as_absent(
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+) -> None:
+    """Defect B2's shape: 4,501 of 5,192 journal rows carried a null walk-away and it read
+    as a decision. Zero means "a substitute exists at this price" and is a real answer;
+    `None` means nobody priced it. They must not be the same value."""
+    body = api.get(
+        "/api/v1/asta/plan",
+        params={"league_id": seeded_db.league_id, "season": seeded_db.season},
+    ).json()
+
+    zeros = [row for row in body["players"] if row["walk_away"] == 0.0]
+    absent = [row for row in body["players"] if row["walk_away"] is None]
+
+    # Not an assertion that both exist on this seed — an assertion that the two are
+    # distinguishable at all, which a `walk_away or None` anywhere in the chain would break.
+    assert not (set(map(id, zeros)) & set(map(id, absent)))
+    for row in absent:
+        assert row["walk_away_provenance"].startswith("not priced")
+
+
+def test_an_owned_player_needs_no_walk_away(
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+) -> None:
+    """`reservations` prices only unowned plan members, and that is right: a player already
+    bought is not a purchase to decide. It is now the *only* reason a row carries none."""
+    keeper = seeded_db.player_ids[0]
+
+    body = api.get(
+        "/api/v1/asta/plan",
+        params={
+            "league_id": seeded_db.league_id,
+            "season": seeded_db.season,
+            "owned": keeper,
+        },
+    ).json()
+
+    (row,) = [r for r in body["players"] if r["player_id"] == keeper]
+    assert row["walk_away"] is None
+    assert row["walk_away_provenance"] == "not priced: already owned"

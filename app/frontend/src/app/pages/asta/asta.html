@@ -209,20 +209,37 @@
       </section>
 
       <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
+        <!-- Two numbers, two labels. "Price" was the only one, and it is the *market's*
+             number — the observed mean clearing price from the recorded corpus. The one an
+             operator bids against is the walk-away. -->
         <div
-          class="grid grid-cols-[1fr_auto] gap-4 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
+          class="grid grid-cols-[1fr_5rem_6rem] gap-4 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
         >
           <span>Player</span>
-          <span class="text-right">Price</span>
+          <span class="text-right">Corpus price</span>
+          <span class="text-right">Walk-away</span>
         </div>
         @for (player of players(); track player.player_id) {
           <div
-            class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border-muted px-6 py-2 last:border-b-0"
+            class="grid grid-cols-[1fr_5rem_6rem] items-start gap-4 border-b border-border-muted px-6 py-2 last:border-b-0"
           >
             <span class="text-sm text-text">{{ player.nome }}</span>
-            <span class="text-right text-sm font-semibold tabular-nums text-text-secondary">{{
+            <span class="text-right text-sm tabular-nums text-text-tertiary">{{
               player.price | number: '1.0-0'
             }}</span>
+            <span class="text-right">
+              <!-- A null walk-away is rendered as one and never as a zero: zero means "a
+                   substitute exists at this price", which is a real answer. -->
+              <span
+                class="block text-sm font-semibold tabular-nums"
+                [class.text-text]="player.walk_away !== null"
+                [class.text-text-tertiary]="player.walk_away === null"
+                >{{ player.walk_away === null ? '—' : (player.walk_away | number: '1.0-0') }}</span
+              >
+              <span class="block text-[0.65rem] leading-tight text-text-tertiary">{{
+                player.walk_away_provenance
+              }}</span>
+            </span>
           </div>
         }
       </section>

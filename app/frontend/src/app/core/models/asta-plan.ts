@@ -1,7 +1,24 @@
 export interface PlanPlayer {
   player_id: string;
   nome: string;
+  /**
+   * The observed **mean clearing price** across the recorded corpus of this league shape.
+   * What the market paid — not what he is worth to us. For as long as this page existed it
+   * was the only number on it, under the heading "Price", which reads as advice.
+   */
   price: number;
+  /**
+   * The *prezzo di rinuncia* — the most this rosa would pay before walking away. The
+   * requirements doc calls it "la funzione centrale", and it was not in the app at all.
+   *
+   * `null` means not priced (an owned player), never zero: a walk-away of zero is a real
+   * answer meaning a substitute exists at this price. Rendering the two the same is defect
+   * B2 restated — 4,501 of 5,192 journal rows carried a null walk-away and it read as a
+   * decision.
+   */
+  walk_away: number | null;
+  /** Where that number came from. Beside it, never behind a hover. */
+  walk_away_provenance: string;
 }
 
 /**

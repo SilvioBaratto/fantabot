@@ -64,7 +64,15 @@ describe('AstaComponent', () => {
       lam: 0,
       owned: [],
       callable_pool: 529,
-      players: [{ player_id: '1', nome: 'Svilar', price: 20 }],
+      players: [
+        {
+          player_id: '1',
+          nome: 'Svilar',
+          price: 20,
+          walk_away: 34,
+          walk_away_provenance: 'marginal: objective without him, re-solved',
+        },
+      ],
       fallbacks: [],
       ...over,
     };
@@ -489,5 +497,40 @@ describe('AstaComponent', () => {
     await fixture.whenStable();
 
     expect(fixture.nativeElement.textContent).toContain('No player pool');
+  });
+
+  it('shows the walk-away beside the corpus price, with its provenance', async () => {
+    // The page had one number, labelled "Price", and it is the *market's* — the observed
+    // mean clearing price. The one an operator bids against is the walk-away, and
+    // `reservations` had zero call sites anywhere under app/ before this.
+    const fixture = await readyWithPlan(plan());
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Corpus price');
+    expect(text).toContain('Walk-away');
+    expect(text).toContain('34');
+    expect(text).toContain('marginal');
+  });
+
+  it('renders an unpriced walk-away as absent and never as zero', async () => {
+    // Defect B2's shape: zero means "a substitute exists at this price" and is a real
+    // answer; null means nobody priced it.
+    const fixture = await readyWithPlan(
+      plan({
+        players: [
+          {
+            player_id: '1',
+            nome: 'Svilar',
+            price: 20,
+            walk_away: null,
+            walk_away_provenance: 'not priced: already owned',
+          },
+        ],
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('already owned');
+    expect(text).not.toContain('Walk-away0');
   });
 });
