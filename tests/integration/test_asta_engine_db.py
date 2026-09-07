@@ -15,7 +15,16 @@ from fantabot.domain.asta.legality import fieldable_schemi
 from fantabot.domain.asta.optimizer import optimize_roster
 from fantabot.domain.asta.state import AstaState, RosterRules
 
-pytestmark = pytest.mark.db
+#: `dbdata` as well as `db`, and that is a correction rather than a narrowing. These are
+#: invariants of *the real 548-man pool*, so they need the recorded corpus — and against a
+#: schema-only `fantabot_test` this file did not fail, it **skipped** on an empty pool. It
+#: has been reporting success by looking at nothing for as long as the tier has existed.
+#:
+#: Since 1.6 it would fail instead: `clearing_sales` refuses an empty corpus rather than
+#: returning `[]`, because an empty `prices` mapping is legal, `DEFAULT_PRICE = 1` then
+#: applies to everybody, and the budget assertion below would hold vacuously — which is the
+#: 25-credits-of-500 incident restated as a green test.
+pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
 BUDGET = 500.0
 RULES = RosterRules()
@@ -34,7 +43,10 @@ def _world(session: Session) -> PlanInputs:
     in the golden harness.
     """
     return read_plan_inputs(
-        session, season="2026/27", sentiment=None, as_of=None, tilt_k=0.25
+        session, season="2026/27", sentiment=None, as_of=None, tilt_k=0.25,
+        # Our room, stated rather than defaulted — 1.6's rule, and this file was one of the
+        # six sites that never said it.
+        num_teams=8, num_credits=500,
     )
 
 

@@ -423,19 +423,25 @@ class TestClearingSalesFilterOnTheFormatTheyAreGiven:
 
     def test_the_format_reaches_the_where_clause(self) -> None:
         from fantabot.adapters.persistence.repositories.aste import AsteRepository
+        from fantabot.domain.asta.prices import NoCorpus
 
         for asta_type in ("classic", "mantra"):
             session = _session([], literal=True)
-            AsteRepository(session).clearing_sales(asta_type=asta_type)
+            # Since 1.6 an empty result is a refusal, not an empty list. The query is
+            # still built and is still what this asserts on.
+            with pytest.raises(NoCorpus):
+                AsteRepository(session).clearing_sales(asta_type=asta_type)
 
             where = session.statements[0].split("WHERE", 1)[1]
             assert f"asta.asta_type = '{asta_type}'" in where
 
     def test_mantra_stays_the_default_so_no_caller_has_to_change(self) -> None:
         from fantabot.adapters.persistence.repositories.aste import AsteRepository
+        from fantabot.domain.asta.prices import NoCorpus
 
         session = _session([], literal=True)
-        AsteRepository(session).clearing_sales()
+        with pytest.raises(NoCorpus):
+            AsteRepository(session).clearing_sales()
 
         assert "asta.asta_type = 'mantra'" in session.statements[0]
 
@@ -470,8 +476,10 @@ class TestClearingSalesAreReadInAStableOrder:
     def test_the_query_orders_by_player_then_price(self) -> None:
         session = _session([])
         from fantabot.adapters.persistence.repositories.aste import AsteRepository
+        from fantabot.domain.asta.prices import NoCorpus
 
-        AsteRepository(session).clearing_sales()
+        with pytest.raises(NoCorpus):  # the fake returns no rows; 1.6 refuses that
+            AsteRepository(session).clearing_sales()
 
         sql = session.statements[0]
         assert "ORDER BY" in sql, "clearing sales are read in whatever order Postgres returns"

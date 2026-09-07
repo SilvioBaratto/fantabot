@@ -27,6 +27,7 @@ from fantabot.adapters.persistence.models.aste import (
     AstaEvent,
 )
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
+from fantabot.domain.asta.prices import NoCorpus
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import CursorResult
@@ -274,7 +275,42 @@ class AsteRepository(RepositoryBase):
             )
             .order_by(AstaAssignment.fantacalcio_id, AstaAssignment.price)
         ).all()
+        # An empty corpus is refused, not returned. `mean_prices({})` is legal, and
+        # `DEFAULT_PRICE = 1` then applies to everybody — the budget constraint goes
+        # vacuous and nothing raises. See `NoCorpus`, and the 25-credits-of-500 rosa.
+        if not rows:
+            raise NoCorpus(f"{num_teams}x{budget} {asta_type}", self.recorded_shapes())
         return [(str(fantacalcio_id), price) for fantacalcio_id, price in rows]
+
+    def recorded_shapes(self) -> list[str]:
+        """Every `<teams>x<credits> <format>` the corpus actually holds, most sales first.
+
+        Read for a refusal message, so it is ordered by what the operator is most likely to
+        have meant rather than alphabetically. Counts sales the same way `clearing_sales`
+        does — buyer and player link both present — because a shape listed as available
+        that then prices nothing would be a worse answer than the refusal it appears in.
+        """
+        from sqlalchemy import func
+
+        rows = self.session.execute(
+            select(
+                Asta.num_teams,
+                Asta.num_credits,
+                Asta.asta_type,
+                func.count().label("sales"),
+            )
+            .join(AstaAssignment, Asta.id == AstaAssignment.asta_id)
+            .where(
+                AstaAssignment.fantacalcio_id.is_not(None),
+                AstaAssignment.buyer_team_id.is_not(None),
+            )
+            .group_by(Asta.num_teams, Asta.num_credits, Asta.asta_type)
+            .order_by(func.count().desc(), Asta.num_teams, Asta.num_credits, Asta.asta_type)
+        ).all()
+        return [
+            f"{teams}x{credits} {asta_type} ({sales} sales)"
+            for teams, credits, asta_type, sales in rows
+        ]
 
     def recorded_auctions(
         self,

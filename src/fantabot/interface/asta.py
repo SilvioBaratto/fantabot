@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 from pathlib import Path
 
 from fantabot.application.asta_planner import read_plan_inputs
+from fantabot.application.plan_request import DEFAULT_NUM_CREDITS, DEFAULT_NUM_TEAMS
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.live import normalize, resolve_ids
 from fantabot.domain.asta.opponents import format_advisory, format_opponents, track_opponents
@@ -43,6 +44,8 @@ from fantabot.interface.options import (
     BargainBeta,
     BargainShare,
     CeilingAlpha,
+    CorpusCredits,
+    CorpusTeams,
     Season,
     Sentiment,
     SentimentRun,
@@ -207,6 +210,7 @@ def asta_optimize(
         PlanRequest,
         build_plan,
     )
+    from fantabot.domain.asta.prices import NoCorpus
 
     if fmt not in ("mantra", "classic"):
         raise typer.BadParameter("--format must be 'mantra' or 'classic'")
@@ -244,7 +248,7 @@ def asta_optimize(
     # plain `fvm` without saying so.
     except NoSentimentRows as exc:
         raise typer.BadParameter(str(exc)) from exc
-    except (EmptyPool, InfeasibleRoster) as exc:
+    except (EmptyPool, InfeasibleRoster, NoCorpus) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
@@ -285,6 +289,8 @@ def asta_live(
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
+    teams: CorpusTeams = DEFAULT_NUM_TEAMS,
+    credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
@@ -357,6 +363,7 @@ def asta_live(
             # applies. This is the advisory an operator bids by hand from when the room view
             # is gone, so it must not head its list with a player who cannot be called.
             callable_ids={str(fid) for fid in bridge.values()} if bridge else None,
+            num_teams=teams, num_credits=credits,
         )
 
     last = None
@@ -734,8 +741,8 @@ def asta_calibrate(
     alpha: list[float] = typer.Option(
         [], "--alpha", help="Repeatable. Default sweeps 0.85 0.90 0.95 1.00 1.05 1.10 1.15."
     ),
-    teams: int = typer.Option(8, help="Recorded league shape: number of teams."),
-    credits: int = typer.Option(500, help="Recorded league shape: credits per team."),
+    teams: CorpusTeams = DEFAULT_NUM_TEAMS,
+    credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     season: Season = SEASON,
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
 ) -> None:
@@ -756,8 +763,12 @@ def asta_calibrate(
 
     with database_manager.get_session() as session:
         rows = sentiment_rows(NewsSentimentSource(session), enabled=True, run="")
+        # The same shape reaches both corpora. It used to reach only the replay one, so a
+        # `--teams 10 --credits 1000` sweep graded a 10x1000 corpus against prices averaged
+        # from 8x500 rooms — the grader and the thing being graded priced differently.
         world = read_plan_inputs(
-            session, season=season, sentiment=rows, as_of=_today(), tilt_k=SentimentWeights().k
+            session, season=season, sentiment=rows, as_of=_today(),
+            tilt_k=SentimentWeights().k, num_teams=teams, num_credits=credits,
         )
         corpus = AsteRepository(session).recorded_auctions(
             num_teams=teams, num_credits=credits
@@ -808,6 +819,8 @@ def asta_bid(
         "prices and caps against the wrong band.",
     ),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
+    teams: CorpusTeams = DEFAULT_NUM_TEAMS,
+    credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
@@ -902,6 +915,11 @@ def asta_bid(
             tilt_k=tilt_k,
             callable_ids={str(fid) for fid in bridge.values()},
             listone=fmt,
+            # `asta bid` is unauthenticated and cannot read the room's own shape any more
+            # than it can read its `asta_type` — which is why `--format` exists. A wrong
+            # shape prices against somebody else's game as surely as a wrong format does.
+            num_teams=teams,
+            num_credits=credits,
         )
 
     if not world.pool:

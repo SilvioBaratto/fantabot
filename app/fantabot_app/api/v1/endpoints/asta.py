@@ -136,6 +136,7 @@ def asta_plan(
         build_plan,
         callable_ids,
     )
+    from fantabot.domain.asta.prices import NoCorpus
     from fantabot.domain.asta.report import parse_ids
     from fantabot.domain.asta.sentiment import SentimentWeights
     from fantabot.domain.classic.state import ClassicRosterRules
@@ -207,6 +208,11 @@ def asta_plan(
     except NoSentimentRows as exc:
         return AstaPlan(found=False, reason=str(exc))
     except EmptyPool as exc:
+        return AstaPlan(found=False, reason=str(exc))
+    # An unrecorded corpus shape. Named rather than swallowed because the alternative is
+    # not a slightly-off plan: with no prices the budget constraint is vacuous, and that
+    # bought a 25-man rosa for 25 credits of 500 on 2026-09-05.
+    except NoCorpus as exc:
         return AstaPlan(found=False, reason=str(exc))
     except Exception:  # noqa: BLE001 — 1.7 replaces this with the pinned tuple of outcomes
         return AstaPlan(found=False)

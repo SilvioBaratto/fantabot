@@ -135,3 +135,34 @@ BargainShare = Annotated[
         help="Cap on total unplanned spend, as a fraction of the starting budget.",
     ),
 ]
+
+
+#: The recorded league shape a plan is priced against. Not the same thing as `--budget`,
+#: which is *our* remaining credits: this addresses a cell of the corpus.
+#:
+#: **Every planning command states it now**, because five of six did not. The default was
+#: 8x500 inside `read_plan_inputs`, which is our room, so nothing looked wrong — and
+#: `docs/fantalab/00 §13` is explicit that a league rule written into the code is a bug,
+#: the next asta being the riparazione in January or a friend's league. `asta calibrate`
+#: was the case that proved it: it forwarded `--teams/--credits` to the *replay* corpus and
+#: called `read_plan_inputs` with no shape at all, grading a 10x1000 corpus against prices
+#: averaged from 8x500 rooms.
+CorpusTeams = Annotated[
+    int,
+    typer.Option(
+        "--teams",
+        min=2,
+        help="Recorded league shape: number of teams. The corpus is filtered to it, so "
+        "prices need no budget normalization.",
+    ),
+]
+
+CorpusCredits = Annotated[
+    int,
+    typer.Option(
+        "--credits",
+        min=1,
+        help="Recorded league shape: credits per team. An unrecorded shape is refused, "
+        "never priced off the nearest one.",
+    ),
+]

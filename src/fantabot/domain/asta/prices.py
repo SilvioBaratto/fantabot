@@ -14,8 +14,41 @@ reads, so moving it there removed an indirection rather than adding a file.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+
+
+class NoCorpus(LookupError):
+    """No recorded auction of the shape a plan asked to be priced against.
+
+    **A refusal and not a fallback**, and the reason is measured. `mean_prices` returns
+    `{}` for an empty corpus, an empty `prices` mapping is a perfectly legal argument, and
+    `DEFAULT_PRICE = 1` then applies to everybody — so the optimizer's budget constraint
+    becomes vacuous and nothing raises. On 2026-09-05 that bought a 25-man Classic rosa for
+    **25 credits of 500**, with 22 of its 25 slots differing from the corpus-priced plan.
+    A plan silently built against no costs is worse than no plan.
+
+    **And not a nearest-shape fallback either.** Prices are comparable only within one
+    shape — that is the whole reason the corpus is filtered by it, and why no budget
+    normalization is applied. Pricing a 10x1000 room off 8x500 sales would be an answer
+    with no error bar, offered where a refusal was available.
+
+    Lives here, in the pure module that owns what a price corpus is, so the repository that
+    raises it and the application that catches it can both name it without either importing
+    the other.
+    """
+
+    def __init__(self, shape: str, recorded: Sequence[str]) -> None:
+        listed = ", ".join(recorded) if recorded else "none at all"
+        # The recorded shapes are in the message because the operator's next move is to
+        # pick one, and a refusal that does not say what *is* available sends them to SQL.
+        super().__init__(
+            f"no recorded auctions of shape {shape}; the corpus holds {listed}. "
+            "Prices are comparable only within a shape, so this refuses rather than "
+            "pricing off somebody else's game."
+        )
+        self.shape = shape
+        self.recorded = tuple(recorded)
 
 
 @dataclass(frozen=True)
