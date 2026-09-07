@@ -450,8 +450,10 @@ def cli() -> Callable[..., Result]:
 
     runner = CliRunner()
 
-    def run(*args: str, expect_exit: int = 0) -> Result:
+    def run(*args: str, expect_exit: int | None = 0) -> Result:
         result = runner.invoke(fantabot_cli, list(args))
+        if expect_exit is None:  # the caller reads the outcome another way
+            return result
         assert result.exit_code == expect_exit, (
             f"`fantabot {' '.join(args)}` exited {result.exit_code}, expected "
             f"{expect_exit}\n{result.output}\n{result.exception!r}"

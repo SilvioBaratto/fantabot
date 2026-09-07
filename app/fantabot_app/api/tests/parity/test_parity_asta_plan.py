@@ -26,63 +26,83 @@ the request catches it whatever the data.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from unittest.mock import patch
 
 import pytest
+from fantabot.domain.asta.state import RosterRules
 from fastapi.testclient import TestClient
+from typer.testing import Result
 
-from .conftest import SeededWorld, cli_session
+from .conftest import SeededWorld
 
 
 def _cli_plan(
-    world: SeededWorld, today: date, narrowed: frozenset[str] | None
+    world: SeededWorld,
+    today: date,
+    narrowed: frozenset[str] | None,
+    cli: Callable[..., Result],
 ) -> dict[str, object]:
-    """What `asta optimize` decides: who, at what price, at what cost, and worth what.
+    """What `asta optimize` decides — **by running `asta optimize`.**
 
-    **`objective` is in the comparison and is the point of it.** On this seed the two
-    sides buy the same twelve players — the budget is not binding, so both take the top of
-    the pool — and disagree about what that rosa is *worth*: 344.2 against 369.0. A test
-    comparing membership alone would report parity between a plan built on the sentiment
-    model and one built on its ablation control. The number an operator reads off the page
-    is the second one.
+    **This used to re-implement the command's body in this file**: `read_plan_inputs` +
+    `optimize_roster` with the CLI's defaults, copied. The tier exists to stop one decision
+    having two implementations, and it had two — the same failure it was built to catch, one
+    level up. A drift in `asta_optimize` (a changed default, a new option, a different
+    `RosterRules`) would have left this copy agreeing with the endpoint and both disagreeing
+    with the command an operator actually types.
 
-    Driven through the command's own inputs rather than by parsing its table. The seam is
-    `read_plan_inputs` + `optimize_roster`, which is exactly what `asta_optimize` calls —
-    and what 1.4 lifts into `build_plan(session, request)`, at which point this helper
-    becomes one call.
+    The command runs for real, in-process, through `CliRunner`. What is *read back* is the
+    `PlannedRoster` it built — captured by spying on `application.plan_request.build_plan`,
+    which 1.4 made the single door to a plan. The spy calls through, so the command's own
+    solve is the one measured; nothing is stubbed.
+
+    Parsing the Rich table instead would break the tier's own rule — *compare decision
+    content, never rendered text* — and a test that fails on a column width gets deleted.
+
+    **`objective` is in the comparison and is the point of it.** Before 1.5 the two sides
+    bought the same twelve players and disagreed about what the rosa was worth: 344.2 against
+    369.0. Membership alone would have reported parity between a plan built on the sentiment
+    model and one built on its ablation control.
     """
-    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
-    from fantabot.application.asta_planner import read_plan_inputs
-    from fantabot.domain.asta.optimizer import optimize_roster
-    from fantabot.domain.asta.sentiment import SentimentWeights
-    from fantabot.domain.asta.state import AstaState, RosterRules
-    from fantabot.interface.asta import sentiment_rows
+    from fantabot.application import plan_request as pr
 
-    with cli_session() as session:
-        rows = sentiment_rows(NewsSentimentSource(session), enabled=True, run="")
-        inputs = read_plan_inputs(
-            session,
-            season=world.season,
-            sentiment=rows,
-            as_of=today,
-            tilt_k=SentimentWeights().k,
-            callable_ids=narrowed,
-            listone=world.listone,
-            num_teams=world.num_teams,
-            num_credits=world.budget,
+    captured: list[object] = []
+    asked: list[object] = []
+    real = pr.build_plan
+
+    def spy(session: object, request: object) -> object:
+        # The request is recorded *before* the solve, the result after. `asta optimize` can
+        # raise `InfeasibleRoster` out of `build_plan` (2.1), and a spy that only appended
+        # on success reported "never reached build_plan" for a call that plainly did.
+        asked.append(request)
+        planned = real(session, request)
+        captured.append(planned)
+        return planned
+
+    with patch.object(pr, "build_plan", spy):
+        # `expect_exit=None`: the command may exit 1 today. It builds its plan on a bare
+        # `RosterRules()` — 30 men, whatever the lega declares — so against a lega with a
+        # smaller band it cannot complete a roster at all. That is 2.1's subject, and the
+        # spy has already captured the request by the time it fails.
+        cli(
+            "asta", "optimize",
+            "--season", world.season,
+            "--format", world.listone,
+            "--budget", str(world.budget),
+            "--lam", "0",
+            "--fallbacks", "0",
+            expect_exit=None,
         )
-    result = optimize_roster(
-        AstaState(total_budget=float(world.budget)),
-        inputs.pool,
-        value=inputs.value,
-        prices=inputs.prices,
-        teams=inputs.teams,
-        legality=inputs.legality,
-        rules=RosterRules(size=world.roster_size, min_goalkeepers=world.min_roles[0],
-                          min_movement=world.min_roles[1]),
-        lam=0.0,
-        n_fallbacks=0,
+
+    assert asked, "`asta optimize` never reached build_plan — the spy did not take"
+    assert captured, (
+        "`asta optimize` reached build_plan and got no plan out of it. Today that is 2.1: "
+        "the command plans on a bare RosterRules() — 30 men whatever the lega declares."
     )
+    planned = captured[-1]
+    result, inputs = planned.result, planned.world  # type: ignore[attr-defined]
     return {
         "players": {pid: float(inputs.prices.get(pid, 0.0)) for pid in result.optimal.player_ids},
         "total_cost": round(float(result.optimal.total_cost), 6),
@@ -91,15 +111,12 @@ def _cli_plan(
 
 
 def test_the_seeded_world_is_plannable_at_all(
-    seeded_db: SeededWorld,
-    frozen_today: date,
-    api: TestClient,
-    seeded_callable_ids: frozenset[str],
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
 ) -> None:
     """The guard that makes every other assertion in this file mean something.
 
-    Two empty results agree perfectly. `test_a_torn_seed_is_not_a_pass` is what this is:
-    if the endpoint says `found=false` the parity assertions below are comparing nothing.
+    Two empty results agree perfectly, so the endpoint has to actually plan before any
+    comparison below is worth reading.
     """
     body = api.get(
         "/api/v1/asta/plan",
@@ -108,13 +125,40 @@ def test_the_seeded_world_is_plannable_at_all(
 
     assert body["found"] is True, body
     assert body["players"], "the endpoint planned over an empty pool"
+    # The seed is a *choice*, not a forced buy: nineteen candidates for twelve slots. A
+    # fixture where the rosa is the pool makes both sides agree about a decision neither of
+    # them made, which is how the first version of this test passed.
+    assert len(body["players"]) < len(seeded_db.player_ids)
 
-    cli = _cli_plan(seeded_db, frozen_today, seeded_callable_ids)
-    assert cli["players"], "the CLI planned over an empty pool"
-    # The seed is a *choice*, not a forced buy: eighteen candidates for twelve slots. A
-    # fixture where the rosa is the pool makes both sides agree about a decision neither
-    # of them made, which is how the first version of this test passed.
-    assert len(cli["players"]) < len(seeded_db.player_ids)
+
+def test_the_command_plans_on_a_roster_size_the_lega_never_declared(
+    seeded_db: SeededWorld, frozen_today: date, cli: Callable[..., Result]
+) -> None:
+    """What `asta optimize` does **today**, pinned — because 1.14 is what made it visible.
+
+    The command takes no `--league` and builds a bare `RosterRules()`: thirty men, whatever
+    the lega declares. Against this seed's twelve-man band it cannot complete a roster and
+    exits 1. The page, reading the lega's own snapshot, plans twelve.
+
+    This is 2.1's subject. It is pinned as a *positive* test rather than left to the strict
+    xfail below, so the divergence is a recorded fact with its own failure message — an
+    xfail alone says only "these differ", not how.
+    """
+    result = cli(
+        "asta", "optimize",
+        "--season", seeded_db.season,
+        "--format", seeded_db.listone,
+        "--budget", str(seeded_db.budget),
+        "--lam", "0",
+        "--fallbacks", "0",
+        expect_exit=1,
+    )
+
+    assert "cannot complete the roster" in result.output, result.output
+    assert f"/{RosterRules().size} filled" in result.output, (
+        "the command no longer plans on the default 30-man roster — if 2.1 landed, delete "
+        "this test and the xfail below in the same commit"
+    )
 
 
 def test_both_sides_read_the_same_format_and_budget(
@@ -135,11 +179,20 @@ def test_both_sides_read_the_same_format_and_budget(
     assert body["roster_size"] == seeded_db.roster_size
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "2.1: `asta optimize` plans on a bare RosterRules() — 30 men whatever the lega "
+        "declares — while the page reads the lega's snapshotted band. Hidden until 1.14 "
+        "made this run the real command instead of a copy of it that was told the band."
+    ),
+)
 def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
     seeded_db: SeededWorld,
     frozen_today: date,
     api: TestClient,
     seeded_callable_ids: frozenset[str],
+    cli: Callable[..., Result],
 ) -> None:
     body = api.get(
         "/api/v1/asta/plan",
@@ -151,7 +204,7 @@ def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
         "objective": round(float(body["objective"]), 6),
     }
 
-    assert page == _cli_plan(seeded_db, frozen_today, seeded_callable_ids)
+    assert page == _cli_plan(seeded_db, frozen_today, seeded_callable_ids, cli)
 
 
 def _request_from(world: SeededWorld, today: date, narrowed: frozenset[str] | None) -> object:
