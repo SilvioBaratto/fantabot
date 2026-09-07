@@ -200,8 +200,15 @@ _POOL: tuple[tuple[str, str, str, int, str, str], ...] = (
     ("Por Due", "BOL", "Por", 10, "0.90", "0.40"),
     ("Dif Uno", "ATA", "Dc", 22, "0.90", "0.85"),
     ("Dif Due", "BOL", "Dc", 16, "0.90", "0.70"),
+    # Three interchangeable centre-backs, deliberately identical in every input the value
+    # model reads. At most two of the three fit the twelve, so whichever makes it has a
+    # perfect substitute on the bench — and `lot_ceiling` answers 0 for him, meaning "the
+    # rosa does not improve by buying him". That is the `WALK_AWAY_HOLD` case, and without
+    # a pair like this the seed cannot express it: `test_a_walk_away_of_zero_survives_
+    # serialisation_as_zero` fails loudly rather than passing on an absent case.
     ("Dif Tre", "CAG", "Dc", 12, "0.85", "0.60"),
-    ("Dif Qua", "ATA", "Dc", 9, "0.80", "0.40"),
+    ("Dif Qua", "ATA", "Dc", 12, "0.85", "0.60"),
+    ("Dif Cin", "BOL", "Dc", 12, "0.85", "0.60"),
     ("Ter Uno", "BOL", "Dd", 8, "0.90", "0.50"),
     ("Est Uno", "ATA", "E", 20, "0.90", "0.80"),
     ("Est Due", "CAG", "E", 14, "0.90", "0.65"),

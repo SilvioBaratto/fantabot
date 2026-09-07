@@ -117,6 +117,9 @@ TREE: dict[str, str] = {
     "test_plan_inputs.py": "application",
     "test_plan_request.py": "application",
     "test_corpus_shape.py": "application",
+    # The credit walk-away. Filed by its subject: it is the number a bid is made against,
+    # and `application/` is where the pair that computes it is assembled.
+    "test_walk_aways.py": "application",
     "test_asta_room_resolve.py": "application",
     "test_asta_room_memo.py": "application",
     "test_asta_room_tracker.py": "application",

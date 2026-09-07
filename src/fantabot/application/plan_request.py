@@ -41,13 +41,13 @@ from datetime import date
 from typing import TYPE_CHECKING, Protocol
 
 from fantabot.application.plan_inputs import PlanInputs
-from fantabot.domain.asta.state import RosterRules
+from fantabot.domain.asta.state import Roster, RosterRules
 from fantabot.domain.classic.state import ClassicRosterRules
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from fantabot.domain.asta.state import OptimizationResult
+    from fantabot.domain.asta.state import AstaState, OptimizationResult
     from fantabot.domain.shared.values import SentimentRow
 
 
@@ -175,6 +175,97 @@ def callable_ids(
     return frozenset(str(fid) for fid in bridge.values())
 
 
+#: Where a walk-away came from. Exact strings, on `domain/asta/state.rules_for_room`'s rule:
+#: *"a provenance an operator cannot grep for consistently is one they stop trusting"*.
+WALK_AWAY_RESOLVED = "re-solved: the most this rosa would pay before it is no better off"
+#: A ceiling of 0 is a real answer and the one a reader is most likely to misread, so it is
+#: labelled rather than left as a bare zero beside a real market price.
+WALK_AWAY_HOLD = "hold: a substitute exists — the rosa does not improve by buying him"
+#: `lot_reference` returns `None` when removing him leaves no completable roster at all.
+#: There is no alternative to weigh a premium against, so the cap *is* the answer.
+WALK_AWAY_AT_BUDGET = "essential: no completable rosa without him — the cap"
+WALK_AWAY_UNPRICED = "not priced: already owned"
+
+
+@dataclass(frozen=True, slots=True)
+class WalkAway:
+    """What we would pay for one player, **in credits**, and where the number came from."""
+
+    player_id: str
+    credits: int
+    provenance: str
+
+
+def walk_aways(
+    state: AstaState,
+    world: PlanInputs,
+    roster: Roster,
+    *,
+    rules: RosterRules | ClassicRosterRules,
+    lam: float,
+    alpha: float = 1.0,
+) -> dict[str, WalkAway]:
+    """A credit walk-away for every unowned member of `roster`. Pure but for the solves.
+
+    **Why not `reservations`.** Its walk-away is
+    `max(0.0, optimal.objective - objective without him)` clamped by the remaining budget —
+    an **objective difference**, a sum of `mu` minus `lam * Var`, never converted to credits.
+    `SPEC.md` §2.A calls it the unit error by name and `reservation.py:466-476` says the value
+    is *"advisory only, never the bid decision"*. Measured on the live 529-player pool:
+    Calhanoglu came back at 140.5 against a corpus price of 71.8, and five of thirty plan
+    members came back at exactly 0.0 — one of them beside a corpus price of 96.2, because
+    `base - alt` ties whenever a near-substitute exists (the baseline already contains him).
+
+    `lot_reference` + `lot_ceiling` is the pair that replaced it *inside the room* in Task
+    1.3: a real re-solve with the lot forced in, priced in credits, against the objective
+    **without** him. This is that pair applied to a whole plan instead of one lot, so a
+    surface that shows thirty rows shows the same number the bidder would act on.
+
+    **Cost, measured** on the pinned 548-player pool (empty roster, `lam=0`, 30 targets):
+    `reservations` 0.10 s, this 1.31 s — **12.7x**, and still inside the 2 s budget T1 set
+    for a synchronous panel read when added to the plan's own 0.10 s. It is one re-solve per
+    target for `lot_reference` plus one more for `lot_ceiling`; `reservations` shares a single
+    `build_index` across its solves and this cannot, which is most of the difference. A caller
+    that cannot afford it should price fewer targets and say so, never fall back to the
+    marginal.
+
+    `alpha` is `--ceiling-alpha`'s knob, applied exactly where the room applies it and for
+    the same reason. It does **not** apply to the essential case: there is no alternative to
+    weigh a premium against.
+    """
+    from fantabot.domain.asta.bid import max_bid
+    from fantabot.domain.asta.reservation import lot_ceiling, lot_reference
+
+    owned = set(state.owned)
+    hard_cap = max_bid(int(state.remaining_budget), rules.size - len(owned))
+    baseline = roster.objective
+    plan = tuple(roster.player_ids)
+
+    out: dict[str, WalkAway] = {}
+    for player_id in plan:
+        if player_id in owned:
+            out[player_id] = WalkAway(player_id, 0, WALK_AWAY_UNPRICED)
+            continue
+        reference = lot_reference(
+            state, world.pool, value=world.value, prices=world.prices, teams=world.teams,
+            legality=world.legality, rules=rules, lam=lam, baseline=baseline,
+            player_id=player_id, plan=plan,
+        )
+        if reference is None:
+            out[player_id] = WalkAway(player_id, hard_cap, WALK_AWAY_AT_BUDGET)
+            continue
+        raw = lot_ceiling(
+            state, world.pool, value=world.value, prices=world.prices, teams=world.teams,
+            legality=world.legality, rules=rules, lam=lam, baseline=reference,
+            player_id=player_id, hard_cap=hard_cap,
+        )
+        credits = min(hard_cap, int(raw * alpha))
+        out[player_id] = WalkAway(
+            player_id, credits, WALK_AWAY_RESOLVED if credits > 0 else WALK_AWAY_HOLD
+        )
+    return out
+
+
 def resolve_sentiment(
     source: SentimentSource, *, enabled: bool, run: date | None
 ) -> Mapping[str, SentimentRow] | None:
@@ -249,12 +340,18 @@ def build_plan(session: Session, request: PlanRequest) -> PlannedRoster:
 __all__ = [
     "DEFAULT_NUM_CREDITS",
     "DEFAULT_NUM_TEAMS",
+    "WALK_AWAY_AT_BUDGET",
+    "WALK_AWAY_HOLD",
+    "WALK_AWAY_RESOLVED",
+    "WALK_AWAY_UNPRICED",
     "EmptyPool",
     "NoSentimentRows",
     "PlanRequest",
     "PlannedRoster",
     "SentimentSource",
+    "WalkAway",
     "build_plan",
     "callable_ids",
     "resolve_sentiment",
+    "walk_aways",
 ]

@@ -30,45 +30,31 @@ from pathlib import Path
 from typing import Any
 
 from fantabot.adapters.files.room_journal import read_rows
+from fantabot.application.plan_request import WALK_AWAY_UNPRICED
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter()
 
 
-#: How many plan members get a walk-away. `None` prices every unowned one.
+#: How many plan members get a walk-away. **An explicit bound, never `None`.**
 #:
-#: **Chosen by measurement, and the measurement contradicted the plan.** T30 recorded the
-#: cost as a reason to cap this: `reservations` is one extra roster solve per target, and
-#: 325,538 Python calls at five against 1,508,707 at thirty is a 4.6x difference —
-#: `tests/domain/asta/test_asta_cycle_cost.py` pins a 500,000 ceiling on the room's cycle
-#: for exactly that reason. Measured end to end on the live 529-player pool
-#: (2026-09-07, `lam=0`, empty roster): **0.02 s at five, 0.03 s at ten, 0.07 s for all
-#: thirty.** The call count is real and the wall clock is not the problem.
+#: `tasks/plan.md:357` says "choose the target count deliberately and say so in the docstring
+#: **rather than defaulting to `None`**", and an earlier version of this file set exactly the
+#: sentinel it forbade. 40 sits above the largest roster the platform has declared (32, per
+#: the 2026-09-02 settings drift), so in practice the whole plan is priced — but it is a
+#: stated ceiling, so a pool that grew past it would truncate *visibly*.
 #:
-#: So the cap is `None`. A page is read top-down the night before, and twenty unpriced rows
-#: are twenty the operator prices by hand — the number they bid against is the walk-away,
-#: which the requirements doc calls *"la funzione centrale"*.
-#:
-#: The room's ceiling is untouched and stays where it is. That test measures a *cycle*, at
-#: a 2 s poll for a whole evening; this is one request per lega selection. "The page is not
-#: a room" is T30's own framing, and once measured it cuts this way.
-PAGE_WALK_AWAY_TARGETS: int | None = None
+#: **Cost, measured** on the pinned 548-player pool (empty roster, `lam=0`, 30 targets):
+#: `reservations` 0.10 s against `lot_reference`+`lot_ceiling` at **1.31 s** — 12.7x, for the
+#: number that is actually in credits. The page is read once per lega selection; a room is a
+#: different budget and prices one lot per cycle. If a larger pool makes 1.3 s too much,
+#: lower this — truncating is honest, because a row that was not priced says so.
+PAGE_WALK_AWAY_TARGETS = 40
 
-#: Where a walk-away came from — beside the number, never behind a hover.
-#:
-#: `domain/asta/state.rules_for_room` is the precedent and its docstring is the argument:
-#: *"a provenance an operator cannot grep for consistently is one they stop trusting"*. So
-#: these are constants with exact strings, not prose composed per call site.
-WALK_AWAY_MARGINAL = "marginal: objective without him, re-solved"
-#: `reservations` prices only *unowned* plan members — a player already bought needs no
-#: walk-away, and that is the only reason a row carries none now that the cap is `None`.
-WALK_AWAY_UNPRICED = "not priced: already owned"
-#: `reservations` caps a walk-away at the remaining budget and gives that whole figure to a
-#: target whose removal leaves no completable roster. The two are not distinguishable from
-#: the returned number, so the label says both rather than picking one and being wrong
-#: about it — which is the sort of confident provenance `rules_for_room` warns against.
-WALK_AWAY_AT_BUDGET = "the whole remaining budget: no rosa without him, or the margin exceeds it"
+#: Only reachable if a plan ever exceeded that bound. Its own string, so a truncated row
+#: cannot be read as an owned one.
+WALK_AWAY_NOT_SHOWN = f"not shown: beyond the top {PAGE_WALK_AWAY_TARGETS} by ceiling"
 
 
 class PlanPlayer(BaseModel):
@@ -79,15 +65,17 @@ class PlanPlayer(BaseModel):
     #: as long as this page has existed it was the only number on it, under the heading
     #: "Price", which reads as advice.
     price: float
-    #: The *prezzo di rinuncia* — the most this rosa would pay before walking away. The
-    #: requirements doc calls it *"la funzione centrale"*, and `lot_ceiling`,
-    #: `lot_reference` and `reservations` had **zero call sites anywhere under `app/`**.
+    #: The *prezzo di rinuncia*, **in credits** — `lot_reference` + `lot_ceiling`, the pair
+    #: the live room prices a lot with (Task 1.3).
     #:
-    #: `None` means not priced (see `PAGE_WALK_AWAY_TARGETS`), never zero: a walk-away of
-    #: zero is a real answer meaning "a substitute exists at this price", and rendering the
-    #: two the same is defect B2 restated — 4,501 of 5,192 journal rows carried a null
-    #: walk-away and it read as a decision.
-    walk_away: float | None = None
+    #: It was `reservations`' marginal until 1.12: an **objective** difference clamped by the
+    #: budget and never converted to credits, which `SPEC.md` §2.A calls the unit error by
+    #: name. Measured on the live pool — Calhanoglu 140.5 against a corpus price of 71.8, and
+    #: five of thirty plan members at exactly 0.0, one beside a corpus price of 96.2.
+    #:
+    #: `None` means not priced, never zero: a zero here is a real answer ("a substitute
+    #: exists") carrying `WALK_AWAY_HOLD`. Rendering the two alike is defect B2 restated.
+    walk_away: int | None = None
     walk_away_provenance: str = WALK_AWAY_UNPRICED
 
 
@@ -150,13 +138,6 @@ def build_roster_rules(snapshot: Any) -> Any:
     )
 
 
-def _provenance(walk_away: float | None, at_budget: float) -> str:
-    """Which of the three labels this number carries. Beside it, never behind a hover."""
-    if walk_away is None:
-        return WALK_AWAY_UNPRICED
-    return WALK_AWAY_AT_BUDGET if walk_away >= at_budget else WALK_AWAY_MARGINAL
-
-
 def _today() -> date:
     """The one calendar read on the app's asta path. The parity tier patches exactly this.
 
@@ -202,11 +183,11 @@ def asta_plan(
         PlanRequest,
         build_plan,
         callable_ids,
+        walk_aways,
     )
     from fantabot.domain.asta.optimizer import InfeasibleRoster
     from fantabot.domain.asta.prices import NoCorpus
     from fantabot.domain.asta.report import parse_ids
-    from fantabot.domain.asta.reservation import reservations
     from fantabot.domain.asta.sentiment import SentimentWeights
     from fantabot.domain.asta.state import AstaState
     from fantabot.domain.classic.state import ClassicRosterRules
@@ -267,27 +248,24 @@ def asta_plan(
             )
             planned = build_plan(session, request)
 
-            # The walk-away, per target: a second solve over the same world — see
-            # `PAGE_WALK_AWAY_TARGETS` for why ten and not all of them.
+            # The walk-away, per target — two re-solves each. See `walk_aways` for why the
+            # marginal it replaces was the wrong number in the wrong unit.
             #
-            # Inside the `try`, deliberately. The rule this route now keeps is *fail closed
-            # on a decision*, and `reservations` solving the world that `build_plan` just
-            # solved can only fail for a reason neither of them anticipated. Catching it
-            # here to render the plan without the column would report every player as
-            # "beyond the top ten", which is a false statement rather than a missing one.
+            # Inside the `try`, deliberately. The rule this route keeps is *fail closed on a
+            # decision*, and a re-solve over the world `build_plan` just solved can only fail
+            # for a reason neither anticipated. Catching it here to render the plan without
+            # the column would report every player as unpriced — a false statement rather
+            # than a missing one, and 1.7's guard catches the attempt.
             state = AstaState(owned=tuple(sorted(request.owned)), total_budget=budget)
-            _, walkaways = reservations(
-                state,
-                planned.world.pool,
-                value=planned.world.value,
-                prices=planned.world.prices,
-                teams=planned.world.teams,
-                legality=planned.world.legality,
-                rules=rules,
-                lam=lam,
-                n_targets=PAGE_WALK_AWAY_TARGETS,
-            )
-            at_budget = float(state.remaining_budget)
+            priced = walk_aways(state, planned.world, planned.result.optimal,
+                                rules=rules, lam=lam)
+            if len(priced) > PAGE_WALK_AWAY_TARGETS:
+                # Stated, not silent: a bound that truncates without saying so reads as
+                # "we priced everything".
+                keep = set(
+                    sorted(priced, key=lambda p: -priced[p].credits)[:PAGE_WALK_AWAY_TARGETS]
+                )
+                priced = {p: w for p, w in priced.items() if p in keep}
     except NoSentimentRows as exc:
         return AstaPlan(found=False, outcome="no_sentiment", reason=str(exc))
     except NoCorpus as exc:
@@ -321,8 +299,14 @@ def asta_plan(
                 player_id=pid,
                 nome=world.names.get(pid, pid),
                 price=float(world.prices.get(pid, 0.0)),
-                walk_away=None if pid not in walkaways else float(walkaways[pid]),
-                walk_away_provenance=_provenance(walkaways.get(pid), at_budget),
+                walk_away=(
+                    None
+                    if pid not in priced or priced[pid].provenance == WALK_AWAY_UNPRICED
+                    else priced[pid].credits
+                ),
+                walk_away_provenance=(
+                    priced[pid].provenance if pid in priced else WALK_AWAY_NOT_SHOWN
+                ),
             )
             for pid in planned.result.optimal.player_ids
         ],

@@ -290,14 +290,19 @@ def test_sentiment_on_with_no_feed_says_so_rather_than_showing_a_blank(
 def test_the_page_carries_a_walk_away_beside_the_corpus_price(
     seeded_db: SeededWorld, frozen_today: date, api: TestClient
 ) -> None:
-    """Two numbers, two labels. The page had one — the observed mean clearing price —
-    under the heading "Price", which reads as advice about what to pay.
+    """Two numbers, two labels, **both in credits**.
 
-    The number an operator actually bids against is the *prezzo di rinuncia*, and
-    `lot_ceiling`, `lot_reference` and `reservations` had zero call sites anywhere under
-    `app/` before 1.8.
+    The page had one — the observed mean clearing price — under the heading "Price", which
+    reads as advice about what to pay. Then it had two, and the second was `reservations`'
+    marginal: an *objective* difference clamped by the budget, never converted to credits
+    (`SPEC.md` §2.A's unit error). It is `lot_reference` + `lot_ceiling` now, the pair the
+    live room prices a lot with.
     """
-    from fantabot_app.api.v1.endpoints.asta import WALK_AWAY_AT_BUDGET, WALK_AWAY_MARGINAL
+    from fantabot.application.plan_request import (
+        WALK_AWAY_AT_BUDGET,
+        WALK_AWAY_HOLD,
+        WALK_AWAY_RESOLVED,
+    )
 
     body = api.get(
         "/api/v1/asta/plan",
@@ -309,32 +314,46 @@ def test_the_page_carries_a_walk_away_beside_the_corpus_price(
     assert priced, "no row carried a walk-away"
 
     for row in priced:
-        assert row["walk_away_provenance"] in {WALK_AWAY_MARGINAL, WALK_AWAY_AT_BUDGET}
-        # Two distinct facts. The corpus price is what the market paid; the walk-away is
-        # what this rosa would pay. A page showing one of them under both labels would be
-        # the defect restated.
-        assert "price" in row and "walk_away" in row
+        assert row["walk_away_provenance"] in {
+            WALK_AWAY_RESOLVED,
+            WALK_AWAY_HOLD,
+            WALK_AWAY_AT_BUDGET,
+        }
+        # Credits, and bounded by what the band can still spend on one lot. The marginal
+        # this replaced was unbounded above by anything meaningful — 140.5 against a corpus
+        # price of 71.8 on the live pool.
+        assert isinstance(row["walk_away"], int)
+        assert 0 <= row["walk_away"] <= seeded_db.budget
 
 
-def test_a_walk_away_of_zero_is_not_rendered_as_absent(
+def test_a_walk_away_of_zero_survives_serialisation_as_zero(
     seeded_db: SeededWorld, frozen_today: date, api: TestClient
 ) -> None:
-    """Defect B2's shape: 4,501 of 5,192 journal rows carried a null walk-away and it read
-    as a decision. Zero means "a substitute exists at this price" and is a real answer;
-    `None` means nobody priced it. They must not be the same value."""
+    """Defect B2's shape: 0 and `null` must stay different values all the way to the JSON.
+
+    **The first version of this test could not fail.** It built `zeros` and `absent` from the
+    same rows by mutually exclusive predicates and asserted the intersection was empty — true
+    by construction. Simulated with the exact defect it named (`walk_away or None`), it still
+    passed.
+
+    This one names a specific row and asserts what came back for it, so a collapse anywhere
+    in the chain — endpoint, Pydantic, JSON — turns it red.
+    """
+    from fantabot.application.plan_request import WALK_AWAY_HOLD
+
     body = api.get(
         "/api/v1/asta/plan",
         params={"league_id": seeded_db.league_id, "season": seeded_db.season},
     ).json()
+    zeros = [row for row in body["players"] if row["walk_away_provenance"] == WALK_AWAY_HOLD]
 
-    zeros = [row for row in body["players"] if row["walk_away"] == 0.0]
-    absent = [row for row in body["players"] if row["walk_away"] is None]
-
-    # Not an assertion that both exist on this seed — an assertion that the two are
-    # distinguishable at all, which a `walk_away or None` anywhere in the chain would break.
-    assert not (set(map(id, zeros)) & set(map(id, absent)))
-    for row in absent:
-        assert row["walk_away_provenance"].startswith("not priced")
+    assert zeros, (
+        "the seed no longer produces a held (zero-ceiling) plan member, so this test guards "
+        "nothing — re-measure and re-seed before editing it"
+    )
+    for row in zeros:
+        assert row["walk_away"] == 0
+        assert row["walk_away"] is not None, "a zero collapsed to null between here and JSON"
 
 
 def test_an_owned_player_needs_no_walk_away(
@@ -353,6 +372,8 @@ def test_an_owned_player_needs_no_walk_away(
         },
     ).json()
 
+    from fantabot.application.plan_request import WALK_AWAY_UNPRICED
+
     (row,) = [r for r in body["players"] if r["player_id"] == keeper]
     assert row["walk_away"] is None
-    assert row["walk_away_provenance"] == "not priced: already owned"
+    assert row["walk_away_provenance"] == WALK_AWAY_UNPRICED

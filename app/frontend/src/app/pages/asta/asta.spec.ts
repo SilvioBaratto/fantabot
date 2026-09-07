@@ -70,7 +70,7 @@ describe('AstaComponent', () => {
           nome: 'Svilar',
           price: 20,
           walk_away: 34,
-          walk_away_provenance: 'marginal: objective without him, re-solved',
+          walk_away_provenance: 're-solved: the most this rosa would pay before it is no better off',
         },
       ],
       fallbacks: [],
@@ -509,7 +509,7 @@ describe('AstaComponent', () => {
     expect(text).toContain('Corpus price');
     expect(text).toContain('Walk-away');
     expect(text).toContain('34');
-    expect(text).toContain('marginal');
+    expect(text).toContain('re-solved');
   });
 
   it('renders an unpriced walk-away as absent and never as zero', async () => {

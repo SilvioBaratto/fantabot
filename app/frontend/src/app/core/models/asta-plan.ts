@@ -8,13 +8,16 @@ export interface PlanPlayer {
    */
   price: number;
   /**
-   * The *prezzo di rinuncia* — the most this rosa would pay before walking away. The
-   * requirements doc calls it "la funzione centrale", and it was not in the app at all.
+   * The *prezzo di rinuncia*, **in credits** — `lot_reference` + `lot_ceiling`, the pair the
+   * live room prices a lot with.
    *
-   * `null` means not priced (an owned player), never zero: a walk-away of zero is a real
-   * answer meaning a substitute exists at this price. Rendering the two the same is defect
-   * B2 restated — 4,501 of 5,192 journal rows carried a null walk-away and it read as a
-   * decision.
+   * It was `reservations`' marginal until 1.12: an *objective* difference clamped by the
+   * budget and never converted to credits. On the live pool that put 140.5 next to a corpus
+   * price of 71.8, and 0.0 next to 96.2 for five of thirty plan members.
+   *
+   * `null` means not priced (an owned player), never zero: a zero is a real answer — "a
+   * substitute exists, the rosa does not improve by buying him" — and carries its own
+   * provenance. Rendering the two alike is defect B2 restated.
    */
   walk_away: number | null;
   /** Where that number came from. Beside it, never behind a hover. */
