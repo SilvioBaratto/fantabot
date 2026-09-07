@@ -24,6 +24,7 @@ import re
 from _paths import REPO
 
 APP_CI = REPO / ".github" / "workflows" / "app-ci.yml"
+CI = REPO / ".github" / "workflows" / "ci.yml"
 
 #: Every module the app spawns or supervises whose behaviour differs by operating system.
 #: `app-ci` is the only place any of them meets Windows.
@@ -93,3 +94,39 @@ def test_it_cancels_a_superseded_run() -> None:
 
     assert "concurrency:" in source
     assert "cancel-in-progress: true" in source
+
+
+def test_the_fantabot_workflow_scopes_every_pytest_to_tests() -> None:
+    """The same defect `scripts/gate.sh` had, in its other home — and it was live.
+
+    `ci.yml` ran `pytest -q` and `pytest -q -m db` with no path. The root
+    `pyproject.toml` sets no `testpaths` (deliberately: the `integration`/`e2e` marker
+    declarations there exist *because* a root run collects `app/`), so both tiers
+    collected `app/fantabot_app/api/tests` and `app/tests/test_server.py`, which import
+    fastapi. The `fantabot` environment does not have it — the app has its own venv — so
+    both jobs errored at collection with zero tests run, and had done for as long as the
+    app has had tests.
+
+    Scoped here rather than solved with `testpaths` for the same reason as in the gate:
+    `testpaths` would silence the marker declarations that make a root run warning-free.
+    The app's own suite is `cd app && uv run pytest`, and `app-ci` is where it runs.
+    """
+    # Only `run:` lines execute. A step's `name:` is prose and routinely says "pytest" —
+    # the same trap the gate's own guard fell into, where the label "unit tests" matched
+    # the scan for a path and made an unscoped invocation read as scoped.
+    commands = [
+        stripped.removeprefix("run:").strip()
+        for line in CI.read_text(encoding="utf-8").splitlines()
+        if (stripped := line.strip()).startswith("run:")
+    ]
+    offenders = [
+        command
+        for command in commands
+        if re.search(r"\bpytest\b", command)
+        and not re.search(r"(^|\s)tests(/\S*)?(\s|$)", command)
+    ]
+
+    assert offenders == [], (
+        "an unscoped pytest in ci.yml collects app/, where fastapi is not installed: "
+        f"{offenders}"
+    )
