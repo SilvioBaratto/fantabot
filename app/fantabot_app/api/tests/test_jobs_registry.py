@@ -59,6 +59,24 @@ class TestListing:
 
         assert [e.id for e in reg.list()] == [second, first]
 
+    def test_the_newest_is_still_first_when_the_clock_cannot_tell_them_apart(self) -> None:
+        """Windows's `time.monotonic()` has ~15.6 ms resolution, and two jobs started in
+        one tick record the *same* `started_monotonic`. Sorting on that alone is a stable
+        sort over equal keys, which preserves insertion order -- so the tied group came
+        back oldest-first and the whole `app-ci` Windows job failed on this assertion.
+
+        The frozen clock here is that coarse clock, made portable and total: every job in
+        this registry ties. It is not a hypothetical about Windows, it is the same
+        listing an operator gets from two quick clicks on any OS whose clock is coarse
+        enough.
+        """
+        reg = JobRegistry(clock=lambda: 1_000.0)
+        first = reg.start(lambda r: None, kind="one", thread_factory=_inline)
+        second = reg.start(lambda r: None, kind="two", thread_factory=_inline)
+        third = reg.start(lambda r: None, kind="three", thread_factory=_inline)
+
+        assert [e.id for e in reg.list()] == [third, second, first]
+
 
 class TestSince:
     def test_it_returns_only_what_is_new_and_where_to_resume(self) -> None:

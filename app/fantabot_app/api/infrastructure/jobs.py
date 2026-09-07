@@ -75,6 +75,12 @@ class JobState:
     #: system clock does, and the UI cannot render a monotonic number.
     started_monotonic: float = 0.0
     started_at: str = ""
+    #: Start order, and the tiebreak `started_monotonic` cannot be. Windows's
+    #: `time.monotonic()` has ~15.6 ms resolution, so two jobs started in one tick record
+    #: the same float; sorting on that alone is a stable sort over equal keys, which
+    #: preserves *insertion* order and hands the listing back oldest-first. Assigned under
+    #: the same lock that inserts, so it is the real order and not an approximation of it.
+    seq: int = 0
     #: How this job is asked to stop, when it can be. `None` is the honest answer for every
     #: job today: they are daemon threads, and a thread cannot be interrupted from outside.
     #: The endpoint answers 409 rather than pretending — see `JobRegistry.stop`.
@@ -154,6 +160,7 @@ class JobRegistry:
         self._max_finished = max_finished
         self._max_age_s = max_age_s
         self._clock = clock
+        self._seq = 0
         #: Called with a job id as it is evicted. `_login_gates` registers here: it holds a
         #: `threading.Event` per login job in a module beside this one, and evicting the job
         #: while leaving the gate is how the leak comes back wearing a different name.
@@ -217,6 +224,8 @@ class JobRegistry:
             started_at=_now_iso(),
         )
         with self._lock:
+            self._seq += 1
+            state.seq = self._seq
             self._jobs[job_id] = state
         self._sweep()
 
@@ -246,7 +255,7 @@ class JobRegistry:
         """
         with self._lock:
             states = sorted(
-                self._jobs.values(), key=lambda s: s.started_monotonic, reverse=True
+                self._jobs.values(), key=lambda s: (s.started_monotonic, s.seq), reverse=True
             )
             return [
                 JobSummary(

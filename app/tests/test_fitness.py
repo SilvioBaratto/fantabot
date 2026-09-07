@@ -160,11 +160,17 @@ def test_the_news_fetch_trigger_has_exactly_one_home() -> None:
     if source is None:  # installed from the wheel — sources are not shipped
         return
 
+    # ``as_posix()``, not ``str()``: the expected value below is a POSIX literal, and on
+    # Windows ``str(Path)`` is backslash-separated -- so this assertion failed the whole
+    # ``app-ci`` Windows job on nothing but the separator
+    # (``['app\\pages\\news\\news.ts'] == ['app/pages/news/news.ts']``). It also
+    # retires the ``.replace("\\", "/")`` that the ``/api/`` filter was carrying to work
+    # around the same thing one line down.
     callers = sorted(
-        str(ts.relative_to(source))
+        ts.relative_to(source).as_posix()
         for ts in source.rglob("*.ts")
         if ".spec." not in ts.name
-        and "/api/" not in str(ts.relative_to(source)).replace("\\", "/")
+        and "/api/" not in ts.relative_to(source).as_posix()
         and "runNewsFetch(" in ts.read_text(encoding="utf-8")
     )
 
