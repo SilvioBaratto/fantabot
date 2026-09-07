@@ -23,6 +23,7 @@ tier's database has no corpus, and is a real comparison on a machine that has on
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -94,35 +95,109 @@ def test_top_n_reaches_the_fit_rather_than_being_dropped(
 
 
 def test_the_get_writes_nothing(seeded_db: SeededWorld, api: TestClient) -> None:
-    """Proven against a read-only session, not by reading the code.
+    """Proven by putting the endpoint's **own** session inside a read-only transaction.
 
-    `pricing.run` upserts `target_price`, and the GET called it — so **opening the Prices
-    page mutated the database**. Not a slow GET: a page whose refresh is an action, on a
-    route a browser is free to prefetch, retry, or render twice. The upsert is idempotent,
-    which is exactly why nobody noticed.
+    `pricing.run` upserts `target_price`, and the GET called it — so opening the Prices page
+    mutated the database. Not a slow GET: a page whose refresh is an action, on a route a
+    browser is free to prefetch, retry, or render twice. The upsert is idempotent, which is
+    exactly why nobody noticed.
 
-    Postgres enforces the guarantee here rather than a mock: the session runs inside a
-    `READ ONLY` transaction, so a write raises rather than being asserted about.
+    **The first version of this test proved nothing.** It opened a `READ ONLY` transaction on
+    a session of its own, then called the endpoint — which opens its own session through
+    `database_manager`. The GET never ran inside the read-only transaction and the test would
+    have passed had it written. Postgres has to be the one refusing, and it has to be
+    refusing *the session the endpoint actually uses*, so the manager itself is wrapped here.
     """
+    from contextlib import contextmanager
+
     from fantabot.adapters.persistence import database_manager
     from sqlalchemy import text
 
-    with database_manager.get_session() as session:
-        session.execute(text("SET TRANSACTION READ ONLY"))
-        # The guard on the guard: prove the transaction really refuses a write, or this
-        # test passes on a session that would have accepted one.
-        with pytest.raises(Exception, match="(?i)read.only"):
+    real = database_manager.get_session
+    opened: list[str] = []
+
+    @contextmanager
+    def read_only():  # type: ignore[no-untyped-def]
+        with real() as session:
+            session.execute(text("SET TRANSACTION READ ONLY"))
+            opened.append("yes")
+            yield session
+
+    # The guard on the guard: prove the wrapper really refuses a write, or this test passes
+    # on a session that would have accepted one.
+    with read_only() as probe, pytest.raises(Exception, match="(?i)read.only"):
+        probe.execute(
+            text("INSERT INTO teams (stagione, codice, nome_completo) VALUES "
+                 "('1999/00', 'ZZZ', 'proof')")
+        )
+    opened.clear()
+
+    with patch.object(database_manager, "get_session", read_only):
+        body = api.get("/api/v1/asta/target-prices", params={"system": "classic"}).json()
+
+    assert opened, "the endpoint never opened a session — the patch did not take"
+    # Either a report or a named refusal. Both are fine; a write would have raised inside
+    # the endpoint and come back as `unreachable` with a read-only error in the reason.
+    assert body["outcome"] in {"priced", "no_data"}, body
+    if body["outcome"] == "priced":
+        assert body["stored"] == 0, "the GET reported storing rows"
+
+
+def test_the_read_only_wrapper_would_catch_a_write(
+    seeded_db: SeededWorld, api: TestClient
+) -> None:
+    """The negative control for the test above. Without it, a wrapper that silently stopped
+    applying would look exactly like a GET that does not write.
+
+    It substitutes a `fit` that writes through `database_manager` — which is structurally
+    what `pricing.run` does — rather than calling `run` itself, so the control does not need
+    a training corpus the tier database has none of. A control that skips is not a control.
+    """
+    from contextlib import contextmanager
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.application import pricing
+    from sqlalchemy import text
+
+    real = database_manager.get_session
+
+    @contextmanager
+    def read_only():  # type: ignore[no-untyped-def]
+        with real() as session:
+            session.execute(text("SET TRANSACTION READ ONLY"))
+            yield session
+
+    def writes(**_kwargs: object) -> object:
+        with database_manager.get_session() as session:
             session.execute(
                 text("INSERT INTO teams (stagione, codice, nome_completo) VALUES "
                      "('1999/00', 'ZZZ', 'proof')")
             )
+        # Deliberately does NOT name the phrase the assertion greps for: an earlier version
+        # said "inside a read-only transaction" here, the endpoint rendered *this* message
+        # into `reason`, and the test matched its own sentinel. It passed with the wrapper
+        # disabled.
+        raise AssertionError("SENTINEL: the insert was accepted")
 
-    body = api.get("/api/v1/asta/target-prices", params={"system": "classic"}).json()
+    with (
+        patch.object(database_manager, "get_session", read_only),
+        patch.object(pricing, "fit", writes),
+    ):
+        body = api.get("/api/v1/asta/target-prices", params={"system": "classic"}).json()
 
-    # Either a report or a named refusal — both are fine, and neither may have written.
-    assert body["outcome"] in {"priced", "no_data"}, body
-    if body["outcome"] == "priced":
-        assert body["stored"] == 0, "the GET reported storing rows"
+    assert body["outcome"] == "unreachable", (
+        "a write inside the endpoint's own session was not refused — the wrapper is not "
+        f"reaching it, so the test above proves nothing. Got: {body}"
+    )
+    # Postgres's own words, not ours. `because()` renders `InternalError:
+    # (psycopg2.errors.ReadOnlySqlTransaction) cannot execute INSERT in a read-only
+    # transaction`; the sentinel above cannot produce that phrase.
+    reason = (body["reason"] or "").lower()
+    assert "read-only transaction" in reason, body
+    assert "sentinel" not in reason, (
+        "the insert was accepted — the wrapper is not reaching the endpoint's session, so "
+        "the test above proves nothing"
+    )
 
 
 def test_the_post_is_where_the_write_lives(seeded_db: SeededWorld, api: TestClient) -> None:
