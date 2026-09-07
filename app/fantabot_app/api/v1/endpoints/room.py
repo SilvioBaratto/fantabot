@@ -9,7 +9,7 @@ buildable at all — reading a room's configuration is not the same act as biddi
 Today the credential is captured by the Accounts page and read by nothing in the app, so
 "is FantaLab connected?" has had no answer beyond "a row exists".
 
-**This one does not degrade open.** `todo/TODO.md` §3.4 records the cost of
+**This one does not degrade open.** T31 (`tasks/BACKLOG.md`) records the cost of
 `except Exception -> found=False`: a database outage, a missing season, an infeasible
 roster and a wrong `--format` all rendered as "No plan yet". Degrade-open is right for a
 status read and wrong for the one call that tells the operator whether they can bid
@@ -40,8 +40,7 @@ router = APIRouter()
 #: are both "the credential is not usable", and both carry a remedy the operator has to
 #: perform by hand. Found by the first live probe, which met a `TokenUndecryptable` — the
 #: FantaLab row in the bundled database was written under key `aa695c77` while `.env`
-#: now holds `ef341176` (`todo/TODO.md` §1.2 excluded credentials from that migration on
-#: purpose). Calling that "no session" would have sent the operator to reconnect without
+#: now holds `ef341176` (the two-databases migration excluded credentials on purpose). Calling that "no session" would have sent the operator to reconnect without
 #: telling them their key had changed under it.
 OUTCOMES = ("resolved", "refused", "bad_link", "no_credential", "unreachable")
 

@@ -1,6 +1,6 @@
 /**
  * The five answers `GET /asta/room` can give. Five names, not one flag:
- * `todo/TODO.md` §3.4 records what a single label over four different failures costs,
+ * T31 (`tasks/BACKLOG.md`) records what a single label over four different failures costs,
  * and only one of these is fixed by going back to the room.
  */
 export type RoomOutcome =

@@ -1,6 +1,7 @@
 """The corpus panel's endpoint — what is stored, per format.
 
-The instrument every later collection increment is graded on (`todo/TODO.md` §2, which
+The instrument every later collection increment is graded on (T15, closed 2026-09-05 —
+the archived spec at `tasks/archive/fantalab-in-the-app-spec.md`, which
 says to build it first, and §1.1 for what an unfalsifiable "collection worked" cost).
 Read-only, and it degrades open like `/db/health`: this is the endpoint that reports a
 down database, so it must not be the endpoint that 500s when the database is down.

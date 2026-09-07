@@ -2,7 +2,8 @@
 
 The panel this feeds is the instrument every later collection run is graded on, so the
 thing worth pinning is not that it returns numbers — it is that its headline number is
-*the same* number a plan is built on. `todo/TODO.md` §1.1 records what a plausible-looking
+*the same* number a plan is built on. The Classic-corpus loss records what a
+plausible-looking
 count would have cost: the Classic corpus read as 2.1 million events and zero sales for
 over a week, and no screen could tell "nothing collected" from "collected and never
 joined".

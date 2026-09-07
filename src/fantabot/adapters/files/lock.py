@@ -80,7 +80,8 @@ def _lock_windows(handle: IO[bytes], path: Path, role: str) -> None:  # pragma: 
     **Unverified on this machine** — written from the documented contract, not observed.
     The app targets Windows and the property that makes this worth having (the OS releases
     the lock however the holder dies) holds there too, so a POSIX-only lock would have been
-    a POSIX-only guarantee. `todo/TODO.md` §4 records it as untested.
+    a POSIX-only guarantee. Untested until T42c, whose path filter finally makes a change
+    to this file trigger the one Windows runner that exercises it.
 
     A byte is written first because `msvcrt.locking` locks a *range*, and a range of an
     empty file is not lockable — unlike `flock`, which locks the open file description.

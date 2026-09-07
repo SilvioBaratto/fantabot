@@ -2,7 +2,8 @@
 
 `.env` sent the CLI to `localhost:54321` while `fantabot-app` provisioned its own server
 at `~/.fantabot/pgdata` — the split that let a week of Classic auction collection read as
-lost (`todo/TODO.md` §1). The default now derives from the bundled data directory, so a
+lost (root `CLAUDE.md`, "One database, and it is the app's"). The default now derives
+from the bundled data directory, so a
 `fantabot` command run from any directory reaches the database the app writes to.
 
 Two things the derivation must get right, both of which a hardcoded string cannot:

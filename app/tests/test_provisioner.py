@@ -99,7 +99,8 @@ def test_install_chromium_invokes_playwright(tmp_path) -> None:
 
 # --- an exported FANTABOT_DATABASE_URL wins (T2.1) ----------------------------------
 #
-# The split that made `todo/TODO.md` §1.1 possible was this class overwriting the
+# The split that made a week of Classic auction collection read as lost (root
+# `CLAUDE.md`, "One database, and it is the app's") was this class overwriting the
 # variable at launch. An export is an explicit instruction from the operator; a `.env`
 # file found by whatever the working directory happens to be is not, and is deliberately
 # NOT read here.

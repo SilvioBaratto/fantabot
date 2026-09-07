@@ -30,7 +30,8 @@ def harvest_dir() -> Path:
     The app's working directory is wherever its launcher was started, so a collector
     started from the app and a `harvest load` typed in a terminal addressed two different
     landing zones — the same split that made `bundled_database_url` derive from
-    `bundled_pgdata()` rather than read `.env` (`todo/TODO.md` §1).
+    `bundled_pgdata()` rather than read `.env` (the two-databases incident; root
+    `CLAUDE.md`, "One database, and it is the app's").
 
     **A fresh `Settings` per call, not the module singleton**, for the reason
     `bundled_pgdata` is a function: the singleton binds `Path.home()` at import, and both
@@ -48,7 +49,8 @@ def bundled_database_url(database: str = "fantabot") -> str:
     Derived, not configured, so that a `fantabot` command run from any directory reaches
     the same database the app writes to. `.env` pointing the CLI at a compose Postgres on
     `localhost:54321` while the app provisioned its own server is what let a week of
-    Classic auction collection read as lost (`todo/TODO.md` §1).
+    Classic auction collection read as lost (root `CLAUDE.md`, "One database, and it is
+    the app's").
 
     **Read from `postmaster.pid` when it is there**, because the DSN's *shape* is not
     fixed: pgserver listens on a unix socket on macOS/Linux and on 127.0.0.1 with a port

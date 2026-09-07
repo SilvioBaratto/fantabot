@@ -11,7 +11,7 @@ import { HarvestComponent } from './harvest';
 
 /**
  * The corpus panel is the instrument every later collection increment is graded on
- * (`todo/TODO.md` §2). What these tests hold it to is not that it renders numbers —
+ * (T15). What these tests hold it to is not that it renders numbers —
  * it is that the three things §1.1 cost a week are all readable off it: a format that
  * collected nothing, the gap between registered and followed, and the filter the
  * headline number survived.

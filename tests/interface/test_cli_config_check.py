@@ -35,7 +35,7 @@ def test_dsn_host_and_database_are_still_shown() -> None:
     Only the database name is asserted, not the host: against the bundled server the host
     is a filesystem path that Rich truncates to the terminal width, and `config-check`
     renders through SQLAlchemy's `render_as_string`, which percent-encodes it. Both are
-    display artefacts — `todo/TODO.md` §3.9 — not something to pin here.
+    display artefacts — T28 (`tasks/BACKLOG.md`) — not something to pin here.
     """
     result = runner.invoke(app, ["config-check"])
 

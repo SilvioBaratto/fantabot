@@ -78,7 +78,7 @@ describe('AstaComponent', () => {
   });
 
   /**
-   * The room check. Its own section, and its own outcomes: `todo/TODO.md` §3.4 records
+   * The room check. Its own section, and its own outcomes: T31 (`tasks/BACKLOG.md`) records
    * what one label over four failures costs, so the screen must render five different
    * answers differently. It is also the only surface that tells the operator whether the
    * stored FantaLab credential still works.

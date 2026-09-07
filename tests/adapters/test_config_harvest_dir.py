@@ -5,7 +5,8 @@
 directory is wherever its launcher was started, so a collector started from the app and
 a `harvest load` typed in a terminal addressed two different landing zones. This is the
 same argument that made `bundled_database_url` derive from `bundled_pgdata()`
-(`todo/TODO.md` §1), applied to the files instead of the database.
+(root `CLAUDE.md`, "One database, and it is the app's"), applied to the files instead of
+the database.
 
 Two properties, and both are why this is a function rather than a constant:
 

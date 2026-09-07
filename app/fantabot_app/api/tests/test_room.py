@@ -4,7 +4,7 @@ Today the credential is captured by the Accounts page and read by nothing in the
 "is FantaLab connected?" has no answer beyond "a row exists". This endpoint asks the room
 itself.
 
-**It does not degrade open, and that is the point.** `todo/TODO.md` §3.4 records what
+**It does not degrade open, and that is the point.** T31 (`tasks/BACKLOG.md`) records what
 `except Exception -> found=False` costs: a database outage, a missing season, an
 infeasible roster and a wrong `--format` all rendered as "No plan yet". Degrade-open is
 right for a status read and wrong for the one call that tells the operator whether they
@@ -181,7 +181,7 @@ def test_a_row_written_under_another_key_is_no_credential_not_no_session() -> No
     """Found by the first live probe against the bundled database.
 
     The stored FantaLab row was written under key `aa695c77` and `.env` now holds
-    `ef341176` — `todo/TODO.md` §1.2 excluded credentials from that migration on purpose.
+    `ef341176` — the two-databases migration excluded credentials on purpose.
     Reporting it as "no session" would send the operator to reconnect without telling
     them their key had changed under it, so both share an outcome and keep their own
     words.

@@ -45,7 +45,7 @@ export class NewsComponent implements OnInit {
   /**
    * The fetch. Its home, since it was taken off Synchronize at the operator's request
    * and the endpoint deliberately kept: this is the topic's own page, so it adds no nav
-   * entry to a mobile bar that already carries nine tabs (`todo/TODO.md` §3.8).
+   * entry to a mobile bar that already carries nine tabs.
    */
   readonly season = signal('2026/27');
   readonly running = signal(false);

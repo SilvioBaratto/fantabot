@@ -1,6 +1,7 @@
 """The corpus panel — what the harvest actually put in the database, per format.
 
-Built before anything with a lifecycle, and `todo/TODO.md` §2 says why: it is the
+Built before anything with a lifecycle, and T15 says why (its spec is archived at
+`tasks/archive/fantalab-in-the-app-spec.md`): it is the
 instrument every later increment is graded on, and without it "collection worked" is
 unfalsifiable. §1.1 is the case in point — the Classic corpus read as 2.1 million events
 and zero sales for over a week, and no screen could tell "nothing was collected" from

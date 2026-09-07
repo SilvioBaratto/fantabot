@@ -45,7 +45,7 @@ interface JobPanel {
  * What the harvest actually put in the database, per format — and what the next collect
  * would follow.
  *
- * The corpus panel was built before anything with a lifecycle, and `todo/TODO.md` §2 says
+ * The corpus panel was built before anything with a lifecycle, and T15 says
  * why: it is the instrument every later increment is graded on, and without it
  * "collection worked" is unfalsifiable. §1.1 is the case in point — the Classic corpus
  * read as 2.1 million events and zero sales for over a week, and no screen could tell

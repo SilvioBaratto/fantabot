@@ -4,7 +4,7 @@ Guidance for Claude Code when working in `app/`. **This file is the app's own re
 the rules below are the ones a reader cannot infer from the code. There is no app spec
 to point at: the root `SPEC.md` holds only the phase in flight and was overwritten by
 later ones, and closed phases are archived under `tasks/archive/` (maintainer-only, and
-git-ignored, so a checkout does not carry them). `todo/TODO.md` holds the open work.
+git-ignored, so a checkout does not carry them). `tasks/BACKLOG.md` holds the open work.
 
 ## What this is
 
@@ -141,8 +141,10 @@ cd frontend && npx ng test --watch=false  # vitest
   the *intended* pairing, so one lock would forbid the normal case. The property being
   bought is that the OS releases it however the holder dies — so "is a collector running?"
   needs no pid check and stays correct across an app restart, which is what makes the two
-  rules below implementable at all. Its Windows backend is written and unverified
-  (`todo/TODO.md` §4).
+  rules below implementable at all. Its Windows backend is written and was
+  unverified for as long as `app-ci`'s path filter was `app/**` — the one Windows runner
+  never triggered on the file. T42c put `lock.py` in the filter, so it is now exercised
+  on every change to it (`tasks/BACKLOG.md`, T42).
 - **The supervisor is a subprocess, and cancellation is not the reason.**
   `api/infrastructure/processes.py`. `adapters/files/landing.py` states the invariant: a
   frame that never reached disk is gone, and an evening of auctions does not come back. A
