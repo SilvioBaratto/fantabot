@@ -141,6 +141,18 @@ def why(module: str, target: str) -> list[str]:
     return []
 
 
+def module_source(module: str) -> str:
+    """A module's text, resolved the way every other function here resolves one.
+
+    Exposed so a test can contrast the AST walk with the raw text of the *same* file
+    without doing its own path arithmetic — which is how `_paths.py` came to exist.
+    """
+    path = _path_of(module)
+    if path is None:
+        raise FileNotFoundError(f"{module} does not resolve to a file")
+    return path.read_text(encoding="utf-8")
+
+
 @cache
 def names_used(module: str) -> frozenset[str]:
     """Every attribute and bare name the module's own code refers to, at any depth.

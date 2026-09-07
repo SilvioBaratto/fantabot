@@ -469,7 +469,9 @@ def reservations(
     five against 1,508,707 at thirty. ``_cycle_calls`` in ``test_asta_cycle_cost.py`` passes
     no ``n_targets``, so the pinned 500,000 ceiling that catches a reverted P10 optimisation
     is measuring this default; re-pointing it at a 3x heavier cycle would retire that
-    tripwire silently. The advisory paths keep the cap; only ``asta bid`` asks for all of it.
+    tripwire silently. The advisory paths keep the cap; ``asta bid`` asks for all of it, and since 1.12 so
+    does ``GET /asta/plan`` — through ``application.plan_request.walk_aways``, which uses
+    ``lot_ceiling`` rather than this function, for the reason the next paragraph gives.
 
     **This walk-away is advisory only, never the bid decision (Task 1.3).** It used to carry
     an injected walk-away floor, a fraction of book price, precisely because a bare

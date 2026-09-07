@@ -18,7 +18,6 @@ a layer is easiest to break.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from pathlib import Path
 
 import _importgraph as G
 
@@ -316,14 +315,41 @@ class TestTheWritingRuleItself:
         )
         assert writing_violations(["fantabot.application.asta_session"], **fake) == set()  # type: ignore[arg-type]
 
-    def test_naming_a_writing_call_in_prose_is_not_a_violation(self) -> None:
-        """`interface/asta.py` explains arming by naming `place_raise` twice."""
-        module = "fantabot.interface.asta"
-        assert "place_raise" in Path(G.SRC / "fantabot" / "interface" / "asta.py").read_text(
-            encoding="utf-8"
+    def test_the_edge_is_required_as_well_as_the_name(self) -> None:
+        """Both conditions, and this is what makes the *second* one load-bearing.
+
+        A module that merely says `place_raise` — in a variable, a keyword argument, an
+        unrelated helper — and cannot reach the adapter is not acting. Deleting
+        `and reaches(...)` from the rule used to leave all eleven tests in this file green.
+        """
+        module = "fantabot.interface.printer"
+        never_reaches = {
+            "names_used": lambda _m: frozenset({"place_raise"}),
+            "reaches": lambda _m, _t: False,
+            "layer": lambda _m: "interface",
+        }
+
+        assert writing_violations([module], **never_reaches) == set()  # type: ignore[arg-type]
+
+    def test_the_walk_reads_the_ast_and_not_the_text(self) -> None:
+        """The string-exclusion claim, tested against `names_used` itself.
+
+        **The first version of this test could not fail.** It handed `writing_violations` a
+        fake `names_used` returning an empty set — the very function whose behaviour it
+        claimed to prove — so the assertion held under every implementation, a substring
+        grep included. Verified: swapping in a grep-based walker left it green.
+
+        This one calls the real walker on a real file. `domain/lineup/payload.py` names
+        `teamLineup_submit` in its docstring and nowhere else, so a text scan sees it and an
+        AST walk does not.
+        """
+        prose = "fantabot.domain.lineup.payload"
+        source = G.module_source(prose)
+
+        assert "teamLineup_submit" in source, "the fixture module no longer names it in prose"
+        assert "teamLineup_submit" not in G.names_used(prose), (
+            "`names_used` is counting strings — a docstring mention is not a call"
         )
-        prose_only = self._fake({module: set()}, {module: "interface"})
-        assert writing_violations([module], **prose_only) == set()  # type: ignore[arg-type]
 
     def test_every_writing_name_still_exists_in_the_adapter_it_names(self) -> None:
         """A renamed function empties this rule silently; this is what makes it fail."""

@@ -5,9 +5,16 @@
 across polls of one lot; what they cannot say is what the expensive cycle — the one where the
 memo misses because the board moved — actually costs against a real evening.
 
-The corpus is `data/room_journal.jsonl`: 5,192 rows from 2026-09-01, 474 lot changes. Its
-only four gaps over 60 s are **181.0 / 72.3 / 63.0 / 61.1 s**, and the 72.3 s one is this
-stall, inside a run.
+The corpus is the 2026-09-01 evening: 5,192 rows, 474 lot changes, and its only four gaps
+over 60 s are **181.0 / 72.3 / 63.0 / 61.1 s** — the 72.3 s one being this stall, inside a
+run.
+
+**It is read from `tests/golden/`, not from `data/`.** `data/room_journal.jsonl` is
+gitignored (`.gitignore:8`, `data/*`) and untracked, so the first version of this file ran on
+one laptop and would have failed on every clean checkout and in CI — a gate that does not run
+where it matters, which is the whole reason `tests/golden/` exists (`_golden.py`'s own
+docstring makes the argument for the listone bridge). The lot sequence is captured instead:
+26 KB against 1.5 MB, and it is the only part of the journal this replay reads.
 
 **The sample is bounded and the bound is stated.** Every lot change would be 460 memo-miss
 solves at ~0.1 s each — 45 s of test time in a tier that runs in seventeen. `SAMPLE` lot
@@ -34,7 +41,7 @@ from _golden import (
     load_quotazioni,
     load_sentiment,
 )
-from _paths import REPO
+from _paths import GOLDEN
 
 from fantabot.application.asta_room import RoomTracker
 from fantabot.domain.asta.bid import Seat
@@ -53,23 +60,16 @@ CEILING_SECONDS = POLL_SECONDS * 10
 #: truncates without saying so reads as "we measured the whole evening".
 SAMPLE = 12
 
-JOURNAL = REPO / "data" / "room_journal.jsonl"
+RECORDING = GOLDEN / "asta_2026_09_01" / "lot_changes.json"
+
+
+def _recording() -> dict[str, object]:
+    return json.loads(RECORDING.read_text(encoding="utf-8"))
 
 
 def _recorded_lot_changes() -> list[tuple[str, int]]:
     """`(lot_uuid, price)` each time the block changed, in the order the room called them."""
-    changes: list[tuple[str, int]] = []
-    for line in JOURNAL.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        lot = row.get("lot")
-        if lot and (not changes or changes[-1][0] != lot):
-            changes.append((str(lot), int(row.get("price") or 1)))
-    return changes
+    return [(str(lot), int(price)) for lot, price in _recording()["lot_changes"]]
 
 
 @pytest.fixture(scope="module")
@@ -89,10 +89,13 @@ def world():  # type: ignore[no-untyped-def]
 def test_the_recorded_evening_is_the_corpus_this_measures() -> None:
     """A scan over a missing file examines nothing and passes — `_paths.pkgs`'s reason, and
     the exact shape of the gate that judged fixtures for a week."""
-    assert JOURNAL.is_file(), f"{JOURNAL} is gone; this test would measure nothing"
-    changes = _recorded_lot_changes()
+    assert RECORDING.is_file(), f"{RECORDING} is gone; this test would measure nothing"
+    recording = _recording()
 
-    assert len(changes) > 400, f"only {len(changes)} lot changes — is this the right file?"
+    assert len(recording["lot_changes"]) > 400, "not the recorded evening"
+    # The evening this is about, identified by its own shape rather than by its filename.
+    assert recording["rows_in_journal"] == 5192
+    assert recording["gaps_over_60s"] == [181.0, 72.3, 63.0, 61.1]
 
 
 def test_a_lot_change_does_not_stall_past_the_poll_interval(world) -> None:  # type: ignore[no-untyped-def]

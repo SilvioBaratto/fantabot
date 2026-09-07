@@ -207,49 +207,34 @@ def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
     assert page == _cli_plan(seeded_db, frozen_today, seeded_callable_ids, cli)
 
 
-def _request_from(world: SeededWorld, today: date, narrowed: frozenset[str] | None) -> object:
-    """The request `asta optimize` builds for this world, with the CLI's own defaults."""
-    from fantabot.application.plan_request import PlanRequest
-    from fantabot.domain.asta.sentiment import SentimentWeights
-    from fantabot.domain.asta.state import RosterRules
-
-    return PlanRequest(
-        season=world.season,
-        listone=world.listone,
-        as_of=today,
-        budget=float(world.budget),
-        rules=RosterRules(
-            size=world.roster_size,
-            min_goalkeepers=world.min_roles[0],
-            min_movement=world.min_roles[1],
-        ),
-        owned=frozenset(),
-        lam=0.0,
-        n_fallbacks=3,
-        tilt_k=SentimentWeights().k,
-        sentiment=True,
-        sentiment_run=None,
-        callable_ids=narrowed,
-    )
-
-
 def test_both_sides_build_the_same_request(
     seeded_db: SeededWorld,
     frozen_today: date,
     api: TestClient,
     seeded_callable_ids: frozenset[str],
+    cli: Callable[..., Result],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The golden dict. Without it this reopens the first time either side gains an option.
+    """The golden dict — **both sides captured, neither reconstructed.**
 
-    Comparing *outputs* only catches a divergence the seed is rich enough to express — the
+    Comparing *outputs* only catches a divergence the seed is rich enough to express: the
     first version of this fixture agreed perfectly while one side planned on the sentiment
-    model and the other on its ablation control, because the rosa was the whole pool.
-    Comparing the request catches a changed field whatever the data.
+    model and the other on its ablation control. Comparing the request catches a changed
+    field whatever the data.
 
-    The endpoint's request is captured rather than reconstructed: reconstructing it is
-    writing the assertion twice and calling the second copy evidence.
+    **An earlier version was one-sided.** It captured the endpoint's request and compared it
+    against `_request_from`, a literal reconstruction written in this file — so a drift in
+    `asta_optimize` left the reconstruction agreeing with the endpoint and both disagreeing
+    with the command. That is 1.14's defect in the same file, one function along. Both
+    requests are captured from the running code now.
+
+    `rules` is compared separately and is *expected* to differ: the command builds a bare
+    `RosterRules()` and the page reads the lega's band (2.1). Excluding it deliberately, and
+    asserting the difference, is what keeps this test about the other twelve fields rather
+    than red for a reason already recorded twice.
     """
+    from dataclasses import replace
+
     from fantabot.application import plan_request as pr
 
     captured: list[object] = []
@@ -259,18 +244,35 @@ def test_both_sides_build_the_same_request(
         captured.append(request)
         return real(session, request)
 
-    # The endpoint imports `build_plan` inside its own body, so patching the module
-    # attribute is what a call actually resolves. Patching the endpoint's namespace would
-    # do nothing and the `captured` assertion below is what would say so.
     monkeypatch.setattr(pr, "build_plan", spy)
 
     api.get(
         "/api/v1/asta/plan",
         params={"league_id": seeded_db.league_id, "season": seeded_db.season},
     )
-
     assert captured, "the endpoint did not reach build_plan"
-    assert captured[0] == _request_from(seeded_db, frozen_today, seeded_callable_ids)
+    from_page = captured[-1]
+
+    captured.clear()
+    cli(
+        "asta", "optimize",
+        "--season", seeded_db.season,
+        "--format", seeded_db.listone,
+        "--budget", str(seeded_db.budget),
+        "--lam", "0",
+        "--fallbacks", "3",
+        expect_exit=None,
+    )
+    assert captured, "`asta optimize` did not reach build_plan"
+    from_cli = captured[-1]
+
+    # The one field that differs, asserted rather than ignored — so 2.1 landing makes this
+    # line fail and the exclusion below has to go with it.
+    assert from_cli.rules != from_page.rules, (  # type: ignore[attr-defined]
+        "the command and the page now agree on the roster band — 2.1 landed; delete this "
+        "assertion and the `replace` below, and compare the requests whole"
+    )
+    assert replace(from_cli, rules=from_page.rules) == from_page  # type: ignore[arg-type]
 
 
 def test_the_page_says_what_it_planned_on(

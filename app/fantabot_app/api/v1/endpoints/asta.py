@@ -166,13 +166,17 @@ def asta_plan(
     only ever shown the plan for an empty roster, which is the right answer on the morning
     of the asta and the wrong one on every evening after it.
 
-    **Latency, measured** on the live 529-player narrowed Mantra pool (2026-09-07,
-    `lam=0`, empty roster, warm database): the plan is **0.10 s** and pricing all thirty
-    walk-aways adds **0.07 s** — 0.12 s end to end, well inside the 2 s budget T1 set for a
-    synchronous panel read, so this stays a read and does not become a job. Five targets
-    would have cost 0.02 s and ten 0.03 s; the difference does not buy anything.
-    `PAGE_WALK_AWAY_TARGETS` is the knob if a much larger pool ever changes that, and
-    capping it is honest because an unpriced target says so in its provenance.
+    **Latency, re-measured after 1.12** on the live 529-player narrowed Mantra pool
+    (2026-09-07, `lam=0`, empty roster, warm database): the plan is **0.12 s** and pricing
+    all thirty walk-aways adds **1.23 s** — **1.35 s end to end**, inside the 2 s budget T1
+    set for a synchronous panel read, so this stays a read and does not become a job.
+
+    The numbers this docstring carried before (0.07 s for thirty, 0.12 s total) were
+    `reservations`' and are gone with it: that call was 12.7x cheaper and returned an
+    objective difference rather than credits. The cost is the price of the right number, and
+    the margin is now 1.5x rather than 17x — `PAGE_WALK_AWAY_TARGETS` is the knob if a larger
+    pool erodes it, and capping is honest because a row that was not priced says so in its
+    provenance.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.application import lega_reads as reads
