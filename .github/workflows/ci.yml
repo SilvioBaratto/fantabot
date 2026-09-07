@@ -78,6 +78,13 @@ jobs:
           --health-retries 5
     env:
       FANTABOT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot
+      # A database of its own, and not a nicety: `tests/conftest.py` refuses to run the
+      # tier against the canonical database *by name alone*, so pointing both variables
+      # at `fantabot` would be rejected rather than accepted. Unset, the tier falls back
+      # to the bundled server's DSN — a unix socket no runner has ever provisioned, which
+      # is what `connection to server on socket
+      # "/home/runner/.fantabot/pgdata/.s.PGSQL.5432" failed` was.
+      FANTABOT_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -89,9 +96,29 @@ jobs:
         run: |
           KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
           echo "FANTABOT_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+      - name: create the tier's own database
+        run: psql "postgresql://postgres:postgres@localhost:5432/fantabot" -c "CREATE DATABASE fantabot_test"
+
       - name: alembic upgrade head
         run: alembic upgrade head
       - name: alembic check (models and migrations agree)
         run: alembic check
-      - name: pytest -m db
-        run: pytest -q -m db tests/
+
+      # The tier's database needs the schema too — `alembic check` is about the canonical
+      # one, and the tests write into this one.
+      - name: alembic upgrade head (the tier's database)
+        run: alembic upgrade head
+        env:
+          FANTABOT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot_test
+
+      # `not dbdata`, and that exclusion is the whole reason this step can pass. 100 of
+      # the 159 `db` tests carry the `dbdata` marker: they assert against 614,163 rows
+      # that have actually been scraped, harvested and synced, and there is no fixture
+      # for them — `tests/conftest.py` points them at the canonical database on purpose.
+      # A runner has no corpus, so running them here would fail on every one for a reason
+      # that is not a defect. The remaining 59 need a schema and nothing more.
+      #
+      # None of this was visible until now: the step errored at collection on `fastapi`
+      # for as long as the app has had tests, so it never reached a database at all.
+      - name: pytest -m "db and not dbdata"
+        run: pytest -q -m "db and not dbdata" tests/

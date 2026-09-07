@@ -130,3 +130,42 @@ def test_the_fantabot_workflow_scopes_every_pytest_to_tests() -> None:
         "an unscoped pytest in ci.yml collects app/, where fastapi is not installed: "
         f"{offenders}"
     )
+
+
+def test_the_db_tier_excludes_the_seeded_subset() -> None:
+    """`ci.yml`'s db job runs against an empty `postgres:16-alpine` service, and 100 of
+    the 159 `db` tests read a corpus that only exists on the operator's machine.
+
+    The `dbdata` marker is exactly that split: those tests assert against 614,163 rows
+    that have actually been scraped, harvested and synced, and there is no fixture for
+    them — `tests/conftest.py` points them at the canonical database on purpose. A CI job
+    that ran the whole `db` tier would fail on every one of them for a reason that is not
+    a defect.
+
+    This is only visible now. The job errored at collection on `fastapi` for as long as
+    the app has had tests, so it never reached a database at all and never revealed which
+    marker it should have been using.
+    """
+    commands = [
+        stripped.removeprefix("run:").strip()
+        for line in CI.read_text(encoding="utf-8").splitlines()
+        if (stripped := line.strip()).startswith("run:")
+    ]
+    db_runs = [command for command in commands if "-m" in command and " db" in command]
+
+    assert db_runs, "ci.yml runs no db tier at all"
+    assert all("not dbdata" in command for command in db_runs), (
+        f"a db tier that does not exclude dbdata will fail on the unseeded runner: {db_runs}"
+    )
+
+
+def test_the_db_tier_is_given_a_database_of_its_own() -> None:
+    """The tier writes synthetic rows and `tests/conftest.py` refuses to do that to the
+    canonical database — by name alone, so `FANTABOT_DATABASE_URL` is not enough. Without
+    `FANTABOT_TEST_DATABASE_URL` the tier falls back to the *bundled* server's DSN, which
+    on a runner is a unix socket that was never provisioned: `connection to server on
+    socket "/home/runner/.fantabot/pgdata/.s.PGSQL.5432" failed`.
+    """
+    source = CI.read_text(encoding="utf-8")
+
+    assert "FANTABOT_TEST_DATABASE_URL" in source
