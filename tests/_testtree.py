@@ -200,4 +200,5 @@ TREE: dict[str, str] = {
     "test_testtree.py": ".",
     "test_docs.py": ".",
     "test_links.py": ".",
+    "test_gate.py": ".",
 }

@@ -6,6 +6,16 @@
 # exits 0 with a failing suite and the chain continues. That masked a real failure three
 # times, once past a commit. Nothing here is piped.
 #
+# Every pytest run below names `tests/`, and that is not decoration. The root
+# pyproject.toml sets no `testpaths` -- deliberately, because the `integration`/`e2e`
+# marker declarations there exist *because* a root run collects `app/` -- so a bare
+# `python -m pytest` from the repository root collects `app/fantabot_app/api/tests` and
+# `app/tests/test_server.py`. Those import fastapi, which the conda `fanta` env does not
+# have (the app has its own uv venv at `app/.venv`), so collection errors before a single
+# test runs and the gate cannot be executed as written. Scoping the gate rather than
+# setting `testpaths` keeps the root run's marker declarations doing their job.
+# The app's own suite is `cd app && uv run pytest`, and is not this gate's.
+#
 # Usage: scripts/gate.sh [--fast]   (--fast skips the db tier and alembic)
 set -uo pipefail
 
@@ -24,7 +34,7 @@ run() {
     fi
 }
 
-run "unit tests"    python -m pytest -q
+run "unit tests"    python -m pytest -q tests/
 run "ruff"          ruff check src tests
 run "mypy"          mypy
 run "golden"        python -m pytest -q tests/test_golden.py
@@ -41,7 +51,7 @@ else
 fi
 
 if (( ! fast )); then
-    run "db tier"   python -m pytest -q -m db
+    run "db tier"   python -m pytest -q -m db tests/
     run "alembic"   alembic check
 fi
 
