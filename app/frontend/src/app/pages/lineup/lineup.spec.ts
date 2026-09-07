@@ -42,14 +42,17 @@ describe('LineupComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    httpMock.expectOne((r) => r.url.includes('lineup/plan')).flush({
-      found: true,
-      reason: null,
-      module: '4-3-3',
-      matchday: 3,
-      starters: [{ player_id: 1, nome: 'Svilar' }],
-      bench: [{ player_id: 2, nome: 'Reserve' }],
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('lineup/plan'))
+      .flush({
+        found: true,
+        outcome: 'planned',
+        reason: null,
+        module: '4-3-3',
+        matchday: 3,
+        starters: [{ player_id: 1, nome: 'Svilar' }],
+        bench: [{ player_id: 2, nome: 'Reserve' }],
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -66,17 +69,52 @@ describe('LineupComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    httpMock.expectOne((r) => r.url.includes('lineup/plan')).flush({
-      found: false,
-      reason: 'Not connected, or no lineup available yet.',
-      module: '',
-      matchday: null,
-      starters: [],
-      bench: [],
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('lineup/plan'))
+      .flush({
+        found: false,
+        outcome: 'no_credential',
+        reason: 'No token stored for lega 4103937 — run `fantabot auth login`.',
+        module: '',
+        matchday: null,
+        starters: [],
+        bench: [],
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.nativeElement.textContent).toContain('Not connected');
+    const text = fixture.nativeElement.textContent as string;
+    // The heading is the outcome and the remedy is the reason. Both used to be the one
+    // string "Not connected, or no lineup available yet", which is four failures wearing
+    // one label — the defect T31 records.
+    expect(text).toContain('This lega is not connected');
+    expect(text).toContain('auth login');
+  });
+
+  it('tells a refusal from an unreachable platform', async () => {
+    // `apileague` maps every failure onto `TokenError` — deliberately, because a traceback
+    // can render the Authorization header — so a bare catch reported timeouts as
+    // credential problems. A 403 will not resolve by reloading; a timeout might.
+    const fixture = TestBed.createComponent(LineupComponent);
+    fixture.detectChanges();
+    httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    httpMock
+      .expectOne((r) => r.url.includes('lineup/plan'))
+      .flush({
+        found: false,
+        outcome: 'refused',
+        reason: 'the platform rejected our token for lega 4103937',
+        module: '',
+        matchday: null,
+        starters: [],
+        bench: [],
+      });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.textContent).toContain('The platform refused us');
   });
 });

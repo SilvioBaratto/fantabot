@@ -227,11 +227,40 @@
         }
       </section>
     } @else {
+      <!-- Seven outcomes, seven headings. They were one — "No plan yet", under a
+           suggestion to sync the lega, which is the right remedy for exactly one of them
+           and a wasted evening for the rest. The reason underneath carries the remedy. -->
       <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-        <p class="font-display text-base font-semibold text-text">No plan yet</p>
-        <!-- The endpoint's own reason when it has one. "Run `news fetch` first" and "the
-             database is down" used to be the same screen. -->
-        <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
+        <p
+          class="font-display text-base font-semibold"
+          [class.text-danger]="p.outcome === 'unreachable' || p.outcome === 'infeasible'"
+          [class.text-text]="p.outcome !== 'unreachable' && p.outcome !== 'infeasible'"
+        >
+          @switch (p.outcome) {
+            @case ('no_lega') {
+              This lega has never been synced
+            }
+            @case ('no_sentiment') {
+              The news feed is empty
+            }
+            @case ('no_corpus') {
+              No recorded auctions of this shape
+            }
+            @case ('empty_pool') {
+              No player pool for this format and season
+            }
+            @case ('infeasible') {
+              No legal rosa fits this budget
+            }
+            @case ('unreachable') {
+              Could not reach the database
+            }
+            @default {
+              No plan yet
+            }
+          }
+        </p>
+        <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">
           {{
             p.reason ??
               'No player pool for this lega and season. Sync the lega and make sure quotazioni are loaded.'

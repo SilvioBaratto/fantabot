@@ -52,15 +52,19 @@ describe('PricesComponent', () => {
     const fixture = TestBed.createComponent(PricesComponent);
     fixture.detectChanges();
 
-    httpMock.expectOne((r) => r.url.includes('target-prices')).flush({
-      found: true,
-      system: 'classic',
-      stored: 42,
-      fades: [],
-      biggest_bumps: [tp('Dybala', 20, 28)],
-      biggest_cuts: [tp('Someone', 15, 8)],
-      flag_counts: { floor_qi: 3 },
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('target-prices'))
+      .flush({
+        found: true,
+        outcome: 'priced',
+        reason: null,
+        system: 'classic',
+        stored: 42,
+        fades: [],
+        biggest_bumps: [tp('Dybala', 20, 28)],
+        biggest_cuts: [tp('Someone', 15, 8)],
+        flag_counts: { floor_qi: 3 },
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -74,18 +78,49 @@ describe('PricesComponent', () => {
     const fixture = TestBed.createComponent(PricesComponent);
     fixture.detectChanges();
 
-    httpMock.expectOne((r) => r.url.includes('target-prices')).flush({
-      found: false,
-      system: 'classic',
-      stored: 0,
-      fades: [],
-      biggest_bumps: [],
-      biggest_cuts: [],
-      flag_counts: {},
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('target-prices'))
+      .flush({
+        found: false,
+        outcome: 'no_data',
+        reason: 'no classic training data — the fit needs `statistiche` for the training seasons.',
+        system: 'classic',
+        stored: 0,
+        fades: [],
+        biggest_bumps: [],
+        biggest_cuts: [],
+        flag_counts: {},
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.nativeElement.textContent).toContain('No target prices');
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('No target prices');
+    // The endpoint's own reason. "No data" and "the database would not open" need
+    // different remedies, and used to render identically.
+    expect(text).toContain('statistiche');
+  });
+
+  it('tells no data from a database that would not open', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url.includes('target-prices'))
+      .flush({
+        found: false,
+        outcome: 'unreachable',
+        reason: 'OperationalError: could not connect to server',
+        system: 'classic',
+        stored: 0,
+        fades: [],
+        biggest_bumps: [],
+        biggest_cuts: [],
+        flag_counts: {},
+      });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.textContent).toContain('Could not reach the database');
   });
 });

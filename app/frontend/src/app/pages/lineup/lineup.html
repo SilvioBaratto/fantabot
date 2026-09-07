@@ -1,6 +1,8 @@
 <header class="mb-8">
   <h1 class="font-display text-3xl font-bold tracking-tight text-text">Lineup</h1>
-  <p class="mt-1 text-sm text-text-secondary">The best fieldable formation. Preview only — it never submits.</p>
+  <p class="mt-1 text-sm text-text-secondary">
+    The best fieldable formation. Preview only — it never submits.
+  </p>
 </header>
 
 @if (loading()) {
@@ -42,17 +44,28 @@
         <div class="flex flex-wrap items-end gap-x-12 gap-y-4 p-6">
           <div>
             <p class="font-display text-5xl font-bold tabular-nums text-text">{{ p.module }}</p>
-            <p class="mt-1 text-sm text-text-secondary">module@if (p.matchday !== null) { · matchday {{ p.matchday }} }</p>
+            <p class="mt-1 text-sm text-text-secondary">
+              module
+              @if (p.matchday !== null) {
+                · matchday {{ p.matchday }}
+              }
+            </p>
           </div>
         </div>
       </section>
 
       <div class="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-          <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Starters</div>
+          <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">
+            Starters
+          </div>
           @for (player of p.starters; track player.player_id; let i = $index) {
-            <div class="flex items-center gap-3 border-b border-border-muted px-6 py-2 last:border-b-0">
-              <span class="w-5 text-right text-xs tabular-nums text-text-tertiary">{{ i + 1 }}</span>
+            <div
+              class="flex items-center gap-3 border-b border-border-muted px-6 py-2 last:border-b-0"
+            >
+              <span class="w-5 text-right text-xs tabular-nums text-text-tertiary">{{
+                i + 1
+              }}</span>
               <span class="text-sm text-text">{{ player.nome }}</span>
             </div>
           }
@@ -61,15 +74,38 @@
         <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
           <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Bench</div>
           @for (player of p.bench; track player.player_id) {
-            <div class="border-b border-border-muted px-6 py-2 text-sm text-text-secondary last:border-b-0">
+            <div
+              class="border-b border-border-muted px-6 py-2 text-sm text-text-secondary last:border-b-0"
+            >
               {{ player.nome }}
             </div>
           }
         </section>
       </div>
     } @else {
+      <!-- Four refusals, four headings. They shared one reason string, so a timeout and a
+           rosa the platform will not accept read identically. -->
       <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-        <p class="font-display text-base font-semibold text-text">No lineup yet</p>
+        <p
+          class="font-display text-base font-semibold"
+          [class.text-danger]="p.outcome === 'refused'"
+          [class.text-text]="p.outcome !== 'refused'"
+        >
+          @switch (p.outcome) {
+            @case ('no_credential') {
+              This lega is not connected
+            }
+            @case ('refused') {
+              The platform refused us
+            }
+            @case ('unreachable') {
+              Could not reach the platform
+            }
+            @default {
+              No fieldable lineup yet
+            }
+          }
+        </p>
         <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">{{ p.reason }}</p>
       </section>
     }

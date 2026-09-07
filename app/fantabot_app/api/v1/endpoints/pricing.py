@@ -36,6 +36,11 @@ class Fade(BaseModel):
 
 class TargetPricesReport(BaseModel):
     found: bool
+    #: One of `api/outcomes.TARGET_PRICES_OUTCOMES`. `no_data` is a real answer here rather
+    #: than a failure — the fit needs training seasons of `statistiche`, and a fresh
+    #: install has none, which is not the same as a database that will not open.
+    outcome: str = "priced"
+    reason: str | None = None
     system: str = ""
     stored: int = 0
     fades: list[Fade] = []
@@ -64,6 +69,7 @@ def build_report(report: Any) -> TargetPricesReport:
     """Map a PricingReport to the response (pure)."""
     return TargetPricesReport(
         found=True,
+        outcome="priced",
         system=report.system,
         stored=report.stored,
         fades=[Fade(role=f.role, observations=f.observations) for f in report.fades],
@@ -77,8 +83,26 @@ def build_report(report: Any) -> TargetPricesReport:
 def target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesReport:
     from fantabot.application import pricing
 
+    from fantabot_app.api.outcomes import because
+
     try:
         report = pricing.run(system=system, top_n=top_n)
-        return build_report(report)
-    except Exception:  # noqa: BLE001 — degrade open: no data / DB error
-        return TargetPricesReport(found=False)
+    except (LookupError, ValueError) as exc:
+        # Nothing to fit on. `LookupError` covers `NoCorpus`; `ValueError` covers an
+        # unrecognised system, which the fit refuses rather than treating as empty.
+        return TargetPricesReport(found=False, outcome="no_data", reason=str(exc))
+    except Exception as exc:  # noqa: BLE001 — the last named outcome, not a catch-all
+        return TargetPricesReport(found=False, outcome="unreachable", reason=because(exc))
+
+    if not report.fades and not report.biggest_bumps and not report.biggest_cuts:
+        # A report with nothing in it. It used to render as an empty table under a
+        # confident heading, which reads as "the model says nothing moved".
+        return TargetPricesReport(
+            found=False,
+            outcome="no_data",
+            reason=(
+                f"no {system} training data — the fit needs `statistiche` for the training "
+                "seasons. Run `fantabot db scrape statistiche`."
+            ),
+        )
+    return build_report(report)

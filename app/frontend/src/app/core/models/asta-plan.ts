@@ -14,12 +14,24 @@ export interface Fallback {
   objective: number;
 }
 
+/**
+ * Why the page shows what it shows. Seven answers, seven screens — every one of them used
+ * to be `found=false` under "No plan yet" and a suggestion to sync the lega, which is the
+ * right remedy for exactly one of them.
+ */
+export type AstaPlanOutcome =
+  | 'planned'
+  | 'no_lega'
+  | 'no_sentiment'
+  | 'no_corpus'
+  | 'empty_pool'
+  | 'infeasible'
+  | 'unreachable';
+
 export interface AstaPlan {
   found: boolean;
-  /**
-   * Why not, when the endpoint can name it. Without it "run `news fetch` first" and "the
-   * database is down" were the same blank screen.
-   */
+  outcome: AstaPlanOutcome;
+  /** What went wrong and what to do about it. Empty only on `planned`. */
   reason: string | null;
   listone: string;
   roster_size: number;

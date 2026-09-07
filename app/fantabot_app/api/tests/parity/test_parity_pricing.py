@@ -41,6 +41,17 @@ def _direct(system: str, top_n: int) -> Any:
     return pricing.run(system=system, top_n=top_n)
 
 
+def _skip_without_a_corpus(report: Any) -> None:
+    """`pricing.run` does not raise on an empty corpus — it returns an empty report.
+
+    That is why 1.7 gave the endpoint a `no_data` outcome: an empty report used to render
+    as an empty table under a confident heading, which reads as "the model says nothing
+    moved". A parity test comparing two empty reports is the same failure one level up.
+    """
+    if not (report.fades or report.biggest_bumps or report.biggest_cuts):
+        pytest.skip("no pricing corpus in the tier's database — the fit produced nothing")
+
+
 @pytest.mark.parametrize("system", ["classic", "mantra"])
 def test_the_page_and_the_command_report_the_same_fit(
     seeded_db: SeededWorld, api: TestClient, system: str
@@ -49,10 +60,12 @@ def test_the_page_and_the_command_report_the_same_fit(
         report = _direct(system, top_n=15)
     except Exception as exc:  # noqa: BLE001 — a corpus, or the absence of one
         pytest.skip(f"no pricing corpus in the tier's database ({type(exc).__name__}: {exc})")
+    _skip_without_a_corpus(report)
 
     body = api.get("/api/v1/asta/target-prices", params={"system": system, "top_n": 15}).json()
 
     assert body["found"] is True, body
+    assert body["outcome"] == "priced"
     assert body["system"] == report.system
     assert body["flag_counts"] == dict(report.flag_counts)
     assert [f["role"] for f in body["fades"]] == [f.role for f in report.fades]
@@ -70,7 +83,7 @@ def test_top_n_reaches_the_fit_rather_than_being_dropped(
     """A parameter a caller ignores is this repository's recurring defect, not a
     hypothetical: five of `read_plan_inputs`' six callers ignored its shape."""
     try:
-        _direct("classic", top_n=3)
+        _skip_without_a_corpus(_direct("classic", top_n=3))
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"no pricing corpus in the tier's database ({type(exc).__name__}: {exc})")
 

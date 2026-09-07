@@ -54,6 +54,7 @@ describe('AstaComponent', () => {
   function plan(over: Partial<AstaPlan> = {}): AstaPlan {
     return {
       found: true,
+      outcome: 'planned',
       reason: null,
       listone: 'mantra',
       roster_size: 30,
@@ -143,13 +144,18 @@ describe('AstaComponent', () => {
     const fixture = await readyWithPlan(
       plan({
         found: false,
+        outcome: 'no_sentiment',
         reason:
           'sentiment is on but there are no rows in the database. Run `fantabot news fetch --write`.',
         players: [],
       }),
     );
 
-    expect(fixture.nativeElement.textContent).toContain('news fetch');
+    const text = fixture.nativeElement.textContent as string;
+    // The heading is chosen by the outcome, the remedy comes from the reason. One label
+    // over five failures is what T31 records the cost of.
+    expect(text).toContain('The news feed is empty');
+    expect(text).toContain('news fetch');
   });
 
   /**
@@ -470,6 +476,7 @@ describe('AstaComponent', () => {
       .flush(
         plan({
           found: false,
+          outcome: 'empty_pool',
           listone: '',
           roster_size: 0,
           total_cost: 0,
@@ -481,6 +488,6 @@ describe('AstaComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.nativeElement.textContent).toContain('No plan yet');
+    expect(fixture.nativeElement.textContent).toContain('No player pool');
   });
 });

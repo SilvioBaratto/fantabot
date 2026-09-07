@@ -56,9 +56,11 @@ class Fallback(BaseModel):
 
 class AstaPlan(BaseModel):
     found: bool
-    #: Why not, when `found` is false and the reason is one this endpoint can name. The
-    #: full pinned tuple of outcomes across the three decision routes is 1.7; this is the
-    #: two that would otherwise turn "run `news fetch` first" into a blank screen.
+    #: One of `api/outcomes.ASTA_PLAN_OUTCOMES`. `found` is kept beside it because the
+    #: frontend and three tests read it, and because "did I get a plan" is a question worth
+    #: answering without a string comparison — but the *screen* is chosen by this.
+    outcome: str = "planned"
+    #: Why not, and what to do about it. Empty only on `planned`.
     reason: str | None = None
     listone: str = ""
     roster_size: int = 0
@@ -136,11 +138,13 @@ def asta_plan(
         build_plan,
         callable_ids,
     )
+    from fantabot.domain.asta.optimizer import InfeasibleRoster
     from fantabot.domain.asta.prices import NoCorpus
     from fantabot.domain.asta.report import parse_ids
     from fantabot.domain.asta.sentiment import SentimentWeights
     from fantabot.domain.classic.state import ClassicRosterRules
 
+    from fantabot_app.api.outcomes import because
     from fantabot_app.api.reads import league as reads
 
     # Degrades open to `None`, never to an empty set: `read_plan_inputs` reads an empty
@@ -149,11 +153,29 @@ def asta_plan(
     # says whether the narrowing happened.
     narrowed = callable_ids(warn=lambda _note: None)
 
+    # The order below is the order an operator would ask the questions, and it is
+    # load-bearing for the same reason `endpoints/room.py`'s is: the first live probe there
+    # answered "not a link" with a decryption failure. Reaching the database comes first
+    # because nothing else can be established without it; the lega comes next because
+    # without its snapshot every input after it is a guess.
     try:
         with database_manager.get_session() as session:
             snapshot = reads.latest_settings(session, league_id)
-            fmt = "classic" if (snapshot is not None and snapshot.role_groups == 1) else "mantra"
-            budget = float(snapshot.budget) if snapshot and snapshot.budget else 500.0
+            if snapshot is None:
+                # Not a failure the planner reports — the planner would happily run. With
+                # no snapshot the format, the budget and the roster band are all defaults,
+                # so a plan here is three guesses wearing an answer's clothes.
+                return AstaPlan(
+                    found=False,
+                    outcome="no_lega",
+                    reason=(
+                        f"lega {league_id} has never been synced, so its format, budget and "
+                        "roster band are unknown. Run `fantabot lega sync --write`."
+                    ),
+                )
+
+            fmt = "classic" if snapshot.role_groups == 1 else "mantra"
+            budget = float(snapshot.budget) if snapshot.budget else 500.0
             rules = ClassicRosterRules() if fmt == "classic" else build_roster_rules(snapshot)
 
             request = PlanRequest(
@@ -172,50 +194,53 @@ def asta_plan(
                 # The recorded 8x500 shape, the same default the CLI uses. It used to pass
                 # `int(budget)` with `num_teams` pinned at 8, which addresses a cell nobody
                 # chose — three such cells are empty in the live corpus while the same
-                # budget has thousands of sales at another team count. 1.6 makes every
-                # caller state a shape and raises on an unrecorded one.
+                # budget has thousands of sales at another team count. An unrecorded shape
+                # is `no_corpus` below, never a nearest-shape guess.
                 num_teams=DEFAULT_NUM_TEAMS,
                 num_credits=DEFAULT_NUM_CREDITS,
             )
             planned = build_plan(session, request)
-
-        world = planned.world
-        return AstaPlan(
-            found=True,
-            listone=fmt,
-            roster_size=int(getattr(rules, "size", len(planned.result.optimal.player_ids))),
-            total_cost=float(planned.result.optimal.total_cost),
-            objective=float(planned.result.optimal.objective),
-            budget=budget,
-            lam=lam,
-            owned=sorted(request.owned),
-            callable_pool=None if narrowed is None else len(narrowed),
-            players=[
-                PlanPlayer(
-                    player_id=pid,
-                    nome=world.names.get(pid, pid),
-                    price=float(world.prices.get(pid, 0.0)),
-                )
-                for pid in planned.result.optimal.player_ids
-            ],
-            fallbacks=[
-                Fallback(total_cost=float(f.total_cost), objective=float(f.objective))
-                for f in planned.result.fallbacks
-            ],
-        )
-    # Two named refusals, said out loud. Without them "sentiment is on and nobody has run
-    # `news fetch`" and "the database is down" are the same blank screen.
     except NoSentimentRows as exc:
-        return AstaPlan(found=False, reason=str(exc))
-    except EmptyPool as exc:
-        return AstaPlan(found=False, reason=str(exc))
-    # An unrecorded corpus shape. Named rather than swallowed because the alternative is
-    # not a slightly-off plan: with no prices the budget constraint is vacuous, and that
-    # bought a 25-man rosa for 25 credits of 500 on 2026-09-05.
+        return AstaPlan(found=False, outcome="no_sentiment", reason=str(exc))
     except NoCorpus as exc:
-        return AstaPlan(found=False, reason=str(exc))
-    except Exception:  # noqa: BLE001 — 1.7 replaces this with the pinned tuple of outcomes
-        return AstaPlan(found=False)
+        return AstaPlan(found=False, outcome="no_corpus", reason=str(exc))
+    except EmptyPool as exc:
+        return AstaPlan(found=False, outcome="empty_pool", reason=str(exc))
+    except InfeasibleRoster as exc:
+        # The rosa cannot be seeded at all. A different screen from an empty pool: there
+        # are players, and no legal eleven among them.
+        return AstaPlan(found=False, outcome="infeasible", reason=str(exc))
+    except Exception as exc:  # noqa: BLE001 — the last named outcome, not a catch-all
+        # Everything left is "we could not ask": the database would not open, a driver
+        # failed, a migration is missing. Typed and one line, because a traceback on a page
+        # says the call failed and not which of five things failed.
+        return AstaPlan(found=False, outcome="unreachable", reason=because(exc))
+
+    world = planned.world
+    return AstaPlan(
+        found=True,
+        outcome="planned",
+        listone=fmt,
+        roster_size=int(getattr(rules, "size", len(planned.result.optimal.player_ids))),
+        total_cost=float(planned.result.optimal.total_cost),
+        objective=float(planned.result.optimal.objective),
+        budget=budget,
+        lam=lam,
+        owned=sorted(request.owned),
+        callable_pool=None if narrowed is None else len(narrowed),
+        players=[
+            PlanPlayer(
+                player_id=pid,
+                nome=world.names.get(pid, pid),
+                price=float(world.prices.get(pid, 0.0)),
+            )
+            for pid in planned.result.optimal.player_ids
+        ],
+        fallbacks=[
+            Fallback(total_cost=float(f.total_cost), objective=float(f.objective))
+            for f in planned.result.fallbacks
+        ],
+    )
 
 
 # -- the room journal ---------------------------------------------------------------------
