@@ -11,24 +11,25 @@ the child chooses when to look, so its shutdown path always runs.
 drawing; *exit* says leave. That is the terminal contract `asta bid` documents for its
 two Ctrl-Cs, and the reason the flag is not a boolean.
 
-**Addressed, because a flag is a file and files outlive the run that wrote them.** A run
-killed between the write and its own shutdown leaves `exit` on disk; the next run reading
-a bare state would quit at startup for a reason that no longer exists, for ever. So the
-flag names the pid it is for and a child ignores one that is not.
+**Addressed by role, because a flag is a file and files outlive the run that wrote them.**
+A run killed between the write and its own shutdown leaves `exit` on disk; the next run
+reading it would quit at startup for a reason that expired.
 
-That is not the pid-file scheme `lock.py` argues against, and the difference is which
-question the pid is asked. `lock.py` refuses to answer *"is a collector running?"* from a
-recorded pid, because pid 40122 may since have become a browser. Here the pid is an
-**addressee**, and the only reader that acts on it is the process whose own
-`os.getpid()` matches — a fact it knows for certain and does not have to infer.
+The first version addressed the flag to the child's pid. It did not work on Windows — the
+supervisor wrote `disarm` for pid 2300 and the child polling that file never matched
+(`app-ci` run 34112470790) — and it was duplicating a guarantee that already existed:
+`lock.py` allows one holder per (landing zone, role), which is exactly the identity the
+pid stood in for. So the flag is `<landing>.<role>.stop`, the role is in the name because
+a collector and a loader share a landing zone by design, and **staleness is handled by
+the holder clearing the flag as it starts**.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
+from fantabot.adapters.files.lock import COLLECTOR, LOADER
 from fantabot.adapters.files.stopflag import (
     DISARM,
     EXIT,
@@ -41,100 +42,127 @@ from fantabot.adapters.files.stopflag import (
 
 
 class TestPath:
-    def test_it_sits_beside_the_thing_it_stops(self, tmp_path: Path) -> None:
+    def test_it_sits_beside_the_thing_it_stops_and_names_the_role(self, tmp_path: Path) -> None:
         landing = tmp_path / "live.jsonl"
 
-        assert stop_path(landing) == tmp_path / "live.jsonl.stop"
+        assert stop_path(landing, COLLECTOR) == tmp_path / "live.jsonl.collector.stop"
 
     def test_two_landing_zones_never_share_one(self, tmp_path: Path) -> None:
-        assert stop_path(tmp_path / "a" / "live.jsonl") != stop_path(tmp_path / "b" / "live.jsonl")
+        assert stop_path(tmp_path / "a" / "live.jsonl", LOADER) != stop_path(
+            tmp_path / "b" / "live.jsonl", LOADER
+        )
+
+    def test_the_two_roles_on_one_landing_zone_never_share_one(self, tmp_path: Path) -> None:
+        """Collector-plus-loader is the *intended* pairing — `lock.py` exists because a
+        single mutex would ban the normal case. One flag for both would do the same thing
+        to the stop: an operator ending the loader would end the collector with it."""
+        landing = tmp_path / "live.jsonl"
+
+        assert stop_path(landing, COLLECTOR) != stop_path(landing, LOADER)
+
+    def test_an_unknown_role_is_refused(self, tmp_path: Path) -> None:
+        """Same guard as `lock_path`, and for the same reason: a typo would silently open
+        a third flag file that nobody polls."""
+        import pytest
+
+        with pytest.raises(ValueError, match="is not a role"):
+            stop_path(tmp_path / "live.jsonl", "watcher")
 
 
 class TestTheTwoStages:
     def test_no_flag_reads_as_nothing_to_do(self, tmp_path: Path) -> None:
-        assert read_stop(stop_path(tmp_path / "live.jsonl"), pid=os.getpid()) is None
+        assert read_stop(stop_path(tmp_path / "live.jsonl", COLLECTOR)) is None
 
     def test_the_first_request_disarms(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "live.jsonl")
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
 
-        assert request_stop(path, pid=4242) == DISARM
-        assert read_stop(path, pid=4242) == DISARM
+        assert request_stop(path) == DISARM
+        assert read_stop(path) == DISARM
 
     def test_the_second_request_escalates_to_exit(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
 
-        assert request_stop(path, pid=4242) == EXIT
-        assert read_stop(path, pid=4242) == EXIT
+        assert request_stop(path) == EXIT
+        assert read_stop(path) == EXIT
 
     def test_a_third_request_stays_at_exit(self, tmp_path: Path) -> None:
         """There is no stage after *exit*, and escalating past it would mean inventing
         one. The caller escalates further by killing the process, which is a different
         mechanism on purpose."""
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
-        request_stop(path, pid=4242)
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        request_stop(path)
 
-        assert request_stop(path, pid=4242) == EXIT
+        assert request_stop(path) == EXIT
 
     def test_it_creates_the_directory_it_writes_into(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "nested" / "deeper" / "live.jsonl")
+        path = stop_path(tmp_path / "nested" / "deeper" / "live.jsonl", COLLECTOR)
 
-        assert request_stop(path, pid=1) == DISARM
+        assert request_stop(path) == DISARM
         assert path.exists()
 
 
 class TestStaleness:
-    def test_a_flag_for_another_run_is_not_mine(self, tmp_path: Path) -> None:
-        """The latching failure, stated as a test: a previous run wrote *exit* and died,
-        and the next run must not read it as its own."""
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
-        request_stop(path, pid=4242)
+    def test_a_run_that_clears_on_start_does_not_inherit_a_dead_run_s_exit(
+        self, tmp_path: Path
+    ) -> None:
+        """The latching failure, stated as a test. A previous run reached *exit* and died
+        without cleaning up; the next one must not read that as its own and quit at
+        startup for ever.
 
-        assert read_stop(path, pid=9999) is None
+        Clearing is what the *holder* does, and it is safe precisely because it holds the
+        role lock — nothing else can be waiting on what it erases.
+        """
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        request_stop(path)
+        assert read_stop(path) == EXIT
 
-    def test_requesting_for_a_new_run_replaces_the_stale_flag(self, tmp_path: Path) -> None:
-        """Escalation is per run. A stale *exit* must not make the new run's *first* stop
-        an exit — that would latch the old run's second Ctrl-C onto the new one."""
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
-        request_stop(path, pid=4242)
+        clear_stop(path)  # what a starting run does
 
-        assert request_stop(path, pid=9999) == DISARM
-        assert read_stop(path, pid=9999) == DISARM
-        assert read_stop(path, pid=4242) is None
+        assert read_stop(path) is None
+
+    def test_the_new_run_s_first_request_is_a_disarm_again(self, tmp_path: Path) -> None:
+        """Escalation must not carry over either: a dead run's second click landing as
+        this run's first would skip the stage the operator has not asked for yet."""
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        request_stop(path)
+        clear_stop(path)
+
+        assert request_stop(path) == DISARM
 
     def test_an_unreadable_flag_reads_as_nothing_to_do(self, tmp_path: Path) -> None:
         """A half-written or hand-edited file must not stop a run. The flag is advisory;
         a corrupt one is the *absence* of a request, never the presence of one."""
-        path = stop_path(tmp_path / "live.jsonl")
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json", encoding="utf-8")
 
-        assert read_stop(path, pid=os.getpid()) is None
+        assert read_stop(path) is None
 
     def test_a_flag_naming_an_unknown_state_reads_as_nothing_to_do(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
         path.write_text('{"pid": 4242, "state": "detonate"}', encoding="utf-8")
 
-        assert read_stop(path, pid=4242) is None
+        assert read_stop(path) is None
 
 
 class TestClear:
     def test_clearing_removes_the_request(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
 
         clear_stop(path)
 
-        assert read_stop(path, pid=4242) is None
+        assert read_stop(path) is None
 
     def test_clearing_what_is_not_there_is_not_an_error(self, tmp_path: Path) -> None:
         """A run clears its flag on the way out, and the ordinary case is that nobody ever
         wrote one."""
-        clear_stop(stop_path(tmp_path / "live.jsonl"))
+        clear_stop(stop_path(tmp_path / "live.jsonl", COLLECTOR))
 
 
 class TestTheModuleItself:
@@ -154,54 +182,56 @@ class TestWaiting:
     reason: a test that waited a real cadence would either be slow or be a race."""
 
     def test_it_returns_the_stage_that_was_asked_for(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
         ticks = 0
 
         async def sleep(_seconds: float) -> None:
             nonlocal ticks
             ticks += 1
 
-        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == DISARM
+        assert asyncio.run(wait_for_stop(path, sleep=sleep)) == DISARM
 
     def test_it_keeps_looking_until_the_flag_appears(self, tmp_path: Path) -> None:
         """The flag is written by another process *while* this one is waiting, which is
         the only sequence that ever happens in production."""
-        path = stop_path(tmp_path / "live.jsonl")
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
         ticks = 0
 
         async def sleep(_seconds: float) -> None:
             nonlocal ticks
             ticks += 1
             if ticks == 3:
-                request_stop(path, pid=4242)
+                request_stop(path)
 
-        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == DISARM
+        assert asyncio.run(wait_for_stop(path, sleep=sleep)) == DISARM
         assert ticks == 3
 
-    def test_it_ignores_a_flag_addressed_to_another_run(self, tmp_path: Path) -> None:
-        """The stale-flag case, from the waiter's side: it must not return on someone
-        else's request, or a dead run's leftover would stop this one at its first poll."""
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=1111)
-        request_stop(path, pid=1111)
+    def test_a_cleared_flag_is_waited_through(self, tmp_path: Path) -> None:
+        """The stale-flag case from the waiter's side. A run starts by clearing, so what
+        it then waits on is only what was written for it — the leftover it erased cannot
+        stop it at its first poll."""
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        request_stop(path)
+        clear_stop(path)
         ticks = 0
 
         async def sleep(_seconds: float) -> None:
             nonlocal ticks
             ticks += 1
             if ticks == 4:
-                request_stop(path, pid=4242)
+                request_stop(path)
 
-        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == DISARM
+        assert asyncio.run(wait_for_stop(path, sleep=sleep)) == DISARM
         assert ticks == 4
 
     def test_it_reports_exit_when_that_is_the_stage(self, tmp_path: Path) -> None:
-        path = stop_path(tmp_path / "live.jsonl")
-        request_stop(path, pid=4242)
-        request_stop(path, pid=4242)
+        path = stop_path(tmp_path / "live.jsonl", COLLECTOR)
+        request_stop(path)
+        request_stop(path)
 
         async def sleep(_seconds: float) -> None:
             raise AssertionError("the flag was already set; nothing to wait for")
 
-        assert asyncio.run(wait_for_stop(path, pid=4242, sleep=sleep)) == EXIT
+        assert asyncio.run(wait_for_stop(path, sleep=sleep)) == EXIT

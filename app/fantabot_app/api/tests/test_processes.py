@@ -16,6 +16,7 @@ fake `Popen` would agree with whatever the implementation happened to do.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -60,18 +61,26 @@ while True:
 #: stage it was asked for, so a test can tell the two apart without reading the file
 #: itself.
 #:
-#: `sys.path` is extended rather than assumed: this runs under the *app's* interpreter,
-#: which has `fantabot` installed, but the test has to work from a source checkout too.
+#: It clears the flag before announcing itself, which is exactly what `aste_collect` does
+#: and is the whole staleness story: a run that died at *exit* left the flag on disk, and
+#: reading it at startup would quit for a reason that expired.
+#:
+#: `saw disarm` is printed once rather than every 50 ms — the loop would otherwise flood
+#: the job log with twenty lines a second while disarmed, which is the state a room sits
+#: in for as long as the operator wants to keep watching it.
 FLAG_POLLER = """
-import os, signal, sys, time
+import signal, sys, time
 signal.signal(signal.SIGINT, signal.SIG_IGN)
-from fantabot.adapters.files.stopflag import read_stop, stop_path
 from pathlib import Path
-flag = stop_path(Path(sys.argv[1]))
+from fantabot.adapters.files.stopflag import clear_stop, read_stop, stop_path
+flag = stop_path(Path(sys.argv[1]), "loader")
+clear_stop(flag)
 print("polling", flush=True)
+seen = None
 while True:
-    state = read_stop(flag, pid=os.getpid())
-    if state is not None:
+    state = read_stop(flag)
+    if state is not None and state != seen:
+        seen = state
         print("saw " + state, flush=True)
         if state == "exit":
             sys.exit(0)
@@ -133,19 +142,38 @@ def test_python_dash_m_fantabot_actually_runs() -> None:
 
 
 def test_stdout_reaches_the_log_while_the_child_is_still_running(tmp_path: Path) -> None:
-    """A job that buffers until exit is indistinguishable from a hung one."""
+    """A job that buffers until exit is indistinguishable from a hung one.
+
+    Driven by the flag-polling child rather than the SIGINT-only one so the teardown
+    works on every platform: on Windows stage one sends no signal at all, and a POLITE
+    child would still be running when the test ended.
+    """
+    landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
-    job = ProcessJob(_python(POLITE), role="loader", landing=tmp_path / "live.jsonl")
+    job = ProcessJob(_python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing)
     _run_in_thread(job, reporter)
 
-    assert _wait(lambda: "first" in reporter.lines), reporter.lines
+    assert _wait(lambda: "polling" in reporter.lines), reporter.lines
     assert job.running
 
+    job.stop()
     job.stop()
     assert _wait(lambda: not job.running)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="SIGINT is the POSIX half of the stop")
 def test_stop_sends_sigint_and_the_child_exits_cleanly(tmp_path: Path) -> None:
+    """The POSIX half, kept and kept honest about being one half.
+
+    `SIGINT` is still sent, still not `SIGTERM` — `aste_collect` catches only
+    `KeyboardInterrupt` — and it is what ends a child that predates the flag. It is not
+    the mechanism the two-stage tests rely on: those drive a child that ignores it, so
+    nothing there can be passing because of this.
+
+    Skipped rather than rewritten on Windows because there is no equivalent to assert.
+    `CTRL_BREAK_EVENT` was the equivalent and it killed the child before its own handler
+    ran, which is the reason the flag exists.
+    """
     reporter = BufferingReporter()
     job = ProcessJob(_python(POLITE), role="loader", landing=tmp_path / "live.jsonl")
     _run_in_thread(job, reporter)
@@ -198,13 +226,21 @@ def test_a_child_that_ignores_everything_is_killed_and_the_log_says_so(tmp_path:
 
 def test_stop_polls_the_role_lock_rather_than_sleeping_out_the_grace(tmp_path: Path) -> None:
     """15 s is the bound, not the cost. A stop that always paid it would make the button
-    feel broken on the one evening it is used."""
+    feel broken on the one evening it is used.
+
+    Timed around the **second** stop, because that is the only one that waits: stage one
+    asks and returns, so timing it would measure nothing. The child exits on *exit*, so a
+    `stop()` that slept out its grace instead of watching the lock would take 15 s.
+    """
+    landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(POLITE), role="loader", landing=tmp_path / "live.jsonl", grace_s=15.0
+        _python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing, grace_s=15.0
     )
     _run_in_thread(job, reporter)
-    assert _wait(lambda: "first" in reporter.lines)
+    assert _wait(lambda: "polling" in reporter.lines)
+    job.stop()
+    assert _wait(lambda: "saw disarm" in reporter.lines), reporter.lines
 
     started = time.monotonic()
     job.stop()
@@ -305,25 +341,37 @@ def test_the_stop_is_announced_as_a_flag_write(tmp_path: Path) -> None:
     assert any("disarm" in line and "stopping" in line for line in reporter.lines), reporter.lines
 
 
-def test_the_flag_names_the_child_not_the_supervisor(tmp_path: Path) -> None:
-    """The addressee is the child's pid. Written with the app's own, every supervised
-    child in the app would read a flag meant for a sibling — and the app's pid is the one
-    number that is trivially to hand at the point the flag is written."""
+def test_the_flag_is_named_for_the_role_and_holds_only_the_stage(tmp_path: Path) -> None:
+    """The addressee is the (landing zone, role) the role lock already makes unique — not
+    a pid.
+
+    Two collectors cannot coexist on one landing zone and neither can two loaders, so
+    "whoever holds this role here" names exactly one process; and a collector *and* a
+    loader on one landing zone is the intended pairing, which is why the role is in the
+    file name rather than only in the lock's.
+
+    The pid version of this is what run 34112470790 disproved: the supervisor wrote for
+    pid 2300 and the child polling that file never matched.
+    """
     import json
-    import os
 
     from fantabot.adapters.files.stopflag import stop_path
 
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
-    job = ProcessJob(_python(POLITE), role="loader", landing=landing, grace_s=0.4)
+    job = ProcessJob(
+        _python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing, grace_s=0.4
+    )
     _run_in_thread(job, reporter)
-    assert _wait(lambda: "first" in reporter.lines)
-    child_pid = job.pid
+    assert _wait(lambda: "polling" in reporter.lines)
+
+    job.stop()
+    assert _wait(lambda: "saw disarm" in reporter.lines), reporter.lines
+
+    flag = stop_path(landing, "loader")
+    assert flag.name == "live.jsonl.loader.stop"
+    assert json.loads(flag.read_text(encoding="utf-8")) == {"state": "disarm"}
+    assert stop_path(landing, "collector") != flag
 
     job.stop()
     assert _wait(lambda: not job.running)
-
-    written = json.loads(stop_path(landing).read_text(encoding="utf-8"))
-    assert written["pid"] == child_pid
-    assert written["pid"] != os.getpid()

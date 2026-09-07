@@ -22,18 +22,28 @@ and the reason this is not a boolean. There is deliberately no stage after *exit
 request stays there, and a caller that wants more escalates by killing the process, which
 is a different mechanism on purpose.
 
-**The flag is addressed, and that is what keeps it from latching.** A run killed between
-the write and its own shutdown leaves *exit* on disk. A child reading a bare state would
-then quit at startup, for ever, for a reason that expired. So the flag names the pid it is
-for, and a reader whose own pid does not match sees nothing.
+**The addressee is the role lock, not a pid.** A run killed between the write and its own
+shutdown leaves *exit* on disk, and a child that read it would quit at startup for ever,
+for a reason that expired. The first version addressed the flag to the child's pid to fix
+that. It was wrong twice over.
 
-That is not the pid-file scheme `lock.py` argues against, and the difference is which
-question the pid is asked. `lock.py` refuses to answer *"is a collector running?"* from a
-recorded pid, because pid 40122 may since have become a browser — an inference about
-someone else, made from a stale record. Here the pid is an **addressee**: the only reader
-that acts is the process whose own `os.getpid()` matches, and that is a fact it knows
-rather than infers. The worst a reused pid can do is deliver one expired *disarm* to a
-process that will then clear it.
+It did not work: on Windows the supervisor wrote `disarm` for pid 2300 and the child
+polling that same file never matched it — recorded in `app-ci` run 34112470790, where the
+job log holds both `polling` and `stopping: disarm flag for pid 2300` and no `saw
+disarm`. Whether `Popen.pid` and the child's own `os.getpid()` are the same number across
+a spawn from a uv venv there was never established, and a stop mechanism whose identity
+scheme cannot be verified on the platform it exists for is not a mechanism.
+
+And it was solving a problem already solved. `lock.py` guarantees **one holder per
+(landing zone, role)**, which is exactly the identity the pid was standing in for — so
+the flag is named `<landing>.<role>.stop`, the same shape as the lock file, and whoever
+holds the lock owns the flag. Collector and loader are the *intended* pairing on one
+landing zone, so the role has to be in the name or a stop aimed at one would stop the
+other.
+
+Staleness is then the holder's own business: a run **clears the flag as it starts**. It
+holds the lock, so nothing else can be relying on what it erases, and no request written
+before it began was written for it.
 
 **No database, and no `signal`.** This module is polled from the collection path, so it
 carries `lock.py`'s rule: nothing here may reach persistence, or a database outage could
@@ -48,6 +58,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Final
 
+from fantabot.adapters.files.lock import ROLES
+
 #: Stop deciding, keep drawing. The first stage of the two-stage gesture.
 DISARM: Final = "disarm"
 #: Leave. The second stage, and the last one this file has.
@@ -57,15 +69,18 @@ EXIT: Final = "exit"
 STAGES: Final = (DISARM, EXIT)
 
 
-def stop_path(base: Path) -> Path:
-    """`<base>.stop` — beside the thing it stops, and derived from it.
+def stop_path(base: Path, role: str) -> Path:
+    """`<base>.<role>.stop` — beside the lock file it shadows, and named the same way.
 
     Beside it for `lock.py`'s reason: `ls` in the harvest home should answer "what is
     happening here", and a flag filed somewhere central would not be part of that answer.
-    Derived from *base* rather than fixed so two landing zones never share one flag, which
-    would let a stop aimed at one stop the other.
+    Derived from *base* so two landing zones never share one, and from *role* because a
+    collector and a loader on one landing zone are the intended pairing — one file for
+    both would let a stop aimed at either stop the other.
     """
-    return base.with_name(f"{base.name}.stop")
+    if role not in ROLES:
+        raise ValueError(f"{role!r} is not a role. Use one of: {', '.join(ROLES)}")
+    return base.with_name(f"{base.name}.{role}.stop")
 
 
 def _read(path: Path) -> dict[str, object]:
@@ -83,41 +98,43 @@ def _read(path: Path) -> dict[str, object]:
     return raw if isinstance(raw, dict) else {}
 
 
-def read_stop(path: Path, *, pid: int) -> str | None:
-    """The stage requested of the run with this *pid*, or `None`.
+def read_stop(path: Path) -> str | None:
+    """The stage requested of whoever holds this role, or `None`.
 
-    `None` for every other case: no flag, an unreadable one, one naming a stage this
-    module does not have, and — the one that matters — one addressed to a different run.
+    `None` for every case that is not a request: no flag, an unreadable one, and one
+    naming a stage this module does not have.
     """
-    flag = _read(path)
-    if flag.get("pid") != pid:
-        return None
-    state = flag.get("state")
+    state = _read(path).get("state")
     return state if state in STAGES else None
 
 
-def request_stop(path: Path, *, pid: int) -> str:
-    """Ask the run with this *pid* to stop, one stage further than last time.
+def request_stop(path: Path) -> str:
+    """Ask whoever holds this role to stop, one stage further than last time.
 
     Returns the stage now in force. The escalation is read-then-write rather than a
     counter held by the caller, so the two stages survive the caller restarting: the app
     can be reloaded between an operator's two clicks and the second still means *exit*.
 
-    Escalation is **per run**. A flag left by a dead run at *exit* does not make this
-    run's first request an exit — it is replaced, not advanced, or the old run's second
-    click would land on a process that never saw the first.
+    Escalation cannot run away past a dead run because the *holder* clears the flag as it
+    starts — see `clear_stop`. Without that, a run that died at *exit* would make the next
+    run's first click an exit, landing the old run's second gesture on a process that
+    never saw the first.
     """
-    # `read_stop` already returns `None` for anything that is not this run's own valid
-    # stage, so "there is a request" and "escalate" are the same condition.
-    current = read_stop(path, pid=pid)
+    current = read_stop(path)
     state = EXIT if current is not None else DISARM
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"pid": pid, "state": state}), encoding="utf-8")
+    path.write_text(json.dumps({"state": state}), encoding="utf-8")
     return state
 
 
 def clear_stop(path: Path) -> None:
-    """Forget any request. Not an error when there is none — that is the ordinary case."""
+    """Forget any request. Not an error when there is none — that is the ordinary case.
+
+    Called twice by every run that honours this flag: **once as it starts**, which is what
+    makes a dead run's leftover harmless, and once as it leaves. The first call is the
+    load-bearing one and it is safe because the caller holds the role lock, so nothing
+    else can be waiting on what it erases.
+    """
     path.unlink(missing_ok=True)
 
 
@@ -130,11 +147,10 @@ POLL_S: Final = 5.0
 async def wait_for_stop(
     path: Path,
     *,
-    pid: int,
     sleep: Callable[[float], Awaitable[None]],
     poll_s: float = POLL_S,
 ) -> str:
-    """Block until a stop is requested of *pid*, then return the stage.
+    """Block until a stop is requested of this role, then return the stage.
 
     The flag is checked **before** the first sleep, so a request that landed while the
     caller was still starting up is not held for a whole poll interval.
@@ -145,7 +161,7 @@ async def wait_for_stop(
     running loop.
     """
     while True:
-        state = read_stop(path, pid=pid)
+        state = read_stop(path)
         if state is not None:
             return state
         await sleep(poll_s)

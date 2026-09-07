@@ -520,7 +520,6 @@ def aste_collect(
     """
     import asyncio
     import json
-    import os
 
     from fantabot.adapters.files.landing import LandingZone
     from fantabot.adapters.files.stopflag import clear_stop, stop_path, wait_for_stop
@@ -616,11 +615,16 @@ def aste_collect(
         # — the same way its first Ctrl-C already ends it while `asta bid`'s first one
         # only disarms. The flag carries which stage was asked; what a stage means is the
         # command's to decide.
-        flag = stop_path(out)
-        pid = os.getpid()
+        #
+        # Cleared before the wait starts, and that is the whole staleness story: a run
+        # that died at *exit* left the flag on disk, and reading it here would quit at
+        # startup for a reason that expired. We are inside `_held`, so the role lock is
+        # ours and nothing else can be waiting on what this erases.
+        flag = stop_path(out, COLLECTOR)
+        clear_stop(flag)
 
         async def stop() -> str:
-            return await wait_for_stop(flag, pid=pid, sleep=asyncio.sleep)
+            return await wait_for_stop(flag, sleep=asyncio.sleep)
 
         try:
             report = asyncio.run(

@@ -251,17 +251,23 @@ class ProcessJob:
         return 0
 
     def _request_stop(self, process: subprocess.Popen[str]) -> str:
-        """Write the flag, addressed to the **child's** pid, and say which stage.
+        """Write the flag for this (landing zone, role), and say which stage.
 
-        The child's, not this process's: every supervised job in the app shares one
-        parent, so a flag written with the app's pid would be read by every sibling as
-        its own. `Popen.pid` is the child directly — there is no shell in between — so it
-        is the same number the child gets from `os.getpid()`.
+        Addressed by role rather than by pid. The first version named the child's
+        `Popen.pid` and it did not work on Windows: the supervisor wrote `disarm` for pid
+        2300 and the child polling that same file never matched it (`app-ci` run
+        34112470790, whose job log holds `polling` and `stopping: disarm flag for pid
+        2300` and no `saw disarm`). Whether `Popen.pid` and the child's own `os.getpid()`
+        are the same number across a spawn from a uv venv there was never established.
+
+        The pid was standing in for an identity `lock.py` already guarantees — one holder
+        per (landing zone, role) — so the flag borrows the lock's own name instead, and
+        the child clears it as it starts rather than checking who it was for.
         """
         # Annotated because `fantabot` ships no `py.typed`, so this venv's mypy reads
         # every symbol from it as `Any` and a bare `return` here is `Any` out of a `str`
         # function. The marker is the real fix and is a change of its own.
-        stage: str = request_stop(stop_path(self.landing), pid=process.pid)
+        stage: str = request_stop(stop_path(self.landing, self.role))
         self._print(f"stopping: {stage} flag for pid {process.pid}")
         return stage
 
