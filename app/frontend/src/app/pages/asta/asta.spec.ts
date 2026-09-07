@@ -233,10 +233,72 @@ describe('AstaComponent', () => {
         credits_left: 29,
         max_cap: 27,
         owned_count: 27,
+        bargain_spent: null,
+        bargain_allowance: null,
+        error: null,
         cycle_ms: null,
         ...over,
       };
     }
+
+    it('tells a skipped poll from a crash', async () => {
+      // Both carry two or three keys, so until `error` was read they rendered as the same
+      // row of nulls — and distinguishing them is the whole purpose of writing an error
+      // row at all.
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(
+          page({
+            rows: [
+              journalRow({
+                index: 5192,
+                name: null,
+                lot: null,
+                price: null,
+                credits_left: null,
+                max_cap: null,
+                owned_count: null,
+                decision: 'error',
+                error: 'ReadTimeout',
+              }),
+              journalRow({
+                index: 5191,
+                name: null,
+                lot: null,
+                price: null,
+                credits_left: null,
+                max_cap: null,
+                owned_count: null,
+                decision: 'waiting',
+              }),
+            ],
+          }),
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('ReadTimeout');
+      expect(text).toContain('waiting');
+    });
+
+    it('shows what the evening has already spent off-plan', async () => {
+      // The aggregate cap. It has been written since `44cfe89` and read by nothing: an
+      // operator who cannot see it only learns it exists by not understanding a held bid.
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ rows: [journalRow({ bargain_spent: 37, bargain_allowance: 50 })] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('37/50');
+    });
 
     it('costs nothing until it is opened', async () => {
       // 1.6 MB parsed on every visit to a page whose subject is the plan would be a cost

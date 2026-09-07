@@ -169,6 +169,50 @@ def test_the_page_carries_what_the_evening_was_decided_on(tmp_path: Path) -> Non
     assert only.cycle_ms == 72300.4
 
 
+def test_a_waiting_row_is_not_a_row_of_nulls(tmp_path: Path) -> None:
+    """`waiting` and `error` rows carry two or three keys. Until `error` was read they
+    rendered identically — and telling a skipped poll from a crash is `error_row`'s
+    entire purpose."""
+    journal = write(
+        tmp_path / "j.jsonl",
+        json.dumps({"at_ms": 1, "decision": "waiting"}),
+        json.dumps({"at_ms": 2, "decision": "error", "error": "ReadTimeout"}),
+    )
+
+    crash, skipped_poll = read_journal(journal).rows
+
+    assert (crash.decision, crash.error) == ("error", "ReadTimeout")
+    assert (skipped_poll.decision, skipped_poll.error) == ("waiting", None)
+
+
+def test_the_bargain_pair_reaches_the_page(tmp_path: Path) -> None:
+    """Written since `44cfe89` — an ancestor of this viewer's own commit `86acb6c` — and
+    read by nothing until now. An aggregate cap the operator cannot see after the evening
+    is one they only find out about by not understanding why a bid was held."""
+    journal = write(
+        tmp_path / "j.jsonl", row(decision="hold", bargain_spent=37, bargain_allowance=50)
+    )
+
+    (only,) = read_journal(journal).rows
+
+    assert (only.bargain_spent, only.bargain_allowance) == (37, 50)
+
+
+def test_the_endpoint_reads_the_path_the_cli_writes(tmp_path: Path) -> None:
+    """One derived path, not four hand-joined literals: `config.journal_path()`."""
+    from fantabot.config import journal_path
+
+    from fantabot_app.api.v1.endpoints import asta as endpoint
+
+    with TestClient(app) as client:
+        body = client.get("/api/v1/asta/journal").json()
+
+    assert body["path"] == str(journal_path())
+    assert not hasattr(endpoint, "JOURNAL_FILE"), (
+        "the endpoint names the journal file itself again — that is the drift `journal_path` closed"
+    )
+
+
 def test_limit_is_bounded_so_one_request_cannot_ask_for_the_evening(tmp_path: Path) -> None:
     journal = write(tmp_path / "j.jsonl", *(row(name=f"P{n}") for n in range(10)))
 

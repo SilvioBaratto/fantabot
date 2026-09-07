@@ -26,6 +26,20 @@ export interface JournalRow {
   max_cap: number | null;
   /** The count of the rosa, not its 27 ids: the row is a decision, not an inventory. */
   owned_count: number | null;
+  /**
+   * Credits already gone on lots the plan never named, and the evening's ceiling for
+   * them. Written since `44cfe89` — an ancestor of this model's own commit — and read by
+   * nothing until 1.2. An aggregate cap the operator cannot see after the evening is one
+   * they only find out about by not understanding why a bid was held.
+   */
+  bargain_spent: number | null;
+  bargain_allowance: number | null;
+  /**
+   * The exception type of a poll that raised. Without it a `waiting` row and an `error`
+   * row are the same row of nulls — and telling a skipped poll from a crash is the whole
+   * purpose of writing an error row at all.
+   */
+  error: string | null;
   /** Added after the 2026-09-01 evening was recorded, so null across all of it. */
   cycle_ms: number | null;
 }

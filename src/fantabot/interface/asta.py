@@ -459,7 +459,7 @@ def asta_room(
         resolve_room,
         waiting_row,
     )
-    from fantabot.config import settings
+    from fantabot.config import journal_path, settings
     from fantabot.domain.asta.bid import Seat, max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
     from fantabot.domain.asta.report import listone_rows
@@ -577,7 +577,7 @@ def asta_room(
             resolved.db, resolved.fantaleague_id, payload, node=node
         ),
     )
-    journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    journal = RoomJournal(journal_path())
     # `cycle_ms` is measured here, not in `application/` — the clock stays out of that layer.
     # One slot rather than a return value from `cycle` itself: `target_of` starts the clock
     # right before calling it, and this closure (handed to `RoomTracker` as `journal`) reads
@@ -877,7 +877,7 @@ def asta_bid(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.application.asta_room import RoomFrame, RoomTracker, error_row, waiting_row
-    from fantabot.config import settings
+    from fantabot.config import journal_path, settings
     from fantabot.domain.asta.bid import Seat, max_bid
 
     # `refresh=True`: see `asta_room`'s identical fetch for why. A transport failure
@@ -953,7 +953,7 @@ def asta_bid(
         why = "--arm not given" if settings.fantabot_auto_act else "FANTABOT_AUTO_ACT is false"
         console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
-    journal = RoomJournal(Path(settings.fantabot_data_dir) / "room_journal.jsonl")
+    journal = RoomJournal(journal_path())
     # `cycle_ms` measured here, not in `application/` — see `asta_room`'s identical wiring.
     cycle_started = [0.0]
 

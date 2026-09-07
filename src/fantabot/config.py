@@ -43,6 +43,30 @@ def harvest_dir() -> Path:
     return Settings().fantabot_harvest_dir
 
 
+#: The evening's only record, as the CLI has always named it.
+JOURNAL_FILE = "room_journal.jsonl"
+
+
+def journal_path() -> Path:
+    """The live room's journal — one derived path, four literals replaced.
+
+    `interface/asta.py` joined this by hand in `asta room` and again in `asta bid`, and
+    the app's endpoint twice more. Four spellings of one file is four chances to disagree
+    about the evening's only record, and `harvest_dir` is the precedent for closing that.
+
+    **The home deliberately does not move.** `fantabot_data_dir` is `Path("./data")` and
+    *relative*, unlike `fantabot_harvest_dir`, so a writer and a reader agree only when
+    both processes were started from the repository root — a real footgun, kept, because
+    moving it would move an artefact the CLI owns and the 2026-09-01 audit was performed
+    against. What this buys is that every caller now has the *same* footgun, stated here
+    once, and `.resolve()` means a viewer can say which file it actually read.
+
+    A fresh `Settings` per call, for `harvest_dir`'s reason: the module singleton binds at
+    import, so an exported value has to win at call time.
+    """
+    return (Settings().fantabot_data_dir / JOURNAL_FILE).resolve()
+
+
 def bundled_database_url(database: str = "fantabot") -> str:
     """The DSN of the app's bundled Postgres — the canonical database.
 

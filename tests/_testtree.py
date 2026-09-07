@@ -151,6 +151,9 @@ TREE: dict[str, str] = {
     "test_aste_landing.py": "adapters/files",
     "test_stop_flag.py": "adapters/files",
     "test_role_lock.py": "adapters/files",
+    # The reader, beside the writer. Filed by its subject rather than its imports: it
+    # reads `application/asta_room.py` to check the writer and the reader still agree.
+    "test_room_journal_read.py": "adapters/files",
     "test_db_boundary.py": "adapters/persistence",
     "test_db_models.py": "adapters/persistence",
     "test_repositories_fake.py": "adapters/persistence",
@@ -166,6 +169,7 @@ TREE: dict[str, str] = {
     # which model, which database, and now which directory holds the harvest artefacts.
     "test_config_database_url.py": "adapters",
     "test_config_harvest_dir.py": "adapters",
+    "test_config_journal_path.py": "adapters",
     # -- interface --------------------------------------------------------------------------
     "test_cli_aste_backfill.py": "interface",
     "test_cli_aste_collect.py": "interface",
