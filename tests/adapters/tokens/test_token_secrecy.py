@@ -442,7 +442,15 @@ def test_nothing_tells_anyone_to_run_a_command_that_does_not_exist() -> None:
     a backticked phrase, and a line that starts a shell command.
     """
     import re
+    import sys
 
+    # `tests/` has no `__init__.py`, and conftest puts only `tests/` itself on `sys.path`
+    # — so a bare `from test_cli_command_set import ...` resolves only once pytest has
+    # collected `tests/interface/` and added that directory too. Running *this file alone*
+    # therefore failed with `ModuleNotFoundError`, which is exactly what an operator does
+    # when they want to check one guard rather than the whole suite. Pre-existing; found
+    # by running the review checklist instead of writing it.
+    sys.path.insert(0, str(REPO / "tests" / "interface"))
     from test_cli_command_set import command_set
 
     known = command_set()
