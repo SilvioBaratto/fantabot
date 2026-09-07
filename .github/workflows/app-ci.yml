@@ -3,6 +3,18 @@ name: app-ci
 # The fantabot-app (app/) CI: proves the no-Docker cold install on Windows, macOS and
 # Linux (SPEC A1) and runs the app's test suites. Path-filtered so it is independent of
 # fantabot's own ci.yml.
+#
+# The filter also names four files under `src/`, and they are not arbitrary. This is the
+# only workflow with a Windows runner, and the app supervises a `fantabot` child process:
+# the modules on that path are exercised *here* and nowhere else. `app/**` alone meant a
+# change to `adapters/files/lock.py` — the very file whose Windows backend was in
+# question — never triggered the one job that runs it. `src/**` would be the other
+# extreme and would run this matrix on every commit, which is what the path filter exists
+# to avoid.
+
+# The two lists below are written out twice rather than shared through a YAML anchor:
+# GitHub Actions' workflow parser does not resolve anchors, so `*watched` would be read
+# as a literal and silently match nothing.
 
 on:
   push:
@@ -10,10 +22,27 @@ on:
     paths:
       - "app/**"
       - ".github/workflows/app-ci.yml"
+      # The OS-specific halves of the supervised-child path, all unverifiable anywhere
+      # else in this repository.
+      - "src/fantabot/adapters/files/lock.py"
+      - "src/fantabot/adapters/files/stopflag.py"
+      # The child the supervisor actually spawns, and the loop that polls the flag.
+      - "src/fantabot/interface/harvest.py"
+      - "src/fantabot/application/harvest_supervisor.py"
   pull_request:
     paths:
       - "app/**"
       - ".github/workflows/app-ci.yml"
+      - "src/fantabot/adapters/files/lock.py"
+      - "src/fantabot/adapters/files/stopflag.py"
+      - "src/fantabot/interface/harvest.py"
+      - "src/fantabot/application/harvest_supervisor.py"
+
+# Same block ci.yml has and this one lacked: a push on top of a push left the first
+# matrix running, and this matrix is three OSes plus a real Postgres provision.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
