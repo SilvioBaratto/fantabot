@@ -371,18 +371,53 @@ def seeded_db(parity_db: None) -> Generator[SeededWorld, None, None]:
             _sweep(session)
 
 
+@pytest.fixture(autouse=True)
+def listone_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FantaLab's `uuid -> fantacalcio_id` bridge, covering exactly the seeded pool.
+
+    Autouse, and load-bearing rather than tidy. Both sides narrow the pool to the players
+    the listone can call, so an unpatched `fetch` reaches a CDN — or, worse, a *gitignored
+    local cache* — and returns 530 real ids, none of which is a synthetic one. The plan
+    then has no pool at all and both sides agree that there is nothing to buy, which is the
+    "two empty results agree perfectly" failure in its most convincing form: `found=false`
+    with a plausible reason.
+
+    Patched here for the same reason `tests/_golden.py` patches it as its sixth point: a
+    gate whose answer depends on a machine's cache is a gate that passes for the wrong
+    reason on the machine that wrote it.
+    """
+    from fantabot.adapters.http.fantalab import listone
+
+    bridge = {f"parity-uuid-{n}": SYNTHETIC_BASE + n for n in range(len(_POOL))}
+    monkeypatch.setattr(listone, "fetch", lambda *args, **kwargs: dict(bridge))
+
+
+@pytest.fixture
+def seeded_callable_ids() -> frozenset[str]:
+    """What that bridge narrows to — the CLI side of the comparison uses it too."""
+    return frozenset(str(SYNTHETIC_BASE + n) for n in range(len(_POOL)))
+
+
 @pytest.fixture
 def frozen_today(monkeypatch: pytest.MonkeyPatch) -> date:
     """Both calendar seams, pinned to one date.
 
     One per surface, which `tests/domain/asta/test_asta_clock.py` enforces — the reason
     that test had to be extended before this tier could exist. A surface with two seams is
-    one this fixture silently half-freezes.
+    one this fixture silently half-freezes, and a surface whose seam this fixture does not
+    know about is one it does not freeze at all.
     """
     from fantabot.interface import asta as asta_cli
     from fantabot.interface import lineup as lineup_cli
 
+    from fantabot_app.api.v1.endpoints import asta as asta_endpoint
+
     monkeypatch.setattr(asta_cli, "_today", lambda: FROZEN_TODAY)
+    # The app's own seam, created by 1.5. Leaving it out is not a small omission: the two
+    # sides then read the calendar six days apart, the 7-day confidence decay rescales
+    # every reading, and the plans differ in `objective` while agreeing on membership —
+    # a divergence that looks exactly like the one this tier is meant to catch.
+    monkeypatch.setattr(asta_endpoint, "_today", lambda: FROZEN_TODAY)
     # Naive, mirroring what the seam actually returns: `_now` is `datetime.now()` and it
     # is compared against the platform's own naive matchday strings. A tz-aware stand-in
     # would freeze the clock and change the comparison in the same breath.

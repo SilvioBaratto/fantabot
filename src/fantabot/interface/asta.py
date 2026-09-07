@@ -146,34 +146,16 @@ def _callable_ids(
     *,
     _fetch: Callable[[], Mapping[str, int]] | None = None,
 ) -> set[str] | None:
-    """The fantacalcio ids FantaLab's listone can actually call, or ``None`` if unknown.
+    """`application/plan_request.callable_ids`, in the shape this module's callers hold.
 
-    ``None`` means "do not filter". It is deliberately not ``set()``: `read_plan_inputs` reads
-    an empty collection as a real, total exclusion — right for the bidder, where an unresolved
-    bridge means every lot would be unknown — and it would empty the pool here. A planner that
-    refuses to plan because a CDN was unreachable is worse than one that plans over a slightly
-    wider pool and says so, because this is the command an operator runs the night before, and
-    its output is the paper fallback for the evening.
-
-    Measured 2026-09-01: 41 of 570 pool players are absent from the listone. Lukaku (2531) is
-    one of them — priced at fvm 41 in `quotazioni`, so the optimiser sees him, and absent from
-    the listone, so the room can never call him. He took a slot in the printed 30-man plan,
-    which therefore had 29 fillable places and one that could not be filled.
-
-    ``_fetch`` is the injection seam, so the suite covers both degradations without a socket.
+    The narrowing and its fail-open rule moved to `application/` because the app needs
+    both. What is left here is the type the room and the bidder already pass around — a
+    mutable `set[str] | None`, not a frozenset — and the `_fetch` seam their tests use.
     """
-    from fantabot.adapters.http.fantalab import listone
+    from fantabot.application.plan_request import callable_ids
 
-    fetch = _fetch or listone.fetch
-    try:
-        bridge = fetch()
-    except Exception as exc:  # any transport failure degrades the same way
-        warn(f"listone unreachable ({type(exc).__name__}); planning over the whole pool")
-        return None
-    if not bridge:
-        warn("listone empty; planning over the whole pool")
-        return None
-    return {str(fid) for fid in bridge.values()}
+    ids = callable_ids(warn=warn, fetch=_fetch)
+    return None if ids is None else set(ids)
 
 
 def _report_stopped(report: Any) -> None:

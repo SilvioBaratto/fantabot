@@ -105,12 +105,13 @@ def _app_asta_files() -> tuple[Path, ...]:
 SURFACES = (
     Surface("asta", seam="_today", seams=1, files=_asta_files()),
     Surface("lineup", seam="_now", seams=1, files=_lineup_files()),
-    # Zero today, and that is the defect rather than the design: `GET /asta/plan` passes
-    # `as_of=None`, so the page shows the sentiment model's **ablation control** — plain
-    # `fvm`, which on the 2026-08-28 data chases a player with a metatarsal fracture to 62
-    # credits. 1.5 gives it a real `as_of` through one named seam and moves this to 1 in
-    # the same commit; until then the number records what is true.
-    Surface("app.asta", seam="_today", seams=0, files=_app_asta_files()),
+    # One since 1.5. It was zero, and that was the defect rather than the design:
+    # `GET /asta/plan` passed `as_of=None`, so the page showed the sentiment model's
+    # **ablation control** — plain `fvm`, which on the 2026-08-28 data chases a player with
+    # a metatarsal fracture to 62 credits. The seam is `endpoints/asta.py::_today` and the
+    # parity tier freezes it; before it did, the two sides read the calendar six days
+    # apart and disagreed about what the same rosa was worth.
+    Surface("app.asta", seam="_today", seams=1, files=_app_asta_files()),
 )
 
 

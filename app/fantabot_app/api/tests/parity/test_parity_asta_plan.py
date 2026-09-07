@@ -13,10 +13,15 @@ believes gets deleted. So the CLI's own `read_plan_inputs` + `optimize_roster` a
 here through the same seam the command uses, and the endpoint is called over HTTP; what is
 compared is which players were bought and for how much.
 
-1.5 replaces the `xfail` below with a golden-dict test pinning the `PlanRequest` both
-sides build. The marker is `strict`, so the day the two agree this file fails until
-somebody deletes the marker — the ratchet discipline `test_layers.py` uses, and the reason
-it is a marker here rather than a comment.
+**Green since 1.5**, and it was `xfail(strict=True)` before it: the marker is what made
+the fix fail this file until somebody deleted it. The last input to close was one 1.5
+*created* — the app gained its own `_today()` seam, the tier did not freeze it, and the two
+sides then read the calendar six days apart and disagreed about what the same twelve
+players were worth while agreeing on which twelve they were.
+
+`test_both_sides_build_the_same_request` is the guard that keeps it closed: comparing
+outputs catches a divergence only when the seed is rich enough to express it, and comparing
+the request catches it whatever the data.
 """
 
 from __future__ import annotations
@@ -29,7 +34,9 @@ from fastapi.testclient import TestClient
 from .conftest import SeededWorld, cli_session
 
 
-def _cli_plan(world: SeededWorld, today: date) -> dict[str, object]:
+def _cli_plan(
+    world: SeededWorld, today: date, narrowed: frozenset[str] | None
+) -> dict[str, object]:
     """What `asta optimize` decides: who, at what price, at what cost, and worth what.
 
     **`objective` is in the comparison and is the point of it.** On this seed the two
@@ -59,7 +66,7 @@ def _cli_plan(world: SeededWorld, today: date) -> dict[str, object]:
             sentiment=rows,
             as_of=today,
             tilt_k=SentimentWeights().k,
-            callable_ids=None,
+            callable_ids=narrowed,
             listone=world.listone,
             num_teams=world.num_teams,
             num_credits=world.budget,
@@ -84,7 +91,10 @@ def _cli_plan(world: SeededWorld, today: date) -> dict[str, object]:
 
 
 def test_the_seeded_world_is_plannable_at_all(
-    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+    seeded_db: SeededWorld,
+    frozen_today: date,
+    api: TestClient,
+    seeded_callable_ids: frozenset[str],
 ) -> None:
     """The guard that makes every other assertion in this file mean something.
 
@@ -99,7 +109,7 @@ def test_the_seeded_world_is_plannable_at_all(
     assert body["found"] is True, body
     assert body["players"], "the endpoint planned over an empty pool"
 
-    cli = _cli_plan(seeded_db, frozen_today)
+    cli = _cli_plan(seeded_db, frozen_today, seeded_callable_ids)
     assert cli["players"], "the CLI planned over an empty pool"
     # The seed is a *choice*, not a forced buy: eighteen candidates for twelve slots. A
     # fixture where the rosa is the pool makes both sides agree about a decision neither
@@ -125,16 +135,11 @@ def test_both_sides_read_the_same_format_and_budget(
     assert body["roster_size"] == seeded_db.roster_size
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the ten inputs of SPEC.md §11.1, and `sentiment=None`/`tilt_k=1.0` above all: "
-        "the page is showing the sentiment model's ablation control as advice. 1.5 fixes "
-        "both in one commit and deletes this marker."
-    ),
-)
 def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
-    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+    seeded_db: SeededWorld,
+    frozen_today: date,
+    api: TestClient,
+    seeded_callable_ids: frozenset[str],
 ) -> None:
     body = api.get(
         "/api/v1/asta/plan",
@@ -146,4 +151,137 @@ def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
         "objective": round(float(body["objective"]), 6),
     }
 
-    assert page == _cli_plan(seeded_db, frozen_today)
+    assert page == _cli_plan(seeded_db, frozen_today, seeded_callable_ids)
+
+
+def _request_from(world: SeededWorld, today: date, narrowed: frozenset[str] | None) -> object:
+    """The request `asta optimize` builds for this world, with the CLI's own defaults."""
+    from fantabot.application.plan_request import PlanRequest
+    from fantabot.domain.asta.sentiment import SentimentWeights
+    from fantabot.domain.asta.state import RosterRules
+
+    return PlanRequest(
+        season=world.season,
+        listone=world.listone,
+        as_of=today,
+        budget=float(world.budget),
+        rules=RosterRules(
+            size=world.roster_size,
+            min_goalkeepers=world.min_roles[0],
+            min_movement=world.min_roles[1],
+        ),
+        owned=frozenset(),
+        lam=0.0,
+        n_fallbacks=3,
+        tilt_k=SentimentWeights().k,
+        sentiment=True,
+        sentiment_run=None,
+        callable_ids=narrowed,
+    )
+
+
+def test_both_sides_build_the_same_request(
+    seeded_db: SeededWorld,
+    frozen_today: date,
+    api: TestClient,
+    seeded_callable_ids: frozenset[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The golden dict. Without it this reopens the first time either side gains an option.
+
+    Comparing *outputs* only catches a divergence the seed is rich enough to express — the
+    first version of this fixture agreed perfectly while one side planned on the sentiment
+    model and the other on its ablation control, because the rosa was the whole pool.
+    Comparing the request catches a changed field whatever the data.
+
+    The endpoint's request is captured rather than reconstructed: reconstructing it is
+    writing the assertion twice and calling the second copy evidence.
+    """
+    from fantabot.application import plan_request as pr
+
+    captured: list[object] = []
+    real = pr.build_plan
+
+    def spy(session: object, request: object) -> object:
+        captured.append(request)
+        return real(session, request)
+
+    # The endpoint imports `build_plan` inside its own body, so patching the module
+    # attribute is what a call actually resolves. Patching the endpoint's namespace would
+    # do nothing and the `captured` assertion below is what would say so.
+    monkeypatch.setattr(pr, "build_plan", spy)
+
+    api.get(
+        "/api/v1/asta/plan",
+        params={"league_id": seeded_db.league_id, "season": seeded_db.season},
+    )
+
+    assert captured, "the endpoint did not reach build_plan"
+    assert captured[0] == _request_from(seeded_db, frozen_today, seeded_callable_ids)
+
+
+def test_the_page_says_what_it_planned_on(
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+) -> None:
+    """`lam`, `owned`, `callable_pool` and the fallbacks, none of which the page had.
+
+    `callable_pool` is `None` when the listone was unreachable and the plan degraded open —
+    never `0`, because an empty exclusion set and an unknown one are different facts and
+    the second is the one that widens the pool.
+    """
+    body = api.get(
+        "/api/v1/asta/plan",
+        params={"league_id": seeded_db.league_id, "season": seeded_db.season},
+    ).json()
+
+    assert body["lam"] == 0.0
+    assert body["owned"] == []
+    assert body["callable_pool"] == len(seeded_db.player_ids)
+    assert body["fallbacks"], "the CLI prints three next-best plans; the page printed none"
+
+
+def test_owned_reaches_the_plan(
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+) -> None:
+    """The page had only ever shown the plan for an empty roster — the right answer on the
+    morning of the asta and the wrong one on every evening after it."""
+    keeper = seeded_db.player_ids[0]
+
+    body = api.get(
+        "/api/v1/asta/plan",
+        params={
+            "league_id": seeded_db.league_id,
+            "season": seeded_db.season,
+            "owned": keeper,
+        },
+    ).json()
+
+    assert body["found"] is True, body
+    assert body["owned"] == [keeper]
+    assert keeper in [row["player_id"] for row in body["players"]]
+
+
+def test_sentiment_on_with_no_feed_says_so_rather_than_showing_a_blank(
+    seeded_db: SeededWorld, frozen_today: date, api: TestClient
+) -> None:
+    """`found=false` with no reason is how "run `news fetch` first" and "the database is
+    down" became the same screen. 1.7 pins the full tuple; these two are named now because
+    turning sentiment on is what made the first of them reachable."""
+    from fantabot.adapters.persistence import database_manager
+    from sqlalchemy import text
+
+    from .conftest import SYNTHETIC_BASE
+
+    with database_manager.get_session() as session:
+        session.execute(
+            text("DELETE FROM player_sentiment WHERE player_id >= :b"),
+            {"b": SYNTHETIC_BASE},
+        )
+
+    body = api.get(
+        "/api/v1/asta/plan",
+        params={"league_id": seeded_db.league_id, "season": seeded_db.season},
+    ).json()
+
+    assert body["found"] is False
+    assert body["reason"] and "news fetch" in body["reason"], body

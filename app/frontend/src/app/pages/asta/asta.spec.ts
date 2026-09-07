@@ -5,6 +5,7 @@ import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
+import { AstaPlan } from '../../core/models/asta-plan';
 import { JournalPage, JournalRow } from '../../core/models/journal';
 import { RoomCheck } from '../../core/models/room';
 import { AstaComponent } from './asta';
@@ -50,6 +51,37 @@ describe('AstaComponent', () => {
     };
   }
 
+  function plan(over: Partial<AstaPlan> = {}): AstaPlan {
+    return {
+      found: true,
+      reason: null,
+      listone: 'mantra',
+      roster_size: 30,
+      total_cost: 500,
+      objective: 1897,
+      budget: 500,
+      lam: 0,
+      owned: [],
+      callable_pool: 529,
+      players: [{ player_id: '1', nome: 'Svilar', price: 20 }],
+      fallbacks: [],
+      ...over,
+    };
+  }
+
+  /** A component with one lega selected and `body` already flushed as its plan. */
+  async function readyWithPlan(body: AstaPlan) {
+    const fixture = TestBed.createComponent(AstaComponent);
+    fixture.detectChanges();
+    httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    httpMock.expectOne((r) => r.url.includes('asta/plan')).flush(body);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    return fixture;
+  }
+
   it('auto-selects the first lega and renders its plan', async () => {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
@@ -58,23 +90,66 @@ describe('AstaComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    httpMock
-      .expectOne((r) => r.url.includes('asta/plan'))
-      .flush({
-        found: true,
-        listone: 'mantra',
-        roster_size: 30,
-        total_cost: 500,
-        objective: 1897,
-        budget: 500,
-        players: [{ player_id: '1', nome: 'Svilar', price: 20 }],
-      });
+    httpMock.expectOne((r) => r.url.includes('asta/plan')).flush(plan());
     fixture.detectChanges();
     await fixture.whenStable();
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Svilar');
     expect(text).toContain('objective');
+  });
+
+  it('says what the plan was built on', async () => {
+    // The page showed a number and none of the inputs behind it, and those inputs
+    // differed from the command's in ten places (SPEC.md §11.1).
+    const fixture = await readyWithPlan(plan({ lam: 0.3, owned: ['9'], callable_pool: 529 }));
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('risk (lam)');
+    expect(text).toContain('0.3');
+    expect(text).toContain('callable pool');
+    expect(text).toContain('529');
+  });
+
+  it('renders an unnarrowed pool as unnarrowed, not as zero', async () => {
+    // `null` means the listone was unreachable and the plan ran over the whole pool. A
+    // pool narrowed to nothing is a different fact and would be a plan over nobody.
+    const fixture = await readyWithPlan(plan({ callable_pool: null }));
+
+    expect(fixture.nativeElement.textContent).toContain('not narrowed');
+  });
+
+  it('shows the next-best plans the command prints', async () => {
+    // A single optimal rosa reads as a prescription and is not one: the evening takes
+    // players off the board.
+    const fixture = await readyWithPlan(
+      plan({
+        fallbacks: [
+          { total_cost: 498, objective: 1880 },
+          { total_cost: 494, objective: 1871 },
+        ],
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Next best');
+    // Through the `number` pipe, so the grouping separator is part of what is rendered.
+    expect(text).toContain('1,880');
+    expect(text).toContain('1,871');
+  });
+
+  it("shows the endpoint's own reason when there is no plan", async () => {
+    // "Run `news fetch` first" and "the database is down" used to be the same screen.
+    const fixture = await readyWithPlan(
+      plan({
+        found: false,
+        reason:
+          'sentiment is on but there are no rows in the database. Run `fantabot news fetch --write`.',
+        players: [],
+      }),
+    );
+
+    expect(fixture.nativeElement.textContent).toContain('news fetch');
   });
 
   /**
@@ -392,15 +467,17 @@ describe('AstaComponent', () => {
 
     httpMock
       .expectOne((r) => r.url.includes('asta/plan'))
-      .flush({
-        found: false,
-        listone: '',
-        roster_size: 0,
-        total_cost: 0,
-        objective: 0,
-        budget: 0,
-        players: [],
-      });
+      .flush(
+        plan({
+          found: false,
+          listone: '',
+          roster_size: 0,
+          total_cost: 0,
+          objective: 0,
+          budget: 0,
+          players: [],
+        }),
+      );
     fixture.detectChanges();
     await fixture.whenStable();
 

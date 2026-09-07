@@ -163,6 +163,49 @@
             <p class="mt-1 text-sm text-text-secondary">objective</p>
           </div>
         </div>
+
+        <!-- What the plan was built on. The page used to show a number with none of this,
+             and the inputs behind it differed from the command's in ten places. -->
+        <dl class="grid gap-x-10 gap-y-3 border-t border-border px-6 py-4 text-sm sm:grid-cols-3">
+          <div>
+            <dt class="text-xs text-text-tertiary">risk (lam)</dt>
+            <dd class="tabular-nums text-text">{{ p.lam | number: '1.0-2' }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs text-text-tertiary">already owned</dt>
+            <dd class="tabular-nums text-text">{{ p.owned.length }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs text-text-tertiary">callable pool</dt>
+            <!-- `null` is rendered as what it is. It means the listone was unreachable and
+                 the plan ran over the whole pool, which is a different fact from a pool
+                 that was narrowed to nothing. -->
+            <dd class="tabular-nums text-text">
+              @if (p.callable_pool === null) {
+                <span class="text-warning">not narrowed</span>
+              } @else {
+                {{ p.callable_pool }}
+              }
+            </dd>
+          </div>
+        </dl>
+
+        @if (p.fallbacks.length) {
+          <div class="border-t border-border px-6 py-4">
+            <p class="text-xs font-semibold text-text-tertiary">
+              Next best, one per top target lost
+            </p>
+            <div class="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+              @for (f of p.fallbacks; track $index) {
+                <p class="text-sm tabular-nums text-text-secondary">
+                  <span class="text-text-tertiary">{{ $index + 1 }}.</span>
+                  cost {{ f.total_cost | number: '1.0-0' }} &middot; obj
+                  {{ f.objective | number: '1.0-0' }}
+                </p>
+              }
+            </div>
+          </div>
+        }
       </section>
 
       <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
@@ -186,9 +229,13 @@
     } @else {
       <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
         <p class="font-display text-base font-semibold text-text">No plan yet</p>
+        <!-- The endpoint's own reason when it has one. "Run `news fetch` first" and "the
+             database is down" used to be the same screen. -->
         <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
-          No player pool for this lega and season. Sync the lega and make sure quotazioni are
-          loaded.
+          {{
+            p.reason ??
+              'No player pool for this lega and season. Sync the lega and make sure quotazioni are loaded.'
+          }}
         </p>
       </section>
     }

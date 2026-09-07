@@ -35,7 +35,7 @@ looked at. The one error this layer raises for the interface to translate is
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Protocol
@@ -138,6 +138,43 @@ class PlannedRoster:
     sentiment: Mapping[str, SentimentRow] | None = field(default=None)
 
 
+def callable_ids(
+    *,
+    warn: Callable[[str], None],
+    fetch: Callable[[], Mapping[str, int]] | None = None,
+) -> frozenset[str] | None:
+    """The fantacalcio ids FantaLab's listone can actually call, or `None` if unknown.
+
+    **`None` means "do not filter", and it is deliberately not `frozenset()`.**
+    `read_plan_inputs` reads an empty collection as a real, total exclusion — right for the
+    bidder, where an unresolved bridge means every lot is unknown — and it would empty the
+    planner's pool. A planner that refuses to plan because a CDN was unreachable is worse
+    than one that plans over a slightly wider pool and says so: this is what an operator
+    reads the night before, and its output is the paper fallback for the evening.
+
+    Measured 2026-09-01: 41 of 570 pool players are absent from the listone. Lukaku (2531)
+    is one — priced at fvm 41 in `quotazioni` so the optimiser sees him, absent from the
+    listone so the room can never call him. He took a slot in the printed 30-man plan,
+    which therefore had 29 fillable places and one that could not be filled.
+
+    Lifted out of `interface/asta.py` because the app needs the same narrowing and the
+    same degradation: *"`interface/` holds no decision the app also needs"*. `fetch` is the
+    injection seam, so both degradations are covered without a socket.
+    """
+    from fantabot.adapters.http.fantalab import listone
+
+    reader = fetch or listone.fetch
+    try:
+        bridge = reader()
+    except Exception as exc:
+        warn(f"listone unreachable ({type(exc).__name__}); planning over the whole pool")
+        return None
+    if not bridge:
+        warn("listone empty; planning over the whole pool")
+        return None
+    return frozenset(str(fid) for fid in bridge.values())
+
+
 def resolve_sentiment(
     source: SentimentSource, *, enabled: bool, run: date | None
 ) -> Mapping[str, SentimentRow] | None:
@@ -218,5 +255,6 @@ __all__ = [
     "PlannedRoster",
     "SentimentSource",
     "build_plan",
+    "callable_ids",
     "resolve_sentiment",
 ]
