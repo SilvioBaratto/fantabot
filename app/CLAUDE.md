@@ -14,6 +14,12 @@ compiled Angular bundle on one port. Installed with **uv**; the only prerequisit
 itself (Postgres ships inside the `pixeltable-pgserver` wheel; the frontend is compiled
 into the wheel, so end users need no Node).
 
+**The target is parity with the CLI.** The app is a friendlier way to drive the same use
+cases — every `fantabot` command has, or is meant to have, a screen, the acting ones
+included. It is not a read-only companion to the CLI, and a command with no screen is a
+gap rather than a boundary. See *The app mirrors the CLI* under Rules for what that does
+and does not license.
+
 There is **no Docker** (the compose/Dockerfile scaffold was removed), no auth/JWT of its
 own, no BAML. The clean architecture lives in `fantabot`; this is a thin adapter over it.
 
@@ -67,19 +73,42 @@ cd frontend && npx ng test --watch=false  # vitest
   does, internally (A7 fitness test). No token in any response.
 - **Thin adapter.** Endpoints call fantabot use cases/repos; no re-added domain/application
   hexagon here.
-- **The app never acts. It reads, and it watches.** No live bid, no lineup submission —
-  and that is now a settled decision rather than a v1 deferral: the operator chose "the
-  CLI bids, the app watches", and the app is loopback-only. The bidding locks
-  (`FANTABOT_AUTO_ACT` + `--arm`, first Ctrl-C disarms) are a terminal contract a browser
-  tab cannot reproduce — a closed tab would leave a bidding thread running with nobody
-  attached.
-  The fitness test bans the **acting** names: `teamLineup_submit(`, `decide_bid(`,
-  `place_raise(`, `run_bid_loop(`, `RoomTracker(`. It used to ban the string
-  `application.asta_room`, which is the module that also holds the read-only
-  `resolve_room` and `RoomFrame` — so a room *viewer* failed the guard while
-  `rtdb.place_raise` and `room.run_bid_loop`, the two functions that actually spend
-  credits, were absent from the list and passed. The guard banned the viewer and
-  permitted the bidder; it now does the opposite.
+- **The app mirrors the CLI, acting included.** Reversed 2026-09-07 at the operator's
+  request. The rule here used to read *"the app never acts — it reads, and it watches"*
+  and banned the live bid and the lineup submission outright; the app is instead meant to
+  be the CLI with a face on it, so a command `fantabot` has is a command the app is
+  expected to grow. Parity is the target and a missing screen is a gap, not a boundary.
+  **What the old rule was protecting is not the ban.** Two facts sat under it, both still
+  true, and both survive as constraints on *how* an acting path is built rather than on
+  whether it is:
+  **A browser tab is not a process.** `FANTABOT_AUTO_ACT` + `--arm` + "first Ctrl-C
+  disarms" is a contract held by a terminal someone is sitting at. A closed tab over a
+  daemon thread leaves a bidding loop running with nobody attached — the failure the old
+  rule bought its way out of by forbidding the feature. So an acting path runs where a
+  stop is real: the supervised subprocess of `api/infrastructure/processes.py`, with the
+  job registry's `stop`, the OS role lock and the documented SIGINT → poll → SIGKILL
+  sequence. That machinery exists (it was built for the collector, T10–T12) and is the
+  precedent to follow, not one to invent beside.
+  **The two locks stay two locks, and the browser supplies the second.**
+  `FANTABOT_AUTO_ACT` in the environment is unchanged — process-wide `.env` state, opted
+  into in the morning. `--arm` becomes an explicit per-run arm carried in the request:
+  never a stored setting, never a default, never remembered across a reload, because the
+  property being bought is that the operator who armed it is the one watching. A disarm
+  must be reachable from the page **and** must not depend on the page staying open — a
+  reload that cannot find the running bid is the same accident as the closed tab.
+  **`tests/test_fitness.py` still bans the acting names** — `teamLineup_submit(`,
+  `decide_bid(`, `place_raise(`, `run_bid_loop(`, `RoomTracker(`, with
+  `test_the_boundary_names_the_functions_that_actually_act` pinning that list. They are
+  the old rule's enforcement and are **deliberately not retired in this edit**: they come
+  out in the same commit that builds the first acting path, so the guard is never green
+  over a feature nobody wrote. Until that commit the app is still read-only in fact, and
+  this rule states the intent, not the state.
+  The one piece of that guard worth keeping whatever replaces it: it bans the **write
+  path**, not a module name. It used to ban the string `application.asta_room`, which
+  also holds the read-only `resolve_room` and `RoomFrame` — so a room *viewer* failed
+  while `rtdb.place_raise` and `room.run_bid_loop`, the two functions that actually spend
+  credits, were absent from the list and passed. Whatever arming check replaces it must
+  name the functions that spend, not the modules they live in.
 - **A FantaLab bearer never enters app code.** `rest.fetcher_from(store)` and
   `LiveAuctionsClient.from_store(store)` resolve it inside the adapter and keep it in a
   closure, mirroring `apileague.auth_headers(league_id, store=...)`. Callers hand over the
@@ -122,11 +151,14 @@ cd frontend && npx ng test --watch=false  # vitest
   **Stop sequence:** `SIGINT` to a real pid — not `SIGTERM`, which has no handler on that
   path; `aste_collect` catches only `KeyboardInterrupt` — then poll the role lock at 250 ms
   for 15 s, then `SIGKILL`.
-- **The app never resets a load checkpoint.** It shows the offset, the file size and the
-  lag, and it names the command. The Classic recovery *was* an offset reset re-reading
-  1.31 GB; it is the highest-value action in the feature and the only destructive-shaped
-  one, and it stays a terminal act. There is nothing in `POST /harvest/load` that could do
-  it — the offset is the loader's.
+- **The app does not reset a load checkpoint, because the CLI has no flag that does.**
+  Under the mirror rule this is parity, not a ban: `harvest load` exposes no `--reset`,
+  the Classic recovery *was* an offset reset re-reading 1.31 GB and it was performed by
+  deleting the `.offset` by hand. So the app shows the offset, the file size and the lag,
+  and names the command; there is nothing in `POST /harvest/load` that could do it,
+  because the offset is the loader's. Give the CLI the flag and the app gets the button —
+  and give it the flag first, since the destructive-shaped act should be spelled out in
+  one place before it is wired to two.
 - **`fantabot-app stop` refuses while a collector holds the lock**, names the role and the
   landing zone, and offers `--force`. A three-hour asta evening is exactly when a stray
   `stop` costs records, and the landing zone's guarantee is about kills it did not choose.

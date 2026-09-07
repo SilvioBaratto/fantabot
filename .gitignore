@@ -53,10 +53,15 @@ scripts/read_classic_lineup.py
 .playwright-mcp/
 _pdftext.txt
 
-# Per-phase working notes. SPEC.md is already ignored (line 44); plan.md/todo.md
+# Per-phase working notes, and the maintainer-only backlog: decided-but-not-done work
+# and defects found but not fixed. SPEC.md is already ignored (line 44); plan.md/todo.md
 # are its siblings and get archived to tasks/archive/ on phase close, not committed.
-tasks/
-# Maintainer-only backlog: decided-but-not-done work and defects found but not fixed.
-# Same class as the two above, and it was untracked *and* unignored — one `git add -A`
-# from publication, which is exactly how the others came to be listed here.
-todo/
+#
+# No trailing slash, deliberately. `tasks/` matches a *directory*, and `tasks` is a
+# symlink to ~/.fantabot/tasks — which git treats as a file, so the slashed pattern
+# missed it entirely and `git status` reported `?? tasks` while `git clean -xfd` offered
+# to remove the only pointer to the record. The record lives outside the tree because
+# `origin` is public and it carries FantaLab platform findings, both league ids and
+# unfixed defects on the acting path.
+tasks
+todo
