@@ -25,7 +25,7 @@ from fantabot.application.asta_planner import read_plan_inputs
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.live import normalize, resolve_ids
 from fantabot.domain.asta.opponents import format_advisory, format_opponents, track_opponents
-from fantabot.domain.asta.optimizer import InfeasibleRoster, optimize_roster
+from fantabot.domain.asta.optimizer import InfeasibleRoster
 from fantabot.domain.asta.report import (
     build_pool,
     format_legality,
@@ -89,23 +89,20 @@ def sentiment_rows(
 ) -> dict[str, SentimentRow] | None:
     """Fetch the readings, or ``None`` when the operator asked for the ablation.
 
-    An empty result is refused rather than passed through. Valuing on "no rows" is
-    numerically identical to ``--no-sentiment`` but means something entirely different, and
-    a run that silently plans on plain ``fvm`` because a date was mistyped is exactly the
-    failure this check exists to prevent.
+    Two lines of translation over `application/plan_request.resolve_sentiment`: the *rule*
+    — that an empty result is refused rather than passed through, because valuing on "no
+    rows" is numerically identical to ``--no-sentiment`` and means something entirely
+    different — belongs beside the plan it governs, and the app needs it too. What stays
+    here is turning that refusal into the exception a Typer body may raise, and parsing
+    the run string, which raises the same kind.
     """
-    if not enabled:
-        return None
+    from fantabot.application.plan_request import NoSentimentRows, resolve_sentiment
 
-    pinned = parse_run_date(run)
-    rows = source.all_latest(data_run=pinned)
-    if not rows:
-        where = f"for data_run {run}" if run else "in the database"
-        raise typer.BadParameter(
-            f"sentiment is on but there are no rows {where}. "
-            "Run `fantabot news fetch --write`, or pass --no-sentiment."
-        )
-    return rows
+    try:
+        rows = resolve_sentiment(source, enabled=enabled, run=parse_run_date(run))
+    except NoSentimentRows as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return None if rows is None else dict(rows)
 
 
 def bid_writer(
@@ -222,7 +219,12 @@ def asta_optimize(
     the wider plan.
     """
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
+    from fantabot.application.plan_request import (
+        EmptyPool,
+        NoSentimentRows,
+        PlanRequest,
+        build_plan,
+    )
 
     if fmt not in ("mantra", "classic"):
         raise typer.BadParameter("--format must be 'mantra' or 'classic'")
@@ -233,43 +235,41 @@ def asta_optimize(
         else None
     )
 
-    with database_manager.get_session() as session:
-        rows = sentiment_rows(
-            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
-        )
-        world = read_plan_inputs(
-            session, season=season, sentiment=rows, as_of=_today(), tilt_k=tilt_k,
-            callable_ids=ids, listone=fmt,
-        )
-
-    # Fail closed: an empty pool means the listone has no rows for this format/season, which is
-    # a wrong-format or un-scraped run, not a plan over nobody.
-    if not world.pool:
-        console.print(f"[red]no {fmt} players for season {season} — nothing to plan.[/red]")
-        raise typer.Exit(code=1)
-
-    state = AstaState(owned=parse_ids(owned), total_budget=budget)
-    rules: RosterRules | ClassicRosterRules = (
-        ClassicRosterRules() if fmt == "classic" else RosterRules()
+    # Everything below the request is presentation and exit codes. What a plan is built
+    # from is `application/plan_request.py`'s to say, and it says it once — the endpoint
+    # builds the same value, which is the whole of 1.5.
+    request = PlanRequest(
+        season=season,
+        listone=fmt,
+        as_of=_today(),
+        budget=budget,
+        rules=ClassicRosterRules() if fmt == "classic" else RosterRules(),
+        owned=frozenset(parse_ids(owned)),
+        lam=lam,
+        n_fallbacks=fallbacks,
+        tilt_k=tilt_k,
+        sentiment=sentiment,
+        sentiment_run=parse_run_date(sentiment_run),
+        callable_ids=None if ids is None else frozenset(ids),
     )
 
     try:
-        result = optimize_roster(
-            state,
-            world.pool,
-            value=world.value,
-            prices=world.prices,
-            teams=world.teams,
-            legality=world.legality,
-            rules=rules,
-            lam=lam,
-            n_fallbacks=fallbacks,
-        )
-    except InfeasibleRoster as exc:
+        with database_manager.get_session() as session:
+            planned = build_plan(session, request)
+    # Three failures, three exit paths, and each says a different thing. `EmptyPool` is a
+    # wrong `--format` or an un-scraped season; `InfeasibleRoster` is a rosa that cannot
+    # be built at all; `NoSentimentRows` is a mistyped date that would otherwise plan on
+    # plain `fvm` without saying so.
+    except NoSentimentRows as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except (EmptyPool, InfeasibleRoster) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
-    console.print(format_roster(result.optimal, world.names, world.prices, sentiment=rows))
+    result, world = planned.result, planned.world
+    console.print(
+        format_roster(result.optimal, world.names, world.prices, sentiment=planned.sentiment)
+    )
     for index, fallback in enumerate(result.fallbacks, start=1):
         console.print(
             f"[dim]fallback {index}: cost {fallback.total_cost:.0f} | obj {fallback.objective:.1f}[/dim]"
