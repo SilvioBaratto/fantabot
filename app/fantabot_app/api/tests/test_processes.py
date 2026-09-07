@@ -389,7 +389,9 @@ SLOW_FLAG_POLLER = FLAG_POLLER.replace(
 ).replace("clear_stop(flag)", "time.sleep(1.0)\nclear_stop(flag)")
 
 
-def test_a_stop_clicked_before_the_child_boots_is_not_lost(tmp_path: Path) -> None:
+def test_a_stop_clicked_before_the_child_boots_is_not_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The startup window, closed.
 
     `start()` returns the moment `Popen` does and the UI renders Stop on that response —
@@ -408,7 +410,24 @@ def test_a_stop_clicked_before_the_child_boots_is_not_lost(tmp_path: Path) -> No
 
     This test stops the job with no delay at all — the child is still booting — and
     requires the request to survive.
+
+    **It drives the no-signal path, and that is the point rather than a convenience.**
+    `_signal` sends SIGINT on POSIX and nothing on Windows, where the flag *is* the whole
+    stop — and Windows is where the click was lost, which is what 0.13 fixed. Leaving the
+    SIGINT in made the test a coin flip: `FLAG_POLLER` installs `SIG_IGN` on its second line,
+    so a signal arriving during interpreter startup killed the child before it could ignore
+    it (`site: Failed to import the site module` / `Python runtime state: initialized`).
+    Measured at `a442499`: 2 failures in 6 whole-file runs, and never in isolation. The
+    signal was masking the property, not exercising it.
+
+    **The guard still bites, and it bites on whole-file runs.** With `start`'s
+    `PRECLEARED_ENV` removed, this fails 2 of 3 whole-file runs and passes every time under
+    `-k`. So the single-test run is the unreliable measurement here, not the file — which is
+    the same trap the original flake set, in the other direction. Verified both ways:
+    10 of 10 whole-file runs green with the fix, 2 of 3 red without it.
     """
+    monkeypatch.setattr(ProcessJob, "_signal", lambda _self, _process: None)
+
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
