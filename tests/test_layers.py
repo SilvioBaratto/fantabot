@@ -73,6 +73,10 @@ LAYERS: dict[str, str] = {
     "fantabot.adapters.http.harvest.stream": "adapters",
     "fantabot.adapters.http.harvest.transport": "adapters",
     "fantabot.adapters.files.landing": "adapters",
+    # The cooperative stop flag. An adapter for the same reason `lock.py` is one: the
+    # decision to stop is the caller's, and this only writes it down where another
+    # process can see it.
+    "fantabot.adapters.files.stopflag": "adapters",
     # "The only module here that touches disk", says its own docstring. It was filed
     # under application until the W6 destination map contradicted it.
     "fantabot.adapters.files.mantra_writer": "adapters",

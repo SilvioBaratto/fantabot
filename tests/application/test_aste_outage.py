@@ -43,6 +43,11 @@ CAPTURE = (
     # path from it to Postgres would let a database outage refuse to start a collector —
     # precisely the power the landing zone exists to deny the database.
     "fantabot.adapters.files.lock",
+    # The stop flag, for the same reason as the lock and one more. It is polled from
+    # inside the collect loop, so a path from it to Postgres would let a database outage
+    # block the poll — which is not merely a stop that does not arrive, it is a collector
+    # that stops collecting while it waits.
+    "fantabot.adapters.files.stopflag",
 )
 
 

@@ -149,6 +149,7 @@ TREE: dict[str, str] = {
     # filed with the transport that would carry a filtered query.
     "test_aste_both_formats.py": "adapters/http",
     "test_aste_landing.py": "adapters/files",
+    "test_stop_flag.py": "adapters/files",
     "test_role_lock.py": "adapters/files",
     "test_db_boundary.py": "adapters/persistence",
     "test_db_models.py": "adapters/persistence",
