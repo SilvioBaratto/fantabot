@@ -50,9 +50,15 @@ artifacts = ["fantabot_app/web/**"]
 testpaths = ["tests", "fantabot_app/api/tests"]
 # Default tier opens zero sockets: integration tests (real Postgres) are opt-in via
 # `pytest -m integration`, matching fantabot's `-m db` discipline.
-addopts = "-q -m 'not integration'"
+addopts = "-q -m 'not integration and not parity'"
 markers = [
     "integration: exercises a real bundled Postgres (opens sockets; opt-in)",
+    # The parity tier. Opt-in for the same reason `integration` is — it needs a database —
+    # and separate from it because it needs a *seeded* one and answers a different
+    # question: not "does the app boot" but "is the plan the page shows the plan the CLI
+    # prints". A screen that answers a different question from the command is a gap the
+    # operator cannot see, which is why this is a tier and not a handful of asserts.
+    "parity: the CLI and the app agree on a decision (needs FANTABOT_TEST_DATABASE_URL)",
     "e2e: end-to-end tests through the running app",
     "unit: fast, isolated unit tests",
     "slow: slow-running tests",

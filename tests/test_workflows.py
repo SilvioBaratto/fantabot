@@ -169,3 +169,39 @@ def test_the_db_tier_is_given_a_database_of_its_own() -> None:
     source = CI.read_text(encoding="utf-8")
 
     assert "FANTABOT_TEST_DATABASE_URL" in source
+
+
+# -- the parity tier ---------------------------------------------------------------------
+
+
+def test_the_parity_tier_has_a_job_that_runs_it() -> None:
+    """A tier nothing runs is a tier that rots. `-m parity` is deselected by default —
+    that is the point of the marker — so the only thing standing between the CLI and the
+    app diverging again is a job that opts in."""
+    workflow = APP_CI.read_text(encoding="utf-8")
+
+    assert "uv run pytest -m parity" in workflow, "app-ci runs no parity step"
+    assert re.search(r"^\s{2}parity:\s*$", workflow, re.MULTILINE), "no parity job"
+
+
+def test_the_parity_job_names_both_database_variables() -> None:
+    """`tests/conftest.py` refuses the canonical database by **name alone**, and the app's
+    parity conftest repeats that check. Naming only one variable therefore fails twice
+    over: unset, `FANTABOT_TEST_DATABASE_URL` falls back to the bundled server's socket,
+    which no runner has provisioned — the exact failure the `db` tier hit in 0.10."""
+    workflow = APP_CI.read_text(encoding="utf-8")
+    job = workflow[workflow.index("  parity:") :]
+    job = job[: job.index("  frontend:")]
+
+    assert "FANTABOT_DATABASE_URL:" in job
+    assert "FANTABOT_TEST_DATABASE_URL:" in job
+    assert "/fantabot_test" in job, "the tier is not pointed at a database of its own"
+    assert "alembic upgrade head" in job, "the tier's database is never migrated"
+
+
+def test_the_parity_marker_is_deselected_by_default() -> None:
+    """It opens sockets and needs a migrated database; the default tier does neither."""
+    pyproject = (REPO / "app" / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "not integration and not parity" in pyproject
+    assert "parity: the CLI and the app agree" in pyproject, "the marker is undeclared"

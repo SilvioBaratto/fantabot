@@ -1,4 +1,4 @@
-"""The asta path reads the clock in exactly one place.
+"""Each surface reads the clock in exactly one place, and that place has a name.
 
 `sentiment.py`'s docstring already states the rule for the pure layer — *"no clock —
 `as_of` is a parameter, because a pure module that reads the clock has tests that are a
@@ -13,32 +13,105 @@ changing, not just a printed number.
 
 The golden harness pins bytes. Three clock reads means three patch targets that must be
 frozen in lockstep, and any one of them missed makes the gate expire within a day. One
-seam means one target, and this test is what keeps it one — a later refactor that
-reintroduces a second `date.today()` fails here rather than in a golden diff nobody can
-explain a week later.
+seam means one target, and this test is what keeps it one.
+
+**The scan covers surfaces, not one package, and that is 1.3's whole point.** It used to
+read `domain/asta/*.py` plus `interface/asta.py` and nothing else. Lifting asta decisions
+into `application/` would move them *out* of its coverage — a rule that quietly stops
+applying to the code it was written for. So `application/` is swept by glob (a module that
+does not exist yet is covered on the day it is created, which is the only version of this
+that survives 1.4), the lineup path is a second surface with its own seam, and the app's
+asta endpoints are a third.
+
+The parity tier freezes these seams. A surface with two of them is a surface the tier
+cannot freeze, which is what makes this a precondition of `-m parity` rather than a tidy.
 """
 
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass
 from pathlib import Path
 
-from _paths import PACKAGE, module_file, pkg
+import pytest
+from _paths import PACKAGE, REPO, module_file, pkg
 
-#: The asta feature: its decision modules and the command that drives them. The command
-#: is named as a module rather than swept up by a directory glob, because the seam this
-#: file is about lives in it and W6 puts it in a different layer -- a glob over
-#: `domain/asta/` alone finds no seam at all and the count assertion below fails open in
-#: the one direction that reads as "nothing to see".
-ASTA_CLI = "fantabot.interface.asta"
+APP = REPO / "app" / "fantabot_app"
 
 
-def _asta_sources() -> list[Path]:
-    """Every file the rule covers. Raises if the CLI module cannot be resolved."""
-    return [*sorted(pkg("asta_engine").glob("*.py")), module_file(ASTA_CLI)]
+@dataclass(frozen=True)
+class Surface:
+    """One decision path, the files it spans, and the single function allowed to look.
 
-#: The single function allowed to read the calendar.
-SEAM = "_today"
+    `seams` is the count expected *today*, compared for equality rather than as a ceiling.
+    A surface that gains a second read fails, and so does one whose read is removed
+    without this number moving — the ratchet discipline `test_layers.py` uses, for the
+    same reason: a bound that only ever loosens stops meaning anything.
+    """
+
+    name: str
+    seam: str
+    seams: int
+    files: tuple[Path, ...]
+
+
+def _asta_files() -> tuple[Path, ...]:
+    """The decision modules, the orchestration, and the command that drives them.
+
+    `application/` is a **glob**, deliberately. 1.4 adds `plan_request.py` and 3.6a adds
+    `asta_session.py`; a hand-written list would have to be edited in the same commit that
+    creates them, and the failure of forgetting is silent — the module is simply not
+    scanned. The command is named as a module rather than globbed because the seam lives
+    in it and a glob that resolved to nothing would make the count assertion pass by
+    finding no seam at all.
+    """
+    return (
+        *sorted(pkg("asta_engine").glob("*.py")),
+        *sorted((PACKAGE / "application").glob("asta_*.py")),
+        *sorted((PACKAGE / "application").glob("plan_*.py")),
+        module_file("fantabot.interface.asta"),
+    )
+
+
+def _lineup_files() -> tuple[Path, ...]:
+    """The second seam, and it was entirely unscanned until 1.3.
+
+    `interface/lineup.py::_now()` reads `datetime.now()` for the submission deadline. It
+    is brought in rather than exempted: the parity tier compares `lineup plan` against
+    `/lineup/plan`, and a matchday deadline that moves between the two runs is the same
+    coin flip the asta seam exists to prevent. Its seam is `_now`, not `_today`, because
+    it needs a time of day and not a date — which is why the seam name is per surface.
+    """
+    return (
+        *sorted((PACKAGE / "domain" / "lineup").glob("*.py")),
+        module_file("fantabot.application.lineup_planner"),
+        module_file("fantabot.interface.lineup"),
+    )
+
+
+def _app_asta_files() -> tuple[Path, ...]:
+    """The app's asta surfaces. Three files, and the scope is deliberately not `app/`.
+
+    `endpoints/actions.py:67` reads `date.today()` for `news fetch`'s resume key and
+    `endpoints/auth.py:152` reads `datetime.now(UTC)` to age a token. Both are real reads
+    on paths that are not this rule's subject — the `as_of` the sentiment decay consumes —
+    and sweeping the whole package would have to exempt them one by one, which is how a
+    rule comes to describe its exemptions instead of its subject.
+    """
+    endpoints = APP / "api" / "v1" / "endpoints"
+    return (endpoints / "asta.py", endpoints / "pricing.py", endpoints / "room.py")
+
+
+SURFACES = (
+    Surface("asta", seam="_today", seams=1, files=_asta_files()),
+    Surface("lineup", seam="_now", seams=1, files=_lineup_files()),
+    # Zero today, and that is the defect rather than the design: `GET /asta/plan` passes
+    # `as_of=None`, so the page shows the sentiment model's **ablation control** — plain
+    # `fvm`, which on the 2026-08-28 data chases a player with a metatarsal fracture to 62
+    # credits. 1.5 gives it a real `as_of` through one named seam and moves this to 1 in
+    # the same commit; until then the number records what is true.
+    Surface("app.asta", seam="_today", seams=0, files=_app_asta_files()),
+)
 
 
 def _calendar_reads(tree: ast.AST) -> list[ast.Call]:
@@ -71,32 +144,64 @@ def _enclosing_function(tree: ast.AST, target: ast.Call) -> str | None:
     return None
 
 
-def test_the_asta_package_reads_the_calendar_in_one_place() -> None:
-    """One seam, so the golden harness has one patch target rather than three."""
+def _scan(surface: Surface) -> tuple[list[str], list[str]]:
+    """`(offenders, seams)` — where the calendar is read, and where it is allowed to be."""
     offenders: list[str] = []
     seams: list[str] = []
-
-    for path in _asta_sources():
+    for path in surface.files:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for call in _calendar_reads(tree):
-            where = f"{path.relative_to(PACKAGE)}:{call.lineno}"
-            if _enclosing_function(tree, call) == SEAM:
-                seams.append(where)
-            else:
-                offenders.append(where)
+            where = f"{path.relative_to(REPO) if path.is_relative_to(REPO) else path}:{call.lineno}"
+            (seams if _enclosing_function(tree, call) == surface.seam else offenders).append(where)
+    return offenders, seams
+
+
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda s: s.name)
+def test_a_surface_reads_the_calendar_only_through_its_seam(surface: Surface) -> None:
+    """One seam per surface, so the parity tier has one patch target per surface."""
+    offenders, _ = _scan(surface)
 
     assert not offenders, (
-        f"the calendar is read outside {SEAM}(): {offenders}. "
-        "A second read is a second thing the golden harness must freeze, and the one "
-        "it misses is the one that expires the gate."
+        f"{surface.name} reads the calendar outside {surface.seam}(): {offenders}. "
+        "A second read is a second thing the golden harness and the parity tier must "
+        "freeze, and the one they miss is the one that expires the gate."
     )
-    assert len(seams) == 1, f"expected exactly one calendar seam, found {seams}"
 
 
-def test_the_seam_is_reachable_by_name() -> None:
-    """The harness patches it by name; a rename must break here, not in a golden diff."""
-    from fantabot.interface import asta as cli
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda s: s.name)
+def test_the_seam_count_is_what_it_is_recorded_as(surface: Surface) -> None:
+    """Equality, not a ceiling: a removed seam must move this number in the same commit."""
+    _, seams = _scan(surface)
 
-    assert callable(getattr(cli, SEAM, None)), (
-        f"fantabot.interface.asta.{SEAM} is the harness's patch target"
+    assert len(seams) == surface.seams, (
+        f"{surface.name} has {len(seams)} calendar seams and is recorded as "
+        f"{surface.seams}: {seams}"
     )
+
+
+@pytest.mark.parametrize("surface", SURFACES, ids=lambda s: s.name)
+def test_every_file_a_surface_names_exists(surface: Surface) -> None:
+    """A scan over a missing file examines nothing and passes — `_paths.pkgs`'s reason,
+    and the exact shape of the gate that judged fixtures for a week."""
+    missing = [str(p) for p in surface.files if not p.is_file()]
+
+    assert not missing, f"{surface.name} names files that are not there: {missing}"
+    assert surface.files, f"{surface.name} scans nothing at all"
+
+
+def test_the_asta_scan_reaches_the_application_layer_by_glob() -> None:
+    """The lift is what this test exists for: `application/` is swept, not listed."""
+    scanned = {p.name for p in _asta_files()}
+
+    assert "asta_planner.py" in scanned
+    assert "plan_inputs.py" in scanned
+    assert "asta_room.py" in scanned
+
+
+def test_the_seams_are_reachable_by_name() -> None:
+    """The harness and the parity tier patch them by name; a rename must break here."""
+    from fantabot.interface import asta as asta_cli
+    from fantabot.interface import lineup as lineup_cli
+
+    assert callable(getattr(asta_cli, "_today", None))
+    assert callable(getattr(lineup_cli, "_now", None))

@@ -495,7 +495,11 @@ def test_nothing_still_points_at_the_deleted_auth_module() -> None:
     and a working rule pointing at the module by name. Both survived the
     command-name guard entirely.
     """
-    hits = _grep(r"auth\.py")
+    # `endpoints/auth.py` is the **app's** auth route and exists. A bare `auth.py` grep
+    # cannot tell the two apart, and this guard false-positived on the first citation of
+    # the live one — a rule that forbids naming a file that is there is a rule people
+    # route around. The path prefix is what distinguishes them.
+    hits = [line for line in _grep(r"auth\.py") if "endpoints/auth.py" not in line]
 
     assert hits == [], (
         "these still point at the deleted module:\n  " + "\n  ".join(hits)

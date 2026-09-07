@@ -84,6 +84,65 @@ jobs:
           uv run ruff check fantabot_app tests
           uv run mypy fantabot_app
 
+  # The parity tier: the CLI and the app, in one process, against one seeded database.
+  # Beside `integration` rather than inside the matrix — it needs a *migrated* Postgres,
+  # and proving the no-Docker cold install on three OSes is a different question from
+  # proving the page shows the plan the command prints.
+  #
+  # A `postgres:16-alpine` service rather than the bundled server, matching `ci.yml`'s
+  # `test-db` job: provisioning pgserver here would test the provisioner twice and the
+  # parity once.
+  parity:
+    name: parity (CLI vs app, one database)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fantabot
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fantabot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Both, and for `tests/conftest.py`'s reason: the tier refuses to run when the two
+      # resolve to the same database *name*, so pointing only one of them would either be
+      # rejected or — worse, unset — fall back to a bundled socket no runner has.
+      FANTABOT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot
+      FANTABOT_TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: uv sync (from uv.lock)
+        working-directory: app
+        run: uv sync --extra dev
+      # The CLI's own toolchain, for alembic. The app depends on `fantabot` as a path
+      # install, but the migrations are driven from the repository root.
+      - run: pip install -e ".[dev]"
+      - name: throwaway encryption key
+        run: |
+          KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "FANTABOT_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+      - name: create the tier's own database
+        run: psql "postgresql://postgres:postgres@localhost:5432/fantabot" -c "CREATE DATABASE fantabot_test"
+      - name: alembic upgrade head (the tier's database)
+        run: alembic upgrade head
+        env:
+          FANTABOT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot_test
+      - name: pytest -m parity
+        working-directory: app
+        run: uv run pytest -m parity
+
   frontend:
     name: frontend + wheel
     runs-on: ubuntu-latest
