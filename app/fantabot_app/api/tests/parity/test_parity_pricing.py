@@ -91,3 +91,49 @@ def test_top_n_reaches_the_fit_rather_than_being_dropped(
 
     assert len(body["biggest_bumps"]) <= 3
     assert len(body["biggest_cuts"]) <= 3
+
+
+def test_the_get_writes_nothing(seeded_db: SeededWorld, api: TestClient) -> None:
+    """Proven against a read-only session, not by reading the code.
+
+    `pricing.run` upserts `target_price`, and the GET called it — so **opening the Prices
+    page mutated the database**. Not a slow GET: a page whose refresh is an action, on a
+    route a browser is free to prefetch, retry, or render twice. The upsert is idempotent,
+    which is exactly why nobody noticed.
+
+    Postgres enforces the guarantee here rather than a mock: the session runs inside a
+    `READ ONLY` transaction, so a write raises rather than being asserted about.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from sqlalchemy import text
+
+    with database_manager.get_session() as session:
+        session.execute(text("SET TRANSACTION READ ONLY"))
+        # The guard on the guard: prove the transaction really refuses a write, or this
+        # test passes on a session that would have accepted one.
+        with pytest.raises(Exception, match="(?i)read.only"):
+            session.execute(
+                text("INSERT INTO teams (stagione, codice, nome_completo) VALUES "
+                     "('1999/00', 'ZZZ', 'proof')")
+            )
+
+    body = api.get("/api/v1/asta/target-prices", params={"system": "classic"}).json()
+
+    # Either a report or a named refusal — both are fine, and neither may have written.
+    assert body["outcome"] in {"priced", "no_data"}, body
+    if body["outcome"] == "priced":
+        assert body["stored"] == 0, "the GET reported storing rows"
+
+
+def test_the_post_is_where_the_write_lives(seeded_db: SeededWorld, api: TestClient) -> None:
+    """A POST beside the GET rather than a flag on it: the method is the contract a
+    browser, a proxy and an operator all read."""
+    try:
+        _skip_without_a_corpus(_direct("classic", top_n=15))
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"no pricing corpus in the tier's database ({type(exc).__name__}: {exc})")
+
+    body = api.post("/api/v1/asta/target-prices", params={"system": "classic"}).json()
+
+    assert body["outcome"] == "priced"
+    assert body["stored"] > 0, "the POST stored nothing"

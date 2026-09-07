@@ -46,15 +46,64 @@ def test_build_report_maps_bumps_cuts_and_fades() -> None:
 
 
 def test_target_prices_degrades_open_on_error(monkeypatch) -> None:
+    """The GET fits and does not store, so `fit` is what it calls. See T38."""
     from fantabot.application import pricing
 
     def boom(**_kwargs):
         raise RuntimeError("no data")
 
-    monkeypatch.setattr(pricing, "run", boom)
+    monkeypatch.setattr(pricing, "fit", boom)
 
     response = TestClient(app).get("/api/v1/asta/target-prices")
     assert response.status_code == 200
     body = response.json()
     assert body["found"] is False
+    assert body["outcome"] == "unreachable"
     assert body["biggest_bumps"] == []
+
+
+def test_the_get_never_reaches_the_call_that_writes(monkeypatch) -> None:
+    """`pricing.run` upserts `target_price`, and the GET called it — so opening the Prices
+    page mutated the database. Proven by making the writing call fatal rather than by
+    reading the code: a later refactor that reroutes the GET back through `run` fails here.
+    """
+    from fantabot.application import pricing
+
+    def refuse(**_kwargs):
+        raise AssertionError("the GET called pricing.run, which upserts target_price")
+
+    monkeypatch.setattr(pricing, "run", refuse)
+    monkeypatch.setattr(pricing, "fit", lambda **_k: _EMPTY_REPORT)
+
+    response = TestClient(app).get("/api/v1/asta/target-prices")
+
+    assert response.status_code == 200
+
+
+def test_the_post_is_the_one_that_writes(monkeypatch) -> None:
+    from fantabot.application import pricing
+
+    called: list[str] = []
+    monkeypatch.setattr(
+        pricing, "run", lambda **_k: (called.append("run"), _EMPTY_REPORT)[1]
+    )
+    monkeypatch.setattr(
+        pricing, "fit", lambda **_k: (called.append("fit"), _EMPTY_REPORT)[1]
+    )
+
+    TestClient(app).post("/api/v1/asta/target-prices")
+
+    assert called == ["run"]
+
+
+#: The shape `_report` reads before deciding on `no_data`. A namespace rather than a class,
+#: so the empty mappings are instance state and not shared class attributes.
+_EMPTY_REPORT = SimpleNamespace(
+    system="classic",
+    stored=0,
+    fades=(),
+    team_factors={},
+    biggest_bumps=(),
+    biggest_cuts=(),
+    flag_counts={},
+)

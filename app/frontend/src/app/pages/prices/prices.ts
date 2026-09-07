@@ -29,6 +29,9 @@ export class PricesComponent implements OnInit {
   readonly report = signal<TargetPricesReport | null>(null);
   readonly loading = signal(true);
   readonly errorMsg = signal<string | null>(null);
+  /** True while the *storing* call is in flight. Separate from `loading` because one of
+   *  them is a page load and the other is an action the operator asked for. */
+  readonly storing = signal(false);
 
   ngOnInit(): void {
     this.load();
@@ -40,6 +43,7 @@ export class PricesComponent implements OnInit {
     this.load();
   }
 
+  /** Read the report. Writes nothing — see `PricingService.getReport`. */
   load(): void {
     this.loading.set(true);
     this.errorMsg.set(null);
@@ -54,6 +58,29 @@ export class PricesComponent implements OnInit {
         error: () => {
           this.errorMsg.set('Could not reach the API.');
           this.loading.set(false);
+        },
+      });
+  }
+
+  /**
+   * Fit and store. The one thing on this page that writes, and it is now a button the
+   * operator presses rather than a side effect of arriving.
+   */
+  store(): void {
+    if (this.storing()) return;
+    this.storing.set(true);
+    this.errorMsg.set(null);
+    this.service
+      .storeReport(this.system())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (report) => {
+          this.report.set(report);
+          this.storing.set(false);
+        },
+        error: () => {
+          this.errorMsg.set('Could not reach the API.');
+          this.storing.set(false);
         },
       });
   }

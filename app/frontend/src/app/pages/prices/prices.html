@@ -5,19 +5,33 @@
       QI fade and team discount — the biggest moves from list price.
     </p>
   </div>
-  <div class="flex gap-1 rounded-md border border-border bg-surface-raised p-1">
-    @for (s of ['classic', 'mantra']; track s) {
-      <button
-        type="button"
-        (click)="setSystem($any(s))"
-        class="rounded px-3 py-1 text-sm font-medium capitalize transition-colors"
-        [class.bg-primary]="system() === s"
-        [class.text-surface-raised]="system() === s"
-        [class.text-text-secondary]="system() !== s"
-      >
-        {{ s }}
-      </button>
-    }
+  <div class="flex flex-wrap items-center gap-3">
+    <!-- The one control here that writes. It was not a control at all: `pricing.run`
+         upserts `target_price` and the GET called it, so arriving on this page stored a
+         fit nobody asked for. -->
+    <button
+      type="button"
+      (click)="store()"
+      [disabled]="storing()"
+      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
+    >
+      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="storing()"></lucide-icon>
+      {{ storing() ? 'Storing…' : 'Refit and store' }}
+    </button>
+    <div class="flex gap-1 rounded-md border border-border bg-surface-raised p-1">
+      @for (s of ['classic', 'mantra']; track s) {
+        <button
+          type="button"
+          (click)="setSystem($any(s))"
+          class="rounded px-3 py-1 text-sm font-medium capitalize transition-colors"
+          [class.bg-primary]="system() === s"
+          [class.text-surface-raised]="system() === s"
+          [class.text-text-secondary]="system() !== s"
+        >
+          {{ s }}
+        </button>
+      }
+    </div>
   </div>
 </header>
 
@@ -30,7 +44,17 @@
   </section>
 } @else if (report(); as r) {
   @if (r.found && (r.biggest_bumps.length || r.biggest_cuts.length)) {
-    <p class="mb-6 text-sm text-text-secondary tabular-nums">{{ r.stored }} prices stored</p>
+    <!-- `stored` is 0 on the GET, and that is the truth rather than a failure: reading
+         this page no longer writes. Saying "0 prices stored" would read as "the model
+         stored nothing", so the two cases say different things. -->
+    <p class="mb-6 text-sm text-text-secondary tabular-nums">
+      @if (r.stored > 0) {
+        {{ r.stored }} prices stored
+      } @else {
+        Read-only — press <span class="font-medium text-text">Refit and store</span> to update the
+        cached prices.
+      }
+    </p>
 
     <div class="grid gap-6 lg:grid-cols-2">
       <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">

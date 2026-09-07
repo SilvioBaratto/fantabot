@@ -1,8 +1,15 @@
 """Target prices — the 2026/27 target-price research model (QI fade + team discount).
 
-Wraps fantabot.application.pricing.run, which fits the model, upserts the target_price
-cache (an idempotent refresh — the one non-read here) and returns a pure PricingReport.
-Opens its own sessions. Degrades open (found=false on no data / error).
+**The GET does not write.** It called `pricing.run`, which upserts `target_price`, so
+opening the Prices page mutated the database. That is not a slow GET; it is a page whose
+refresh is an action, on a route a browser is free to prefetch, retry, or render twice. The
+upsert is idempotent, which is exactly why nobody noticed.
+
+So the fit is split: `pricing.fit` reads and reports, `pricing.run` reads, reports and
+stores. The GET calls the first and reports `stored=0` honestly; `POST /asta/target-prices`
+calls the second, which is what `db price` has always done.
+
+Degrades to a named outcome — see `api/outcomes.TARGET_PRICES_OUTCOMES`.
 """
 
 from __future__ import annotations
@@ -79,14 +86,16 @@ def build_report(report: Any) -> TargetPricesReport:
     )
 
 
-@router.get("/asta/target-prices", response_model=TargetPricesReport, tags=["asta"])
-def target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesReport:
+def _report(system: str, top_n: int, *, store: bool) -> TargetPricesReport:
+    """The fit, and the two routes' shared refusals. `store` is the only difference."""
     from fantabot.application import pricing
 
     from fantabot_app.api.outcomes import because
 
     try:
-        report = pricing.run(system=system, top_n=top_n)
+        report = pricing.run(system=system, top_n=top_n) if store else pricing.fit(
+            system=system, top_n=top_n
+        )
     except (LookupError, ValueError) as exc:
         # Nothing to fit on. `LookupError` covers `NoCorpus`; `ValueError` covers an
         # unrecognised system, which the fit refuses rather than treating as empty.
@@ -106,3 +115,20 @@ def target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesRepor
             ),
         )
     return build_report(report)
+
+
+@router.get("/asta/target-prices", response_model=TargetPricesReport, tags=["asta"])
+def target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesReport:
+    """Read the report. `stored` is 0 because nothing was stored — see the module docstring."""
+    return _report(system, top_n, store=False)
+
+
+@router.post("/asta/target-prices", response_model=TargetPricesReport, tags=["asta"])
+def store_target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesReport:
+    """Fit and **store**, the way `db price` does. The one route here that writes.
+
+    A POST beside the GET rather than a flag on it: the method is the contract a browser,
+    a proxy and an operator all read, and "GET with `?store=1`" is a write nobody can see
+    in a request log without knowing this file.
+    """
+    return _report(system, top_n, store=True)

@@ -451,11 +451,39 @@ def build_report(
     )
 
 
-def run(system: str = "classic", top_n: int = 15) -> PricingReport:
-    """Fit, price, upsert, and report. No presentation: see `interface/app.py`.
+def fit(system: str = "classic", top_n: int = 15) -> PricingReport:
+    """Fit, price, and report. **Reads only — nothing is written.**
 
-    The three stages read their tables once between them, and the fade counts come from
-    the same rows the fit used rather than from two more queries.
+    Split out of `run` because `GET /asta/target-prices` called `run`, so *opening the
+    Prices page mutated the database*. A GET that writes is not a slow GET; it is a page
+    whose refresh button is an action, on a route a browser is free to prefetch, retry, or
+    render twice. The upsert is idempotent, which is why nobody noticed.
+
+    `stored` is 0 here and that is honest: nothing was stored. The report the page renders
+    is otherwise identical to `run`'s, because it is the same fit over the same rows — the
+    three stages read their tables once between them, and the fade counts come from the
+    rows the fit used rather than from two more queries.
+    """
+    bias_rows, prior_stats, universe = _read(system)
+    fades = fit_fades(bias_rows, prior_stats, system)
+    team_factors = discount_factors(bias_rows)
+    rows = price_universe(universe, prior_stats, fades, team_factors, system)
+    return build_report(
+        system=system,
+        fades=fades,
+        observations=count_observations(bias_rows, prior_stats, system),
+        team_factors=team_factors,
+        rows=rows,
+        stored=0,
+        top_n=top_n,
+    )
+
+
+def run(system: str = "classic", top_n: int = 15) -> PricingReport:
+    """Fit, price, **upsert**, and report. No presentation: see `interface/app.py`.
+
+    `db price` and `POST /asta/target-prices` — the two callers that mean to write. The
+    fit is `fit()`'s, run once and stored; the read-only half has no second copy of it.
     """
     bias_rows, prior_stats, universe = _read(system)
     fades = fit_fades(bias_rows, prior_stats, system)

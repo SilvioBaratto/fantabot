@@ -123,4 +123,68 @@ describe('PricesComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Could not reach the database');
   });
+
+  it('does not store anything just by opening the page', async () => {
+    // The GET behind this page called `pricing.run`, which upserts `target_price` — so
+    // arriving here stored a fit nobody asked for. A GET that writes is not a slow GET.
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+
+    const request = httpMock.expectOne((r) => r.url.includes('target-prices'));
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      found: true,
+      outcome: 'priced',
+      reason: null,
+      system: 'classic',
+      stored: 0,
+      fades: [],
+      biggest_bumps: [tp('Dybala', 20, 28)],
+      biggest_cuts: [],
+      flag_counts: {},
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    httpMock.verify();
+  });
+
+  it('stores only when the operator presses the button', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    httpMock
+      .expectOne((r) => r.url.includes('target-prices'))
+      .flush({
+        found: true,
+        outcome: 'priced',
+        reason: null,
+        system: 'classic',
+        stored: 0,
+        fades: [],
+        biggest_bumps: [tp('Dybala', 20, 28)],
+        biggest_cuts: [],
+        flag_counts: {},
+      });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    fixture.componentInstance.store();
+    const write = httpMock.expectOne((r) => r.url.includes('target-prices'));
+    expect(write.request.method).toBe('POST');
+    write.flush({
+      found: true,
+      outcome: 'priced',
+      reason: null,
+      system: 'classic',
+      stored: 1142,
+      fades: [],
+      biggest_bumps: [tp('Dybala', 20, 28)],
+      biggest_cuts: [],
+      flag_counts: {},
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.textContent).toContain('1142 prices stored');
+  });
 });
