@@ -136,11 +136,18 @@ def test_the_get_writes_nothing(seeded_db: SeededWorld, api: TestClient) -> None
         body = api.get("/api/v1/asta/target-prices", params={"system": "classic"}).json()
 
     assert opened, "the endpoint never opened a session — the patch did not take"
-    # Either a report or a named refusal. Both are fine; a write would have raised inside
-    # the endpoint and come back as `unreachable` with a read-only error in the reason.
-    assert body["outcome"] in {"priced", "no_data"}, body
-    if body["outcome"] == "priced":
-        assert body["stored"] == 0, "the GET reported storing rows"
+    # **`no_data` is not proof and must not be accepted as it.** With no corpus,
+    # `upsert_target_price` returns at `scraping.py:193` before issuing any SQL, so the
+    # read-only transaction has nothing to refuse and this test would pass with the GET
+    # routed straight back through `pricing.run`. Skipping loudly is what its three
+    # siblings do, and what keeps this from reporting green on an empty database.
+    if body["outcome"] == "no_data":
+        pytest.skip(
+            "no pricing corpus in the tier's database — the write path has nothing to "
+            "write, so a read-only transaction cannot refuse it and this proves nothing"
+        )
+    assert body["outcome"] == "priced", body
+    assert body["stored"] == 0, "the GET reported storing rows"
 
 
 def test_the_read_only_wrapper_would_catch_a_write(
