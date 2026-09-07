@@ -100,8 +100,7 @@ def build_rosters(teams: list[Any]) -> list[TeamRoster]:
 def lega_list() -> list[LegaOverview]:
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
-
-    from fantabot_app.api.reads import league as reads
+    from fantabot.application import lega_reads as reads
 
     try:
         with database_manager.get_session() as session:
@@ -125,8 +124,7 @@ def lega_list() -> list[LegaOverview]:
 @router.get("/lega/{league_id}/rosters", response_model=list[TeamRoster], tags=["lega"])
 def lega_rosters(league_id: int) -> list[TeamRoster]:
     from fantabot.adapters.persistence import database_manager
-
-    from fantabot_app.api.reads import league as reads
+    from fantabot.application import lega_reads as reads
 
     try:
         with database_manager.get_session() as session:

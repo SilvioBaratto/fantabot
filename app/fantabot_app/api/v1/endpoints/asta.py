@@ -193,6 +193,7 @@ def asta_plan(
     capping it is honest because an unpriced target says so in its provenance.
     """
     from fantabot.adapters.persistence import database_manager
+    from fantabot.application import lega_reads as reads
     from fantabot.application.plan_request import (
         DEFAULT_NUM_CREDITS,
         DEFAULT_NUM_TEAMS,
@@ -211,7 +212,6 @@ def asta_plan(
     from fantabot.domain.classic.state import ClassicRosterRules
 
     from fantabot_app.api.outcomes import because
-    from fantabot_app.api.reads import league as reads
 
     # Degrades open to `None`, never to an empty set: `read_plan_inputs` reads an empty
     # collection as a total exclusion and would empty the pool. The warning is dropped

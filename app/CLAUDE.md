@@ -54,12 +54,16 @@ app/
     provisioner/            # postgres (pixeltable_pgserver) + migrate + chromium
     api/                    # the FastAPI adapter (was top-level `app`, renamed in R1b)
       main.py  infrastructure/{settings,database,jobs,processes,...}  v1/{router,endpoints}
-      reads/                # read models the endpoints render
-      tests/                # api tests (pytest)
+      outcomes.py           # why a decision route said no: the pinned tuples, and the rule
+      tests/                # api tests (pytest), incl. tests/parity/ (`-m parity`)
       #  No `orm/` and no `schemas/`: deleted in T43. Both were scaffold. `Base` was an
       #  empty DeclarativeBase, so create_all/drop_all built and dropped zero tables, and
       #  no route declares Depends(get_db), so the test override overrode nothing.
       #  Persistence is fantabot's; this layer holds no models of its own.
+      #  No `reads/` either: deleted in T37. It hand-wrote SQLAlchemy over the same two
+      #  snapshot models `interface/lega.py::_show` hand-wrote it over, and two readers of
+      #  "the lega's latest capture" cannot be checked against each other. Both call
+      #  `fantabot.application.lega_reads` now.
     web/                    # compiled Angular bundle (git-ignored build artifact; in the wheel)
   frontend/                 # Angular 21 (Tailwind v4, signals, standalone, OnPush)
   scripts/build_frontend.py # ng build -> fantabot_app/web (run before install / in CI)

@@ -135,7 +135,7 @@ class TestFourFailuresFourScreens:
         """The one that is easy to miss: the planner would happily run. With no snapshot
         the format, the budget and the roster band are all defaults, so the plan is three
         guesses wearing an answer's clothes."""
-        from fantabot_app.api.reads import league as reads
+        from fantabot.application import lega_reads as reads
 
         monkeypatch.setattr(reads, "latest_settings", lambda *_a, **_k: None)
         monkeypatch.setattr(
@@ -159,11 +159,10 @@ class TestFourFailuresFourScreens:
     def test_each_planner_refusal_gets_its_own_screen(
         self, monkeypatch: pytest.MonkeyPatch, error: str, outcome: str
     ) -> None:
+        from fantabot.application import lega_reads as reads
         from fantabot.application import plan_request as pr
         from fantabot.domain.asta.optimizer import InfeasibleRoster
         from fantabot.domain.asta.prices import NoCorpus
-
-        from fantabot_app.api.reads import league as reads
 
         raised: Exception = {
             "NoSentimentRows": pr.NoSentimentRows("no rows in the database"),

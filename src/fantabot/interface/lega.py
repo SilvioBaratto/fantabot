@@ -117,28 +117,19 @@ def _sync(
 def _show(
     league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
 ) -> None:
-    """Print the latest stored capture per table. Database only — no network."""
-    from sqlalchemy import func, select
+    """Print the latest stored capture per table. Database only — no network.
+
+    A printer. What "the latest capture" *is* — which tables, how `league_fixture` reaches
+    a lega without a `league_id`, and that "never captured" is not the same fact as "zero
+    rows" — is `application/lega_reads.capture_inventory`'s to say, because `GET /lega`
+    reads the same snapshots and had its own copy of half of it.
+    """
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.models.league import (
-        LeagueCompetition,
-        LeagueCustomRole,
-        LeagueFixture,
-        LeaguePlayerPool,
-        LeagueSnapshot,
-        LeagueTeamSnapshot,
-    )
+    from fantabot.application.lega_reads import capture_inventory
 
     league_id = _resolve_league(league)
-    snapshot_models = (
-        ("league_snapshot", LeagueSnapshot),
-        ("league_team_snapshot", LeagueTeamSnapshot),
-        ("league_competition", LeagueCompetition),
-        ("league_custom_role", LeagueCustomRole),
-        ("league_player_pool", LeaguePlayerPool),
-    )
 
     from rich.table import Table
 
@@ -149,38 +140,24 @@ def _show(
 
     try:
         with database_manager.get_session() as session:
-            for name, model in snapshot_models:
-                last = session.execute(
-                    select(func.max(model.captured_at)).where(model.league_id == league_id)
-                ).scalar_one_or_none()
-                rows = 0
-                if last is not None:
-                    rows = session.execute(
-                        select(func.count())
-                        .select_from(model)
-                        .where(model.league_id == league_id, model.captured_at == last)
-                    ).scalar_one()
-                table.add_row(name, str(last) if last else "[dim]mai[/dim]", str(rows))
-            # `league_fixture` upserts and has no `captured_at`; its freshness is the
-            # newest `updated_at`, and it is counted separately rather than skipped.
-            #
-            # It also has no `league_id`, so the count has to reach the lega through
-            # `league_competition`. It used to have no WHERE clause at all, under a
-            # comment claiming it counted "this lega's competitions": harmless while one
-            # lega owned every row, and wrong the moment a second lega exists or one is
-            # disconnected — the survivor's calendar would be reported as the other's.
-            comp_ids = select(LeagueCompetition.competition_id).where(
-                LeagueCompetition.league_id == league_id
-            )
-            fixtures = session.execute(
-                select(func.count(), func.max(LeagueFixture.updated_at)).where(
-                    LeagueFixture.competition_id.in_(comp_ids)
-                )
-            ).one()
-            table.add_row("league_fixture", str(fixtures[1] or ""), str(fixtures[0]))
+            rows = capture_inventory(session, league_id)
     except SQLAlchemyError as exc:
         console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
         raise typer.Exit(code=1) from exc
+
+    for row in rows:
+        # `league_fixture` renders an absent timestamp as empty and the five snapshot
+        # tables render it as "mai". Both were true before the lift and both stay: the
+        # first is a table that upserts and may legitimately hold nothing yet, the second
+        # is a capture that never ran.
+        if row.table == "league_fixture":
+            table.add_row(row.table, str(row.captured_at or ""), str(row.rows))
+        else:
+            table.add_row(
+                row.table,
+                str(row.captured_at) if row.captured_at else "[dim]mai[/dim]",
+                str(row.rows),
+            )
 
     console.print(table)
 
