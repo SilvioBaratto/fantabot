@@ -222,3 +222,52 @@ def test_no_refusal_message_contains_the_token() -> None:
 def test_forget_reports_whether_there_was_a_row() -> None:
     assert TokenStore(_Session(True), a_cipher()).forget(1) is True
     assert TokenStore(_Session(False), a_cipher()).forget(1) is False
+
+
+# --- the expiry gate, on the path that actually acts -----------------------
+
+
+def test_an_expired_token_is_refused_without_being_told_the_time() -> None:
+    """The check the docstring promises "happens **here**, before any caller opens a socket".
+
+    It was guarded by `if now is not None`, and `now` defaults to `None` through every
+    public function in `adapters/http/apileague.py` — so no acting path ever reached it.
+    Grepped at the time: `application/lineup_submit.py`, `application/lega_sync.py`,
+    `interface/lineup.py`, `interface/app.py` and `application/auth_login.py` all call
+    without it; the one site that passed `now` was `auth status --verify`, a diagnostic.
+
+    The cost is the difference between a named cause and a symptom. Expired, the Sunday
+    cron sent a dead bearer and got back `TokenRejected` — "apileague rejected the token" —
+    instead of `TokenExpired`, which names the date and the remedy.
+
+    `None` now means "read the clock", the same thing it means in `decide_arming`.
+    """
+    cipher = a_cipher()
+    session = _Session(a_stored_row(cipher, expires_at=datetime.now(UTC) - timedelta(days=1)))
+
+    with pytest.raises(TokenExpired):
+        TokenStore(session, cipher).load_plaintext(_tokens.LEGA_MANTRA)
+
+
+def test_a_live_token_is_still_returned_without_being_told_the_time() -> None:
+    """The negative control: reading the clock must not refuse everything."""
+    cipher = a_cipher()
+    plaintext = _tokens.make_token(l_id=_tokens.LEGA_MANTRA)
+    session = _Session(
+        a_stored_row(
+            cipher, plaintext=plaintext, expires_at=datetime.now(UTC) + timedelta(days=1)
+        )
+    )
+
+    assert TokenStore(session, cipher).load_plaintext(_tokens.LEGA_MANTRA) == plaintext
+
+
+def test_an_explicit_now_still_wins() -> None:
+    """The seam stays injectable — that is what makes the rule testable at a fixed date."""
+    cipher = a_cipher()
+    session = _Session(a_stored_row(cipher, expires_at=NOW + timedelta(days=1)))
+
+    with pytest.raises(TokenExpired):
+        TokenStore(session, cipher).load_plaintext(
+            _tokens.LEGA_MANTRA, now=NOW + timedelta(days=2)
+        )

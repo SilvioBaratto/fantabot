@@ -13,7 +13,7 @@ an operator most needs a straight answer.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -87,6 +87,17 @@ class TokenStore:
         The expiry check happens **here**, before any caller opens a socket —
         which is the difference between "your token expired on 2027-08-19, run
         `fantabot auth login`" and a bare `401` from a server.
+
+        **`now=None` means "read the clock", not "skip the check."** It meant the second,
+        and `now` defaults to `None` through every public function in
+        `adapters/http/apileague.py`, so no path that acts ever ran the check: the promise
+        above was true only of `auth status --verify`, which passes one. The cron sent a
+        dead bearer and reported the platform's `401` as `TokenRejected` — the symptom
+        instead of the cause and its remedy.
+
+        The seam stays injectable, which is what lets the rule be tested at a fixed date;
+        it just no longer fails open when nobody uses it. A clock in an adapter is fine —
+        `domain/` is the layer that may not read one.
         """
         cipher = self._require_cipher()
 
@@ -94,7 +105,7 @@ class TokenStore:
         if row is None:
             raise TokenMissing(league_id)
 
-        if now is not None and now >= row.expires_at:
+        if (now or datetime.now(UTC)) >= row.expires_at:
             raise TokenExpired(league_id, f"{row.expires_at:%Y-%m-%d}")
 
         return cipher.decrypt(row.ciphertext, stored_fingerprint=row.key_fingerprint)

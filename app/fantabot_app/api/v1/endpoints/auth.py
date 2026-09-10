@@ -103,14 +103,48 @@ class AuthStatus(BaseModel):
     has_key: bool
 
 
+def _configured_fingerprint() -> str | None:
+    """The configured key's fingerprint, or `None` if there is no usable key.
+
+    A malformed key is unusable, and a page that answered "KEY MISMATCH" against a
+    fingerprint derived from garbage would name the wrong cause. `None` falls back to the
+    plaintext expiry columns, which is what the no-key path already renders.
+
+    Never returns, logs or raises the key itself — only the fingerprint, which is what
+    `auth status` has always printed.
+    """
+    from fantabot.config import settings
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    if not settings.fantabot_encryption_key:
+        return None
+    try:
+        return TokenCipher(settings.fantabot_encryption_key).fingerprint
+    except TokenError:
+        return None
+
+
 def build_auth_status(
     token_rows: Sequence[TokenStatus],
     fantalab_rows: Sequence[tuple[str, datetime, datetime | None]],
     *,
     now: datetime,
     has_key: bool,
+    key_fingerprint: str | None = None,
 ) -> AuthStatus:
-    """Assemble the response from TokenStatus rows and FantaLab describe() tuples (pure)."""
+    """Assemble the response from TokenStatus rows and FantaLab describe() tuples (pure).
+
+    `key_fingerprint` is the configured key's, or `None` when there is no usable key — the
+    same argument `render_state` takes, and it must reach it. This built every row with
+    `None` hardcoded, so the KEY MISMATCH branch was dead and a token nobody could decrypt
+    rendered `ok (Nd)`. `fantabot auth status` reported the same rows correctly, which is
+    how one operator came to have a terminal saying both leghe were unusable and a page
+    saying both were fine.
+
+    It stays optional because a status read must work with no key at all: `expires_at` is a
+    plaintext column for exactly that reason.
+    """
     orphaned_ids = orphaned(token_rows)
     leagues = [
         LeagueTokenStatus(
@@ -119,7 +153,7 @@ def build_auth_status(
             state=render_state(
                 row,
                 now=now,
-                key_fingerprint=None,  # no-key read; never claims KEY MISMATCH
+                key_fingerprint=key_fingerprint,
                 is_orphaned=row.league_id in orphaned_ids,
             ),
             expires_at=row.expires_at,
@@ -149,7 +183,11 @@ def auth_status() -> AuthStatus:
             token_rows = TokenStore(session).status()
             fantalab_rows = FantalabSessionRepository(session).describe()
         return build_auth_status(
-            token_rows, fantalab_rows, now=datetime.now(UTC), has_key=has_key
+            token_rows,
+            fantalab_rows,
+            now=datetime.now(UTC),
+            has_key=has_key,
+            key_fingerprint=_configured_fingerprint(),
         )
     except Exception:  # noqa: BLE001 — degrade open: no DB / no rows -> "not connected"
         return AuthStatus(leagues=[], fantalab=[], has_key=has_key)
