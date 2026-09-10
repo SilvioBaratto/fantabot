@@ -93,12 +93,14 @@ def place_raise(
     live request and is **never** stored, returned, or logged — the ``BidOutcome`` holds neither
     the token nor the URL that carried it.
     """
-    from fantabot.config import settings
+    from fantabot.config import live_auto_act
 
     price = payload.get("price")
     price_int = price if isinstance(price, int) and not isinstance(price, bool) else 0
 
-    if not settings.fantabot_auto_act:
+    # Re-read, never remembered: the singleton this used to read is built at first import,
+    # so a bid loop running all evening kept the lock it booted with.
+    if not live_auto_act():
         return BidOutcome(price=price_int, node=node, dry_run=True, sent=False, status=None)
 
     url = node_url(db, f"{node}/{fantaleague_id}")

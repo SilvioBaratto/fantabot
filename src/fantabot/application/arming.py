@@ -31,6 +31,14 @@ every shut lock.
 **`FANTABOT_AUTO_ACT` is read per request**, never captured at import: it comes from `.env`,
 and a process that read it once would keep answering with the state of the world when it
 started.
+
+That was a promise this module made and did not keep. It read
+``settings.fantabot_auto_act``, and `settings` is a module singleton built at first import,
+so the long-lived app server behind ``POST /lineup/submit`` answered every request with its
+boot state: editing `.env` to disarm changed nothing, and neither did changing
+``os.environ``. The CLI hid it, being one process per invocation. It now goes through
+`config.live_auto_act`, which re-reads on every call and fails closed — and an exported
+variable still outranks the file, as it does everywhere else in this repository.
 """
 
 from __future__ import annotations
@@ -88,9 +96,9 @@ def decide_arming(*, arm: bool, auto_act: bool | None = None) -> Arming:
     and `None` means "read it now", which is what a request does.
     """
     if auto_act is None:
-        from fantabot.config import settings
+        from fantabot.config import live_auto_act
 
-        auto_act = bool(settings.fantabot_auto_act)
+        auto_act = live_auto_act()
 
     closed = tuple(
         name for shut, name in ((not auto_act, AUTO_ACT), (not arm, ARM)) if shut

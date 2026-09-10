@@ -522,7 +522,7 @@ def asta_room(
         resolve_room,
         waiting_row,
     )
-    from fantabot.config import journal_path, settings
+    from fantabot.config import journal_path, live_auto_act, settings
     from fantabot.domain.asta.bid import Seat, max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
     from fantabot.domain.asta.report import listone_rows
@@ -627,7 +627,7 @@ def asta_room(
     # Arming is a positive act twice over: the env var alone arms every run for the rest of
     # the day, and the operator who edits `.env` in the morning is not the one at the keyboard
     # at 21:47. `armed` is a list so the SIGINT handler can disarm it without a global.
-    armed = [bool(settings.fantabot_auto_act and arm)]
+    armed = [bool(live_auto_act() and arm)]
     if armed[0] and not typer.confirm(
         f"Bid REAL CREDITS in {resolved.fantaleague_id} as "
         f"{resolved.seat.team_name or resolved.seat.fantateam_id}, budget {credits:.0f}?"
@@ -793,7 +793,7 @@ def asta_room(
             # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
             # writer captured at loop start would keep bidding after the operator disarmed.
             write=lambda payload: bid_writer(
-                auto_act=settings.fantabot_auto_act,
+                auto_act=live_auto_act(),
                 arm=armed[0],
                 send=router.write_raise,
                 node=router.node,
@@ -955,7 +955,7 @@ def asta_bid(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.application.asta_room import RoomFrame, RoomTracker, error_row, waiting_row
-    from fantabot.config import journal_path, settings
+    from fantabot.config import journal_path, live_auto_act
     from fantabot.domain.asta.bid import Seat, max_bid
 
     # `refresh=True`: see `asta_room`'s identical fetch for why. A transport failure
@@ -1042,10 +1042,10 @@ def asta_bid(
 
     # Said before the first poll, not after: the operator has to be able to tell an armed run
     # from a rehearsal at a glance, and the heartbeat that follows looks identical either way.
-    if settings.fantabot_auto_act and arm:
+    if live_auto_act() and arm:
         console.print("[bold red]● ARMED — bids are real credits[/bold red]")
     else:
-        why = "--arm not given" if settings.fantabot_auto_act else "FANTABOT_AUTO_ACT is false"
+        why = "--arm not given" if live_auto_act() else "FANTABOT_AUTO_ACT is false"
         console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
     journal = RoomJournal(journal_path())
@@ -1142,11 +1142,13 @@ def asta_bid(
         max_cap=_cap,
         target_of=target_of,
         read=_timed_read,
-        write=bid_writer(
-            auto_act=settings.fantabot_auto_act,
+        # Bound per call for the same reason as the live room above: the ambient lock is
+        # re-read on every write, so editing `.env` mid-evening disarms this loop too.
+        write=lambda payload: bid_writer(
+            auto_act=live_auto_act(),
             arm=arm,
             send=router.write_raise,
-        ),
+        )(payload),
         now=lambda: int(time.time() * 1000),
         sleep=time.sleep,
         keep_going=lambda _cycle: True,

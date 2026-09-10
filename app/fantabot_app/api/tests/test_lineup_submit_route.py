@@ -64,13 +64,21 @@ def platform(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
         refuse: tuple[str, ...] = (),
         mstr: str = "",
     ) -> _Platform:
+        from fantabot import config
         from fantabot.application import lineup_submit
         from fantabot.config import settings
         from fantabot.domain.lineup import payload as payload_module
 
         api = _Platform(refuse=refuse)
         monkeypatch.setattr(settings, "fantabot_encryption_key", KEY, raising=False)
-        monkeypatch.setattr(settings, "fantabot_auto_act", auto_act, raising=False)
+        # The ambient lock is no longer the singleton's attribute — `decide_arming` re-reads
+        # it, because a value bound at import left this very server armed after the operator
+        # edited `.env` to disarm. Setting the attribute here would set something nothing
+        # reads, and every armed test below would quietly become a `not_armed` test.
+        # An environment variable with nothing recorded as dotenv-injected is the
+        # "genuinely exported" branch, which outranks the file.
+        monkeypatch.setattr(config, "_DOTENV_INJECTED", {})
+        monkeypatch.setenv(config.AUTO_ACT_VAR, "true" if auto_act else "false")
         monkeypatch.setattr(
             lineup_submit,
             "build_plans",

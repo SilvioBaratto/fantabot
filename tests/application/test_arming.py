@@ -13,6 +13,7 @@ say is a 422 rather than a dry run.
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 
 import pytest
 from _paths import module_file
@@ -85,18 +86,30 @@ class TestBothLocks:
 
 
 class TestItIsReadPerRequest:
-    def test_the_env_is_read_now_and_not_at_import(
-        self, monkeypatch: pytest.MonkeyPatch
+    def test_the_import_time_singleton_is_not_what_is_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`.env` is edited between requests. A value captured at import would keep
-        answering with the state of the world when the process started."""
-        from fantabot.config import settings
+        """The inverse of `TestTheAmbientLockIsReadFromDisk`, and the mutation that catches it.
 
-        monkeypatch.setattr(settings, "fantabot_auto_act", False, raising=False)
+        This test used to *set* `settings.fantabot_auto_act` and assert `decide_arming`
+        agreed — which is the attribute the old implementation read, so it passed whether or
+        not anything was re-read, and its docstring's "`.env` is edited between requests"
+        never happened. Reading the singleton is now the defect, so the singleton is the
+        thing this pins: turned to `True` while the world says otherwise, it must not arm.
+
+        `settings` is built once at first import (`config.py`'s `settings = Settings()`).
+        That is fine for the CLI, one process per invocation. It is what left the app server
+        armed after the operator edited `.env` to disarm.
+        """
+        from fantabot import config
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("FANTABOT_AUTO_ACT", raising=False)
+        config.note_dotenv_injection(tmp_path / ".env", set())
+        monkeypatch.setattr(config.settings, "fantabot_auto_act", True, raising=False)
+
         assert decide_arming(arm=True).armed is False
-
-        monkeypatch.setattr(settings, "fantabot_auto_act", True, raising=False)
-        assert decide_arming(arm=True).armed is True
+        assert decide_arming(arm=True).closed == (AUTO_ACT,)
 
     def test_nothing_captures_it_at_module_scope(self) -> None:
         """A module-level `AUTO_ACT = settings.fantabot_auto_act` would freeze it, and read
@@ -159,3 +172,117 @@ class TestArmIsNeverRemembered:
         assert decide_arming(arm=True, auto_act=True).armed is True
         assert decide_arming(arm=False, auto_act=True).armed is False
         assert decide_arming(arm=True, auto_act=True).armed is True
+
+
+class TestTheAmbientLockIsReadFromDisk:
+    """The ambient lock, against a real `.env` on a real filesystem.
+
+    `test_the_env_is_read_now_and_not_at_import` above claims to cover this and cannot:
+    it monkeypatches `settings.fantabot_auto_act` — the attribute `decide_arming` reads —
+    so it passes whether or not anything is re-read, and its docstring's "`.env` is edited
+    between requests" never happens. These tests edit the file.
+
+    Measured before the fix, in the app's own boot shape: `.env` flipped to false on disk,
+    `os.environ` flipped to false, and `decide_arming(arm=True).armed` stayed `True` through
+    both. `arming.py`'s module docstring promised the opposite in as many words.
+    """
+
+    def test_editing_the_dotenv_disarms_a_running_process(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The 21:47 property, and the reason the lock is ambient at all.
+
+        A long-lived app server is the surface this is about: the CLI is one process per
+        invocation, so per-process and per-request are the same thing there and the defect
+        is invisible. The operator disarms by editing `.env` and does not restart.
+        """
+        from fantabot import config
+
+        env = tmp_path / ".env"
+        env.write_text("FANTABOT_AUTO_ACT=true\n")
+        monkeypatch.chdir(tmp_path)
+        # What `load_configuration` does at app import: copy the file into `os.environ`
+        # with `override=False`. This is what made the file invisible afterwards.
+        monkeypatch.setenv("FANTABOT_AUTO_ACT", "true")
+        config.note_dotenv_injection(env, {"FANTABOT_AUTO_ACT"})
+
+        assert decide_arming(arm=True).armed is True
+
+        env.write_text("FANTABOT_AUTO_ACT=false\n")
+
+        assert decide_arming(arm=True).armed is False
+        assert decide_arming(arm=True).closed == (AUTO_ACT,)
+
+    def test_an_exported_variable_still_wins_over_the_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Root `CLAUDE.md`, on `FANTABOT_HARVEST_DIR`: *"An exported variable still wins."*
+
+        The re-read must not invert that. A variable genuinely exported into the process —
+        as opposed to one a launcher copied out of `.env` — is the operator speaking later
+        than the file, so it outranks it.
+        """
+        from fantabot import config
+
+        env = tmp_path / ".env"
+        env.write_text("FANTABOT_AUTO_ACT=false\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FANTABOT_AUTO_ACT", "true")
+        config.note_dotenv_injection(env, set())  # exported before boot: not injected
+
+        assert decide_arming(arm=True).armed is True
+
+    def test_an_exported_variable_is_re_read_too(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Not only the file. Whatever the source, the answer is current."""
+        from fantabot import config
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FANTABOT_AUTO_ACT", "true")
+        config.note_dotenv_injection(tmp_path / ".env", set())
+
+        assert decide_arming(arm=True).armed is True
+
+        monkeypatch.setenv("FANTABOT_AUTO_ACT", "false")
+
+        assert decide_arming(arm=True).armed is False
+
+    def test_nothing_anywhere_is_closed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No file, no variable: the default is `false` and stays `false`.
+
+        Root `CLAUDE.md`: *"`FANTABOT_AUTO_ACT` defaults to `false` — deliberate. Don't flip
+        the default."* A re-read that failed open would do exactly that.
+        """
+        from fantabot import config
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("FANTABOT_AUTO_ACT", raising=False)
+        config.note_dotenv_injection(tmp_path / ".env", set())
+
+        assert decide_arming(arm=True).armed is False
+        assert decide_arming(arm=True).closed == (AUTO_ACT,)
+
+    def test_an_unreadable_dotenv_fails_closed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A file that cannot be read is not permission to act.
+
+        The whole point of the ambient lock is that it is the *conservative* one; a
+        re-read that treated an I/O error as "carry on" would make the failure mode
+        arming rather than refusing.
+        """
+        from fantabot import config
+
+        env = tmp_path / ".env"
+        env.write_text("FANTABOT_AUTO_ACT=true\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FANTABOT_AUTO_ACT", "true")
+        config.note_dotenv_injection(env, {"FANTABOT_AUTO_ACT"})
+        assert decide_arming(arm=True).armed is True
+
+        env.unlink()
+
+        assert decide_arming(arm=True).armed is False

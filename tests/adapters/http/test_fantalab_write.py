@@ -30,8 +30,21 @@ PAYLOAD: dict[str, Any] = {
 }
 
 
+def _auto_act(monkeypatch: pytest.MonkeyPatch, on: bool) -> None:
+    """Set the ambient lock where `place_raise` actually looks.
+
+    These tests set `config.settings.fantabot_auto_act`, which `place_raise` read until the
+    singleton turned out to be bound at first import — so a bid loop running all evening
+    kept the lock it booted with, and `.env` could not disarm it. `config.live_auto_act`
+    re-reads per call; an environment variable with nothing recorded as dotenv-injected is
+    its "genuinely exported" branch.
+    """
+    monkeypatch.setattr(config, "_DOTENV_INJECTED", {})
+    monkeypatch.setenv(config.AUTO_ACT_VAR, "true" if on else "false")
+
+
 def test_auto_act_off_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", False)
+    _auto_act(monkeypatch, False)
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -46,7 +59,7 @@ def test_auto_act_off_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_auto_act_on_sends_the_documented_payload_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    _auto_act(monkeypatch, True)
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -64,7 +77,7 @@ def test_auto_act_on_sends_the_documented_payload_once(monkeypatch: pytest.Monke
 
 
 def test_assign_node_is_addressable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    _auto_act(monkeypatch, True)
     seen: dict[str, str] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -76,7 +89,7 @@ def test_assign_node_is_addressable(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_token_never_surfaces_in_the_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    _auto_act(monkeypatch, True)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={})
@@ -85,3 +98,31 @@ def test_a_token_never_surfaces_in_the_outcome(monkeypatch: pytest.MonkeyPatch) 
         9, "L", PAYLOAD, token="a-secret-token-value", transport=httpx.MockTransport(handler)
     )
     assert "a-secret-token-value" not in repr(out)
+
+
+def test_the_lock_is_re_read_between_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The evening property: disarming mid-run must stop the very next bid.
+
+    `CLAUDE.md`: *"the operator who edits it in the morning is not the one at the keyboard at
+    21:47."* `asta bid` is a single process that polls for hours, so "read once per process"
+    and "read once per bid" are different things there — and the module docstring claimed the
+    second while doing the first. A value bound at import kept bidding after the operator
+    disarmed, which is the one failure this lock exists to prevent.
+    """
+    sent = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["n"] += 1
+        return httpx.Response(200, json=PAYLOAD)
+
+    transport = httpx.MockTransport(handler)
+
+    _auto_act(monkeypatch, True)
+    assert rtdb.place_raise(9, "L", PAYLOAD, transport=transport).sent is True
+    assert sent["n"] == 1
+
+    _auto_act(monkeypatch, False)  # the operator disarms, same process
+    out = rtdb.place_raise(9, "L", PAYLOAD, transport=transport)
+
+    assert out.sent is False and out.dry_run is True
+    assert sent["n"] == 1, "a bid was sent after the operator disarmed"

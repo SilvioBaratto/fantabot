@@ -9,6 +9,7 @@ vars via ``env_file``), so the load step is simply skipped.
 """
 
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,30 @@ def load_configuration(dot_env_path: Path | None = None) -> None:
     """
     resolved = find_dotenv() if dot_env_path is None else dot_env_path
     if resolved is not None and resolved.exists():
-        from dotenv import load_dotenv  # lazy import keeps module import cheap
+        # lazy imports keep module import cheap
+        from dotenv import dotenv_values, load_dotenv
 
+        # Which names this call is about to *inject* — those in the file and not already in
+        # the environment. `override=False` means the rest are real exported variables that
+        # win, and after the load the two are indistinguishable in `os.environ`.
+        #
+        # That mattered exactly once and badly: `FANTABOT_AUTO_ACT` copied in here read as
+        # an exported variable for the life of the process, so the server could not be
+        # disarmed by editing the very file it came from. `config.live_auto_act` re-reads
+        # the file for injected names, and needs this to know which those are.
+        injected = {
+            name for name in dotenv_values(resolved) if name not in os.environ
+        }
         load_dotenv(resolved, override=False)
-        logger.debug("Loaded configuration from %s", resolved)
+
+        # Imported **after** `load_dotenv`, and that is load-bearing rather than tidy:
+        # importing `fantabot.config` builds its `settings = Settings()` singleton on the
+        # spot, and `Settings` resolves `env_file=".env"` against the working directory. Do
+        # it one line earlier and the app binds an empty configuration — no encryption key,
+        # no database URL — because the launcher's own `.env` has not reached `os.environ`
+        # yet and `app/` has no `.env` of its own. That is the same import-time binding this
+        # whole change is about, one layer up.
+        from fantabot.config import note_dotenv_injection
+
+        note_dotenv_injection(resolved, injected)
+        logger.debug("Loaded configuration from %s (%d injected)", resolved, len(injected))

@@ -170,12 +170,29 @@ def test_is_past_deadline_compares_naive() -> None:
     assert is_past_deadline("nonsense", datetime(2026, 1, 1)) is False
 
 
-def _submit_fakes(monkeypatch: pytest.MonkeyPatch, *, auto_act: bool) -> list[Any]:
+def _set_auto_act(monkeypatch: pytest.MonkeyPatch, on: bool) -> None:
+    """Arm the ambient lock the way the world does, not by writing to the singleton.
+
+    These tests used to `monkeypatch.setattr(config.settings, "fantabot_auto_act", ...)`.
+    That worked because `decide_arming` read that attribute — which was the defect: the
+    singleton is built once at import, so a long-lived app server could not be disarmed by
+    editing `.env`. Setting it here would now be setting a value nothing reads, and the
+    armed-path tests would silently stop testing the armed path.
+
+    An environment variable, with nothing recorded as injected from a `.env`, is the
+    "genuinely exported" branch of `config.live_auto_act` — the one that outranks the file.
+    """
     from fantabot import config
+
+    monkeypatch.setattr(config, "_DOTENV_INJECTED", {})
+    monkeypatch.setenv(config.AUTO_ACT_VAR, "true" if on else "false")
+
+
+def _submit_fakes(monkeypatch: pytest.MonkeyPatch, *, auto_act: bool) -> list[Any]:
     from fantabot.adapters.http import apileague
 
     _fakes_plan(monkeypatch)
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", auto_act)
+    _set_auto_act(monkeypatch, auto_act)
     monkeypatch.setattr(
         apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00"}
     )
@@ -244,7 +261,6 @@ def test_submit_refuses_when_the_matchday_context_is_missing(
 def test_submit_exits_one_when_every_module_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fantabot import config
     from fantabot.adapters.http import apileague
     from fantabot.domain.lineup.errors import LineupRejected
 
@@ -252,7 +268,7 @@ def test_submit_exits_one_when_every_module_is_refused(
     monkeypatch.setattr(
         apileague, "lineup_settings", lambda *a, **k: {"mods": ["442", "343"], "tbench": 12}
     )
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    _set_auto_act(monkeypatch, True)
     monkeypatch.setattr(
         apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00"}
     )
@@ -272,11 +288,10 @@ def test_submit_exits_one_when_every_module_is_refused(
 def test_submit_reports_cleanly_when_the_roster_fields_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fantabot import config
     from fantabot.adapters.http import apileague
 
     _fakes_plan(monkeypatch)
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    _set_auto_act(monkeypatch, True)
     monkeypatch.setattr(  # empty roster -> NoFieldableModule, caught as a LineupError
         apileague,
         "teamLineup_read",
@@ -292,7 +307,6 @@ def test_submit_reports_cleanly_when_the_roster_fields_nothing(
 def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fantabot import config
     from fantabot.adapters.http import apileague
     from fantabot.domain.lineup.errors import LineupRejected
 
@@ -301,7 +315,7 @@ def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
     monkeypatch.setattr(
         apileague, "lineup_settings", lambda *a, **k: {"mods": ["442", "343"], "tbench": 12}
     )
-    monkeypatch.setattr(config.settings, "fantabot_auto_act", True)
+    _set_auto_act(monkeypatch, True)
     monkeypatch.setattr(
         apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00"}
     )

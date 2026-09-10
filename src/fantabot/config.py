@@ -1,6 +1,8 @@
+import os
+from collections.abc import Iterable
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +43,81 @@ def harvest_dir() -> Path:
     reaches for. A few Settings constructions per command is not a cost worth caching.
     """
     return Settings().fantabot_harvest_dir
+
+
+AUTO_ACT_VAR = "FANTABOT_AUTO_ACT"
+"""The ambient arming lock's variable name, as the operator types it into `.env`."""
+
+_DOTENV_INJECTED: dict[str, Path] = {}
+"""Names a launcher copied out of a `.env` into ``os.environ``, and the file each came from.
+
+Written by :func:`note_dotenv_injection`, read only by :func:`live_auto_act`. It exists to
+tell two indistinguishable things apart: a variable the operator **exported**, which is them
+speaking later than the file and must win, and one a launcher **copied** out of `.env` at
+boot, which is the file speaking and must not outrank a later edit of that same file.
+"""
+
+
+def note_dotenv_injection(path: Path, names: Iterable[str]) -> None:
+    """Record that *names* were injected into ``os.environ`` from the `.env` at *path*.
+
+    Called once by the app's launcher, right after its `load_dotenv(..., override=False)`.
+    The CLI never calls it and does not need to: it is one process per invocation, so
+    nothing it read can go stale within a run.
+    """
+    _DOTENV_INJECTED.clear()
+    _DOTENV_INJECTED.update(dict.fromkeys(names, path))
+
+
+def live_auto_act() -> bool:
+    """`FANTABOT_AUTO_ACT` **now** — re-read, not remembered. Fails closed.
+
+    `application/arming.py` promised this and did not do it: it read
+    ``settings.fantabot_auto_act``, and `settings` is the module singleton built at first
+    import (below), so a long-lived app server answered every request with the state of the
+    world at boot. Editing `.env` to disarm did nothing, and neither did changing
+    ``os.environ`` — the operator who disarms at 21:47 and does not restart the server was
+    still armed. Same argument as :func:`harvest_dir`, on the one setting where being stale
+    means acting when told not to.
+
+    Precedence, and it is the repository's existing one (root `CLAUDE.md`, on
+    ``FANTABOT_HARVEST_DIR``: *"An exported variable still wins"*):
+
+    1. a genuinely **exported** variable — the operator speaking later than the file;
+    2. otherwise the `.env`, **re-read from disk on every call**.
+
+    Only :data:`_DOTENV_INJECTED` separates those, because after a launcher's
+    ``load_dotenv`` both look identical in ``os.environ``.
+
+    Anything unreadable, absent or unparseable is ``False``. The ambient lock is the
+    conservative one; a re-read that failed open would flip the default that root
+    `CLAUDE.md` says not to flip.
+    """
+    raw: str | None = os.environ.get(AUTO_ACT_VAR)
+    if raw is None or AUTO_ACT_VAR in _DOTENV_INJECTED:
+        raw = _dotenv_value(AUTO_ACT_VAR)
+    if raw is None:
+        return False
+    try:
+        return bool(TypeAdapter(bool).validate_python(raw.strip()))
+    except ValidationError:
+        return False
+
+
+def _dotenv_value(name: str) -> str | None:
+    """One name's current value in the `.env`, read fresh. ``None`` if anything is wrong.
+
+    The file is the one the launcher injected from when there is one, and otherwise `.env`
+    relative to the working directory — which is what ``Settings.model_config``'s
+    ``env_file=".env"`` resolves, so the CLI and the app read the same file they always did.
+    """
+    path = _DOTENV_INJECTED.get(name, Path(".env"))
+    try:
+        from dotenv import dotenv_values
+
+        return dotenv_values(path).get(name)
+    except OSError:
+        return None
 
 
 #: The evening's only record, as the CLI has always named it.
