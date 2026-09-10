@@ -1,3 +1,4 @@
+roster band: 30 players (assumed — nothing was declared)
 roster: 30 players | cost 500 | obj 1739.0
   Svilar                      42
   Bremer                      31

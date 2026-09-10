@@ -27,7 +27,6 @@ from __future__ import annotations
 import dataclasses
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from fantabot.adapters.files.room_journal import read_rows
 from fantabot.application.plan_request import WALK_AWAY_UNPRICED
@@ -102,6 +101,11 @@ class AstaPlan(BaseModel):
     reason: str | None = None
     listone: str = ""
     roster_size: int = 0
+    #: One of the three constants in `domain/asta/state`: `SNAPSHOT_DECLARED`,
+    #: `ROOM_DECLARED` or `ASSUMED_NOTHING`. Beside the size, never behind a hover — the
+    #: room-check panel's rule, and for its reason: a band nobody declared and a band the
+    #: lega stated are different facts, and only one is worth planning on.
+    roster_provenance: str = ""
     total_cost: float = 0.0
     objective: float = 0.0
     budget: float = 0.0
@@ -115,28 +119,6 @@ class AstaPlan(BaseModel):
     callable_pool: int | None = None
     players: list[PlanPlayer] = []
     fallbacks: list[Fallback] = []
-
-
-def build_roster_rules(snapshot: Any) -> Any:
-    """A Mantra RosterRules from the lega's snapshot (size + [gk_min, movement_min]).
-
-    Falls back to the default RosterRules() when the snapshot lacks the fields — better
-    the default than a crash, but the point is to plan on 25/32 not a hardcoded 30.
-    """
-    from fantabot.domain.asta.state import RosterRules
-
-    if (
-        snapshot is None
-        or snapshot.roster_size is None
-        or not snapshot.min_roles
-        or len(snapshot.min_roles) < 2
-    ):
-        return RosterRules()
-    return RosterRules(
-        size=int(snapshot.roster_size),
-        min_goalkeepers=int(snapshot.min_roles[0]),
-        min_movement=int(snapshot.min_roles[1]),
-    )
 
 
 def _today() -> date:
@@ -195,7 +177,6 @@ def asta_plan(
     from fantabot.domain.asta.report import parse_ids
     from fantabot.domain.asta.sentiment import SentimentWeights
     from fantabot.domain.asta.state import AstaState
-    from fantabot.domain.classic.state import ClassicRosterRules
 
     from fantabot_app.api.outcomes import because
 
@@ -226,9 +207,11 @@ def asta_plan(
                     ),
                 )
 
-            fmt = "classic" if snapshot.role_groups == 1 else "mantra"
             budget = float(snapshot.budget) if snapshot.budget else 500.0
-            rules = ClassicRosterRules() if fmt == "classic" else build_roster_rules(snapshot)
+            # One reader for "what band does this lega play", shared with the CLI since 2.1.
+            # This route had its own, Mantra-only, falling back to a bare
+            # `ClassicRosterRules()` even when the snapshot carried the band.
+            rules, provenance, fmt = reads.rules_for_league(session, league_id)
 
             request = PlanRequest(
                 season=season,
@@ -295,6 +278,7 @@ def asta_plan(
         outcome="planned",
         listone=fmt,
         roster_size=int(getattr(rules, "size", len(planned.result.optimal.player_ids))),
+        roster_provenance=provenance,
         total_cost=float(planned.result.optimal.total_cost),
         objective=float(planned.result.optimal.objective),
         budget=budget,

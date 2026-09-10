@@ -46,6 +46,7 @@ from fantabot.interface.options import (
     CeilingAlpha,
     CorpusCredits,
     CorpusTeams,
+    Lega,
     Season,
     Sentiment,
     SentimentRun,
@@ -144,6 +145,55 @@ def bid_writer(
     return hold
 
 
+def _lega_rules(
+    lega: int,
+    fmt: str,
+    *,
+    session: Callable[[], Any],
+    warn: Callable[[str], None],
+) -> tuple[Any, str, str]:
+    """`(rules, provenance, format)` — the lega's band, or the built-in one, said out loud.
+
+    Before 2.1 both commands built a bare `RosterRules()` (size 30) whatever the lega
+    declared, while the page read the snapshot. On 2026-09-02 that lega declared **25/32**,
+    so the command produced a plan it could not buy — `asta optimize` exits with "cannot
+    complete the roster: 19/30 filled".
+
+    **The format is detected, never configured** (2.2) — `role_groups` decides it, exactly as
+    the lineup path decides it from `sroles`. That path settled the argument first: a per-lega
+    flag the operator has to remember is a footgun on a cron path. `--format` survives as an
+    override and says so out loud when it disagrees with the lega, because planning a lega as
+    something it is not is a thing to do deliberately or not at all.
+    The provenance is printed rather than swallowed: a band nobody declared and a band the
+    lega stated are different facts.
+
+    **`session` is a factory, not a session**, so no database is opened when there is no
+    lega to read. That is not an optimisation: the golden harness serves a sentinel object
+    in place of a session, and a command that opened one unconditionally would either blow
+    up there or — worse, on a real machine — make the pinned output depend on the database.
+    """
+    from fantabot.application.lega_reads import rules_for_league
+    from fantabot.config import settings
+    from fantabot.domain.asta.state import ASSUMED_NOTHING
+
+    resolved = lega or settings.fantabot_league_id
+    if not resolved:
+        # No lega to detect from. `mantra` is the standing default and the one the goldens
+        # pin; an explicit `--format classic` still wins.
+        chosen = fmt or "mantra"
+        rules = ClassicRosterRules() if chosen == "classic" else RosterRules()
+        return rules, ASSUMED_NOTHING, chosen
+
+    rules, provenance, detected = rules_for_league(session(), resolved)
+    if fmt and fmt != detected:
+        warn(
+            f"lega {resolved} is {detected}; planning {fmt} because --format says so"
+        )
+        rules = ClassicRosterRules() if fmt == "classic" else RosterRules()
+        return rules, ASSUMED_NOTHING, fmt
+    return rules, provenance, detected
+
+
 def _callable_ids(
     warn: Callable[[str], None],
     *,
@@ -189,8 +239,11 @@ def asta_optimize(
     ),
     season: Season = SEASON,
     fmt: str = typer.Option(
-        "mantra", "--format", help="Roster format: mantra (30-man, schemi) or classic (P/D/C/A)."
+        "", "--format",
+        help="Override the format. Detected from the lega by default: mantra (schemi) or "
+        "classic (P/D/C/A). Only pass this to plan a lega as something it is not.",
     ),
+    lega: Lega = 0,
     teams: CorpusTeams = DEFAULT_NUM_TEAMS,
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
@@ -214,7 +267,7 @@ def asta_optimize(
     )
     from fantabot.domain.asta.prices import NoCorpus
 
-    if fmt not in ("mantra", "classic"):
+    if fmt and fmt not in ("mantra", "classic"):
         raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
     ids = (
@@ -226,12 +279,25 @@ def asta_optimize(
     # Everything below the request is presentation and exit codes. What a plan is built
     # from is `application/plan_request.py`'s to say, and it says it once — the endpoint
     # builds the same value, which is the whole of 1.5.
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        rules, provenance, fmt = _lega_rules(
+            lega,
+            fmt,
+            session=lambda: stack.enter_context(database_manager.get_session()),
+            warn=lambda note: console.print(f"[yellow]{note}[/yellow]"),
+        )
+    # Said every run, including when nothing was declared — the silence about the assumption
+    # is what let a 30-man plan be built for a 25-man lega for a fortnight.
+    console.print(f"[dim]roster band: {getattr(rules, 'size', '?')} players ({provenance})[/dim]")
+
     request = PlanRequest(
         season=season,
         listone=fmt,
         as_of=_today(),
         budget=budget,
-        rules=ClassicRosterRules() if fmt == "classic" else RosterRules(),
+        rules=rules,
         owned=frozenset(parse_ids(owned)),
         lam=lam,
         n_fallbacks=fallbacks,
@@ -835,6 +901,7 @@ def asta_bid(
         "prices and caps against the wrong band.",
     ),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
+    lega: Lega = 0,
     teams: CorpusTeams = DEFAULT_NUM_TEAMS,
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
@@ -942,10 +1009,22 @@ def asta_bid(
         console.print(f"[red]no {fmt} players for season {season} — cannot bid.[/red]")
         raise typer.Exit(code=1)
 
-    # The band this room is played under. Classic (25-man P/D/C/A) or Mantra (the default);
-    # max_cap and the plan both size off it, so a wrong --format caps against the wrong rosa.
-    room_rules: RosterRules | ClassicRosterRules = (
-        ClassicRosterRules() if fmt == "classic" else RosterRules()
+    # The band this room is played under. `max_cap` and the plan both size off it, so a
+    # wrong band caps against the wrong rosa — and this is the command that spends credits.
+    #
+    # Read from the lega since 2.1, where it was a bare `RosterRules()` (size 30) whatever
+    # the lega declared. On 2026-09-02 that lega declared 25/32.
+    from contextlib import ExitStack as _ExitStack
+
+    with _ExitStack() as _stack:
+        room_rules, roster_provenance, fmt = _lega_rules(
+            lega,
+            fmt,
+            session=lambda: _stack.enter_context(database_manager.get_session()),
+            warn=lambda note: console.print(f"[yellow]{note}[/yellow]"),
+        )
+    console.print(
+        f"[dim]roster band: {getattr(room_rules, 'size', '?')} players ({roster_provenance})[/dim]"
     )
 
     seat = Seat(fantateam_id=team, user_id=user)

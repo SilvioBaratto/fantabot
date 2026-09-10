@@ -35,6 +35,8 @@ from fantabot.adapters.persistence.models.league import (
     LeagueSnapshot,
     LeagueTeamSnapshot,
 )
+from fantabot.domain.asta.state import RosterRules
+from fantabot.domain.classic.state import ClassicRosterRules
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -111,6 +113,38 @@ def latest_rosters(session: Session, league_id: int) -> list[LeagueTeamSnapshot]
     return list(session.execute(stmt).scalars().all())
 
 
+def rules_for_league(
+    session: Session, league_id: int
+) -> tuple[RosterRules | ClassicRosterRules, str, str]:
+    """`(rules, provenance, format)` for one lega, from its latest snapshot.
+
+    The one door to "what band does this lega play". `GET /asta/plan` had its own
+    `build_roster_rules` — Mantra-only, falling back to a bare `ClassicRosterRules()` even
+    when the snapshot carried the band — and `asta optimize` / `asta bid` had no reading of
+    it at all: they built `RosterRules()`, size 30, whatever the lega declared.
+
+    The format comes back with the band because it is decided by the same field
+    (`role_groups`) and neither caller can use one without the other: planning a Classic
+    lega against the eleven Mantra schemi is the failure the band alone would not prevent.
+
+    Falls back to the default under `ASSUMED_NOTHING` when there is no snapshot at all, so a
+    lega that has never been synced is *assumed*, never invented.
+    """
+    from fantabot.domain.asta.state import ASSUMED_NOTHING, rules_for_lega
+
+    snapshot = latest_settings(session, league_id)
+    if snapshot is None:
+        return RosterRules(), ASSUMED_NOTHING, "mantra"
+
+    rules, provenance = rules_for_lega(
+        role_groups=snapshot.role_groups,
+        roster_size=snapshot.roster_size,
+        min_roles=snapshot.min_roles,
+        max_roles=snapshot.max_roles,
+    )
+    return rules, provenance, "classic" if snapshot.role_groups == 1 else "mantra"
+
+
 def capture_inventory(session: Session, league_id: int) -> list[CaptureRow]:
     """What is stored for one lega, per table, and when — `lega show`'s whole answer.
 
@@ -157,4 +191,5 @@ __all__ = [
     "latest_capture",
     "latest_rosters",
     "latest_settings",
+    "rules_for_league",
 ]

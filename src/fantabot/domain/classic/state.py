@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 #: The confirmed Classic band for lega 3584692: 3 keepers, 8 defenders, 8 mids, 6 attackers.
+#: The four Classic roles, in the order the platform lists them and `minrl`/`maxrl` arrive
+#: in. Named once: it was a literal in `classic_rules` and implicit in `DEFAULT_BANDS`, and
+#: a third copy was about to be written for the snapshot band.
+ROLE_ORDER: tuple[str, ...] = ("P", "D", "C", "A")
+
 DEFAULT_BANDS: tuple[tuple[str, int, int], ...] = (("P", 3, 3), ("D", 8, 8), ("C", 8, 8), ("A", 6, 6))
 
 
@@ -70,6 +75,6 @@ def classic_rules(counts: Mapping[str, int], *, size: int | None = None) -> Clas
     ``static`` selection min == max, so each becomes a pinned band. ``size`` defaults to the sum,
     matching the platform's own invariant that the per-role counts total the roster size.
     """
-    bands = tuple((role, counts[role], counts[role]) for role in ("P", "D", "C", "A") if role in counts)
+    bands = tuple((role, counts[role], counts[role]) for role in ROLE_ORDER if role in counts)
     total = size if size is not None else sum(counts.values())
     return ClassicRosterRules(size=total, bands=bands)

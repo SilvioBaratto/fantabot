@@ -59,7 +59,7 @@ class RoomCheck(BaseModel):
     seat_team_id: str | None = None
     seat_team_name: str | None = None
     roster_size: int | None = None
-    #: `read from the room` / `assumed — the room declared nothing`. Carried beside the
+    #: `read from the room` / `assumed — nothing was declared`. Carried beside the
     #: size because a band nobody declared and a band the room stated are different facts,
     #: and only one of them is worth planning on.
     roster_provenance: str = ""

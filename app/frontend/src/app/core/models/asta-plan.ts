@@ -55,6 +55,12 @@ export interface AstaPlan {
   reason: string | null;
   listone: string;
   roster_size: number;
+  /**
+   * Where the roster band came from: the lega's last sync, the room, or nowhere. Beside the
+   * size, never behind a hover — a band nobody declared and a band the lega stated are
+   * different facts, and only one is worth planning on.
+   */
+  roster_provenance: string;
   total_cost: number;
   objective: number;
   budget: number;

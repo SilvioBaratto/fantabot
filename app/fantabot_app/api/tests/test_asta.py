@@ -2,32 +2,34 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
-from fantabot_app.api.v1.endpoints.asta import build_roster_rules
 
 
-def test_build_roster_rules_from_snapshot() -> None:
-    snapshot = SimpleNamespace(roster_size=25, min_roles=[2, 23], max_roles=[4, 28])
-    rules = build_roster_rules(snapshot)
-    assert rules.size == 25
-    assert rules.min_goalkeepers == 2
-    assert rules.min_movement == 23
+def test_the_route_reads_the_band_through_the_shared_reader() -> None:
+    """`build_roster_rules` lived here and is gone (2.1).
 
+    Its three tests went with it, and that is a move rather than a loss: the behaviour they
+    covered — a band from the snapshot, and a fallback when fields are missing — is now
+    `domain/asta/state.rules_for_lega`, tested in `tests/domain/asta/test_asta_rules_for_lega.py`
+    with ten cases instead of three, including the Classic half this route never had and the
+    provenance constant it never returned.
 
-def test_build_roster_rules_falls_back_without_snapshot() -> None:
-    rules = build_roster_rules(None)
-    assert rules.size == 30  # the fantabot default
+    What is left to assert *here* is the wiring: the route must not grow a second reader.
+    """
+    from fantabot_app.api.v1.endpoints import asta as endpoint
 
+    assert not hasattr(endpoint, "build_roster_rules"), (
+        "the endpoint grew its own roster-rules reader again — that is the duplication 2.1 "
+        "removed; call `application.lega_reads.rules_for_league`"
+    )
 
-def test_build_roster_rules_falls_back_on_missing_fields() -> None:
-    snapshot = SimpleNamespace(roster_size=None, min_roles=None, max_roles=None)
-    rules = build_roster_rules(snapshot)
-    assert rules.size == 30
+    source = Path(endpoint.__file__).read_text(encoding="utf-8")
+    assert "rules_for_league(" in source, "the route no longer reads the lega's band at all"
 
 
 def test_asta_plan_degrades_open_on_db_error(monkeypatch) -> None:

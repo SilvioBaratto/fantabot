@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
-from fantabot.domain.classic.state import ClassicRosterRules, classic_rules
+from fantabot.domain.classic.state import ROLE_ORDER, ClassicRosterRules, classic_rules
 
 if TYPE_CHECKING:
     from fantabot.domain.asta.roles import MantraPlayer
@@ -72,7 +72,73 @@ class AstaState:
 #: prose composed at each call site — a provenance an operator cannot grep for consistently is
 #: one they stop trusting.
 ROOM_DECLARED = "read from the room"
-ASSUMED_NOTHING = "assumed — the room declared nothing"
+#: Source-neutral since 2.1. It read "assumed — the room declared nothing", which was true
+#: while `rules_for_room` was the only caller and false the moment `rules_for_lega` joined
+#: it: `asta optimize` reads a *lega* and there is no room in sight. A provenance that names
+#: the wrong source is worse than a vague one.
+ASSUMED_NOTHING = "assumed — nothing was declared"
+#: The third source, and it is not either of the other two. A *room* declares its band
+#: tonight; a *lega* declares one at its last sync, and the two can disagree — a riparazione
+#: room runs a different band from the lega's season settings. Naming both "read from the
+#: room" would make 1.8's provenance column lie about where the number came from.
+SNAPSHOT_DECLARED = "read from the lega's last sync"
+
+
+def rules_for_lega(
+    *,
+    role_groups: int | None,
+    roster_size: int | None,
+    min_roles: Sequence[int] | None,
+    max_roles: Sequence[int] | None = None,
+) -> tuple[RosterRules | ClassicRosterRules, str]:
+    """The roster band a lega declares, and where it came from. Pure.
+
+    `asta optimize` and `asta bid` built a bare `RosterRules()` — **size 30, whatever the
+    lega declares** — while `GET /asta/plan` read the snapshot. On 2026-08-26
+    `settings/rosters` read 30/30 with `minrl = maxrl = [2, 28]`; on 2026-09-02 it read
+    **25/32 with `minrl=[2, 23]`, `maxrl=[4, 28]`**. A plan built on 30 against a 25-man lega
+    is not slightly wrong, it is unbuyable: the command exits with *"cannot complete the
+    roster: 19/30 filled"*.
+
+    Takes the four primitives rather than a `LeagueSnapshot`, so `domain/` keeps knowing
+    nothing about persistence — the same reason `rules_for_room` takes a room's fields
+    instead of its JSON.
+
+    **`role_groups` decides the type even when the band is unknown**, and that matters more
+    than the band does: falling back to `RosterRules()` for a Classic lega would plan it
+    against the eleven Mantra schemi. `sroles=1` is Classic and `sroles=2` is Mantra —
+    `interface/lineup.py`'s detection, which the lineup path settled first.
+
+    An incomplete snapshot is **assumed, never invented**: the default band under
+    `ASSUMED_NOTHING`, because a band nobody declared and a band the lega stated are
+    different facts and only one is worth planning on.
+    """
+    classic = role_groups == 1
+    default: RosterRules | ClassicRosterRules = ClassicRosterRules() if classic else RosterRules()
+
+    if roster_size is None or not min_roles:
+        return default, ASSUMED_NOTHING
+
+    if classic:
+        if len(min_roles) < len(ROLE_ORDER):
+            return default, ASSUMED_NOTHING
+        highs = max_roles if max_roles and len(max_roles) >= len(ROLE_ORDER) else min_roles
+        bands = tuple(
+            (role, int(min_roles[index]), int(highs[index]))
+            for index, role in enumerate(ROLE_ORDER)
+        )
+        return ClassicRosterRules(size=int(roster_size), bands=bands), SNAPSHOT_DECLARED
+
+    if len(min_roles) < 2:
+        return default, ASSUMED_NOTHING
+    return (
+        RosterRules(
+            size=int(roster_size),
+            min_goalkeepers=int(min_roles[0]),
+            min_movement=int(min_roles[1]),
+        ),
+        SNAPSHOT_DECLARED,
+    )
 
 
 def rules_for_room(

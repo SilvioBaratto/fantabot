@@ -53,7 +53,11 @@ PINNED_TODAY = date(2026, 8, 28)
 #: Rich caches width and colour in `Console.__init__`, and `cli.py` builds one at import.
 #: `conftest.py` already sets these at module scope; they are restated as an explicit
 #: precondition so a golden capture never silently depends on the ambient terminal.
-CONSOLE_ENV = {"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
+CONSOLE_ENV = {
+    "NO_COLOR": "1",
+    "TERM": "dumb",
+    "COLUMNS": "200",
+}
 
 
 def load_quotazioni() -> dict[str, QuotazioneRow]:
@@ -160,6 +164,18 @@ def pinned_world(*, today: date | None = None) -> Iterator[None]:
                 ("fantabot.adapters.persistence.repositories.aste.AsteRepository", _FakeAsteRepository),
                 ("fantabot.adapters.persistence.news_sentiment.NewsSentimentSource", _FakeSentimentSource),
                 ("fantabot.interface.asta._today", lambda: today or PINNED_TODAY),
+                # Seventh patch point, and it is a *setting* rather than an environment
+                # variable on purpose. Since 2.1 `asta optimize` plans on the roster band of
+                # `FANTABOT_LEAGUE_ID` when one is set, and `.env` on this machine sets
+                # 4103937 — so the pinned output would otherwise depend on what `lega sync`
+                # last wrote.
+                #
+                # Setting the env var does not work: `fantabot.config.settings` is a
+                # singleton built at import, so the pin took effect only when `config` had
+                # not been imported yet. That made the goldens pass alone and fail in the
+                # full suite — an import-order dependency, which is the flake this file
+                # exists to keep out. Patching the attribute is order-independent.
+                ("fantabot.config.settings.fantabot_league_id", 0),
                 # Sixth patch point. Without it the commands that narrow their pool
                 # read a gitignored cache — or, on a clean checkout, reach for the CDN
                 # and hit the socket block.

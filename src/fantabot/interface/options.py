@@ -166,3 +166,25 @@ CorpusCredits = Annotated[
         "never priced off the nearest one.",
     ),
 ]
+
+
+
+#: The fantacalcio lega whose roster band (and format) to plan on.
+#:
+#: **Named `--lega`, not `--league`, and the collision is why.** `asta bid --league` is the
+#: *FantaLab* room id, a uuid-ish string; `lega show --league` is the fantacalcio lega id, an
+#: integer. Two different identifiers already wear that flag on two commands, so a third
+#: meaning on a third would be the footgun rather than the fix.
+#:
+#: `0` means "read `FANTABOT_LEAGUE_ID`", and an unset one means "plan on the default band",
+#: which is what these commands did before 2.1 — so the flag adds a capability and removes
+#: nothing.
+Lega = Annotated[
+    int,
+    typer.Option(
+        "--lega",
+        min=0,
+        help="Fantacalcio lega id: plan on ITS roster band and format, from the last "
+        "`lega sync`. Defaults to FANTABOT_LEAGUE_ID; 0 plans on the built-in band.",
+    ),
+]

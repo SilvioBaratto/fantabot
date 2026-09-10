@@ -31,7 +31,6 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
-from fantabot.domain.asta.state import RosterRules
 from fastapi.testclient import TestClient
 from typer.testing import Result
 
@@ -45,6 +44,10 @@ def _cli_plan(
     cli: Callable[..., Result],
 ) -> dict[str, object]:
     """What `asta optimize` decides — **by running `asta optimize`.**
+
+    Since 2.1 the command is told *which lega* (`--lega`) and reads its band and format from
+    the same snapshot the endpoint reads, so there is nothing left to reconstruct and no
+    `--format` to keep in step.
 
     **This used to re-implement the command's body in this file**: `read_plan_inputs` +
     `optimize_roster` with the CLI's defaults, copied. The tier exists to stop one decision
@@ -82,18 +85,13 @@ def _cli_plan(
         return planned
 
     with patch.object(pr, "build_plan", spy):
-        # `expect_exit=None`: the command may exit 1 today. It builds its plan on a bare
-        # `RosterRules()` — 30 men, whatever the lega declares — so against a lega with a
-        # smaller band it cannot complete a roster at all. That is 2.1's subject, and the
-        # spy has already captured the request by the time it fails.
         cli(
             "asta", "optimize",
             "--season", world.season,
-            "--format", world.listone,
+            "--lega", str(world.league_id),
             "--budget", str(world.budget),
             "--lam", "0",
             "--fallbacks", "0",
-            expect_exit=None,
         )
 
     assert asked, "`asta optimize` never reached build_plan — the spy did not take"
@@ -131,36 +129,6 @@ def test_the_seeded_world_is_plannable_at_all(
     assert len(body["players"]) < len(seeded_db.player_ids)
 
 
-def test_the_command_plans_on_a_roster_size_the_lega_never_declared(
-    seeded_db: SeededWorld, frozen_today: date, cli: Callable[..., Result]
-) -> None:
-    """What `asta optimize` does **today**, pinned — because 1.14 is what made it visible.
-
-    The command takes no `--league` and builds a bare `RosterRules()`: thirty men, whatever
-    the lega declares. Against this seed's twelve-man band it cannot complete a roster and
-    exits 1. The page, reading the lega's own snapshot, plans twelve.
-
-    This is 2.1's subject. It is pinned as a *positive* test rather than left to the strict
-    xfail below, so the divergence is a recorded fact with its own failure message — an
-    xfail alone says only "these differ", not how.
-    """
-    result = cli(
-        "asta", "optimize",
-        "--season", seeded_db.season,
-        "--format", seeded_db.listone,
-        "--budget", str(seeded_db.budget),
-        "--lam", "0",
-        "--fallbacks", "0",
-        expect_exit=1,
-    )
-
-    assert "cannot complete the roster" in result.output, result.output
-    assert f"/{RosterRules().size} filled" in result.output, (
-        "the command no longer plans on the default 30-man roster — if 2.1 landed, delete "
-        "this test and the xfail below in the same commit"
-    )
-
-
 def test_both_sides_read_the_same_format_and_budget(
     seeded_db: SeededWorld, frozen_today: date, api: TestClient
 ) -> None:
@@ -179,14 +147,6 @@ def test_both_sides_read_the_same_format_and_budget(
     assert body["roster_size"] == seeded_db.roster_size
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "2.1: `asta optimize` plans on a bare RosterRules() — 30 men whatever the lega "
-        "declares — while the page reads the lega's snapshotted band. Hidden until 1.14 "
-        "made this run the real command instead of a copy of it that was told the band."
-    ),
-)
 def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
     seeded_db: SeededWorld,
     frozen_today: date,
@@ -228,13 +188,11 @@ def test_both_sides_build_the_same_request(
     with the command. That is 1.14's defect in the same file, one function along. Both
     requests are captured from the running code now.
 
-    `rules` is compared separately and is *expected* to differ: the command builds a bare
-    `RosterRules()` and the page reads the lega's band (2.1). Excluding it deliberately, and
-    asserting the difference, is what keeps this test about the other twelve fields rather
-    than red for a reason already recorded twice.
+    Since 2.1 the two requests are compared **whole**. `rules` used to be excluded and
+    asserted-different, because the command built a bare `RosterRules()` while the page read
+    the lega's band; both now read the same snapshot through
+    `application.lega_reads.rules_for_league`.
     """
-    from dataclasses import replace
-
     from fantabot.application import plan_request as pr
 
     captured: list[object] = []
@@ -257,22 +215,15 @@ def test_both_sides_build_the_same_request(
     cli(
         "asta", "optimize",
         "--season", seeded_db.season,
-        "--format", seeded_db.listone,
+        "--lega", str(seeded_db.league_id),
         "--budget", str(seeded_db.budget),
         "--lam", "0",
         "--fallbacks", "3",
-        expect_exit=None,
     )
     assert captured, "`asta optimize` did not reach build_plan"
     from_cli = captured[-1]
 
-    # The one field that differs, asserted rather than ignored — so 2.1 landing makes this
-    # line fail and the exclusion below has to go with it.
-    assert from_cli.rules != from_page.rules, (  # type: ignore[attr-defined]
-        "the command and the page now agree on the roster band — 2.1 landed; delete this "
-        "assertion and the `replace` below, and compare the requests whole"
-    )
-    assert replace(from_cli, rules=from_page.rules) == from_page  # type: ignore[arg-type]
+    assert from_cli == from_page
 
 
 def test_the_page_says_what_it_planned_on(
