@@ -78,11 +78,16 @@ def test_app_never_handles_a_plaintext_token() -> None:
 
 
 def test_no_bid_or_lineup_submit_wiring_exists() -> None:
-    """The app never acts: it does not bid, and it does not submit a lineup.
+    """The app does not bid.
 
-    Call syntax, not prose: lineup.py's docstring says it *never calls*
-    ``teamLineup_submit`` — that mention is fine; an actual ``teamLineup_submit(`` call
-    is not.
+    **It submits a lineup now**, behind two locks (3.3), so `teamLineup_submit(` left this
+    list in the commit that built the route — never ahead of it. What guards that path
+    instead is the arming contract: `arm` has no default, both locks are named separately
+    when shut, and `tests/test_arming.py` proves a decision cannot be stored or defaulted.
+    A substring ban cannot express "only behind two locks"; it can only express "never",
+    and "never" stopped being true.
+
+    Call syntax, not prose, for the names that remain.
 
     **Re-cut to ban the write path rather than a module name.** The list used to hold
     ``"application.asta_room"``, which is the module that also defines ``resolve_room``,
@@ -97,7 +102,7 @@ def test_no_bid_or_lineup_submit_wiring_exists() -> None:
     """
     root = _package_root()
     forbidden = (
-        "teamLineup_submit(",  # submits the weekly formazione
+        # `teamLineup_submit(` was here until 3.3 built the route that calls it.
         "decide_bid(",  # chooses a raise
         "place_raise(",  # PATCHes it to the RTDB — the one that spends credits
         "run_bid_loop(",  # the loop that calls both, forever
@@ -119,8 +124,14 @@ def test_the_boundary_names_the_functions_that_actually_act() -> None:
     name and the two functions that spend real credits were not on it.
     """
     source = (Path(__file__).parent / "test_fitness.py").read_text(encoding="utf-8")
-    for acting in ("place_raise(", "run_bid_loop(", "decide_bid(", "teamLineup_submit("):
-        assert f'"{acting}"' in source, f"{acting} dropped from the v1 boundary"
+    for acting in ("place_raise(", "run_bid_loop(", "decide_bid("):
+        assert f'"{acting}"' in source, f"{acting} dropped from the boundary"
+
+    # The one that left, and why — so a future reader does not restore it and break the
+    # route, or drop another name silently thinking this list is advisory.
+    assert "teamLineup_submit(" not in source.split("forbidden = (")[1].split(")")[0], (
+        "teamLineup_submit is back in the ban while POST /lineup/submit exists"
+    )
 
 
 def test_every_get_server_call_states_the_cleanup_mode() -> None:

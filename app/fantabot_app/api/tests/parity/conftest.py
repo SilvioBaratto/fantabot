@@ -452,6 +452,7 @@ def frozen_today(monkeypatch: pytest.MonkeyPatch) -> date:
     from fantabot.interface import lineup as lineup_cli
 
     from fantabot_app.api.v1.endpoints import asta as asta_endpoint
+    from fantabot_app.api.v1.endpoints import lineup as lineup_endpoint
 
     monkeypatch.setattr(asta_cli, "_today", lambda: FROZEN_TODAY)
     # The app's own seam, created by 1.5. Leaving it out is not a small omission: the two
@@ -462,13 +463,13 @@ def frozen_today(monkeypatch: pytest.MonkeyPatch) -> date:
     # Naive, mirroring what the seam actually returns: `_now` is `datetime.now()` and it
     # is compared against the platform's own naive matchday strings. A tz-aware stand-in
     # would freeze the clock and change the comparison in the same breath.
-    monkeypatch.setattr(
-        lineup_cli,
-        "_now",
-        lambda: datetime(  # noqa: DTZ001
-            FROZEN_TODAY.year, FROZEN_TODAY.month, FROZEN_TODAY.day
-        ),
+    frozen_now = lambda: datetime(  # noqa: DTZ001 — naive, as the seam returns
+        FROZEN_TODAY.year, FROZEN_TODAY.month, FROZEN_TODAY.day
     )
+    monkeypatch.setattr(lineup_cli, "_now", frozen_now)
+    # The app's lineup seam, added by 3.3 with `POST /lineup/submit`'s kickoff warning. A
+    # surface whose seam this fixture does not know about is one it does not freeze.
+    monkeypatch.setattr(lineup_endpoint, "_now", frozen_now)
     return FROZEN_TODAY
 
 

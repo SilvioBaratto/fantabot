@@ -84,9 +84,20 @@ def _lineup_files() -> tuple[Path, ...]:
     """
     return (
         *sorted((PACKAGE / "domain" / "lineup").glob("*.py")),
-        module_file("fantabot.application.lineup_planner"),
+        *sorted((PACKAGE / "application").glob("lineup_*.py")),
         module_file("fantabot.interface.lineup"),
     )
+
+
+def _app_lineup_files() -> tuple[Path, ...]:
+    """The app's lineup surface, which gained a clock in 3.3.
+
+    `POST /lineup/submit` reads the calendar for the past-kickoff warning, so the app now has
+    a second seam — and it was in **no** surface until this was added, which is the exact
+    gap 1.3 closed for asta. A rule that silently stops covering new code is worse than one
+    that never covered it.
+    """
+    return (APP / "api" / "v1" / "endpoints" / "lineup.py",)
 
 
 def _app_asta_files() -> tuple[Path, ...]:
@@ -112,6 +123,9 @@ SURFACES = (
     # parity tier freezes it; before it did, the two sides read the calendar six days
     # apart and disagreed about what the same rosa was worth.
     Surface("app.asta", seam="_today", seams=1, files=_app_asta_files()),
+    # One since 3.3: `POST /lineup/submit` warns when `mstr` looks past kickoff, and the
+    # parity tier freezes it alongside the CLI's.
+    Surface("app.lineup", seam="_now", seams=1, files=_app_lineup_files()),
 )
 
 

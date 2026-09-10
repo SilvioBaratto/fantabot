@@ -1,4 +1,15 @@
-"""Lineup preview — the best fieldable formation for a lega. Never submits.
+"""Lineup preview and submit — the best fieldable formation for a lega.
+
+**`GET /lineup/plan` never submits. `POST /lineup/submit` is a dry run unless the request
+asks to arm, and even then only if `FANTABOT_AUTO_ACT` is set.** Two locks, both named
+separately when shut, and `arm` has **no default**: a request that does not say does not act.
+That is not paranoia about a typo — it is the property that the operator who armed it is the
+one watching, and a browser can be reloaded, restored by a session manager, or left open
+overnight.
+
+Both routes call `application/lineup_submit.py`, which is where the eight decisions on this
+path live. `GET` used to hand-write the seven reads that build a plan, which is how the app
+came to read the format from a different place than the command did.
 
 Mirrors interface/lineup.py's plan path: my_team -> teamLineup_read -> lineup_settings ->
 inputs_from_lineup -> plan_lineups, then returns the top PlannedLineup. This is the only
@@ -9,12 +20,23 @@ teamLineup_submit.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+from fantabot.application.arming import ARM, AUTO_ACT
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+def _now() -> datetime:
+    """The app's clock seam for the lineup path — one, so a harness has one target.
+
+    `interface/lineup.py::_now` is the CLI's, and `tests/domain/asta/test_asta_clock.py`
+    counts seams per surface. The value feeds `is_past_deadline`, which compares naive.
+    """
+    return datetime.now()  # noqa: DTZ005 — naive, as the platform's `mstr` is
 
 
 class LineupPlayer(BaseModel):
@@ -50,12 +72,10 @@ def build_lineup_plan(planned: Any, names: dict[int, str]) -> LineupPlan:
 
 @router.get("/lineup/plan", response_model=LineupPlan, tags=["lineup"])
 def lineup_plan(league_id: int) -> LineupPlan:
-    from fantabot.adapters.http import apileague
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
-    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
+    from fantabot.application.lineup_submit import build_plans
     from fantabot.config import settings
-    from fantabot.domain.lineup.competition import resolve_competition
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import (
         ApiTimeout,
@@ -88,27 +108,11 @@ def lineup_plan(league_id: int) -> LineupPlan:
 
     try:
         with database_manager.get_session() as session:
-            store = TokenStore(session, cipher)
-            tid = int(apileague.my_team(league_id, store=store)["id"])
-            comp = resolve_competition(apileague.competitions(league_id, store=store), tid=tid)
-            body = apileague.teamLineup_read(league_id, comp, store=store)
-            lineup_conf = apileague.lineup_settings(league_id, store=store)
-            rosters = apileague.roster_settings(league_id, store=store)
-            fmt = "classic" if int(rosters.get("sroles", 2)) == 1 else "mantra"
-            inputs, names = inputs_from_lineup(
-                body.get("teamLineupDto", {}),
-                body.get("lineUpInfo", []),
-                lineup_conf,
-                comp,
-                tid=tid,
-                fmt=fmt,
-            )
-            plans = plan_lineups(inputs)
-    # `apileague` maps *every* failure onto `TokenError`, deliberately — no `httpx`
-    # exception is re-raised, because both `RequestError.request` and a bare traceback can
-    # render the `Authorization` header. That makes a bare `except TokenError` wrong here:
-    # it would report a timeout as a credential problem, which is `endpoints/room.py`'s
-    # ordering lesson exactly. The three subclass groups are caught most specific first.
+            # The lifted builder, not a third copy of it. This route hand-wrote the same
+            # seven reads — `my_team`, `competitions`, `teamLineup_read`, `lineup_settings`,
+            # `roster_settings`, `inputs_from_lineup`, `plan_lineups` — which is how it came
+            # to read the format from a different place than the command did.
+            plans, names, _comp = build_plans(TokenStore(session, cipher), league_id, 0)
     except (TokenRejected, AppKeyRejected) as exc:
         # The platform answered, and said no. A different fact from being unable to ask —
         # a rejected token is not going to resolve by reloading the page.
@@ -120,9 +124,6 @@ def lineup_plan(league_id: int) -> LineupPlan:
         # says so in its own words and each names something the operator does by hand.
         return LineupPlan(found=False, outcome="no_credential", reason=str(exc))
     except (SQLAlchemyError, OSError) as exc:
-        # The database, or the socket under it. `apileague` never lets an `httpx` exception
-        # out — it maps them onto `TokenError` above, precisely so a traceback cannot render
-        # the Authorization header — so this is the local half of "could not ask".
         return LineupPlan(found=False, outcome="unreachable", reason=because(exc))
 
     if not plans:
@@ -135,3 +136,167 @@ def lineup_plan(league_id: int) -> LineupPlan:
             reason="No fieldable lineup for this lega yet — the rosa fills no allowed module.",
         )
     return build_lineup_plan(plans[0], names)
+
+
+#: Why a submit did not happen, as a screen. Same discipline as `api/outcomes.py`: a route
+#: that returns one of a pinned tuple, compared for equality by a test.
+#:
+#: `not_armed` is a **success** as far as the request is concerned — a dry run is what the
+#: caller asked for unless it said otherwise — so it carries the plan it would have sent.
+SUBMIT_OUTCOMES = (
+    "submitted",
+    "not_armed",
+    "no_matchday",
+    "all_modules_refused",
+    "no_credential",
+    "refused",
+    "unreachable",
+)
+
+
+class SubmitRequest(BaseModel):
+    """**`arm` has no default on purpose.** A request that omits it is a 422, not a dry run.
+
+    A default either way is a decision the last request makes for the next one, and the
+    property being bought is that the operator who armed it is the one watching. It is never
+    stored, never remembered across a reload, and never read from anywhere but this body.
+    """
+
+    league_id: int
+    arm: bool
+    competition: int = 0
+
+
+class SubmitResult(BaseModel):
+    outcome: str
+    #: Empty on `submitted`. Names **every** shut lock on `not_armed`, not just the first.
+    reason: str = ""
+    #: The module that was sent, or — on a dry run — the one that would have been.
+    module: str = ""
+    matchday: int | None = None
+    starters: list[LineupPlayer] = []
+    bench: list[LineupPlayer] = []
+    #: `True` only when a lineup actually reached the platform.
+    submitted: bool = False
+    #: The lineup **read back** afterwards: what the platform kept, not what we sent.
+    saved_starters: int | None = None
+    saved_at: str | None = None
+    #: `(module, code)` for each module the platform refused before one stuck — the record
+    #: of a `LUP009` walk-down, and empty on a first-try success.
+    rejected: list[str] = []
+    #: The `mstr` that looks past kickoff. A **warning** carried alongside a submit, never
+    #: instead of one: `mstr` is not confirmed to be the lineup deadline.
+    past_deadline: str | None = None
+
+
+#: What the app says when a lock is shut. The *fact* is shared with the CLI
+#: (`application.arming`); the wording is local, because there is no `--arm` flag in an HTTP
+#: request and a message naming one sends the reader to a terminal they are not using.
+APP_SENTENCES = {
+    ARM: "the request did not ask to arm",
+    AUTO_ACT: "FANTABOT_AUTO_ACT is false",
+}
+
+
+@router.post("/lineup/submit", response_model=SubmitResult, tags=["lineup"])
+def lineup_submit(request: SubmitRequest) -> SubmitResult:
+    """Build the XI and submit it — **behind two locks, a dry run by default.**
+
+    The eight decisions are `application/lineup_submit.submit_lineup`'s, the same ones
+    `fantabot lineup submit` walks. This route chooses a screen for each.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_submit import (
+        ALL_MODULES_REFUSED,
+        NO_MATCHDAY,
+        NOT_ARMED,
+        submit_lineup,
+    )
+    from fantabot.config import settings
+    from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import (
+        ApiTimeout,
+        ApiUnavailable,
+        AppKeyRejected,
+        TokenError,
+        TokenRejected,
+    )
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot_app.api.outcomes import because
+
+    key = settings.fantabot_encryption_key
+    if not key:
+        return SubmitResult(
+            outcome="no_credential",
+            reason="No encryption key set — connect an account first.",
+        )
+
+    try:
+        cipher = TokenCipher(key)
+        with database_manager.get_session() as session:
+            outcome = submit_lineup(
+                TokenStore(session, cipher),
+                league_id=request.league_id,
+                competition=request.competition,
+                arm=request.arm,
+                now=_now,
+            )
+    except (TokenRejected, AppKeyRejected, LineupError) as exc:
+        return SubmitResult(outcome="refused", reason=str(exc))
+    except (ApiTimeout, ApiUnavailable) as exc:
+        return SubmitResult(outcome="unreachable", reason=str(exc))
+    except TokenError as exc:
+        return SubmitResult(outcome="no_credential", reason=str(exc))
+    except (SQLAlchemyError, OSError) as exc:
+        return SubmitResult(outcome="unreachable", reason=because(exc))
+
+    plan = outcome.plan
+    body = SubmitResult(
+        outcome="submitted",
+        module=plan.module if plan else "",
+        matchday=plan.mday if plan else None,
+        starters=[
+            LineupPlayer(player_id=pid, nome=outcome.names.get(pid, str(pid)))
+            for pid in (plan.starts if plan else [])
+        ],
+        bench=[
+            LineupPlayer(player_id=pid, nome=outcome.names.get(pid, str(pid)))
+            for pid in (plan.bench if plan else [])
+        ],
+        rejected=[f"{module} ({code})" for module, code in outcome.rejected],
+        past_deadline=outcome.past_deadline,
+    )
+
+    if outcome.refused == NO_MATCHDAY:
+        return body.model_copy(
+            update={
+                "outcome": "no_matchday",
+                "reason": (
+                    "no matchday context for this competition — the lineup has no saved "
+                    "coordinates yet. Try once the matchday opens."
+                ),
+            }
+        )
+    if outcome.refused == NOT_ARMED:
+        # A dry run is not a failure: it is what was asked for. The plan travels with it.
+        return body.model_copy(
+            update={"outcome": "not_armed", "reason": outcome.arming.because(APP_SENTENCES)}
+        )
+    if outcome.refused == ALL_MODULES_REFUSED:
+        return body.model_copy(
+            update={
+                "outcome": "all_modules_refused",
+                "reason": "every fieldable module was refused by the platform.",
+            }
+        )
+
+    return body.model_copy(
+        update={
+            "submitted": True,
+            "saved_starters": len(outcome.saved.get("starts", [])),
+            "saved_at": str(outcome.saved.get("ldate")) if outcome.saved.get("ldate") else None,
+        }
+    )
