@@ -122,13 +122,24 @@ cd frontend && npx ng test --watch=false  # vitest
   property being bought is that the operator who armed it is the one watching. A disarm
   must be reachable from the page **and** must not depend on the page staying open — a
   reload that cannot find the running bid is the same accident as the closed tab.
-  **`tests/test_fitness.py` still bans the acting names** — `teamLineup_submit(`,
-  `decide_bid(`, `place_raise(`, `run_bid_loop(`, `RoomTracker(`, with
-  `test_the_boundary_names_the_functions_that_actually_act` pinning that list. They are
-  the old rule's enforcement and are **deliberately not retired in this edit**: they come
-  out in the same commit that builds the first acting path, so the guard is never green
-  over a feature nobody wrote. Until that commit the app is still read-only in fact, and
-  this rule states the intent, not the state.
+  **`tests/test_fitness.py` bans the acting names** — `teamLineup_submit(`,
+  `decide_bid(`, `place_raise(`, `run_bid_loop(`, `RoomTracker(`, in `ACTING_NAMES`, with
+  `test_the_boundary_names_the_functions_that_actually_act` pinning that list.
+  This paragraph used to say they "come out in the same commit that builds the first
+  acting path", and `fbf39f1` duly took `teamLineup_submit(` off the list when it built
+  `POST /lineup/submit`. **That was wrong, and the prediction is what was wrong.** The
+  route calls `application.lineup_submit.submit_lineup`; it never names the adapter write,
+  and the scan excludes tests, so nothing in the app package ever matched the string. The
+  name is back.
+  What the ban says is not "the app may not submit a lineup" — it does — but **"the app
+  reaches an acting function only through `application/`"**. That is the property worth
+  having: `submit_lineup` is where the arming contract lives, and an endpoint calling
+  `apileague.teamLineup_submit` directly would submit a real lineup with no locks at all.
+  A substring list cannot express "only behind two locks"; it expresses "only through
+  `application/`", which is what makes the two locks unavoidable.
+  The guard over that list read the file's own **text** until `2026-09-10`, so it could
+  not fail: its `for acting in ("place_raise(", ...)` header put the literals into the
+  source it then searched. It reads the tuple object now.
   The one piece of that guard worth keeping whatever replaces it: it bans the **write
   path**, not a module name. It used to ban the string `application.asta_room`, which
   also holds the read-only `resolve_room` and `RoomFrame` — so a room *viewer* failed

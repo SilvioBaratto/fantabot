@@ -77,17 +77,32 @@ def test_app_never_handles_a_plaintext_token() -> None:
     assert offenders == [], f"app code handling plaintext tokens: {offenders}"
 
 
+ACTING_NAMES = (
+    "decide_bid(",  # chooses a raise
+    "place_raise(",  # PATCHes it to the RTDB — the one that spends credits
+    "run_bid_loop(",  # the loop that calls both, forever
+    "RoomTracker(",  # owns the loop and the per-cycle decision
+    "teamLineup_submit(",  # POSTs the weekly lineup
+)
+"""The names no app module may contain. A module-level tuple, not a local, so the guard
+below can read the **object** instead of grepping the file that defines it.
+
+`teamLineup_submit(` was taken off this list in `fbf39f1`, the commit that built
+`POST /lineup/submit`, on the reasoning that "never" had stopped being true. It had not:
+the route calls `application.lineup_submit.submit_lineup`, and never names the adapter
+write. Nothing in the app package matches this string outside its own tests, which
+`_source_files` excludes by default for exactly this reason.
+
+Restoring it is what makes the ban say the useful thing. A substring list cannot express
+"only behind two locks" — but it can express "only through `application/`", which is the
+property that matters: `submit_lineup` is where the arming contract lives, and an endpoint
+that reached `apileague.teamLineup_submit` directly would submit a real lineup with no
+locks at all. Between `fbf39f1` and now, nothing said so.
+"""
+
+
 def test_no_bid_or_lineup_submit_wiring_exists() -> None:
-    """The app does not bid.
-
-    **It submits a lineup now**, behind two locks (3.3), so `teamLineup_submit(` left this
-    list in the commit that built the route — never ahead of it. What guards that path
-    instead is the arming contract: `arm` has no default, both locks are named separately
-    when shut, and `tests/test_arming.py` proves a decision cannot be stored or defaulted.
-    A substring ban cannot express "only behind two locks"; it can only express "never",
-    and "never" stopped being true.
-
-    Call syntax, not prose, for the names that remain.
+    """The app never names a function that acts. It reaches one only through `application/`.
 
     **Re-cut to ban the write path rather than a module name.** The list used to hold
     ``"application.asta_room"``, which is the module that also defines ``resolve_room``,
@@ -96,22 +111,14 @@ def test_no_bid_or_lineup_submit_wiring_exists() -> None:
     functions that actually spend credits, were absent from the list and would have
     passed. The guard banned the viewer and permitted the bidder.
 
-    The names below are the acting ones. ``RoomTracker`` is included because its
-    ``cycle`` is what decides and places a raise; reading a room's configuration is not
-    the same act and is deliberately allowed.
+    ``RoomTracker`` is on the list because its ``cycle`` is what decides and places a
+    raise; reading a room's configuration is not the same act and is deliberately allowed.
     """
     root = _package_root()
-    forbidden = (
-        # `teamLineup_submit(` was here until 3.3 built the route that calls it.
-        "decide_bid(",  # chooses a raise
-        "place_raise(",  # PATCHes it to the RTDB — the one that spends credits
-        "run_bid_loop(",  # the loop that calls both, forever
-        "RoomTracker(",  # owns the loop and the per-cycle decision
-    )
     offenders: list[tuple[str, str]] = []
     for py in _source_files(under=root):
         text = py.read_text(encoding="utf-8")
-        for term in forbidden:
+        for term in ACTING_NAMES:
             if term in text:
                 offenders.append((str(py.relative_to(root)), term))
     assert offenders == [], f"the app wires an action it must not take: {offenders}"
@@ -120,18 +127,27 @@ def test_no_bid_or_lineup_submit_wiring_exists() -> None:
 def test_the_boundary_names_the_functions_that_actually_act() -> None:
     """A guard that misses the write path is worse than none — it reassures.
 
-    Pinned as a list rather than a comment because the previous version banned a module
-    name and the two functions that spend real credits were not on it.
-    """
-    source = (Path(__file__).parent / "test_fitness.py").read_text(encoding="utf-8")
-    for acting in ("place_raise(", "run_bid_loop(", "decide_bid("):
-        assert f'"{acting}"' in source, f"{acting} dropped from the boundary"
+    This read the file's own *text* and so could not fail. ``for acting in ("place_raise(",
+    ...)`` puts those literals in the source it then searched, so the assertion found its
+    own loop header whatever the ban contained; deleting ``place_raise(`` and
+    ``run_bid_loop(`` from the list left every assertion green. The second assertion was
+    worse: ``source.split("forbidden = (")[1]`` split on **three** occurrences of that
+    string and landed on the plaintext-token ban, so the acting list was never inspected at
+    all.
 
-    # The one that left, and why — so a future reader does not restore it and break the
-    # route, or drop another name silently thinking this list is advisory.
-    assert "teamLineup_submit(" not in source.split("forbidden = (")[1].split(")")[0], (
-        "teamLineup_submit is back in the ban while POST /lineup/submit exists"
+    It now reads :data:`ACTING_NAMES` — the object the scan actually uses. The literals here
+    are the expectation, which is the point of a meta-guard; what changed is that they are
+    checked against the list rather than against the file that contains them both.
+    """
+    must_be_banned = (
+        "place_raise(",  # PATCHes a raise to the RTDB — the one that spends credits
+        "run_bid_loop(",  # the loop that calls both, forever
+        "decide_bid(",  # chooses a raise
+        "teamLineup_submit(",  # POSTs the weekly lineup
     )
+    missing = [name for name in must_be_banned if name not in ACTING_NAMES]
+
+    assert missing == [], f"dropped from the acting boundary: {missing}"
 
 
 def test_every_get_server_call_states_the_cleanup_mode() -> None:
