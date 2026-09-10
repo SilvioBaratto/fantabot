@@ -29,7 +29,7 @@ from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.capture import CapturedToken, parse_storage_state
 from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.errors import KeyMissing, NoLeaguesFound, TokenError
-from fantabot.domain.tokens.status import TokenStatus
+from fantabot.domain.tokens.status import TokenStatus, is_usable
 
 LOGIN_URL = "https://leghe.fantacalcio.it"
 EXIT_PREFLIGHT = 2
@@ -149,7 +149,7 @@ def run(
     with database_manager.get_session() as session:
         existing = TokenStore(session, cipher).status()
 
-    if not force and _all_valid(existing, moment, league):
+    if not force and _all_valid(existing, moment, league, cipher.fingerprint):
         summary = ", ".join(
             f"{row.league_id} ({(row.expires_at - moment).days}d)" for row in existing
         )
@@ -173,8 +173,16 @@ def run(
     )
 
 
-def _all_valid(rows: Sequence[TokenStatus], moment: datetime, league: int) -> bool:
-    """Every lega we would act on already has a live token.
+def _all_valid(
+    rows: Sequence[TokenStatus], moment: datetime, league: int, key_fingerprint: str
+) -> bool:
+    """Every lega we would act on already has a token we can actually open.
+
+    "Live" is two facts, not one, and this checked only the second. `expires_at` is
+    a plaintext column — readable precisely *because* it survives the key changing
+    — so a row encrypted under a key we no longer hold read as valid and `auth
+    login` declined to open a browser. `domain.tokens.status.is_usable` is the one
+    place both facts are ranked; `auth status` was already reporting them.
 
     `Sequence`, not `list`: `list` is invariant, so a `list[TokenStatus]` from
     the store would not satisfy a `list[object]` parameter under strict mode.
@@ -182,7 +190,9 @@ def _all_valid(rows: Sequence[TokenStatus], moment: datetime, league: int) -> bo
     if not rows:
         return False
     wanted = [row for row in rows if not league or row.league_id == league]
-    return bool(wanted) and all(moment < row.expires_at for row in wanted)
+    return bool(wanted) and all(
+        is_usable(row, now=moment, key_fingerprint=key_fingerprint) for row in wanted
+    )
 
 
 

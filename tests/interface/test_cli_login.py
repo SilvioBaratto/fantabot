@@ -22,6 +22,9 @@ from fantabot.interface.console import console
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 GOOD_KEY = "8B7z0LQ1cVQ0yZ0Xh3n4WQ1mJ5rT2vK8sN6pA9dF0cE="
+GOOD_KEY_FINGERPRINT = "f9c93ffa"
+"""`TokenCipher(GOOD_KEY).fingerprint`, pinned. A literal that matches no key is
+how the mismatch defect hid in this file's own fixture."""
 
 
 class _FakeBrowser:
@@ -41,11 +44,23 @@ class _FakeBrowser:
         return None
 
 
-def a_status(*, league_id: int = 4103937, expires_at: datetime | None = None) -> TokenStatus:
+def a_status(
+    *,
+    league_id: int = 4103937,
+    expires_at: datetime | None = None,
+    key_fingerprint: str = GOOD_KEY_FINGERPRINT,
+) -> TokenStatus:
+    """A stored row, readable by `GOOD_KEY` unless a test says otherwise.
+
+    The fingerprint defaults to `GOOD_KEY`'s **real** one. It was a literal that
+    matched no key, so every "all tokens valid" test here was asserting that a row
+    encrypted under an unknown key counts as valid — which is exactly the defect
+    `test_a_token_under_another_key_opens_the_browser` pins.
+    """
     return TokenStatus(
         league_id=league_id,
         league_name="Legamiallerotaie2",
-        key_fingerprint="4f2a1c8e",
+        key_fingerprint=key_fingerprint,
         issued_at=NOW - timedelta(days=7),
         expires_at=expires_at or NOW + timedelta(days=357),
         captured_at=NOW,
@@ -207,6 +222,54 @@ def test_all_tokens_valid_opens_no_browser(
     assert browser.entered is False
     assert result.browser_opened is False
     assert "No browser opened" in capsys.readouterr().out
+
+
+def test_a_token_under_another_key_opens_the_browser(
+    stub_db: Any, with_key: None
+) -> None:
+    """A row this key cannot open is not a token we have.
+
+    `domain/tokens/status.describe` already ranks a key mismatch above expiry —
+    "a key mismatch means nothing about the row can be trusted". `auth status`
+    honours that and prints KEY MISMATCH. `auth login` checked `expires_at` alone,
+    so it answered "All stored tokens valid" for rows it could not decrypt and
+    refused to open the browser: the one command that repairs a dead credential
+    declining to, on the strength of a column that is plaintext *precisely* because
+    it stays readable when the key changes.
+
+    Measured on the operator's machine 2026-09-10 — both leghe stored under key
+    `aa695c77` while `.env` held `ef341176`; `auth status` printed KEY MISMATCH for
+    each, and `auth login` printed "All stored tokens valid — 3584692 (359d),
+    4103937 (359d). No browser opened."
+    """
+    stub_db["rows"].append(a_status(key_fingerprint="0000dead"))
+    ctx = _FakeContext()
+
+    result = login.run(
+        report=console, browser_factory=ctx, verify=False,
+        read_state=_read_state, now=NOW, prompt=_confirm,
+    )
+
+    assert result.browser_opened is True
+
+
+def test_one_unreadable_lega_reauths_them_all(stub_db: Any, with_key: None) -> None:
+    """The mixed case, which is the one a partial re-key actually produces.
+
+    A run that skipped on "every *readable* row is valid" would leave the
+    unreadable lega dead for ever, because nothing would ever open a browser again.
+    """
+    stub_db["rows"].extend(
+        [a_status(league_id=3584692), a_status(league_id=4103937, key_fingerprint="0000dead")]
+    )
+    ctx = _FakeContext()
+
+    result = login.run(
+        report=console, browser_factory=ctx, verify=False,
+        read_state=_read_state, now=NOW, prompt=_confirm,
+    )
+
+    assert result.browser_opened is True
 
 
 def test_an_expired_token_opens_the_browser(stub_db: Any, with_key: None) -> None:

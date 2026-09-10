@@ -92,6 +92,24 @@ def render_state(
     return f"ok ({(row.expires_at - now).days}d)"
 
 
+
+def is_usable(row: TokenStatus, *, now: datetime, key_fingerprint: str) -> bool:
+    """Can this row be used to act, with the key we hold, at this moment?
+
+    The same two facts `describe` ranks, as a decision instead of a sentence — and
+    in one place, because they were in two and the second only checked expiry.
+    `auth status` said KEY MISMATCH while `auth login` said "All stored tokens
+    valid" about the very same row, and the command that repairs a dead credential
+    was the one that got it wrong.
+
+    `key_fingerprint` is required, not optional. `describe` takes `None` because a
+    status table must still render its plaintext expiry columns with no key
+    configured; a caller *acting* on a token has a key by then, and defaulting to
+    "assume it matches" is the defect this function exists to remove.
+    """
+    return row.key_fingerprint == key_fingerprint and now < row.expires_at
+
+
 MISSING = "MISSING"
 """A lega known to exist with no row.
 
