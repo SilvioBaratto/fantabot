@@ -31,10 +31,13 @@ def test_the_endpoint_reports_the_capture_that_was_seeded(
 
     assert len(ours) == 1, f"expected exactly one overview for the seeded lega, got {ours}"
     (overview,) = ours
+    # The newest capture, not the older one the seed also holds. `budget=400`,
+    # `roster_size=30` belong to the 1998 capture and must not appear here.
+    assert overview["budget"] != 400, "the endpoint read the *earlier* capture"
     assert overview["budget"] == seeded_db.budget
     assert overview["roster_size"] == seeded_db.roster_size
     assert overview["min_roles"] == list(seeded_db.min_roles)
-    assert overview["team_count"] == 1
+    assert overview["team_count"] == seeded_db.teams_in_latest_capture
 
 
 def test_the_rosters_endpoint_zips_the_two_parallel_arrays(
@@ -42,8 +45,13 @@ def test_the_rosters_endpoint_zips_the_two_parallel_arrays(
 ) -> None:
     """`roster_ids` and `roster_costs` are two arrays on one row; a reader that lost the
     pairing would report a rosa nobody bought."""
-    (team,) = api.get(f"/api/v1/lega/{seeded_db.league_id}/rosters").json()
+    teams = api.get(f"/api/v1/lega/{seeded_db.league_id}/rosters").json()
 
+    # Exactly the newest capture's teams. The seed holds two more at an earlier
+    # `captured_at`, so a reader that drops the filter returns three — which is what this
+    # count is here to catch, and what a single-capture fixture could never express.
+    assert len(teams) == seeded_db.teams_in_latest_capture, teams
+    (team,) = teams
     assert team["credits_spent"] == 100
     assert [slot["player_id"] for slot in team["roster"]] == [
         int(pid) for pid in seeded_db.player_ids[:3]
@@ -92,11 +100,16 @@ def test_the_command_and_the_endpoint_report_the_same_capture(
     # projections of one read, and the numbers have to be the same number.
     assert overview["team_count"] == inventory["league_team_snapshot"].rows
     assert len(teams) == inventory["league_team_snapshot"].rows
+    assert inventory["league_team_snapshot"].rows == seeded_db.teams_in_latest_capture
     # And they are looking at the same capture, not merely at the same lega.
     assert overview["captured_at"] is not None
     assert inventory["league_snapshot"].captured_at is not None
-    assert overview["captured_at"].startswith(
-        inventory["league_snapshot"].captured_at.date().isoformat()
+    # The **full** timestamp, not a date prefix: the seed holds two captures and a
+    # date-prefix comparison would pass on either.
+    from datetime import datetime
+
+    assert datetime.fromisoformat(overview["captured_at"]).replace(tzinfo=None) == (
+        inventory["league_snapshot"].captured_at.replace(tzinfo=None)
     )
 
 

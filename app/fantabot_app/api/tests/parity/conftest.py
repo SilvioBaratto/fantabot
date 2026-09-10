@@ -159,12 +159,23 @@ class SeededWorld:
     num_teams: int
     roster_size: int
     min_roles: tuple[int, ...]
+    #: How many teams the **newest** capture holds. The earlier one holds two more, so a
+    #: reader that ignores `captured_at` sees three.
+    teams_in_latest_capture: int = 1
 
 
 #: Named once so the seed and the sweep cannot disagree about what to delete.
 _AUCTION_ID = "parity-auction"
 #: `league_snapshot.captured_at` is `DateTime(timezone=True)`, so this is aware.
 _CAPTURED_AT = datetime(1999, 1, 1, tzinfo=UTC)
+#: A **second, earlier** capture, with a different team count.
+#:
+#: Without it "both surfaces read the same capture" is untestable: with one snapshot at one
+#: `captured_at`, every filter selects the same row and none can be wrong. Proved by
+#: mutation — dropping `latest_rosters`' `captured_at` filter left all five parity tests
+#: green. The earlier capture holds *two* teams, so a reader that ignores the filter sees
+#: three rows where the newest capture has one.
+_EARLIER_AT = datetime(1998, 6, 1, tzinfo=UTC)
 
 #: Eighteen players over three clubs, of which the lega's rosa holds twelve — so the
 #: optimizer *chooses*, and a difference in the value model shows up as a difference in
@@ -331,6 +342,29 @@ def _seed(session: Session) -> SeededWorld:
         {"t": _CAPTURED_AT, "l": PARITY_LEAGUE,
          "ids": [int(p) for p in ids[:3]], "costs": [10, 20, 70]},
     )
+    # The earlier capture: the same lega, a different day, a different team count. Written
+    # after the current one so a reader that sorts wrongly still gets a definite answer.
+    session.execute(
+        text(
+            "INSERT INTO league_snapshot (captured_at, league_id, budget, roster_size, "
+            "role_groups, min_roles, max_roles, modules, bench_size, matchday) "
+            "VALUES (:t, :l, 400, 30, 2, :mn, :mx, :mods, 4, 1) ON CONFLICT DO NOTHING"
+        ),
+        {"t": _EARLIER_AT, "l": PARITY_LEAGUE, "mn": [2, 28], "mx": [2, 28],
+         "mods": ["343"]},
+    )
+    for team_id, nome in ((7, "Stale FC"), (8, "Stale United")):
+        session.execute(
+            text(
+                "INSERT INTO league_team_snapshot (captured_at, league_id, team_id, nome, "
+                "owner, credits_initial, credits_spent, credits_remaining, roster_ids, "
+                "roster_costs) VALUES (:t, :l, :tid, :n, 'stale', 400, 0, 400, :ids, :costs) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"t": _EARLIER_AT, "l": PARITY_LEAGUE, "tid": team_id, "n": nome,
+             "ids": [], "costs": []},
+        )
+
     session.commit()
     return SeededWorld(
         season=PARITY_SEASON,

@@ -29,7 +29,11 @@ from datetime import date
 from pathlib import Path
 
 from fantabot.adapters.files.room_journal import read_rows
-from fantabot.application.plan_request import WALK_AWAY_UNPRICED
+from fantabot.application.plan_request import (
+    DEFAULT_NUM_CREDITS,
+    DEFAULT_NUM_TEAMS,
+    WALK_AWAY_UNPRICED,
+)
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
@@ -141,12 +145,18 @@ def asta_plan(
     lam: float = 0.0,
     fallbacks: int = 3,
     owned: str = "",
+    teams: int = DEFAULT_NUM_TEAMS,
+    credits: int = DEFAULT_NUM_CREDITS,
 ) -> AstaPlan:
     """The optimal roster for a lega, built from the same request the CLI builds.
 
     `fallbacks` defaults to 3, the CLI's default, and `owned` exists at all — the page has
     only ever shown the plan for an empty roster, which is the right answer on the morning
     of the asta and the wrong one on every evening after it.
+
+    `teams`/`credits` name the recorded corpus cell to price against — a riparazione or a
+    friend's league is a different shape, and pricing it off ours would be somebody else's
+    game. An unrecorded shape comes back `no_corpus` listing the shapes that *are* recorded.
 
     **Latency, re-measured after 1.12** on the live 529-player narrowed Mantra pool
     (2026-09-07, `lam=0`, empty roster, warm database): the plan is **0.12 s** and pricing
@@ -163,8 +173,6 @@ def asta_plan(
     from fantabot.adapters.persistence import database_manager
     from fantabot.application import lega_reads as reads
     from fantabot.application.plan_request import (
-        DEFAULT_NUM_CREDITS,
-        DEFAULT_NUM_TEAMS,
         EmptyPool,
         NoSentimentRows,
         PlanRequest,
@@ -226,13 +234,16 @@ def asta_plan(
                 sentiment=True,
                 sentiment_run=None,
                 callable_ids=narrowed,
-                # The recorded 8x500 shape, the same default the CLI uses. It used to pass
-                # `int(budget)` with `num_teams` pinned at 8, which addresses a cell nobody
-                # chose — three such cells are empty in the live corpus while the same
-                # budget has thousands of sales at another team count. An unrecorded shape
-                # is `no_corpus` below, never a nearest-shape guess.
-                num_teams=DEFAULT_NUM_TEAMS,
-                num_credits=DEFAULT_NUM_CREDITS,
+                # The recorded shape, defaulting to our own 8x500 and **settable** since
+                # 1.17. It used to pass `int(budget)` with `num_teams` pinned at 8, which
+                # addresses a cell nobody chose — three such cells are empty in the live
+                # corpus while the same budget has thousands of sales at another team count.
+                # 1.6 gave `asta optimize` its flags and left this route hardcoded, which is
+                # the same "explicit in code, unreachable to the operator" one surface along:
+                # an operator could not price a riparazione or a friend's league. An
+                # unrecorded shape is `no_corpus` below, never a nearest-shape guess.
+                num_teams=teams,
+                num_credits=credits,
             )
             planned = build_plan(session, request)
 

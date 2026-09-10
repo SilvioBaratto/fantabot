@@ -218,6 +218,37 @@ class TestFourFailuresFourScreens:
         assert body["outcome"] == "unknown_system", body
         assert "classic" in body["reason"] and "mantra" in body["reason"]
 
+    def test_the_corpus_shape_reaches_the_plan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """1.17. The route hardcoded 8x500 and exposed no way to change it, so an operator
+        could not price a riparazione or a friend's league — "explicit in code, unreachable
+        to the operator", which is the bug 1.6 named and fixed one surface along."""
+        from fantabot.application import plan_request as pr
+
+        captured: list[object] = []
+
+        def spy(session: object, request: object) -> object:
+            captured.append(request)
+            raise pr.EmptyPool("stop here — the request is what this test is about")
+
+        monkeypatch.setattr(
+            "fantabot.application.lega_reads.latest_settings", lambda *_a, **_k: _snapshot()
+        )
+        monkeypatch.setattr(pr, "build_plan", spy)
+        monkeypatch.setattr(
+            "fantabot.adapters.persistence.database_manager.get_session", _fake_session
+        )
+
+        with TestClient(app) as client:
+            client.get(
+                "/api/v1/asta/plan",
+                params={"league_id": 4103937, "teams": 10, "credits": 1000},
+            )
+
+        assert captured, "the route did not reach build_plan"
+        assert (captured[0].num_teams, captured[0].num_credits) == (10, 1000)  # type: ignore[attr-defined]
+
     def test_the_five_refusals_are_five_distinct_screens(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -187,4 +187,30 @@ describe('PricesComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('1142 prices stored');
   });
+
+  it('tells a misspelt listone from a missing one', async () => {
+    // `system` reaches a `WHERE listone = :system`, so a typo used to select no rows and
+    // read as "no data" — sending the operator to scrape a season when the fix is a
+    // spelling. Rendered since 1.7 and untested until 1.18.
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.url.includes('target-prices')).flush({
+      found: false,
+      outcome: 'unknown_system',
+      reason: "unknown system 'mantr'; expected one of classic, mantra",
+      system: 'mantr',
+      stored: 0,
+      fades: [],
+      biggest_bumps: [],
+      biggest_cuts: [],
+      flag_counts: {},
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('That is not a listone');
+    expect(text).toContain('classic, mantra');
+  });
 });

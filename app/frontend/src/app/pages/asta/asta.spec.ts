@@ -536,4 +536,46 @@ describe('AstaComponent', () => {
     expect(text).toContain('already owned');
     expect(text).not.toContain('Walk-away0');
   });
+
+  it('names an infeasible rosa as its own screen', async () => {
+    // One of the five outcomes with a template branch and, until 1.18, no test. A branch
+    // nobody renders in a test is a branch that survives a typo.
+    const fixture = await readyWithPlan(
+      plan({
+        found: false,
+        outcome: 'infeasible',
+        reason: 'no schema can be seeded within budget',
+        players: [],
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('No legal rosa fits this budget');
+    expect(text).toContain('no schema can be seeded');
+  });
+
+  it('says which lega has never been synced', async () => {
+    const fixture = await readyWithPlan(
+      plan({
+        found: false,
+        outcome: 'no_lega',
+        reason: 'lega 4103937 has never been synced. Run `fantabot lega sync --write`.',
+        players: [],
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('This lega has never been synced');
+    expect(text).toContain('lega sync');
+  });
+
+  it('shows where the roster band came from', async () => {
+    // 2.1's third provenance. A band nobody declared and a band the lega stated are
+    // different facts, and only one is worth planning on.
+    const fixture = await readyWithPlan(
+      plan({ roster_provenance: 'assumed — nothing was declared' }),
+    );
+
+    expect(fixture.nativeElement.textContent).toContain('assumed — nothing was declared');
+  });
 });
