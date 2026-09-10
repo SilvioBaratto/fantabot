@@ -84,9 +84,16 @@ def test_a_dry_run_from_the_browser_matches_the_command(
     whose token opens, and closing that gap is an operator action — `auth login` is
     interactive and headed on purpose.
 
-    Measured by hand against the operator's own lega 4103937 on 2026-09-10, where the stored
-    row is under key `aa695c77` and `.env` holds `ef341176`: both surfaces returned the same
-    sentence, and the command exited 1.
+    **The happy path has since been measured by hand**, against the operator's own lega
+    4103937 on 2026-09-10 once `d206dd9` unblocked `auth login` and both leghe were re-authed:
+    matchday 2, `FANTABOT_AUTO_ACT=false`, no `--arm`, nothing submitted, and the two surfaces
+    agreed on module `3421`, the same eleven starters **in the same order**, the same twelve
+    bench, and `submitted=false`. Lega 3584692 refused on both with a byte-identical reason.
+    The refusal *sentence* differs between surfaces by design — `arming.py` shares the two
+    locks by name and words them per surface — and both name both locks.
+
+    None of that can be pinned here, which is why it is written down rather than asserted: it
+    needs a stored token, and this tier has none.
     """
     body = api.post(
         "/api/v1/lineup/submit", json={"league_id": seeded_db.league_id, "arm": False}
