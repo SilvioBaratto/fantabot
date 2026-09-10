@@ -104,12 +104,22 @@ def test_a_dry_run_from_the_browser_matches_the_command(
     assert body["submitted"] is False
     assert body["outcome"] in {"no_credential", "refused", "unreachable"}, body
 
-    # The same fact, in the same words. A divergence here is two implementations of one
-    # refusal, which is the whole thing this tier exists to prevent.
+    # The same fact, in the same words — **equal**, not one containing a prefix of the
+    # other. This was `body["reason"].splitlines()[0][:60] in " ".join(...)`, which is
+    # one-way containment of a truncated prefix and left three whole classes of divergence
+    # green: the page shortening its refusal to any substring of the command's, the command
+    # adding words the page does not have, and the command dropping everything after
+    # character 60. The compared sentence here is 135 characters, of which 60 were checked.
+    #
+    # Whitespace is normalised on both sides and nothing else is: Rich hard-wraps to the
+    # terminal width, so the line breaks are the renderer's and are not part of the fact,
+    # while every word is.
     assert body["reason"], "the page refused without saying why"
-    first_line = body["reason"].splitlines()[0][:60]
-    assert first_line in " ".join(result.output.split()), (
-        f"the page says {body['reason']!r} and the command says {result.output!r}"
+    said_by_the_page = " ".join(body["reason"].split())
+    said_by_the_command = " ".join(result.output.split())
+
+    assert said_by_the_command == said_by_the_page, (
+        f"the page says {said_by_the_page!r} and the command says {said_by_the_command!r}"
     )
 
 
