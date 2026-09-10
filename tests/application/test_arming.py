@@ -13,18 +13,19 @@ say is a 422 rather than a dry run.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
+from _paths import module_file
 
-from fantabot_app.api.arming import (
-    ARM_NOT_REQUESTED,
-    AUTO_ACT_OFF,
+from fantabot.application.arming import (
+    ARM,
+    AUTO_ACT,
+    CLI_SENTENCES,
     Arming,
     decide_arming,
 )
 
-API = Path(__file__).resolve().parent.parent
+ARMING = module_file("fantabot.application.arming")
 
 
 class TestBothLocks:
@@ -34,9 +35,9 @@ class TestBothLocks:
     @pytest.mark.parametrize(
         ("arm", "auto_act", "expected"),
         [
-            (False, True, (ARM_NOT_REQUESTED,)),
-            (True, False, (AUTO_ACT_OFF,)),
-            (False, False, (AUTO_ACT_OFF, ARM_NOT_REQUESTED)),
+            (False, True, (ARM,)),
+            (True, False, (AUTO_ACT,)),
+            (False, False, (AUTO_ACT, ARM)),
         ],
         ids=["arm withheld", "env off", "both shut"],
     )
@@ -52,29 +53,35 @@ class TestBothLocks:
         assert decision.closed == expected
 
     def test_the_reason_names_them_all_in_one_line(self) -> None:
-        decision = decide_arming(arm=False, auto_act=False)
+        line = decide_arming(arm=False, auto_act=False).because(CLI_SENTENCES)
 
-        assert AUTO_ACT_OFF in decision.reason
-        assert ARM_NOT_REQUESTED in decision.reason
+        assert CLI_SENTENCES[AUTO_ACT] in line
+        assert CLI_SENTENCES[ARM] in line
 
     def test_an_armed_decision_has_nothing_to_explain(self) -> None:
-        assert decide_arming(arm=True, auto_act=True).reason == ""
+        assert decide_arming(arm=True, auto_act=True).because(CLI_SENTENCES) == ""
 
     def test_the_ambient_lock_is_named_first(self) -> None:
         """It outlives the request, so it is the one to fix first — and the one an operator
         is least likely to suspect, because nothing in the browser shows it."""
-        assert decide_arming(arm=False, auto_act=False).closed[0] == AUTO_ACT_OFF
+        assert decide_arming(arm=False, auto_act=False).closed[0] == AUTO_ACT
 
     def test_the_two_messages_are_distinguishable(self) -> None:
         """One message for two causes is the defect. Neither may contain the other."""
-        assert AUTO_ACT_OFF != ARM_NOT_REQUESTED
-        assert AUTO_ACT_OFF not in ARM_NOT_REQUESTED
-        assert ARM_NOT_REQUESTED not in AUTO_ACT_OFF
+        ambient, per_call = CLI_SENTENCES[AUTO_ACT], CLI_SENTENCES[ARM]
 
-    def test_the_app_does_not_tell_a_browser_about_a_flag_it_cannot_pass(self) -> None:
-        """The CLI says "--arm not given". There is no flag in an HTTP request, and a
-        message naming one sends the reader to a terminal they are not using."""
-        assert "--arm" not in ARM_NOT_REQUESTED
+        assert ambient != per_call
+        assert ambient not in per_call
+        assert per_call not in ambient
+
+    def test_the_locks_are_shared_by_name_and_worded_per_surface(self) -> None:
+        """The ambient lock is the same fact everywhere; the per-invocation one is a
+        `--arm` flag in a terminal and a body field in a request. A shared sentence would
+        have to name one surface's control and send the other's reader somewhere they are
+        not — so the *fact* is shared and the wording is local."""
+        assert "--arm" in CLI_SENTENCES[ARM]
+        assert "--arm" not in ARM, "the lock's name must not carry a surface's control"
+        assert set(CLI_SENTENCES) == {AUTO_ACT, ARM}
 
 
 class TestItIsReadPerRequest:
@@ -94,7 +101,7 @@ class TestItIsReadPerRequest:
     def test_nothing_captures_it_at_module_scope(self) -> None:
         """A module-level `AUTO_ACT = settings.fantabot_auto_act` would freeze it, and read
         exactly like the per-request version at every call site."""
-        source = (API / "arming.py").read_text(encoding="utf-8")
+        source = ARMING.read_text(encoding="utf-8")
         module = ast.parse(source)
         frozen = [
             node.lineno
@@ -120,7 +127,7 @@ class TestArmIsNeverRemembered:
         `ACTING_KINDS = frozenset()` is a call whose result cannot accumulate — a guard that
         flagged either would be describing its exemptions rather than its subject.
         """
-        module = ast.parse((API / "arming.py").read_text(encoding="utf-8"))
+        module = ast.parse(ARMING.read_text(encoding="utf-8"))
         mutable = [
             node.lineno
             for node in module.body
@@ -152,58 +159,3 @@ class TestArmIsNeverRemembered:
         assert decide_arming(arm=True, auto_act=True).armed is True
         assert decide_arming(arm=False, auto_act=True).armed is False
         assert decide_arming(arm=True, auto_act=True).armed is True
-
-
-class TestAnActingJobMustBeStoppable:
-    """`JobRegistry.stop` returns `False` for a thread job — a daemon thread cannot be
-    interrupted from outside — and the route turns that into a 409.
-
-    A disarm control that answers 409 is a lie, and it is a lie told at the one moment it
-    matters. So an acting job has to be a `ProcessJob`, over 0.5's stop flag.
-
-    `ACTING_KINDS` is empty until 3.3 registers the first one. The guard exists first on
-    purpose: the rule is in place before there is anything to break it.
-    """
-
-    def test_every_acting_kind_is_started_with_a_stop(self) -> None:
-        from fantabot_app.api.arming import ACTING_KINDS
-
-        starts: list[tuple[str, bool]] = []
-        for path in (API / "v1" / "endpoints").glob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-                    continue
-                if node.func.attr != "start":
-                    continue
-                keywords = {kw.arg for kw in node.keywords}
-                kind = next(
-                    (
-                        kw.value.value
-                        for kw in node.keywords
-                        if kw.arg == "kind" and isinstance(kw.value, ast.Constant)
-                    ),
-                    None,
-                )
-                if kind is not None:
-                    starts.append((str(kind), "stop" in keywords))
-
-        assert starts, "no registry.start(kind=...) call found — this scan reads nothing"
-        unstoppable = [kind for kind, has_stop in starts if kind in ACTING_KINDS and not has_stop]
-        assert not unstoppable, (
-            f"these acting jobs are registered with no `stop=`: {unstoppable}. "
-            "`registry.stop` answers False for them and the route 409s — a disarm that "
-            "cannot disarm."
-        )
-
-    def test_the_scan_would_catch_one(self) -> None:
-        """A guard over an empty set passes trivially; this proves the walk finds a kind."""
-        planted = ast.parse('registry.start(job, kind="acting-thing")')
-        kinds = [
-            kw.value.value
-            for node in ast.walk(planted)
-            if isinstance(node, ast.Call)
-            for kw in node.keywords
-            if kw.arg == "kind" and isinstance(kw.value, ast.Constant)
-        ]
-
-        assert kinds == ["acting-thing"]

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import typer
 
+from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadline
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:
@@ -26,19 +27,17 @@ if TYPE_CHECKING:
     from fantabot.domain.lineup.models import PlannedLineup
 
 
+#: Re-exported: it moved to `domain/lineup/deadline.py` in 3.2 so `application/` could use
+#: it, and this name is what `interface/lineup.py`'s own tests and its one call site have
+#: always imported. A lift is verified by those tests passing *unchanged*.
+is_past_deadline = _is_past_deadline
+
+
 def _now() -> datetime:
     """The one clock read for the lineup feature — isolated so tests can reason about it."""
     return datetime.now()
 
 
-def is_past_deadline(mstr: str, now: datetime) -> bool:
-    """Whether `now` is past the `mstr` timestamp. Pure. Both compared naive (mstr carries no
-    zone; a warning does not need zone precision). Unparseable `mstr` is treated as not-past."""
-    try:
-        deadline = datetime.fromisoformat(mstr)
-    except (ValueError, TypeError):
-        return False
-    return now.replace(tzinfo=None) > deadline.replace(tzinfo=None)
 
 
 def format_lineup(dto: Mapping[str, Any]) -> list[str]:
@@ -194,69 +193,31 @@ def _submit(
     """
     from sqlalchemy.exc import SQLAlchemyError
 
-    from fantabot.adapters.http import apileague
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.arming import CLI_SENTENCES
+    from fantabot.application.lineup_submit import (
+        ALL_MODULES_REFUSED,
+        NO_MATCHDAY,
+        NOT_ARMED,
+        submit_lineup,
+    )
     from fantabot.config import settings
-    from fantabot.domain.lineup import payload as payload_module
-    from fantabot.domain.lineup.errors import LineupError, LineupRejected
+    from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
     league_id = _resolve_league(league)
-    auto_act = bool(settings.fantabot_auto_act)
-    armed = auto_act and arm
 
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
-            store = TokenStore(session, cipher)
-            plans, names, comp = _build_plans(store, league_id, competition)
-
-            for line in format_plan(plans[0], names):
-                console.print(line)
-
-            if plans[0].mday == 0 or plans[0].cmday == 0:
-                console.print(
-                    "[red]no matchday context for this competition (the lineup has no saved "
-                    "coordinates yet) — refusing to submit. Try once the matchday opens.[/red]"
-                )
-                raise typer.Exit(code=1)
-
-            if not armed:
-                why = "--arm not given" if auto_act else "FANTABOT_AUTO_ACT is false"
-                console.print(
-                    f"[yellow]dry run ({why}) — not submitted. Arm with "
-                    "FANTABOT_AUTO_ACT=true and --arm.[/yellow]"
-                )
-                raise typer.Exit(code=0)
-
-            status = apileague.league_status(league_id, store=store)
-            mstr = str(status.get("mstr", ""))
-            if mstr and is_past_deadline(mstr, _now()):
-                console.print(
-                    f"[yellow]warning: past {mstr} (looks like kickoff) — submitting anyway; "
-                    "the platform will refuse if it is truly closed.[/yellow]"
-                )
-
-            # Submit the best module; if the platform refuses it (LUP009 — a wrong schema),
-            # fall to the next-best rather than failing the whole run.
-            submitted: PlannedLineup | None = None
-            for plan in plans:
-                try:
-                    apileague.teamLineup_submit(league_id, payload_module.build(plan), store=store)
-                    submitted = plan
-                    break
-                except LineupRejected as exc:
-                    console.print(
-                        f"[yellow]{plan.module} refused ({exc.code}) — trying the next "
-                        "module.[/yellow]"
-                    )
-            if submitted is None:
-                console.print("[red]every fieldable module was refused by the platform.[/red]")
-                raise typer.Exit(code=1)
-            saved = apileague.teamLineup_read(league_id, comp, store=store).get(
-                "teamLineupDto", {}
+            outcome = submit_lineup(
+                TokenStore(session, cipher),
+                league_id=league_id,
+                competition=competition,
+                arm=arm,
+                now=_now,
             )
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")
@@ -265,9 +226,43 @@ def _submit(
         console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
         raise typer.Exit(code=1) from exc
 
+    # Everything from here is presentation and an exit code. What happened is decided in
+    # `application/lineup_submit.py`, so the app can reach the same eight decisions.
+    if outcome.plan is not None:
+        for line in format_plan(outcome.plan, outcome.names):
+            console.print(line)
+
+    if outcome.refused == NO_MATCHDAY:
+        console.print(
+            "[red]no matchday context for this competition (the lineup has no saved "
+            "coordinates yet) — refusing to submit. Try once the matchday opens.[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    if outcome.refused == NOT_ARMED:
+        console.print(
+            f"[yellow]dry run ({outcome.arming.because(CLI_SENTENCES)}) — not submitted. "
+            "Arm with FANTABOT_AUTO_ACT=true and --arm.[/yellow]"
+        )
+        raise typer.Exit(code=0)
+
+    if outcome.past_deadline:
+        console.print(
+            f"[yellow]warning: past {outcome.past_deadline} (looks like kickoff) — "
+            "submitting anyway; the platform will refuse if it is truly closed.[/yellow]"
+        )
+    for module, code in outcome.rejected:
+        console.print(f"[yellow]{module} refused ({code}) — trying the next module.[/yellow]")
+
+    if outcome.refused == ALL_MODULES_REFUSED:
+        console.print("[red]every fieldable module was refused by the platform.[/red]")
+        raise typer.Exit(code=1)
+
+    assert outcome.submitted is not None
     console.print(
-        f"[green]submitted {submitted.module} — saved {len(saved.get('starts', []))} "
-        f"starters, ldate {saved.get('ldate', '?')}[/green]"
+        f"[green]submitted {outcome.submitted.module} — saved "
+        f"{len(outcome.saved.get('starts', []))} starters, "
+        f"ldate {outcome.saved.get('ldate', '?')}[/green]"
     )
 
 

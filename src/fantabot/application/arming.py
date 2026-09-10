@@ -1,13 +1,18 @@
-"""Two locks, named separately — the server-side half of the arming contract.
+"""Two locks, named separately — the arming contract, shared by both surfaces.
 
 `CLAUDE.md`: *"Arming needs two locks and a record. `FANTABOT_AUTO_ACT` **and** `--arm`,
 both opt-in, because the env var is process-wide `.env` state and the operator who edits it
 in the morning is not the one at the keyboard at 21:47."*
 
-The CLI has held this since the first live asta. This is the same contract for a browser,
-and a browser makes one of the two properties harder rather than easier: a page can be
-reloaded, restored by the session manager, or left open overnight, and none of those may
-carry an arming decision forward.
+The CLI has held this since the first live asta, in prose and a ternary. This is that
+contract as a value, in `application/` because *"`interface/` holds no decision the app also
+needs"* — and arming is the decision that rule exists for. It landed in `app/` first, which
+was the wrong layer: it would have given the browser a copy of a rule the CLI already had,
+which is the duplication the whole phase is about.
+
+A browser makes one of the two properties harder rather than easier: a page can be reloaded,
+restored by the session manager, or left open overnight, and none of those may carry an
+arming decision forward.
 
 **`arm` is a per-request body field with no default.** Not "defaults to false" — *absent*.
 A request that does not say is a 422, not a dry run. That is deliberate and it is the whole
@@ -32,22 +37,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: The two locks, as exact strings. An operator greps for these.
+#: The two locks, by **name**. Not by sentence: the ambient lock is the same fact on both
+#: surfaces, but the per-invocation one is a `--arm` flag in a terminal and a body field in
+#: a request, and a CLI that told an operator "the request did not ask to arm" — or a page
+#: that told them to pass `--arm` — would be sending them somewhere they are not.
 #:
-#: `AUTO_ACT_OFF` is worded identically to the CLI's, because it is the same fact about the
-#: same file. `ARM_NOT_REQUESTED` is not `"--arm not given"` — there is no flag in an HTTP
-#: request, and a message naming one would send the reader to a terminal they are not using.
-AUTO_ACT_OFF = "FANTABOT_AUTO_ACT is false"
-ARM_NOT_REQUESTED = "the request did not ask to arm"
+#: Each surface renders these through its own `SENTENCES` map; the *fact* is shared, the
+#: wording is local.
+AUTO_ACT = "FANTABOT_AUTO_ACT"
+ARM = "arm"
 
-#: Job kinds that can act. **An acting job must be stoppable**, which in this app means a
-#: `ProcessJob`: `JobRegistry.stop` returns `False` for a thread job — a daemon thread
-#: cannot be interrupted from outside — and the route turns that into a 409. A disarm
-#: control that answers 409 is a lie, and it is a lie told at the one moment it matters.
-#:
-#: Empty until 3.3 adds the first one; the guard exists first on purpose, so the rule is in
-#: place before there is anything to break it.
-ACTING_KINDS: frozenset[str] = frozenset()
+#: What the CLI says. `interface/lineup.py` and `interface/asta.py` have printed these exact
+#: words since the first live asta, and an operator greps for them.
+CLI_SENTENCES: dict[str, str] = {
+    AUTO_ACT: "FANTABOT_AUTO_ACT is false",
+    ARM: "--arm not given",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,16 +65,20 @@ class Arming:
     """
 
     armed: bool
-    #: Every lock that is shut, in the order an operator would fix them: the ambient one
-    #: first (it outlives the request), then the per-request one. Empty when armed.
+    #: Every lock that is shut, **by name**, in the order an operator would fix them: the
+    #: ambient one first (it outlives the invocation and nothing on screen shows it), then
+    #: the per-invocation one. Empty when armed.
     closed: tuple[str, ...] = ()
 
-    @property
-    def reason(self) -> str:
-        """One line for a screen, naming **all** the shut locks rather than the first."""
+    def because(self, sentences: dict[str, str]) -> str:
+        """One line, naming **all** the shut locks rather than the first.
+
+        `sentences` is the caller's vocabulary — `CLI_SENTENCES` for a terminal, the app's
+        own for a request. A shared sentence would have to name one surface's control.
+        """
         if self.armed:
             return ""
-        return " and ".join(self.closed)
+        return " and ".join(sentences[lock] for lock in self.closed)
 
 
 def decide_arming(*, arm: bool, auto_act: bool | None = None) -> Arming:
@@ -84,11 +93,9 @@ def decide_arming(*, arm: bool, auto_act: bool | None = None) -> Arming:
         auto_act = bool(settings.fantabot_auto_act)
 
     closed = tuple(
-        name
-        for shut, name in ((not auto_act, AUTO_ACT_OFF), (not arm, ARM_NOT_REQUESTED))
-        if shut
+        name for shut, name in ((not auto_act, AUTO_ACT), (not arm, ARM)) if shut
     )
     return Arming(armed=not closed, closed=closed)
 
 
-__all__ = ["ACTING_KINDS", "ARM_NOT_REQUESTED", "AUTO_ACT_OFF", "Arming", "decide_arming"]
+__all__ = ["ARM", "AUTO_ACT", "CLI_SENTENCES", "Arming", "decide_arming"]

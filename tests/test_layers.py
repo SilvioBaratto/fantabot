@@ -186,14 +186,17 @@ EXPECTED_CLI_VIOLATIONS: set[tuple[str, str]] = set()
 
 EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = set()
 
-#: The T-spine ratchet. Two entries, both scheduled for deletion: `lineup.py:247`
-#: (`teamLineup_submit`) by 3.3, and `asta.py:576`/`:1000` (`place_raise`, both handed to
-#: a `room.LotRouter`) by 3.9b. Recorded as `(module, name)` rather than per line so a
-#: reformat is not a false failure — the question is whether the command layer can act,
-#: not how many times it says so.
+#: The T-spine ratchet. **One entry left.** `teamLineup_submit` was the other and went in
+#: 3.2, when `application/lineup_submit.py` took the eight decisions the Typer body held —
+#: the ratchet failed the moment the lift landed and demanded its line be deleted in the
+#: same commit, which is the direction that makes this a ratchet rather than an allowlist.
+#:
+#: `place_raise` remains at `asta.py:573`/`:1022`, both handed to a `room.LotRouter`, and
+#: goes in 3.9b. Recorded as `(module, name)` rather than per line so a reformat is not a
+#: false failure — the question is whether the command layer can act, not how often it says
+#: so.
 EXPECTED_WRITING_VIOLATIONS: set[tuple[str, str]] = {
     ("fantabot.interface.asta", "place_raise"),
-    ("fantabot.interface.lineup", "teamLineup_submit"),
 }
 
 
