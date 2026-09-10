@@ -49,4 +49,10 @@ export interface SubmitResult {
   rejected: string[];
   /** The `mstr` that looks past kickoff. A warning carried *alongside* a submit. */
   past_deadline: string | null;
+  /**
+   * Why the confirming read-back failed, when it did. Non-empty means the lineup reached
+   * the platform — `submitted` is true — and could not then be read back to prove it, so
+   * `saved_starters` is not evidence and must not be shown as though it were.
+   */
+  unconfirmed: string;
 }

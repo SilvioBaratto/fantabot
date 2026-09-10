@@ -259,6 +259,24 @@ def _submit(
         raise typer.Exit(code=1)
 
     assert outcome.submitted is not None
+    if outcome.unconfirmed:
+        # Exit 0, and deliberately: the POST returned 200, so the lineup is on the platform
+        # and a non-zero code would send a cron wrapper back to re-POST the very lineup it
+        # just saved. That retry is idempotent right up until the round closes, at which
+        # point it is refused and the operator ends the matchday believing nothing was
+        # fielded. The warning is loud instead, and names what could not be read.
+        console.print(
+            f"[green]submitted {outcome.submitted.module}[/green] "
+            f"[yellow]— but the read-back failed, so this is unconfirmed: "
+            f"{outcome.unconfirmed}[/yellow]"
+        )
+        console.print(
+            "[yellow]check it with [bold]fantabot lineup show[/bold] before re-running; "
+            "re-submitting is safe while the round is open and refused once it closes."
+            "[/yellow]"
+        )
+        raise typer.Exit(code=0)
+
     console.print(
         f"[green]submitted {outcome.submitted.module} — saved "
         f"{len(outcome.saved.get('starts', []))} starters, "

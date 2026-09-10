@@ -29,6 +29,7 @@ from fantabot.application.lineup_submit import (
     submit_lineup,
 )
 from fantabot.domain.lineup.errors import LineupRejected
+from fantabot.domain.tokens.errors import ApiTimeout, ApiUnavailable, TokenRejected
 
 NOW = datetime(2026, 9, 5, 12, 0, 0)
 
@@ -47,9 +48,17 @@ class _Plan:
 class _Api:
     """A fake `apileague`. Records every submit, so "did not act" is checkable."""
 
-    def __init__(self, *, mstr: str = "", refuse: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        mstr: str = "",
+        refuse: tuple[str, ...] = (),
+        read_raises: Exception | None = None,
+    ) -> None:
         self.mstr = mstr
         self.refuse = refuse
+        #: What the *confirming read* fails with, after the POST has already returned 200.
+        self.read_raises = read_raises
         self.submitted: list[str] = []
         self.read_backs = 0
         self.status_reads = 0
@@ -58,14 +67,20 @@ class _Api:
         self.status_reads += 1
         return {"mstr": self.mstr}
 
-    def teamLineup_submit(self, _lid: int, body: dict[str, Any], **_k: Any) -> None:
+    def teamLineup_submit(self, _lid: int, body: dict[str, Any], **_k: Any) -> dict[str, Any]:
         module = str(body.get("mdl", "?"))
         self.submitted.append(module)
         if module in self.refuse:
             raise LineupRejected("LUP009")
+        # The real one returns "200 and the saved DTO on success" (`apileague.py`). It is
+        # what we sent rather than what was kept, so it is not evidence — but it is the only
+        # thing left when the confirming read cannot be had.
+        return {"teamLineupDto": {"mdl": module, "starts": [9, 9, 9]}}
 
     def teamLineup_read(self, _lid: int, _comp: int, **_k: Any) -> dict[str, Any]:
         self.read_backs += 1
+        if self.read_raises is not None:
+            raise self.read_raises
         return {"teamLineupDto": {"starts": [1, 2, 3], "ldate": "2026-09-05T10:00:00"}}
 
 
@@ -242,3 +257,90 @@ class TestTheReportComesFromTheReadBack:
 
         assert api.read_backs == 0
         assert outcome.saved == {}
+
+
+class TestAFailedReadBackDoesNotUnsubmitTheLineup:
+    """Missing evidence is an unknown, not a negative.
+
+    The read-back is the evidence and stays the source of the report. It was also an
+    unguarded precondition of returning at all: it runs *after* `teamLineup_submit` has
+    returned 200, and anything it raised propagated out of `submit_lineup`, discarding the
+    outcome that would have carried `submitted=plan`. The lineup was on the platform and
+    both surfaces said it was not — the CLI exiting 1, the page rendering "Not submitted".
+
+    A cron wrapper cannot tell "never submitted" from "submitted, evidence unavailable", so
+    it re-runs. That retry is idempotent — the same deterministic XI replaces itself — right
+    up until the round closes, after which the re-POST is refused and the operator ends the
+    matchday believing nothing was fielded when something was.
+
+    Pre-existing, not introduced by the 3.2 lift: `d74321a^`'s Typer body had the same
+    read-back inside the same `try`. What the lift added is the surface that states it
+    most explicitly.
+    """
+
+    def test_a_timeout_on_the_confirming_read_still_reports_the_submit(self, wired) -> None:  # type: ignore[no-untyped-def]
+        api = wired(_Api(read_raises=ApiTimeout(10)), [_Plan("343")])
+
+        outcome = _run()
+
+        assert outcome.submitted is not None, "a lineup that reached the platform read as unsubmitted"
+        assert outcome.submitted.module == "343"
+        assert outcome.refused is None
+        assert api.submitted == ["343"], "it must not re-POST to get its evidence"
+
+    def test_the_reason_the_evidence_is_missing_is_carried(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """Named, not merely absent: an empty `saved` already means "nothing submitted"."""
+        api = wired(_Api(read_raises=ApiTimeout(10)), [_Plan("343")])
+
+        outcome = _run()
+
+        assert outcome.unconfirmed
+        assert "10s" in outcome.unconfirmed
+        assert api.read_backs == 1
+
+    def test_a_rejected_token_on_the_read_does_not_blame_the_credential(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """The 401 case, which is worse than the timeout because it accuses.
+
+        A `TokenRejected` from the confirming GET used to surface as `refused` with "run
+        `fantabot auth login`" — about a credential the POST had just used successfully one
+        call earlier. The operator re-authenticates to fix a lineup that was already saved.
+        """
+        wired(_Api(read_raises=TokenRejected(4103937)), [_Plan("343")])
+
+        outcome = _run()
+
+        assert outcome.submitted is not None
+        assert outcome.refused is None
+        assert outcome.unconfirmed
+
+    def test_the_submit_response_is_the_fallback_for_saved(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """`teamLineup_submit` returns the saved DTO and it was being discarded.
+
+        It is what we sent, not what was kept, so it is never evidence — but with the
+        read-back gone it is the only description of the lineup there is, and `unconfirmed`
+        is what says not to trust it as confirmation.
+        """
+        wired(_Api(read_raises=ApiUnavailable(502)), [_Plan("343")])
+
+        outcome = _run()
+
+        assert outcome.saved.get("mdl") == "343"
+
+    def test_a_good_read_back_is_unchanged_and_says_nothing(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """The negative control. `unconfirmed` must be empty when evidence was had, or every
+        successful submit would carry a caveat and the field would mean nothing."""
+        wired(_Api(), [_Plan("343")])
+
+        outcome = _run()
+
+        assert outcome.unconfirmed == ""
+        assert outcome.saved["starts"] == [1, 2, 3], "the read-back is still the source"
+
+    def test_nothing_submitted_carries_no_caveat_either(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """The other negative control: a refusal is a known negative, not an unknown."""
+        wired(_Api(refuse=("343",)), [_Plan("343")])
+
+        outcome = _run()
+
+        assert outcome.submitted is None
+        assert outcome.unconfirmed == ""

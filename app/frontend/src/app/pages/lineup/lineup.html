@@ -155,7 +155,22 @@
 
         @if (result(); as r) {
           <div class="border-t border-border px-6 py-4">
-            @if (r.submitted) {
+            @if (r.submitted && r.unconfirmed) {
+              <!--
+                On the platform, but unproven: the POST returned 200 and the confirming read
+                failed. `saved_starters` came from what we sent, not from what was kept, so
+                it is not shown here — showing it would be presenting the request as the
+                evidence, which is the one thing the read-back exists to avoid.
+              -->
+              <p class="text-sm font-semibold text-signature">
+                Submitted {{ r.module }} — not confirmed.
+              </p>
+              <p class="mt-1 text-sm text-text-secondary">{{ r.unconfirmed }}</p>
+              <p class="mt-1 text-sm text-text-tertiary">
+                The lineup reached the platform; reading it back to prove it did not work.
+                Check it before re-submitting.
+              </p>
+            } @else if (r.submitted) {
               <p class="text-sm font-semibold text-signature">
                 Submitted {{ r.module }} — the platform saved {{ r.saved_starters }} starters
                 @if (r.saved_at) {

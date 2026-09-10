@@ -39,19 +39,26 @@ class _Plan:
 class _Platform:
     """Records every submit. "Did not act" is checkable, not assumed."""
 
-    def __init__(self, *, refuse: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self, *, refuse: tuple[str, ...] = (), read_raises: Exception | None = None
+    ) -> None:
         self.refuse = refuse
+        #: What the confirming read fails with, *after* the POST has returned 200.
+        self.read_raises = read_raises
         self.submitted: list[str] = []
 
-    def teamLineup_submit(self, _lid: int, body: dict[str, Any], **_k: Any) -> None:
+    def teamLineup_submit(self, _lid: int, body: dict[str, Any], **_k: Any) -> dict[str, Any]:
         from fantabot.domain.lineup.errors import LineupRejected
 
         module = str(body.get("mdl", "?"))
         self.submitted.append(module)
         if module in self.refuse:
             raise LineupRejected("LUP009")
+        return {"teamLineupDto": {"mdl": module}}
 
     def teamLineup_read(self, _lid: int, _c: int, **_k: Any) -> dict[str, Any]:
+        if self.read_raises is not None:
+            raise self.read_raises
         return {"teamLineupDto": {"starts": [1, 2, 3], "ldate": "2026-09-05T10:00:00"}}
 
 
@@ -62,6 +69,7 @@ def platform(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
         *,
         auto_act: bool = True,
         refuse: tuple[str, ...] = (),
+        read_raises: Exception | None = None,
         mstr: str = "",
     ) -> _Platform:
         from fantabot import config
@@ -69,7 +77,7 @@ def platform(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
         from fantabot.config import settings
         from fantabot.domain.lineup import payload as payload_module
 
-        api = _Platform(refuse=refuse)
+        api = _Platform(refuse=refuse, read_raises=read_raises)
         monkeypatch.setattr(settings, "fantabot_encryption_key", KEY, raising=False)
         # The ambient lock is no longer the singleton's attribute — `decide_arming` re-reads
         # it, because a value bound at import left this very server armed after the operator
@@ -270,3 +278,36 @@ class _FakeSession:
 
 def _fake_session(*_a: object, **_k: object) -> _FakeSession:
     return _FakeSession()
+
+
+class TestAFailedReadBackIsNotAFailedSubmit:
+    """The route's half of the same rule.
+
+    The confirming GET runs after `POST /gaming/v1/teamLineup/{division}` has returned 200.
+    Anything it raised propagated out of `submit_lineup` and landed in this route's
+    `except (ApiTimeout, ApiUnavailable)` arm, which answers `outcome="unreachable"` with
+    `submitted` left at its `False` default — rendered by the page as a red "Not submitted"
+    about a lineup that is on the platform.
+    """
+
+    def test_a_timeout_on_the_read_back_still_reports_submitted(self, platform) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.domain.tokens.errors import ApiTimeout
+
+        fake = platform([_Plan("343")], read_raises=ApiTimeout(10))
+
+        body = _post(arm=True)
+
+        assert body["outcome"] == "submitted"
+        assert body["submitted"] is True
+        assert body["unconfirmed"], "the page cannot tell the operator to go and check"
+        assert fake.submitted == ["343"], "it must not re-POST to get its evidence"
+
+    def test_a_confirmed_submit_carries_no_caveat(self, platform) -> None:  # type: ignore[no-untyped-def]
+        """The negative control: every successful submit must not look unconfirmed."""
+        platform([_Plan("343")])
+
+        body = _post(arm=True)
+
+        assert body["outcome"] == "submitted"
+        assert body["unconfirmed"] == ""
+        assert body["saved_starters"] == 3

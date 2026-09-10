@@ -158,6 +158,7 @@ describe('LineupComponent', () => {
       saved_at: null,
       rejected: [],
       past_deadline: null,
+      unconfirmed: '',
     };
 
     it('offers no arm control before a dry run', async () => {
@@ -229,6 +230,52 @@ describe('LineupComponent', () => {
           matchday: null,
           starters: [],
           bench: [],
+        });
+    });
+
+    it('says a submit is unconfirmed when the read-back failed', async () => {
+      // The POST returned 200 and the confirming GET did not. `submitted` is true — the
+      // lineup is on the platform — so the page must not say "Not submitted", and must not
+      // present `saved_starters` as evidence either: that number came from what we sent.
+      const fixture = await withPlan();
+
+      fixture.componentInstance.runDry();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      fixture.componentInstance.arm();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush({
+        ...DRY,
+        outcome: 'submitted',
+        reason: '',
+        submitted: true,
+        saved_starters: 0,
+        unconfirmed: 'apileague did not answer within 10s.',
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('not confirmed');
+      expect(text).toContain('apileague did not answer within 10s.');
+      expect(text).not.toContain('Not submitted');
+      expect(text).not.toContain('saved 0 starters');
+
+      // The quiet refresh `arm()` always fires. Left unflushed it trips `httpMock.verify()`
+      // in afterEach, which vitest then reports against whatever ran next.
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/plan'))
+        .flush({
+          found: false,
+          outcome: 'no_lineup',
+          reason: 'x',
+          module: '',
+          matchday: null,
+          starters: [],
+          bench: [],
+          bench_order: [],
+          modules: [],
         });
     });
 

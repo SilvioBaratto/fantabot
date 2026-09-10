@@ -187,6 +187,12 @@ class SubmitResult(BaseModel):
     #: The `mstr` that looks past kickoff. A **warning** carried alongside a submit, never
     #: instead of one: `mstr` is not confirmed to be the lineup deadline.
     past_deadline: str | None = None
+    #: Why the confirming read-back failed, when it did. Non-empty means the lineup reached
+    #: the platform — `submitted` is `True` — and could not then be read back to prove it.
+    #: The outcome deliberately stays `"submitted"`: a reader that does not know this field
+    #: says "submitted", which is the true half, where a new outcome string would drop it
+    #: into an unknown branch and lose that. An unknown is not a negative.
+    unconfirmed: str = ""
 
 
 #: What the app says when a lock is shut. The *fact* is shared with the CLI
@@ -296,6 +302,7 @@ def lineup_submit(request: SubmitRequest) -> SubmitResult:
     return body.model_copy(
         update={
             "submitted": True,
+            "unconfirmed": outcome.unconfirmed,
             "saved_starters": len(outcome.saved.get("starts", [])),
             "saved_at": str(outcome.saved.get("ldate")) if outcome.saved.get("ldate") else None,
         }

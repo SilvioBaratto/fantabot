@@ -69,8 +69,15 @@ class SubmitOutcome:
     #: first-try success, and the record of a `LUP009` walk-down otherwise.
     rejected: tuple[tuple[str, str], ...] = ()
     submitted: PlannedLineup | None = None
-    #: The lineup **read back** after submitting — the evidence, not the request.
+    #: The lineup **read back** after submitting — the evidence, not the request. Falls back
+    #: to what the POST echoed when the confirming read could not be had; `unconfirmed` is
+    #: then non-empty and says so.
     saved: Mapping[str, Any] = field(default_factory=dict)
+    #: Why the confirming read failed, when it did. Empty on every other path — including a
+    #: refusal, which is a *known* negative and needs no caveat. Non-empty means "this went
+    #: to the platform and came back 200, and we could not then read it back to prove it":
+    #: an unknown, not a negative.
+    unconfirmed: str = ""
 
     @property
     def plan(self) -> PlannedLineup | None:
@@ -132,6 +139,7 @@ def submit_lineup(
     from fantabot.domain.lineup import payload as payload_module
     from fantabot.domain.lineup.deadline import is_past_deadline
     from fantabot.domain.lineup.errors import LineupRejected
+    from fantabot.domain.tokens.errors import TokenError
 
     plans, names, comp = build_plans(store, league_id, competition)
     arming = decide_arming(arm=arm, auto_act=auto_act)
@@ -161,15 +169,42 @@ def submit_lineup(
     rejected: list[tuple[str, str]] = []
     for plan in plans:
         try:
-            apileague.teamLineup_submit(league_id, payload_module.build(plan), store=store)
+            sent = apileague.teamLineup_submit(
+                league_id, payload_module.build(plan), store=store
+            )
         except LineupRejected as exc:
             rejected.append((plan.module, str(exc.code)))
             continue
-        # The **read-back**, not the submit response: the first is what we sent, the second
-        # is what the platform kept, and only the second is evidence.
-        saved = apileague.teamLineup_read(league_id, comp, store=store).get("teamLineupDto", {})
+
+        # Past this line the lineup **is on the platform**, and nothing after it may say
+        # otherwise. The read-back is still the source of the report — the submit response
+        # is what we sent, the read-back is what was kept, and only the second is evidence —
+        # but it used to be an unguarded precondition of returning at all, so a timeout on
+        # the confirming GET discarded the outcome and both surfaces reported a saved lineup
+        # as unsubmitted. Missing evidence is an unknown, not a negative.
+        #
+        # `TokenError` is the whole family the network raises, and the net is deliberately
+        # that wide: the 401 case is the worst of them, because it surfaced as "run
+        # `fantabot auth login`" about a credential the POST had used successfully one call
+        # earlier, sending the operator to re-authenticate over a lineup already saved.
+        try:
+            saved = apileague.teamLineup_read(league_id, comp, store=store).get(
+                "teamLineupDto", {}
+            )
+            unconfirmed = ""
+        except TokenError as exc:
+            # `dict`, not `Mapping`: the latter is imported only under `TYPE_CHECKING`
+            # here, and `teamLineup_submit` is typed to return a plain dict anyway. The
+            # guard is for the fakes, which are free to return nothing at all.
+            saved = sent.get("teamLineupDto", {}) if isinstance(sent, dict) else {}
+            unconfirmed = str(exc)
+
         return outcome(
-            past_deadline=past, rejected=tuple(rejected), submitted=plan, saved=saved
+            past_deadline=past,
+            rejected=tuple(rejected),
+            submitted=plan,
+            saved=saved,
+            unconfirmed=unconfirmed,
         )
 
     return outcome(

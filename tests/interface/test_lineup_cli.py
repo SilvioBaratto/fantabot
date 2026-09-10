@@ -335,3 +335,39 @@ def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
     assert len(tried) == 2, "it must fall back to the next module after a refusal"
     assert "trying the next module" in result.output
     assert "submitted" in result.output
+
+
+def test_submit_reports_the_submit_when_the_read_back_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exit 0 and a loud caveat, not exit 1 and a denial.
+
+    The POST returned 200, so the lineup is on the platform. Exiting non-zero would send a
+    cron wrapper back to re-POST the lineup it just saved — idempotent while the round is
+    open, refused once it closes, and either way the operator's last signal was "failed"
+    about something that succeeded.
+    """
+    from fantabot.adapters.http import apileague
+    from fantabot.domain.tokens.errors import ApiTimeout
+
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+
+    # Only the **confirming** read may fail. `build_plans` reads the same endpoint first, so
+    # patching it outright breaks the run before anything is ever POSTed — which would make
+    # this a test about planning, not about losing the evidence of a submit.
+    planning_read = apileague.teamLineup_read
+
+    def timing_out(*a: Any, **k: Any) -> dict[str, Any]:
+        if posted:
+            raise ApiTimeout(10)
+        return planning_read(*a, **k)  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(apileague, "teamLineup_read", timing_out)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1, "it re-POSTed to chase its evidence"
+    assert "submitted" in result.output
+    assert "unconfirmed" in result.output
+    assert "10s" in result.output
