@@ -65,3 +65,57 @@ def test_the_lineup_command_never_reaches_the_submit_path(
 
     monkeypatch.setattr(apileague, "teamLineup_submit", refuse)
     cli("lineup", "plan", "--league", str(seeded_db.league_id), expect_exit=1)
+
+
+def test_a_dry_run_from_the_browser_matches_the_command(
+    seeded_db: SeededWorld, frozen_today: object, api: TestClient, cli: Callable[..., Result]
+) -> None:
+    """Checkpoint C's first criterion, on the path a tier database can actually reach.
+
+    `fantabot lineup submit` (no `--arm`) and `POST /lineup/submit` (`arm: false`) both call
+    `application/lineup_submit.submit_lineup`, so there is one implementation — but "one
+    implementation" is what `_cli_plan` claimed before 1.14 found it comparing a copy. So
+    both are run and their answers put side by side.
+
+    **What is compared is the refusal**, because the tier database holds no usable
+    credential: `submit_lineup` stops at the credential before it reaches the platform, which
+    is the correct ordering (a credential problem must not be reported as a network failure)
+    and is also the only half measurable without a live token. The happy path needs a lega
+    whose token opens, and closing that gap is an operator action — `auth login` is
+    interactive and headed on purpose.
+
+    Measured by hand against the operator's own lega 4103937 on 2026-09-10, where the stored
+    row is under key `aa695c77` and `.env` holds `ef341176`: both surfaces returned the same
+    sentence, and the command exited 1.
+    """
+    body = api.post(
+        "/api/v1/lineup/submit", json={"league_id": seeded_db.league_id, "arm": False}
+    ).json()
+    result = cli("lineup", "submit", "--league", str(seeded_db.league_id), expect_exit=1)
+
+    # Neither acted, and neither could: the seeded lega has no token at all.
+    assert body["submitted"] is False
+    assert body["outcome"] in {"no_credential", "refused", "unreachable"}, body
+
+    # The same fact, in the same words. A divergence here is two implementations of one
+    # refusal, which is the whole thing this tier exists to prevent.
+    assert body["reason"], "the page refused without saying why"
+    first_line = body["reason"].splitlines()[0][:60]
+    assert first_line in " ".join(result.output.split()), (
+        f"the page says {body['reason']!r} and the command says {result.output!r}"
+    )
+
+
+def test_the_browser_cannot_arm_by_omission(
+    seeded_db: SeededWorld, api: TestClient
+) -> None:
+    """The property a terminal gets for free and a browser does not.
+
+    `--arm` is absent unless typed. A body field could be absent, `null`, or left over in a
+    restored form, so the server requires it: a request that does not say is a 422, never a
+    dry run and never an armed one.
+    """
+    response = api.post("/api/v1/lineup/submit", json={"league_id": seeded_db.league_id})
+
+    assert response.status_code == 422
+    assert ["body", "arm"] in [d["loc"] for d in response.json()["detail"]]
