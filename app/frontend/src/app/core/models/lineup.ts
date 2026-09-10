@@ -18,3 +18,35 @@ export interface LineupPlan {
   starters: LineupPlayer[];
   bench: LineupPlayer[];
 }
+
+/**
+ * What `POST /lineup/submit` answers. `not_armed` is a **success**: a dry run is what the
+ * caller asked for unless it said otherwise, and it carries the XI it would have sent.
+ */
+export type SubmitOutcome =
+  | 'submitted'
+  | 'not_armed'
+  | 'no_matchday'
+  | 'all_modules_refused'
+  | 'no_credential'
+  | 'refused'
+  | 'unreachable';
+
+export interface SubmitResult {
+  outcome: SubmitOutcome;
+  /** Empty on `submitted`. Names **every** shut lock on `not_armed`, not just the first. */
+  reason: string;
+  module: string;
+  matchday: number | null;
+  starters: LineupPlayer[];
+  bench: LineupPlayer[];
+  /** True only when a lineup actually reached the platform. */
+  submitted: boolean;
+  /** Read back afterwards: what the platform kept, not what we sent. */
+  saved_starters: number | null;
+  saved_at: string | null;
+  /** `module (code)` for each module refused before one stuck — a `LUP009` walk-down. */
+  rejected: string[];
+  /** The `mstr` that looks past kickoff. A warning carried *alongside* a submit. */
+  past_deadline: string | null;
+}

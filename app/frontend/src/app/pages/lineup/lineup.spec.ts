@@ -117,4 +117,158 @@ describe('LineupComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('The platform refused us');
   });
+
+  describe('submitting', () => {
+    /**
+     * The property: **arming is impossible without seeing the dry run in the same session.**
+     * A checkbox pre-ticked from last time is not a second act, and a session manager can
+     * restore form state — so the gate is a dry run that is on screen *now*.
+     */
+    async function withPlan() {
+      const fixture = TestBed.createComponent(LineupComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/plan'))
+        .flush({
+          found: true,
+          outcome: 'planned',
+          reason: null,
+          module: '4-3-3',
+          matchday: 3,
+          starters: [{ player_id: 1, nome: 'Svilar' }],
+          bench: [],
+        });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return fixture;
+    }
+
+    const DRY = {
+      outcome: 'not_armed',
+      reason: 'the request did not ask to arm',
+      module: '4-3-3',
+      matchday: 3,
+      starters: [{ player_id: 1, nome: 'Svilar' }],
+      bench: [],
+      submitted: false,
+      saved_starters: null,
+      saved_at: null,
+      rejected: [],
+      past_deadline: null,
+    };
+
+    it('offers no arm control before a dry run', async () => {
+      const fixture = await withPlan();
+
+      expect(fixture.componentInstance.canArm()).toBe(false);
+      expect(fixture.nativeElement.textContent).not.toContain('Submit this lineup for real');
+    });
+
+    it('refuses to arm even if the control is reached anyway', async () => {
+      // A hidden button is a suggestion. This is the one call in the app that spends a
+      // matchday, so the refusal lives in the method too.
+      const fixture = await withPlan();
+
+      fixture.componentInstance.arm();
+
+      httpMock.expectNone((r) => r.url.includes('lineup/submit'));
+    });
+
+    it('never asks to arm on a dry run', async () => {
+      const fixture = await withPlan();
+
+      fixture.componentInstance.runDry();
+      const request = httpMock.expectOne((r) => r.url.includes('lineup/submit'));
+
+      expect(request.request.method).toBe('POST');
+      expect(request.request.body).toEqual({ league_id: 4103937, arm: false });
+      request.flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('Dry run — nothing was sent');
+      expect(fixture.nativeElement.textContent).toContain('4-3-3');
+    });
+
+    it('only then offers the second act, and it is the one that arms', async () => {
+      const fixture = await withPlan();
+      fixture.componentInstance.runDry();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.canArm()).toBe(true);
+      expect(fixture.nativeElement.textContent).toContain('Submit this lineup for real');
+
+      fixture.componentInstance.arm();
+      const armed = httpMock.expectOne((r) => r.url.includes('lineup/submit'));
+      expect(armed.request.body).toEqual({ league_id: 4103937, arm: true });
+      armed.flush({
+        ...DRY,
+        outcome: 'submitted',
+        reason: '',
+        submitted: true,
+        saved_starters: 11,
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('Submitted 4-3-3');
+      // Spent: the next arm needs its own dry run, on whatever the roster is now.
+      expect(fixture.componentInstance.canArm()).toBe(false);
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/plan'))
+        .flush({
+          found: false,
+          outcome: 'no_lineup',
+          reason: 'x',
+          module: '',
+          matchday: null,
+          starters: [],
+          bench: [],
+        });
+    });
+
+    it('drops a dry run when another lega is selected', async () => {
+      // Carrying it across would let an operator arm a lineup they never saw.
+      const fixture = await withPlan();
+      fixture.componentInstance.runDry();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(fixture.componentInstance.canArm()).toBe(true);
+
+      fixture.componentInstance.select(3584692);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.canArm()).toBe(false);
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/plan'))
+        .flush({
+          found: false,
+          outcome: 'no_lineup',
+          reason: 'x',
+          module: '',
+          matchday: null,
+          starters: [],
+          bench: [],
+        });
+    });
+
+    it('does not offer to arm a dry run that refused', async () => {
+      const fixture = await withPlan();
+      fixture.componentInstance.runDry();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/submit'))
+        .flush({ ...DRY, outcome: 'no_matchday', reason: 'no coordinates yet' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.canArm()).toBe(false);
+      expect(fixture.nativeElement.textContent).toContain('No matchday context yet');
+    });
+  });
 });

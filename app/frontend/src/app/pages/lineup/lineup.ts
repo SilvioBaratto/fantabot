@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -11,7 +12,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LegaService } from '../../core/api/lega.service';
 import { LineupService } from '../../core/api/lineup.service';
 import { LegaOverview } from '../../core/models/lega';
-import { LineupPlan } from '../../core/models/lineup';
+import { LineupPlan, SubmitResult } from '../../core/models/lineup';
 
 @Component({
   selector: 'app-lineup',
@@ -31,6 +32,21 @@ export class LineupComponent implements OnInit {
   readonly loading = signal(true);
   readonly planLoading = signal(false);
   readonly errorMsg = signal<string | null>(null);
+
+  /**
+   * The dry run's result, and the gate on arming.
+   *
+   * **Arming requires a second, explicit act on a dry run the operator has just seen.** Not
+   * a checkbox — a checkbox pre-ticked from last time is not a second act, and a page can
+   * be restored by a session manager with its form state intact. Selecting another lega
+   * clears it, so the run on screen is always the run that would be armed.
+   */
+  readonly dryRun = signal<SubmitResult | null>(null);
+  readonly submitting = signal(false);
+  readonly result = signal<SubmitResult | null>(null);
+
+  /** True only while a dry run for the *currently selected* lega is on screen. */
+  readonly canArm = computed(() => this.dryRun()?.outcome === 'not_armed' && !this.submitting());
 
   ngOnInit(): void {
     this.loadLeagues();
@@ -58,7 +74,26 @@ export class LineupComponent implements OnInit {
   select(leagueId: number): void {
     this.selectedId.set(leagueId);
     this.plan.set(null);
-    this.planLoading.set(true);
+    // A dry run belongs to one lega. Carrying it across would let an operator arm a lineup
+    // they never saw — the whole property this gate exists for.
+    this.dryRun.set(null);
+    this.result.set(null);
+    this.fetchPlan(leagueId);
+  }
+
+  /**
+   * Re-read the plan without clearing what is on screen.
+   *
+   * Split from `select` because arming reloads the plan and **must not** wipe the result
+   * the operator has just been handed — the read-back is the evidence that the platform
+   * kept it, and it was being erased a frame after it arrived.
+   */
+  private fetchPlan(leagueId: number, { quiet = false } = {}): void {
+    // `quiet` skips the loading state. The template swaps the whole panel for a skeleton
+    // while `planLoading` is set, so a background refresh after arming would blank the
+    // read-back a frame after the operator was handed it — the one thing on that screen
+    // that is evidence.
+    if (!quiet) this.planLoading.set(true);
     this.lineup
       .getPlan(leagueId)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -68,6 +103,58 @@ export class LineupComponent implements OnInit {
           this.planLoading.set(false);
         },
         error: () => this.planLoading.set(false),
+      });
+  }
+
+  /**
+   * Ask what would be sent. Never arms — `arm: false` is passed explicitly, every time.
+   */
+  runDry(): void {
+    const leagueId = this.selectedId();
+    if (leagueId === null || this.submitting()) return;
+    this.submitting.set(true);
+    this.result.set(null);
+    this.lineup
+      .submit(leagueId, false)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (outcome) => {
+          this.dryRun.set(outcome);
+          this.submitting.set(false);
+        },
+        error: () => {
+          this.errorMsg.set('Could not reach the API.');
+          this.submitting.set(false);
+        },
+      });
+  }
+
+  /**
+   * Submit for real — the second act.
+   *
+   * Refuses unless a dry run for this lega is on screen. That is enforced here and not only
+   * by hiding the button: a disabled control is a suggestion, and this is the one call in
+   * the app that spends a matchday.
+   */
+  arm(): void {
+    const leagueId = this.selectedId();
+    if (leagueId === null || !this.canArm()) return;
+    this.submitting.set(true);
+    this.lineup
+      .submit(leagueId, true)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (outcome) => {
+          this.result.set(outcome);
+          // Spent. The next arm needs its own dry run, on whatever the roster is now.
+          this.dryRun.set(null);
+          this.submitting.set(false);
+          this.fetchPlan(leagueId, { quiet: true });
+        },
+        error: () => {
+          this.errorMsg.set('Could not reach the API.');
+          this.submitting.set(false);
+        },
       });
   }
 }

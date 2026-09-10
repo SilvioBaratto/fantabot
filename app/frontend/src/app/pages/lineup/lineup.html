@@ -82,6 +82,100 @@
           }
         </section>
       </div>
+      <!-- Submitting. Two acts, and the second is only reachable once the first has put a
+           dry run on screen — not a checkbox, because a checkbox pre-ticked from last time
+           is not a second act and a session manager can restore one.
+
+           The Arm button does not exist until then. `arm()` refuses as well, because a
+           disabled control is a suggestion and this is the one call in the app that spends
+           a matchday. -->
+      <section class="mt-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
+        <div class="flex flex-wrap items-center gap-3 p-6">
+          <button
+            type="button"
+            (click)="runDry()"
+            [disabled]="submitting()"
+            class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
+          >
+            {{ submitting() && !dryRun() ? 'Checking…' : 'Dry run' }}
+          </button>
+
+          @if (canArm()) {
+            <button
+              type="button"
+              (click)="arm()"
+              class="inline-flex items-center gap-2 rounded-md border border-danger bg-surface-raised px-3 py-2 text-sm font-semibold text-danger transition-colors hover:bg-danger/10"
+            >
+              Submit this lineup for real
+            </button>
+          }
+        </div>
+
+        @if (dryRun(); as d) {
+          <div class="border-t border-border px-6 py-4">
+            <p class="text-sm font-semibold text-text">
+              @switch (d.outcome) {
+                @case ('not_armed') {
+                  Dry run — nothing was sent
+                }
+                @case ('no_matchday') {
+                  No matchday context yet
+                }
+                @case ('all_modules_refused') {
+                  The platform refused every module
+                }
+                @case ('no_credential') {
+                  This lega is not connected
+                }
+                @case ('refused') {
+                  The platform refused us
+                }
+                @default {
+                  Could not reach the platform
+                }
+              }
+            </p>
+            <p class="mt-1 text-sm text-text-secondary">{{ d.reason }}</p>
+            @if (d.outcome === 'not_armed') {
+              <p class="mt-2 text-sm text-text">
+                Would send <span class="font-semibold">{{ d.module }}</span> —
+                {{ d.starters.length }} starters, {{ d.bench.length }} on the bench.
+              </p>
+            }
+            @if (d.past_deadline) {
+              <!-- A warning, never a block: `mstr` is not confirmed to be the lineup
+                   deadline, so the platform stays the authority. -->
+              <p class="mt-2 text-sm text-warning">
+                Past {{ d.past_deadline }} — looks like kickoff. The platform will refuse it if it
+                is truly closed.
+              </p>
+            }
+          </div>
+        }
+
+        @if (result(); as r) {
+          <div class="border-t border-border px-6 py-4">
+            @if (r.submitted) {
+              <p class="text-sm font-semibold text-signature">
+                Submitted {{ r.module }} — the platform saved {{ r.saved_starters }} starters
+                @if (r.saved_at) {
+                  at {{ r.saved_at }}
+                }
+                .
+              </p>
+            } @else {
+              <p class="text-sm font-semibold text-danger">Not submitted</p>
+              <p class="mt-1 text-sm text-text-secondary">{{ r.reason }}</p>
+            }
+            @if (r.rejected.length) {
+              <!-- The LUP009 walk-down: a refused module is survived, not fatal. -->
+              <p class="mt-2 text-xs text-text-tertiary">
+                Refused first: {{ r.rejected.join(', ') }}
+              </p>
+            }
+          </div>
+        }
+      </section>
     } @else {
       <!-- Four refusals, four headings. They shared one reason string, so a timeout and a
            rosa the platform will not accept read identically. -->
