@@ -23,7 +23,6 @@ from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadlin
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:
-    from fantabot.adapters.tokens.store import TokenStore
     from fantabot.domain.lineup.models import PlannedLineup
 
 
@@ -65,38 +64,6 @@ def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
         "XI:    " + ", ".join(nm(p) for p in plan.starts),
         "bench: " + ", ".join(nm(p) for p in plan.bench),
     ]
-
-
-def _build_plans(
-    store: TokenStore, league_id: int, competition: int
-) -> tuple[list[PlannedLineup], dict[int, str], int]:
-    """Gather roster/settings/coords via `apileague` and compose the ranked `PlannedLineup`s.
-
-    Roster, roles and value come from `teamLineup_read`'s `lineUpInfo`; the competition is
-    auto-resolved when `competition` is 0. Returns `(plans_best_first, id->name, comp_id)`.
-    """
-    from fantabot.adapters.http import apileague
-    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
-    from fantabot.domain.lineup.competition import resolve_competition
-
-    # `my_team` is the authoritative team id — used for the submit payload's `tid` (the
-    # lineup DTO is empty first-of-season) and, when no --competition is given, to resolve
-    # the competition. Always needed, so never a wasted read.
-    tid = int(apileague.my_team(league_id, store=store)["id"])
-    comp = competition or resolve_competition(
-        apileague.competitions(league_id, store=store), tid=tid
-    )
-    body = apileague.teamLineup_read(league_id, comp, store=store)
-    lineup_conf = apileague.lineup_settings(league_id, store=store)
-    # Format is detected, never configured: sroles=1 is Classic (P/D/C/A), sroles=2 is Mantra.
-    # This is the cron path, so a flag the operator must remember per-lega would be a footgun.
-    rosters = apileague.roster_settings(league_id, store=store)
-    fmt = "classic" if int(rosters.get("sroles", 2)) == 1 else "mantra"
-    inputs, names = inputs_from_lineup(
-        body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp,
-        tid=tid, fmt=fmt,
-    )
-    return plan_lineups(inputs), names, comp
 
 
 def _resolve_league(league: int) -> int:
@@ -155,6 +122,7 @@ def _plan(
 
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_submit import build_plans
     from fantabot.config import settings
     from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.tokens.crypto import TokenCipher
@@ -165,7 +133,14 @@ def _plan(
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
             store = TokenStore(session, cipher)
-            plans, names, _ = _build_plans(store, league_id, competition)
+            # `application/`'s, not a private copy. There was one here — the seven reads,
+            # the `sroles` format detection and the `tid` source, duplicated — and it was
+            # what `lineup plan` ran while `lineup submit`, `GET /lineup/plan` and
+            # `POST /lineup/submit` all ran the other. Identical when written, and nothing
+            # made them stay that way: a fix to the format detection would have landed in
+            # one, leaving the operator previewing an XI built the old way and submitting a
+            # different one, with the whole suite green.
+            plans, names, _ = build_plans(store, league_id, competition)
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None

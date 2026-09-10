@@ -371,3 +371,50 @@ def test_submit_reports_the_submit_when_the_read_back_times_out(
     assert "submitted" in result.output
     assert "unconfirmed" in result.output
     assert "10s" in result.output
+
+
+def test_plan_and_submit_build_their_plans_through_the_same_door(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One implementation of the seven reads, reached by both commands.
+
+    `interface/lineup.py` kept a private `_build_plans` — the same reads, the same `sroles`
+    format detection, the same `tid` source — and it was what `lineup plan` ran, while
+    `lineup submit`, `GET /lineup/plan` and `POST /lineup/submit` all ran
+    `application/lineup_submit.build_plans`. Byte-identical bodies when written, and
+    nothing kept them that way.
+
+    That is the shape the lift's own commit warned about: `d74321a` says `build_plans`
+    "lifts with it as a **third** call site, not a second: `GET /lineup/plan` already
+    reimplemented it by hand, which is how the app came to read the format from a different
+    place than the command did." The fourth copy was left behind.
+
+    Substituting the one function must change what **both** commands print. A test that
+    only checked `submit` would have passed throughout the whole period the copy existed.
+    """
+    from fantabot.application import lineup_submit
+
+    _fakes_plan(monkeypatch)
+    called: list[str] = []
+
+    real = lineup_submit.build_plans
+
+    def one_door(store: Any, league_id: int, competition: int) -> Any:
+        # Delegates, then rewrites the names. The marker travels through whatever the
+        # command prints, so this proves the *return value* is used and not merely that the
+        # function was entered — a spy that only counted calls would still pass with a
+        # second implementation sitting next to it.
+        called.append("build_plans")
+        plans, names, comp = real(store, league_id, competition)
+        return plans, dict.fromkeys(names, "Sentinel"), comp
+
+    monkeypatch.setattr(lineup_submit, "build_plans", one_door)
+
+    for command in (["lineup", "plan"], ["lineup", "submit"]):
+        called.clear()
+        result = runner.invoke(app, command)
+
+        assert called == ["build_plans"], f"{command} did not go through build_plans"
+        assert "Sentinel" in result.output, (
+            f"{command} printed names from somewhere other than build_plans: {result.output!r}"
+        )
