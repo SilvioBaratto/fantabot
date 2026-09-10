@@ -37,6 +37,15 @@ describe('AccountsComponent', () => {
     httpMock.expectOne(`${environment.apiUrl}auth/status`).flush(body);
   }
 
+  /**
+   * The reattach listing, made once on init (3.1) so a refresh mid-login cannot orphan the
+   * job. Only the *render* sites answer it — `load()` re-reads the status alone, so a
+   * reload's `flush()` must not expect a second one.
+   */
+  function flushJobs(jobs: { jobs: unknown[] } = { jobs: [] }) {
+    httpMock.expectOne(`${environment.apiUrl}jobs`).flush(jobs);
+  }
+
   const ONE_LEAGUE = {
     has_key: true,
     fantalab: [{ user_id: 'user9', captured_at: '2026-09-01T00:00:00Z', last_used_at: null }],
@@ -57,6 +66,7 @@ describe('AccountsComponent', () => {
     const fixture = TestBed.createComponent(AccountsComponent);
     fixture.detectChanges();
     flush(body);
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
     return fixture;
@@ -89,6 +99,7 @@ describe('AccountsComponent', () => {
         },
       ],
     });
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -102,6 +113,7 @@ describe('AccountsComponent', () => {
     const fixture = TestBed.createComponent(AccountsComponent);
     fixture.detectChanges();
     flush({ has_key: true, fantalab: [], leagues: [] });
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -112,6 +124,7 @@ describe('AccountsComponent', () => {
     const fixture = TestBed.createComponent(AccountsComponent);
     fixture.detectChanges();
     flush({ has_key: false, fantalab: [], leagues: [] });
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -122,6 +135,7 @@ describe('AccountsComponent', () => {
     const fixture = TestBed.createComponent(AccountsComponent);
     fixture.detectChanges();
     flush({ has_key: true, fantalab: [], leagues: [] });
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -146,6 +160,7 @@ describe('AccountsComponent', () => {
     const fixture = TestBed.createComponent(AccountsComponent);
     fixture.detectChanges();
     flush({ has_key: true, fantalab: [], leagues: [] });
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -169,6 +184,7 @@ describe('AccountsComponent', () => {
     const fixture = TestBed.createComponent(AccountsComponent);
     fixture.detectChanges();
     flush({ has_key: true, fantalab: [], leagues: [] });
+    flushJobs();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -196,12 +212,8 @@ describe('AccountsComponent', () => {
 
   it('offers a disconnect control on every stored credential', async () => {
     const fixture = await rendered();
-    expect(
-      fixture.nativeElement.querySelector('[data-disconnect-league="4103937"]'),
-    ).toBeTruthy();
-    expect(
-      fixture.nativeElement.querySelector('[data-disconnect-fantalab="user9"]'),
-    ).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('[data-disconnect-league="4103937"]')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('[data-disconnect-fantalab="user9"]')).toBeTruthy();
   });
 
   it('asks before removing, and sends nothing until the confirm is clicked', async () => {
@@ -316,8 +328,24 @@ describe('AccountsComponent', () => {
       has_key: true,
       fantalab: [],
       leagues: [
-        { league_id: 111, league_name: 'A', state: 'ok (1d)', expires_at: '2027-01-01T00:00:00Z', last_verified_at: null, user_id: 1, team_id: 1 },
-        { league_id: 222, league_name: 'B', state: 'ok (1d)', expires_at: '2027-01-01T00:00:00Z', last_verified_at: null, user_id: 1, team_id: 2 },
+        {
+          league_id: 111,
+          league_name: 'A',
+          state: 'ok (1d)',
+          expires_at: '2027-01-01T00:00:00Z',
+          last_verified_at: null,
+          user_id: 1,
+          team_id: 1,
+        },
+        {
+          league_id: 222,
+          league_name: 'B',
+          state: 'ok (1d)',
+          expires_at: '2027-01-01T00:00:00Z',
+          last_verified_at: null,
+          user_id: 1,
+          team_id: 2,
+        },
       ],
     });
 
@@ -466,7 +494,11 @@ describe('AccountsComponent', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       httpMock.expectOne(`${environment.apiUrl}jobs/J1`).flush({
-        id: 'J1', status: 'running', lines: [], ok: null, error: null,
+        id: 'J1',
+        status: 'running',
+        lines: [],
+        ok: null,
+        error: null,
         awaiting_confirm: true,
       });
       fixture.detectChanges();
@@ -498,5 +530,63 @@ describe('AccountsComponent', () => {
       fixture.destroy();
       vi.useRealTimers();
     }
+  });
+
+  it('picks up a login already running, so a refresh does not orphan it', async () => {
+    // 3.1's named counter-example. This page held its job id in a private field and asked
+    // only `jobs.get(id)`, so a refresh mid-login left the browser window open, the job
+    // waiting to be told the operator had signed in, and the page that could tell it
+    // having forgotten which job it was. It is the one page where a job parks *awaiting a
+    // human*, so an orphan waits for ever.
+    const fixture = TestBed.createComponent(AccountsComponent);
+    fixture.detectChanges();
+    flush(ONE_LEAGUE);
+    flushJobs({
+      jobs: [{ id: 'J7', kind: 'auth-login', status: 'running', started_at: '', lines: [] }],
+    });
+    fixture.detectChanges();
+    await tick();
+
+    // It resumed polling *that* job — the id it never knew it had.
+    const poll = httpMock.expectOne((r) => r.url.includes('jobs/J7'));
+    poll.flush({
+      id: 'J7',
+      kind: 'auth-login',
+      status: 'running',
+      lines: ['waiting'],
+      awaiting_confirm: true,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.textContent).toContain('waiting');
+  });
+
+  it('does not adopt a job that belongs to another page', async () => {
+    // `harvest-collect` is a running job too, and adopting it would put a harvest log under
+    // a Sign in panel and offer a Continue button that means nothing.
+    const fixture = TestBed.createComponent(AccountsComponent);
+    fixture.detectChanges();
+    flush(ONE_LEAGUE);
+    flushJobs({
+      jobs: [{ id: 'H1', kind: 'harvest-collect', status: 'running', started_at: '', lines: [] }],
+    });
+    fixture.detectChanges();
+    await tick();
+
+    httpMock.expectNone((r) => r.url.includes('jobs/H1'));
+  });
+
+  it('does not adopt a login that has already finished', async () => {
+    const fixture = TestBed.createComponent(AccountsComponent);
+    fixture.detectChanges();
+    flush(ONE_LEAGUE);
+    flushJobs({
+      jobs: [{ id: 'J6', kind: 'auth-login', status: 'done', started_at: '', lines: [] }],
+    });
+    fixture.detectChanges();
+    await tick();
+
+    httpMock.expectNone((r) => r.url.includes('jobs/J6'));
   });
 });

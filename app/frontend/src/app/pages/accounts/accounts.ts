@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LucideAngularModule } from 'lucide-angular';
-import { Observable, switchMap, takeWhile, timer } from 'rxjs';
+import { EMPTY, Observable, catchError, switchMap, takeWhile, timer } from 'rxjs';
 
 import { AuthService } from '../../core/api/auth.service';
 import { JobsService } from '../../core/api/jobs.service';
@@ -61,12 +61,44 @@ export class AccountsComponent implements OnInit {
    * gesture. In flight, arming a second row would be silently undone: the delete's
    * completion clears `pendingId` for whichever row now holds it.
    */
-  readonly disconnectBusy = computed(
-    () => this.pendingId() !== null || this.removingId() !== null,
-  );
+  readonly disconnectBusy = computed(() => this.pendingId() !== null || this.removingId() !== null);
 
   ngOnInit(): void {
     this.load();
+    this.reattach();
+  }
+
+  /**
+   * Pick up a login that is already running.
+   *
+   * This page held its job id in a private field and asked only `jobs.get(id)`, so a
+   * refresh mid-login **orphaned the job**: the browser window stayed open, the job sat
+   * waiting to be told the operator had signed in, and the page that could tell it had
+   * forgotten which job it was. `harvest`, `news` and `synchronize` all reattach from
+   * `jobs.list()`; this is that, and it matters more here than on any of them — this is the
+   * one page where a job parks *awaiting a human*, so an orphan waits for ever.
+   *
+   * A listing that cannot be read is not an error worth showing: nothing the operator asked
+   * for has failed, and a red banner on arrival would be about the poll, not about them.
+   */
+  private reattach(): void {
+    this.jobs
+      .list()
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((list) => {
+        const live = list.jobs.find(
+          (job) =>
+            job.status === 'running' &&
+            (job.kind === 'auth-login' || job.kind === 'fantalab-login'),
+        );
+        if (!live) return;
+        this.jobId = live.id;
+        this.connectKind.set(live.kind === 'fantalab-login' ? 'fantalab' : 'league');
+        this.pollUntilDone();
+      });
   }
 
   load(): void {
@@ -166,17 +198,11 @@ export class AccountsComponent implements OnInit {
   }
 
   disconnectLeague(leagueId: number): void {
-    this.runDisconnect(
-      this.rowKey('league', leagueId),
-      this.service.forgetLeague(leagueId),
-    );
+    this.runDisconnect(this.rowKey('league', leagueId), this.service.forgetLeague(leagueId));
   }
 
   disconnectFantalab(userId: string): void {
-    this.runDisconnect(
-      this.rowKey('fantalab', userId),
-      this.service.forgetFantalab(userId),
-    );
+    this.runDisconnect(this.rowKey('fantalab', userId), this.service.forgetFantalab(userId));
   }
 
   tone(state: string): Tone {
@@ -229,9 +255,7 @@ export class AccountsComponent implements OnInit {
               : 'Sign-in detected. The credential was saved.',
           );
           if (job.status === 'error') {
-            this.connectError.set(
-              job.error ?? 'Sign-in did not complete. Nothing was stored.',
-            );
+            this.connectError.set(job.error ?? 'Sign-in did not complete. Nothing was stored.');
           }
           this.connectKind.set(null);
           this.finishing.set(false);
