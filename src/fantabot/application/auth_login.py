@@ -149,12 +149,18 @@ def run(
     with database_manager.get_session() as session:
         existing = TokenStore(session, cipher).status()
 
+    checked = _scoped(existing, league)
     if not force and _all_valid(existing, moment, league, cipher.fingerprint):
+        # Summarised over `checked`, not over every stored row. The decision was already
+        # scoped and the sentence was not, so `--league` naming a healthy lega printed a
+        # dead one's id and a positive day count under "All stored tokens valid" — the very
+        # line whose falseness is why `_all_valid` was fixed in the first place.
         summary = ", ".join(
-            f"{row.league_id} ({(row.expires_at - moment).days}d)" for row in existing
+            f"{row.league_id} ({(row.expires_at - moment).days}d)" for row in checked
         )
+        subject = f"lega {league}" if league else "All stored tokens"
         report.print(
-            f"All stored tokens valid — {summary}. No browser opened.\n"
+            f"{subject} valid — {summary}. No browser opened.\n"
             "Force a re-auth with --force."
         )
         return LoginResult([], [], [], browser_opened=False, session_saved=False)
@@ -173,6 +179,15 @@ def run(
     )
 
 
+def _scoped(rows: Sequence[TokenStatus], league: int) -> list[TokenStatus]:
+    """The rows this run is about: one lega when `--league` names it, otherwise all of them.
+
+    A function rather than a line inside `_all_valid`, so the decision and the sentence that
+    reports it cannot disagree about which leghe were considered. They did.
+    """
+    return [row for row in rows if not league or row.league_id == league]
+
+
 def _all_valid(
     rows: Sequence[TokenStatus], moment: datetime, league: int, key_fingerprint: str
 ) -> bool:
@@ -189,7 +204,7 @@ def _all_valid(
     """
     if not rows:
         return False
-    wanted = [row for row in rows if not league or row.league_id == league]
+    wanted = _scoped(rows, league)
     return bool(wanted) and all(
         is_usable(row, now=moment, key_fingerprint=key_fingerprint) for row in wanted
     )

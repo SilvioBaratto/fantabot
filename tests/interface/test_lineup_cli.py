@@ -139,7 +139,12 @@ def _fakes_plan(monkeypatch: pytest.MonkeyPatch) -> None:
         apileague,
         "teamLineup_read",
         lambda *a, **k: {
-            "teamLineupDto": {"mday": 1, "cmday": 3, "tid": 10000003},
+            # `tid: 0` **on purpose**, and it must not equal `my_team`'s id. The DTO is
+            # empty when a competition has no saved lineup, so 0 is what a run that read
+            # `tid` from here would actually submit — the regression the invariant exists
+            # for. While the two sources held the same value, no assertion could tell which
+            # one `build_plans` had used.
+            "teamLineupDto": {"mday": 1, "cmday": 3, "tid": 0},
             "lineUpInfo": _LINEUP_INFO,
         },
     )
@@ -418,3 +423,31 @@ def test_plan_and_submit_build_their_plans_through_the_same_door(
         assert "Sentinel" in result.output, (
             f"{command} printed names from somewhere other than build_plans: {result.output!r}"
         )
+
+
+def test_the_submitted_tid_comes_from_my_team_not_the_lineup_dto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first hop of `tid`, which was the one hop nothing tested.
+
+    `CLAUDE.md`: *"`tid` comes from `my_team`, not from the lineup DTO, which is empty when
+    a competition has no saved lineup — read there, it submits `tid=0`."*
+
+    `test_tid_comes_from_the_argument_not_the_empty_dto` names the rule but asserts one
+    layer down, on `inputs_from_lineup(dto, ..., tid=999)`: it proves the argument beats the
+    DTO and is structurally blind to which value `build_plans` passes as that argument. The
+    value travels `build_plans` -> `inputs_from_lineup` -> `LineupInputs.tid` ->
+    `PlannedLineup.tid` -> `payload.build()["tid"]` -> the POST body, and only the first hop
+    was unpinned. Sourcing `tid` from the DTO passed all 1886 tests.
+
+    So this asserts on the body that would go to the platform.
+    """
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert posted[0]["tid"] == 10000003, (
+        "the submitted tid did not come from my_team — a DTO read would send 0 and the "
+        "platform would file the lineup against no team"
+    )

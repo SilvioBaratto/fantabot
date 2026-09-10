@@ -843,3 +843,31 @@ def test_a_run_of_early_confirmations_eventually_stops(
 
     assert ctx.reads == MAX_CONFIRMS
     assert stub_db["writes"] == []
+
+
+def test_the_skip_message_speaks_only_of_the_lega_it_checked(
+    stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--league` scopes the decision. It must scope the record too.
+
+    `_all_valid` correctly narrows to the named lega, but the sentence was built over every
+    stored row and worded "All stored tokens valid". So a run naming a healthy lega printed
+    a dead one's id, with a positive day count, under a claim that all stored tokens are
+    valid — reproducing verbatim the line `d206dd9` exists to have stopped printing.
+
+    The decision was right and the record was not, which is the same defect: that commit's
+    whole thesis is that the false record is the harm.
+    """
+    stub_db["rows"].extend(
+        [a_status(league_id=3584692), a_status(league_id=4103937, key_fingerprint="0000dead")]
+    )
+
+    login.run(
+        report=console, browser_factory=_FakeBrowser(), now=NOW,
+        read_state=_read_state, prompt=_confirm, league=3584692,
+    )
+    out = capsys.readouterr().out
+
+    assert "3584692" in out
+    assert "4103937" not in out, "it vouched for a lega it did not check"
+    assert "All stored tokens valid" not in out, "it spoke for tokens outside its scope"
