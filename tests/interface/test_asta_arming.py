@@ -269,3 +269,88 @@ class TestAstaBidCanBeDisarmedMidRun:
         assert seen.get("exited") is True, "the second Ctrl-C must end the run"
         assert "disarmed" in result.output
         assert signal.getsignal(signal.SIGINT) is before, "the handler was left installed"
+
+
+# -- every live command, structurally ----------------------------------------------------
+
+import ast  # noqa: E402
+
+from _paths import module_file  # noqa: E402
+
+
+def _name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+_ASTA = ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
+
+#: Every command body that runs a bid loop — discovered, not listed, so a third live command
+#: is covered the day it is written rather than the day someone remembers to add it here.
+LIVE_COMMANDS = sorted(
+    fn.name
+    for fn in _ASTA.body
+    if isinstance(fn, ast.FunctionDef)
+    and any(
+        isinstance(n, ast.Call) and _name(n.func) == "run_bid_loop" for n in ast.walk(fn)
+    )
+)
+
+
+def test_the_discovery_finds_both_live_commands() -> None:
+    """Pinned, so a rename cannot leave the parametrised test below with zero cases —
+    which pytest reports as nothing failing."""
+    assert LIVE_COMMANDS == ["asta_bid", "asta_room"]
+
+
+@pytest.mark.parametrize("command", LIVE_COMMANDS)
+def test_every_live_command_can_be_disarmed(command: str) -> None:
+    """The loop runs inside `_disarm_on_sigint`, and the writer reads `armed[0]` per bid.
+
+    This is the check that would have caught `asta bid`: no handler around its loop, and a
+    writer reading a bool captured at start. Read from the syntax tree rather than the text,
+    for the reason `scripts/verify_criteria.py` gives — a substring check cannot tell a call
+    from a sentence about a call. `TestAstaBidCanBeDisarmedMidRun` proves the behaviour for
+    one command end to end; this proves the shape for every command, including `asta room`,
+    which has no end-to-end harness.
+    """
+    fn = next(n for n in _ASTA.body if isinstance(n, ast.FunctionDef) and n.name == command)
+    [loop] = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and _name(n.func) == "run_bid_loop"]
+
+    guarded = [
+        w
+        for w in ast.walk(fn)
+        if isinstance(w, ast.With)
+        and any(
+            isinstance(item.context_expr, ast.Call)
+            and _name(item.context_expr.func) == "_disarm_on_sigint"
+            for item in w.items
+        )
+        and any(n is loop for n in ast.walk(w))
+    ]
+    # "Outside the shared handler", not "cannot be disarmed": an inline handler can disarm
+    # too — `asta room`'s did — and an inline copy is how `asta bid` came to have none.
+    assert guarded, (
+        f"{command} runs its bid loop outside `_disarm_on_sigint`, the one handler both "
+        "live commands share"
+    )
+
+    write = next(k.value for k in loop.keywords if k.arg == "write")
+    assert isinstance(write, ast.Lambda), (
+        f"{command} builds its writer once, at loop start: {ast.unparse(write)[:90]}"
+    )
+    [arm] = [
+        k.value
+        for n in ast.walk(write)
+        if isinstance(n, ast.Call) and _name(n.func) == "bid_writer"
+        for k in n.keywords
+        if k.arg == "arm"
+    ]
+    assert (
+        isinstance(arm, ast.Subscript)
+        and isinstance(arm.value, ast.Name)
+        and arm.value.id == "armed"
+    ), f"{command}'s writer reads `{ast.unparse(arm)}` — only `armed[0]` is what a Ctrl-C clears"

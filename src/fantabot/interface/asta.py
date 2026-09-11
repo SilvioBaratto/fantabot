@@ -549,8 +549,6 @@ def asta_room(
     ⚠ The authenticated fetch behind `--resolve-only` had no caller in `src/` before this
     phase. If it fails, `harvest scan --seed` still yields the shard and the room's settings.
     """
-    import contextlib
-    import signal
     import time
 
     from fantabot.adapters.files.room_journal import RoomJournal
@@ -729,23 +727,6 @@ def asta_room(
         counter_time_first=resolved.counter_time_first,
     )
 
-    # First Ctrl-C disarms and keeps drawing; second exits. Mid-auction the operator far more
-    # often wants "stop bidding, keep showing me the room" than "quit" — the pattern is
-    # `news fetch`'s, for the same reason.
-    previous_sigint = signal.getsignal(signal.SIGINT)
-
-    def _disarm(_signum: int, _frame: Any) -> None:
-        if not armed[0]:
-            signal.signal(signal.SIGINT, previous_sigint)
-            raise KeyboardInterrupt
-        armed[0] = False
-        console.print("[yellow]disarmed — still watching. Ctrl-C again to exit.[/yellow]")
-
-    # Not the main thread means no signal handler, which costs the graceful disarm and
-    # nothing else. Refusing to run the room over that would be the worse trade.
-    with contextlib.suppress(ValueError):
-        signal.signal(signal.SIGINT, _disarm)
-
     # One slot, not a log: only `latest[-1]` is ever read, and a frame per poll for three
     # hours is thousands of walk-away dicts held by a process that must not die mid-auction.
     latest: list[RoomFrame] = []
@@ -827,40 +808,45 @@ def asta_room(
 
     from rich.live import Live
 
-    with Live(console=console, screen=True, refresh_per_second=4) as live:
-        report = room.run_bid_loop(
-            seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
-            fantaleague_id=resolved.fantaleague_id,
-            remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
-            max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), rules.size),
-            target_of=target_of,
-            read=_timed_read,
-            # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
-            # writer captured at loop start would keep bidding after the operator disarmed.
-            write=lambda payload: bid_writer(
-                auto_act=live_auto_act(),
-                arm=armed[0],
-                send=router.write_raise,
-                node=router.node,
-            )(payload),
-            now=lambda: int(time.time() * 1000),
-            sleep=time.sleep,
-            keep_going=lambda _cycle: True,
-            # Most heartbeat lines have nowhere to go — the screen is the frame — but
-            # `heartbeat` above still journals the one that means `tracker.cycle` never ran
-            # this poll. Errors used to be shown by filtering the line's *text*, which missed
-            # `ReadTimeout`, `ConnectTimeout` and `PoolTimeout` — on a flaky link the three
-            # most likely of all; they are painted into the Live and journaled now, by
-            # `on_error`.
-            heartbeat=heartbeat,
-            on_error=on_error,
-            poll_seconds=poll,
-        )
+    # First Ctrl-C disarms and keeps drawing; second exits — `_disarm_on_sigint`, the one
+    # handler both live commands share. It was inline here, and `asta bid` never had it;
+    # its restore was the line after the loop rather than a `finally`. Entered here rather
+    # than before the copilot starts: nothing between the two blocks or reads the network.
+    # The cleanup stays inside, so a Ctrl-C during `worker.stop()` is still the handler's.
+    with _disarm_on_sigint(armed):
+        with Live(console=console, screen=True, refresh_per_second=4) as live:
+            report = room.run_bid_loop(
+                seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
+                fantaleague_id=resolved.fantaleague_id,
+                remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
+                max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), rules.size),
+                target_of=target_of,
+                read=_timed_read,
+                # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
+                # writer captured at loop start would keep bidding after the operator disarmed.
+                write=lambda payload: bid_writer(
+                    auto_act=live_auto_act(),
+                    arm=armed[0],
+                    send=router.write_raise,
+                    node=router.node,
+                )(payload),
+                now=lambda: int(time.time() * 1000),
+                sleep=time.sleep,
+                keep_going=lambda _cycle: True,
+                # Most heartbeat lines have nowhere to go — the screen is the frame — but
+                # `heartbeat` above still journals the one that means `tracker.cycle` never ran
+                # this poll. Errors used to be shown by filtering the line's *text*, which missed
+                # `ReadTimeout`, `ConnectTimeout` and `PoolTimeout` — on a flaky link the three
+                # most likely of all; they are painted into the Live and journaled now, by
+                # `on_error`.
+                heartbeat=heartbeat,
+                on_error=on_error,
+                poll_seconds=poll,
+            )
 
-    if worker is not None:
-        worker.stop()
-    journal.close()
-    signal.signal(signal.SIGINT, previous_sigint)
+        if worker is not None:
+            worker.stop()
+        journal.close()
     _report_stopped(report)
 
 
