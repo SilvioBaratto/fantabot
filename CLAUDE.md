@@ -303,11 +303,17 @@ src/fantabot/
   `edb693c` on 2026-08-30, because `SPEC.md` had been overwritten by four later
   phases and nine links still pointed at it. `SPEC.md` holds only the **current**
   phase; a closing phase copies its spec to `docs/spec-<phase>.md` first.
-- **Mantra vs Classic**: the user plays **both**, one league each — and as of
-  2026-08-26 we know which is which: **`3584692` (Legamiallerotaie) is Classic**
-  (`sroles=1`, `minrl=[3,8,8,6]`, 25-man) and **`4103937` (Legamiallerotaie2) is
-  Mantra** (`sroles=2`, `minrl=[2,28]`, 30-man). By elimination from the roster
-  settings endpoint, not from field names — see `docs/leghe-api.md`. **Classic was rebuilt
+- **Mantra vs Classic**: the user plays **one league, `4103937` (Legamiallerotaie2), and
+  it is Mantra** (`sroles=2`, `minrl=[2,28]`, 30-man). **`3584692` (Legamiallerotaie) is
+  last season's Classic league and nobody plays it any more** — the operator, 2026-09-11.
+  Its token still sits in `league_tokens` because `auth login` captures every lega on the
+  account, and on 2026-09-10 `GET /league/competitions` returned `[]` for it: that is the
+  league being over, not a defect to chase. This bullet said "the user plays **both**" until
+  then, which is why a finished league was treated as a live one. The Classic *code* stays —
+  both formats are still harvested and priced — only the weekly-lineup target is one lega.
+  For the record, `3584692` is `sroles=1`, `minrl=[3,8,8,6]`, 25-man — the two were told
+  apart on 2026-08-26 by elimination from the roster settings endpoint, not from field
+  names — see `docs/leghe-api.md`. **Classic was rebuilt
   2026-09-03/04**, having been deleted in W2: `domain/classic/` holds the P/D/C/A role model
   (`roles.py`), the seven modules the platform actually declares (`formations.py` — 343 352
   433 442 451 532 541, read live from lega 3584692's `lineup_settings.mods`) and the
