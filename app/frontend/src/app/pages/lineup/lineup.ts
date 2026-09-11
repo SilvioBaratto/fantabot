@@ -12,7 +12,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LegaService } from '../../core/api/lega.service';
 import { LineupService } from '../../core/api/lineup.service';
 import { LegaOverview } from '../../core/models/lega';
-import { LineupPlan, SubmitResult } from '../../core/models/lineup';
+import { LineupPlan, LineupRuns, SubmitResult } from '../../core/models/lineup';
 
 @Component({
   selector: 'app-lineup',
@@ -48,8 +48,28 @@ export class LineupComponent implements OnInit {
   /** True only while a dry run for the *currently selected* lega is on screen. */
   readonly canArm = computed(() => this.dryRun()?.outcome === 'not_armed' && !this.submitting());
 
+  /**
+   * The scheduled job's history — what `launchd` did, read back. Read-only on purpose: the
+   * operator turns the job on and off in `.env` and the plist, never here, so there is no
+   * control on this page to go with it.
+   */
+  readonly runs = signal<LineupRuns | null>(null);
+  readonly runsError = signal<string | null>(null);
+
   ngOnInit(): void {
     this.loadLeagues();
+    this.loadRuns();
+  }
+
+  loadRuns(): void {
+    this.runsError.set(null);
+    this.lineup
+      .getRuns()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (runs) => this.runs.set(runs),
+        error: () => this.runsError.set('Could not reach the API for the scheduled history.'),
+      });
   }
 
   loadLeagues(): void {

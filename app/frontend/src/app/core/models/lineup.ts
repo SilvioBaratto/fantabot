@@ -56,3 +56,41 @@ export interface SubmitResult {
    */
   unconfirmed: string;
 }
+
+/** A scheduled run's state — decided once, in `application/lineup_submit.run_record`. */
+export type LineupRunStatus = 'submitted' | 'unconfirmed' | 'skipped' | 'failed';
+
+/** One run of the scheduled lineup job, as `GET /lineup/runs` returns it. */
+export interface LineupRun {
+  /** ISO 8601 with its offset. */
+  at: string;
+  league: number;
+  scheduled: boolean;
+  status: LineupRunStatus;
+  /** The refusal code or the exception class; empty on a clean submit. */
+  code: string;
+  /** The sentence behind `code` — which lock is shut, which matchday started when. */
+  detail: string;
+  module: string;
+  matchday: number | null;
+  serie_a_matchday: number | null;
+  starters: string[];
+  bench: string[];
+  rejected: string[];
+}
+
+/** The scheduled job's history. Read-only: the app writes nothing there and controls nothing. */
+export interface LineupRuns {
+  ok: boolean;
+  /** The file actually read, so an empty screen says where it looked. */
+  path: string;
+  exists: boolean;
+  total: number;
+  skipped: number;
+  runs: LineupRun[];
+  error: string | null;
+  last_at: string | null;
+  last_age_hours: number | null;
+  /** The newest run is older than a normal night — the job may not be running at all. */
+  stale: boolean;
+}

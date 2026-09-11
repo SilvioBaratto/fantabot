@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { LineupPlan, SubmitResult } from '../models/lineup';
+import { LineupPlan, LineupRuns, SubmitResult } from '../models/lineup';
 
 @Injectable({ providedIn: 'root' })
 export class LineupService {
@@ -20,6 +20,11 @@ export class LineupService {
    * (a request that omits it is a 422), and this method has no default so a caller cannot
    * inherit a decision from the last one.
    */
+  /** The scheduled job's history, newest first. Read-only: the app writes nothing there. */
+  getRuns(): Observable<LineupRuns> {
+    return this.http.get<LineupRuns>(`${environment.apiUrl}lineup/runs`);
+  }
+
   submit(leagueId: number, arm: boolean): Observable<SubmitResult> {
     return this.http.post<SubmitResult>(`${environment.apiUrl}lineup/submit`, {
       league_id: leagueId,

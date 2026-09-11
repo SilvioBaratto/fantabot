@@ -220,3 +220,75 @@
     }
   }
 }
+
+<!-- The scheduled lineup's history: what the launchd job did, read back. Read-only on purpose —
+     turning the job on and off lives in `.env` and the launchd plist, never on this page. -->
+<section class="mt-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
+  <div class="border-b border-border px-6 py-4">
+    <h2 class="font-display text-lg font-semibold text-text">Automatic submits</h2>
+    @if (runs(); as h) {
+      @if (h.last_age_hours !== null) {
+        <p
+          class="mt-1 text-sm"
+          [class.text-warning]="h.stale"
+          [class.text-text-secondary]="!h.stale"
+        >
+          Last run {{ h.last_age_hours }} h ago
+          @if (h.stale) {
+            — no scheduled run in over 12 hours; the job may not be running.
+          }
+        </p>
+      }
+    }
+  </div>
+  @if (runsError(); as message) {
+    <p class="px-6 py-4 text-sm text-danger">{{ message }}</p>
+  } @else if (runs(); as h) {
+    @if (!h.ok) {
+      <p class="px-6 py-4 text-sm text-danger">
+        Could not read the run record at {{ h.path }} ({{ h.error }}).
+      </p>
+    } @else if (!h.runs.length) {
+      <p class="px-6 py-4 text-sm text-text-secondary">No scheduled run recorded yet.</p>
+    } @else {
+      <ul class="divide-y divide-border">
+        @for (run of h.runs; track $index) {
+          <li class="px-6 py-3">
+            <p class="text-sm">
+              <span
+                class="font-semibold"
+                [attr.data-run-status]="run.status"
+                [class.text-signature]="run.status === 'submitted'"
+                [class.text-warning]="run.status === 'unconfirmed'"
+                [class.text-text-tertiary]="run.status === 'skipped'"
+                [class.text-danger]="run.status === 'failed'"
+              >
+                @switch (run.status) {
+                  @case ('submitted') {
+                    Submitted
+                  }
+                  @case ('unconfirmed') {
+                    Unconfirmed
+                  }
+                  @case ('skipped') {
+                    Skipped
+                  }
+                  @default {
+                    Failed
+                  }
+                }
+              </span>
+              <span class="text-text-secondary"> · {{ run.at }}</span>
+              @if (run.module) {
+                <span class="text-text-secondary"> · {{ run.module }}</span>
+              }
+            </p>
+            @if (run.detail) {
+              <p class="mt-0.5 text-xs text-text-secondary">{{ run.detail }}</p>
+            }
+          </li>
+        }
+      </ul>
+    }
+  }
+</section>

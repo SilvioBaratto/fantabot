@@ -3,7 +3,22 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 
 import { environment } from '../../../environments/environment';
+import { LineupRun, LineupRuns } from '../../core/models/lineup';
 import { LineupComponent } from './lineup';
+
+/** What `GET /lineup/runs` answers when the CLI has not recorded a scheduled run yet. */
+const NO_RUNS: LineupRuns = {
+  ok: true,
+  path: '/Users/x/.fantabot/lineup_runs.jsonl',
+  exists: false,
+  total: 0,
+  skipped: 0,
+  runs: [],
+  error: null,
+  last_at: null,
+  last_age_hours: null,
+  stale: false,
+};
 
 describe('LineupComponent', () => {
   let httpMock: HttpTestingController;
@@ -16,7 +31,12 @@ describe('LineupComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    // The scheduled history loads on init in every test. Answered here so each test states
+    // only what it is about — flushed, not ignored: `verify()` still fails on anything else.
+    httpMock.match((r) => r.url.includes('lineup/runs')).forEach((r) => r.flush(NO_RUNS));
+    httpMock.verify();
+  });
 
   function overview(id: number) {
     return {
@@ -316,6 +336,100 @@ describe('LineupComponent', () => {
 
       expect(fixture.componentInstance.canArm()).toBe(false);
       expect(fixture.nativeElement.textContent).toContain('No matchday context yet');
+    });
+  });
+  describe('the scheduled history', () => {
+    // What the launchd job did, read back. The operator looks here instead of at notifications,
+    // so a failure has to stand out and a job that stopped running has to say so.
+    function run(over: Partial<LineupRun> = {}): LineupRun {
+      return {
+        at: '2026-09-12T18:05:00+02:00',
+        league: 4103937,
+        scheduled: true,
+        status: 'submitted',
+        code: '',
+        detail: '',
+        module: '3421',
+        matchday: 3,
+        serie_a_matchday: 5,
+        starters: ['Mandas'],
+        bench: [],
+        rejected: [],
+        ...over,
+      };
+    }
+
+    async function withRuns(body: LineupRuns) {
+      const fixture = TestBed.createComponent(LineupComponent);
+      fixture.detectChanges();
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      httpMock.expectOne((r) => r.url.includes('lineup/runs')).flush(body);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return fixture;
+    }
+
+    it('lists each run newest first, and a failure says why', async () => {
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 2,
+        runs: [
+          run({ status: 'failed', code: 'TokenMissing', detail: 'no stored token for lega 4103937', module: '' }),
+          run(),
+        ],
+        last_at: '2026-09-12T19:05:00+02:00',
+        last_age_hours: 0.9,
+      });
+
+      const el: HTMLElement = fixture.nativeElement;
+      const statuses = [...el.querySelectorAll('[data-run-status]')].map((n) =>
+        n.getAttribute('data-run-status'),
+      );
+      expect(el.textContent).toContain('Automatic submits');
+      expect(statuses).toEqual(['failed', 'submitted']);
+      expect(el.textContent).toContain('no stored token for lega 4103937');
+    });
+
+    it('paints a failed run as danger', async () => {
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [run({ status: 'failed', code: 'not-armed', detail: 'not armed: FANTABOT_AUTO_ACT is false' })],
+        last_age_hours: 0.5,
+      });
+
+      const label = fixture.nativeElement.querySelector('[data-run-status="failed"]');
+      expect(label?.classList).toContain('text-danger');
+    });
+
+    it('warns when no scheduled run has happened for too long', async () => {
+      // A job that stopped running writes nothing, so old green rows would read as fine.
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [run()],
+        last_age_hours: 30,
+        stale: true,
+      });
+
+      expect(fixture.nativeElement.textContent).toContain('may not be running');
+    });
+
+    it('says when nothing is recorded yet', async () => {
+      const fixture = await withRuns(NO_RUNS);
+
+      expect(fixture.nativeElement.textContent).toContain('No scheduled run recorded yet');
+    });
+
+    it('says when the record cannot be read, and where', async () => {
+      const fixture = await withRuns({ ...NO_RUNS, ok: false, exists: true, error: 'IsADirectoryError' });
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('IsADirectoryError');
+      expect(text).toContain('/Users/x/.fantabot/lineup_runs.jsonl');
     });
   });
 });

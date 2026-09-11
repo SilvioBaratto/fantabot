@@ -21,6 +21,7 @@ teamLineup_submit.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fantabot.application.arming import ARM, AUTO_ACT
@@ -307,3 +308,110 @@ def lineup_submit(request: SubmitRequest) -> SubmitResult:
             "saved_at": str(outcome.saved.get("ldate")) if outcome.saved.get("ldate") else None,
         }
     )
+
+
+# -- the scheduled history ----------------------------------------------------------------
+
+#: How many runs one response carries by default, and at most.
+DEFAULT_RUNS_LIMIT = 50
+MAX_RUNS_LIMIT = 500
+
+#: Older than this and the history says the scheduled job may not be running. The job fires
+#: through the day and not overnight, so a normal night leaves roughly nine hours between runs;
+#: twelve means a missed day, not a quiet night.
+STALE_AFTER_HOURS = 12.0
+
+
+class LineupRunRow(BaseModel):
+    """One scheduled run — `adapters/files/lineup_runs.LineupRun`, field for field.
+
+    Built with `LineupRunRow(**asdict(run))` rather than a hand-written mapping: that mapping
+    is the seam the room journal's three dropped keys came through.
+    """
+
+    at: str
+    league: int
+    scheduled: bool
+    #: `submitted`, `unconfirmed`, `skipped` or `failed` — decided once, by
+    #: `application/lineup_submit.run_record`. This screen colours it and never re-derives it.
+    status: str
+    code: str = ""
+    detail: str = ""
+    module: str = ""
+    matchday: int | None = None
+    serie_a_matchday: int | None = None
+    starters: list[str] = []
+    bench: list[str] = []
+    rejected: list[str] = []
+
+
+class LineupRuns(BaseModel):
+    ok: bool
+    #: The file actually read, so a screen that shows nothing says where it looked.
+    path: str
+    exists: bool
+    total: int = 0
+    skipped: int = 0
+    runs: list[LineupRunRow] = []
+    error: str | None = None
+    last_at: str | None = None
+    last_age_hours: float | None = None
+    #: The newest run is older than `STALE_AFTER_HOURS`. A job that stopped running writes no
+    #: row at all, so without this a list of green rows from last week reads as fine.
+    stale: bool = False
+
+
+def read_lineup_runs(
+    path: Path, *, now: datetime, limit: int = DEFAULT_RUNS_LIMIT
+) -> LineupRuns:
+    """The scheduled lineup's history at `path`, newest first, and how old the newest run is.
+
+    Three answers a screen must tell apart, as the room journal's reader does: **missing** is
+    "no scheduled run recorded yet"; **unreadable** is its own error, because rendering a
+    directory-where-a-file-should-be as "nothing yet" sends the operator looking for a path
+    that is already right; and **present**, with the age of its newest row. `now` is this
+    endpoint's `_now()`, so the app's lineup surface still reads the clock in one place.
+    """
+    import dataclasses
+
+    from fantabot.adapters.files.lineup_runs import read_runs
+
+    limit = max(1, min(limit, MAX_RUNS_LIMIT))
+    shown = str(path)
+    existed = path.exists()
+    try:
+        runs, skipped = read_runs(path)
+    except OSError as exc:  # a directory, a permission, a vanished volume
+        return LineupRuns(ok=False, path=shown, exists=True, error=type(exc).__name__)
+    if not existed:
+        return LineupRuns(ok=True, path=shown, exists=False)
+
+    newest = runs[0] if runs else None
+    age: float | None = None
+    if newest is not None:
+        try:
+            age = (now.astimezone() - datetime.fromisoformat(newest.at)).total_seconds() / 3600
+        except (ValueError, TypeError):
+            age = None
+    return LineupRuns(
+        ok=True,
+        path=shown,
+        exists=True,
+        total=len(runs),
+        skipped=skipped,
+        runs=[LineupRunRow(**dataclasses.asdict(run)) for run in runs[:limit]],
+        last_at=newest.at if newest else None,
+        last_age_hours=None if age is None else round(age, 1),
+        stale=age is not None and age > STALE_AFTER_HOURS,
+    )
+
+
+@router.get("/lineup/runs", response_model=LineupRuns, tags=["lineup"])
+def lineup_runs(limit: int = DEFAULT_RUNS_LIMIT) -> LineupRuns:
+    """What the scheduled lineup job did, read back. **The app writes nothing here** and
+    offers no control over the job: turning it on and off lives in `.env` and the `launchd`
+    plist, by the operator's choice, and `arming.py` exists so no arming decision is stored.
+    """
+    from fantabot.config import lineup_runs_path
+
+    return read_lineup_runs(lineup_runs_path(), now=_now(), limit=limit)
