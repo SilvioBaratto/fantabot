@@ -15,6 +15,23 @@ from sqlalchemy.orm import Session
 #: fixture for 614,163 rows; the session is still rolled back.
 pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
+#: The seasons the one-time seed covered, and so the only ones whose row counts are facts.
+#:
+#: The counts below were asserted over whole tables, and the tables are live: the
+#: scrapers write the season being played into the same database. On 2026-09-11 a
+#: 2026/27 scrape moved `statistiche` from 8,034 to 9,819 rows per listone and
+#: `match_grain` from 50,634 to 51,651, turning four tests red with nothing in the tree
+#: changed — every extra row was 2026/27, and the seed seasons still summed to the
+#: recorded figures exactly.
+#:
+#: Root `CLAUDE.md` calls such counts "floors, not fixtures". A floor would have hidden
+#: the regression these tests exist for — a seed that lost rows but was topped back up by
+#: a scrape reads as fine. So the counts stay **exact** and are scoped to the seed instead;
+#: properties every row must have (no zero marker, no null counter) stay whole-table,
+#: because a 2026/27 row that broke one is exactly as wrong as a 2022/23 row.
+SEED_SEASONS = ("2022/23", "2023/24", "2024/25", "2025/26")
+IN_SEED = "stagione IN (" + ", ".join(f"'{season}'" for season in SEED_SEASONS) + ")"
+
 
 def _synthetic(db_session: Session, count: int) -> list[int]:
     """`count` player ids that belong to this test and nothing else.
@@ -244,7 +261,7 @@ class TestQuotazioniSeed:
 class TestStatisticheSeed:
     def test_both_listoni_hold_8034_rows_across_three_sources(self, db_session: Session) -> None:
         rows = db_session.execute(
-            text("SELECT listone, count(*) FROM statistiche GROUP BY 1 ORDER BY 1")
+            text(f"SELECT listone, count(*) FROM statistiche WHERE {IN_SEED} GROUP BY 1 ORDER BY 1")
         ).all()
         assert rows == [("classic", 8034), ("mantra", 8034)]
 
@@ -252,11 +269,16 @@ class TestStatisticheSeed:
         assert fonti == 3
 
     def test_the_no_data_marker_is_null_and_never_zero(self, db_session: Session) -> None:
-        """SPEC criterion 9, stated as the two numbers it turns on."""
+        """SPEC criterion 9, stated as the two numbers it turns on.
+
+        The zero count is a property and is taken over every row: a current-season row
+        written with `0` for "no data" breaks the marker as surely as a seeded one. The null
+        count is the seed's and is scoped to it.
+        """
         zeros, nulls = db_session.execute(
             text(
                 "SELECT count(*) FILTER (WHERE media_voto = 0), "
-                "count(*) FILTER (WHERE media_voto IS NULL) FROM statistiche"
+                f"count(*) FILTER (WHERE media_voto IS NULL AND {IN_SEED}) FROM statistiche"
             )
         ).one()
         assert (zeros, nulls) == (0, 2846)
@@ -410,7 +432,10 @@ class TestVotiSeed:
 
     def test_all_50634_rows_land_with_3039_coach_rows(self, db_session: Session) -> None:
         total, coaches = db_session.execute(
-            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM match_grain")
+            text(
+                "SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) "
+                f"FROM match_grain WHERE {IN_SEED}"
+            )
         ).one()
         assert (total, coaches) == (50634, 3039)
 
@@ -448,9 +473,18 @@ class TestVotiSeed:
 class TestBonusMalusSeed:
     def test_it_agrees_with_voti_row_for_row(self, db_session: Session) -> None:
         """Same grain, same coach rows, same count — which is why they share
-        the two-conflict-target upsert instead of each restating it."""
+        the two-conflict-target upsert instead of each restating it.
+
+        Since voti and bonus/malus were merged into `match_grain` the agreement is
+        structural — one row carries both — so this pins what is left to pin: the seed
+        landed whole on that shared grain. `test_no_counter_is_ever_null` below is the half
+        that says every one of those rows actually carries its bonus/malus.
+        """
         total, coaches = db_session.execute(
-            text("SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) FROM match_grain")
+            text(
+                "SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) "
+                f"FROM match_grain WHERE {IN_SEED}"
+            )
         ).one()
         assert (total, coaches) == (50634, 3039)
 
