@@ -120,9 +120,13 @@ def _configured_fingerprint() -> str | None:
     if not settings.fantabot_encryption_key:
         return None
     try:
-        return TokenCipher(settings.fantabot_encryption_key).fingerprint
+        # Annotated because `fantabot` ships no `py.typed`, so this venv's mypy reads every
+        # symbol from it as `Any` — returned bare, that is `no-any-return` out of a
+        # `str | None` function, and `app-ci` runs `mypy fantabot_app`.
+        fingerprint: str = TokenCipher(settings.fantabot_encryption_key).fingerprint
     except TokenError:
         return None
+    return fingerprint
 
 
 def build_auth_status(
