@@ -143,11 +143,18 @@ def test_the_boundary_names_the_functions_that_actually_act() -> None:
         "place_raise(",  # PATCHes a raise to the RTDB — the one that spends credits
         "run_bid_loop(",  # the loop that calls both, forever
         "decide_bid(",  # chooses a raise
+        "RoomTracker(",  # owns the loop and the per-cycle decision
         "teamLineup_submit(",  # POSTs the weekly lineup
     )
     missing = [name for name in must_be_banned if name not in ACTING_NAMES]
 
     assert missing == [], f"dropped from the acting boundary: {missing}"
+    # Every banned name pinned, not a chosen few. `RoomTracker(` was on the ban and off
+    # this list, so it could be dropped silently — recorded under 3.11 and then carried
+    # past by the commit that rewrote this guard.
+    assert set(must_be_banned) == set(ACTING_NAMES), (
+        f"the ban and its pin disagree: {set(ACTING_NAMES) ^ set(must_be_banned)}"
+    )
 
 
 def test_every_get_server_call_states_the_cleanup_mode() -> None:
