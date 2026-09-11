@@ -53,6 +53,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 from fantabot.adapters.files.stopflag import (
@@ -96,16 +97,59 @@ class ProcessJob:
         self,
         command: list[str],
         *,
-        role: str,
-        landing: Path,
+        role: str | None = None,
+        landing: Path | None = None,
+        flag: Path | None = None,
         grace_s: float = STOP_GRACE_S,
         poll_s: float = STOP_POLL_S,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        """Either a landing zone and its role, or a stop flag of its own — never neither.
+
+        `landing` used to be doing three jobs at once: the single-holder **lock**
+        (`role_lock`), the **address** of the stop flag (`stop_path(landing, role)`), and
+        the thing `stop` **waits** on. A harvest job needs all three. An `asta` job has no
+        landing zone and no role — and `lock_path` refuses any role but `collector` and
+        `loader` — so it could not be built into anything that started. What it does need
+        is the flag: its first stop is the *disarm*, and lock-free must not mean
+        unstoppable.
+
+        So the three are separated rather than `ROLES` widened. `lock.py`'s two roles are
+        a contract about landing zones on the collection path, and giving it a third,
+        unrelated one would change what "one holder per landing zone" means for the
+        collector.
+
+        A lock-free job's `flag` is its identity: one job per flag, which is the caller's
+        to keep, exactly as one holder per (landing zone, role) is the kernel's.
+        """
+        if landing is not None and role is None:
+            raise ValueError(
+                "a landing zone needs its role — `collector` or `loader` — to be locked"
+            )
+        if role is not None and landing is None:
+            raise ValueError(f"role {role!r} is a lock on a landing zone, and none was given")
+        if landing is not None and flag is not None:
+            raise ValueError(
+                "a landing-zone job's stop flag is derived from the landing zone, because "
+                "the child derives the same path — naming another would address a flag "
+                "the child never reads"
+            )
         self.command = command
         self.role = role
         self.landing = landing
+        #: `(landing, role)` when there is a lock to take and to wait on, else `None`.
+        self._owner = (landing, role) if landing is not None and role is not None else None
+        if flag is not None:
+            self.flag = flag
+        elif self._owner is not None:
+            self.flag = stop_path(*self._owner)
+        else:
+            raise ValueError(
+                "a job with no landing zone must name its stop flag: without one there is "
+                "no stop at all on Windows, where no signal is sent, and an acting job "
+                "that cannot be stopped makes its disarm control a lie"
+            )
         self.grace_s = grace_s
         self.poll_s = poll_s
         self._clock = clock
@@ -151,9 +195,7 @@ class ProcessJob:
         start therefore has to find it through the operating system rather than through
         state the dead process was holding — which is exactly what the role lock is.
         """
-        from fantabot.adapters.files.lock import role_lock
-
-        with role_lock(self.landing, self.role):
+        with self._holding_the_role():
             # Cleared here, holding the lock, *before* the child exists — which is what
             # makes this a happens-before rather than a shorter race. `start` returns the
             # moment `Popen` does and the UI renders Stop on that response, but the child
@@ -164,7 +206,7 @@ class ProcessJob:
             #
             # It also still removes what a `SIGKILL`ed predecessor left: stage two's kill
             # runs no `finally`, so the flag survives holding `exit`.
-            clear_stop(stop_path(self.landing, self.role))
+            clear_stop(self.flag)
 
         with self._lock:
             # An argv list, never a shell: nothing here is composed from user input.
@@ -288,7 +330,7 @@ class ProcessJob:
         # Annotated because `fantabot` ships no `py.typed`, so this venv's mypy reads
         # every symbol from it as `Any` and a bare `return` here is `Any` out of a `str`
         # function. The marker is the real fix and is a change of its own.
-        stage: str = request_stop(stop_path(self.landing, self.role))
+        stage: str = request_stop(self.flag)
         self._print(f"stopping: {stage} flag for pid {process.pid}")
         return stage
 
@@ -308,11 +350,34 @@ class ProcessJob:
 
     # -- helpers ----------------------------------------------------------------------
 
+    def _holding_the_role(self) -> AbstractContextManager[object]:
+        """The role lock for a landing-zone job; nothing for a lock-free one.
+
+        Held only across the pre-spawn clear, for the reason `start` gives. A lock-free job
+        still gets the clear — the happens-before is about the flag, not the lock.
+        """
+        if self._owner is None:
+            return nullcontext()
+        from fantabot.adapters.files.lock import role_lock
+
+        # Annotated, not returned bare: `fantabot` ships no `py.typed`, so mypy reads
+        # `role_lock` as `Any` — the reason `_request_stop` annotates its `stage` too.
+        held: AbstractContextManager[object] = role_lock(*self._owner)
+        return held
+
     def _role_is_free(self) -> bool:
+        """Whether `stop` may stop waiting. Always, for a job that holds no role.
+
+        With no lock to watch, the exit status is the whole wait. Asking a lock-free job
+        for a lock would spin out the grace and `SIGKILL` a child that had already left
+        cleanly — "announced, never silent", and wrong.
+        """
+        if self._owner is None:
+            return True
         from fantabot.adapters.files.lock import RoleBusy, role_lock
 
         try:
-            with role_lock(self.landing, self.role):
+            with role_lock(*self._owner):
                 return True
         except RoleBusy:
             return False

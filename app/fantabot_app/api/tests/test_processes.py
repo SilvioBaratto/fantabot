@@ -474,3 +474,131 @@ def test_start_clears_a_flag_left_by_a_killed_predecessor(tmp_path: Path) -> Non
     job.stop()
     job.stop()
     assert _wait(lambda: not job.running)
+
+
+# -- a job with no landing zone (3.5) ----------------------------------------------------
+
+#: `FLAG_POLLER`, addressed by a flag **path** rather than a (landing zone, role) pair —
+#: which is all a job with no landing zone has. An `asta bid` has no landing zone and no
+#: role, and its first Ctrl-C is the disarm the whole acting path rests on, so a lock-free
+#: job must still be stoppable through its flag, in both stages.
+FLAG_PATH_POLLER = """
+import signal, sys, time
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+from pathlib import Path
+from fantabot.adapters.files.stopflag import clear_unless_precleared, read_stop
+flag = Path(sys.argv[1])
+clear_unless_precleared(flag)
+print("polling", flush=True)
+seen = None
+while True:
+    state = read_stop(flag)
+    if state is not None and state != seen:
+        seen = state
+        print("saw " + state, flush=True)
+        if state == "exit":
+            sys.exit(0)
+    time.sleep(0.05)
+"""
+
+
+def test_a_job_with_no_landing_zone_starts_and_runs(tmp_path: Path) -> None:
+    """`start` took `role_lock(self.landing, self.role)` unconditionally, and `lock_path`
+    raises `ValueError` for any role but `collector` and `loader`. So a job with neither —
+    the shape every `asta` job has — could not be constructed into anything that started.
+    """
+    reporter = BufferingReporter()
+    job = ProcessJob(
+        _python("print('hello', flush=True)"), flag=tmp_path / "asta.stop"
+    )
+
+    assert job.run(reporter) is True
+    assert "hello" in reporter.lines
+
+
+def test_a_job_with_no_landing_zone_disarms_then_exits(tmp_path: Path) -> None:
+    """Lock-free is not unstoppable. The two-stage gesture, through the flag alone.
+
+    This child ignores SIGINT, so the flag is the only thing reaching it — the position
+    every supervised child is in on Windows. And `stop`'s second stage must still return
+    once the child exits: with no role lock to watch, the exit status is the whole wait,
+    and a wait that asked for a lock nobody holds would spin out the grace and `SIGKILL`
+    a child that had already left cleanly.
+    """
+    flag = tmp_path / "asta.stop"
+    reporter = BufferingReporter()
+    job = ProcessJob(
+        _python(FLAG_PATH_POLLER) + [str(flag)], flag=flag, grace_s=5.0, poll_s=0.05
+    )
+    _run_in_thread(job, reporter)
+    assert _wait(lambda: "polling" in reporter.lines), reporter.lines
+
+    job.stop()
+
+    assert _wait(lambda: "saw disarm" in reporter.lines), reporter.lines
+    assert job.running, "disarm is not exit: a disarmed run keeps drawing"
+
+    job.stop()
+
+    assert _wait(lambda: not job.running), reporter.lines
+    assert job.returncode == 0, "the child ran its own shutdown, it was not killed"
+    assert not any("SIGKILL" in line for line in reporter.lines), reporter.lines
+
+
+def test_a_job_with_no_landing_zone_clears_its_flag_before_spawning(tmp_path: Path) -> None:
+    """The happens-before `start` gives a landing-zone job, kept for a lock-free one.
+
+    A killed predecessor's `exit` would otherwise make the next run's first click an exit,
+    landing the old run's second gesture on a process that never saw the first.
+    """
+    from fantabot.adapters.files.stopflag import read_stop, request_stop
+
+    flag = tmp_path / "asta.stop"
+    request_stop(flag)
+    request_stop(flag)
+    assert read_stop(flag) == "exit", "a killed predecessor left the flag at exit"
+
+    job = ProcessJob(_python(POLITE), flag=flag)
+    job.start()
+    try:
+        assert read_stop(flag) is None, "start() must clear before it spawns"
+    finally:
+        job.stop()
+        job.stop()
+
+
+def test_a_job_with_no_landing_zone_lists_and_stops_like_any_other(tmp_path: Path) -> None:
+    """The registry is indifferent to how a job is supervised, which is the point: the UI
+    polls `GET /jobs` and cannot tell which kind it is watching."""
+    from fantabot_app.api.infrastructure.jobs import JobRegistry
+
+    flag = tmp_path / "asta.stop"
+    registry = JobRegistry()
+    job = ProcessJob(_python(FLAG_PATH_POLLER) + [str(flag)], flag=flag, poll_s=0.05)
+    job_id = registry.start(job.run, kind="asta-watch", stop=job.stop)
+    assert _wait(lambda: job.running)
+
+    [summary] = [s for s in registry.list() if s.id == job_id]
+    assert summary.kind == "asta-watch"
+    assert summary.stoppable is True
+
+    assert registry.stop(job_id) is True
+    assert registry.stop(job_id) is True
+    assert _wait(lambda: not job.running)
+
+
+def test_a_landing_zone_needs_its_role_and_a_lock_free_job_needs_its_flag(
+    tmp_path: Path,
+) -> None:
+    """Refused at construction, where the mistake is made, not at the first stop click.
+
+    A landing zone without a role cannot be locked and names no flag. A job with neither a
+    landing zone nor a flag would have **no stop at all on Windows** — no signal is sent
+    there — and an acting job that cannot be stopped makes its disarm control a lie.
+    """
+    with pytest.raises(ValueError, match="role"):
+        ProcessJob(_python(POLITE), landing=tmp_path / "live.jsonl")
+    with pytest.raises(ValueError, match="landing"):
+        ProcessJob(_python(POLITE), role="loader")
+    with pytest.raises(ValueError, match="flag"):
+        ProcessJob(_python(POLITE))
