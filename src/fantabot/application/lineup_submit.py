@@ -78,6 +78,9 @@ class SubmitOutcome:
     #: to the platform and came back 200, and we could not then read it back to prove it":
     #: an unknown, not a negative.
     unconfirmed: str = ""
+    #: The sentence behind a scheduled run's refusal (`domain.lineup.deadline`'s codes) — the
+    #: start, the matchday, and why that meant not acting. Empty everywhere else.
+    detail: str = ""
 
     @property
     def plan(self) -> PlannedLineup | None:
@@ -129,15 +132,21 @@ def submit_lineup(
     arm: bool,
     now: Callable[[], datetime],
     auto_act: bool | None = None,
+    scheduled: bool = False,
 ) -> SubmitOutcome:
     """Build the XI and submit it — behind two locks, a dry run by default.
 
     `arm` has no default here either: a caller that does not say does not act. `now` is the
     injected clock; `auto_act` is read from settings when not given, per call.
+
+    `scheduled` is the unattended run. It turns the kickoff *warning* into a *refusal*, via
+    `domain.lineup.deadline.scheduled_cutoff`: nobody reads a `launchd` job's warnings, and
+    the operator asked for it never to reshuffle a lineup once its matchday has started. A
+    human at the keyboard keeps the warning.
     """
     from fantabot.adapters.http import apileague
     from fantabot.domain.lineup import payload as payload_module
-    from fantabot.domain.lineup.deadline import is_past_deadline
+    from fantabot.domain.lineup.deadline import is_past_deadline, scheduled_cutoff
     from fantabot.domain.lineup.errors import LineupRejected
     from fantabot.domain.tokens.errors import TokenError
 
@@ -155,12 +164,29 @@ def submit_lineup(
     if not plans or plans[0].mday == 0 or plans[0].cmday == 0:
         return outcome(refused=NO_MATCHDAY)
 
+    # The scheduled cutoff, **before the arm check** for the matchday refusal's reason: a
+    # scheduled dry run that printed a plan the armed one would refuse rehearses the wrong
+    # thing. Read once and reused below, so the cutoff and the warning see one status.
+    status: Mapping[str, Any] | None = None
+    if scheduled:
+        status = apileague.league_status(league_id, store=store)
+        cut = scheduled_cutoff(
+            mstr=str(status.get("mstr") or ""),
+            status_mday=int(status.get("mday") or 0),
+            plan_cmday=plans[0].cmday,
+            now=now(),
+        )
+        if cut is not None:
+            return outcome(refused=cut.code, detail=cut.reason)
+
     if not arming.armed:
         return outcome(refused=NOT_ARMED)
 
-    # Warns, never blocks. `mstr` is not confirmed to be the lineup deadline, so the
-    # platform stays the authority — a guess that blocked would lose a matchday to caution.
-    status = apileague.league_status(league_id, store=store)
+    # Warns, never blocks — for a manual run. `mstr` is not confirmed to be the lineup
+    # deadline, so the platform stays the authority; a guess that blocked would lose a
+    # matchday to caution. A scheduled run has already been refused above if it was late.
+    if status is None:
+        status = apileague.league_status(league_id, store=store)
     mstr = str(status.get("mstr", ""))
     past = mstr if mstr and is_past_deadline(mstr, now()) else None
 

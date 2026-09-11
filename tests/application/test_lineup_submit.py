@@ -28,6 +28,7 @@ from fantabot.application.lineup_submit import (
     NOT_ARMED,
     submit_lineup,
 )
+from fantabot.domain.lineup.deadline import MATCHDAY_MISMATCH, MATCHDAY_STARTED
 from fantabot.domain.lineup.errors import LineupRejected
 from fantabot.domain.tokens.errors import ApiTimeout, ApiUnavailable, TokenRejected
 
@@ -52,10 +53,13 @@ class _Api:
         self,
         *,
         mstr: str = "",
+        mday: int = 4,
         refuse: tuple[str, ...] = (),
         read_raises: Exception | None = None,
     ) -> None:
         self.mstr = mstr
+        #: The Serie A matchday `mstr` describes — `league_status`'s own `mday`.
+        self.mday = mday
         self.refuse = refuse
         #: What the *confirming read* fails with, after the POST has already returned 200.
         self.read_raises = read_raises
@@ -65,7 +69,7 @@ class _Api:
 
     def league_status(self, _lid: int, **_k: Any) -> dict[str, Any]:
         self.status_reads += 1
-        return {"mstr": self.mstr}
+        return {"mstr": self.mstr, "mday": self.mday}
 
     def teamLineup_submit(self, _lid: int, body: dict[str, Any], **_k: Any) -> dict[str, Any]:
         module = str(body.get("mdl", "?"))
@@ -344,3 +348,64 @@ class TestAFailedReadBackDoesNotUnsubmitTheLineup:
 
         assert outcome.submitted is None
         assert outcome.unconfirmed == ""
+
+
+class TestAScheduledRunNeverTouchesALineupInPlay:
+    """`scheduled=True` is the `launchd` job: nobody reads its warnings, and the operator
+    asked for it never to reshuffle a lineup once the matchday has started.
+
+    The start times here sit **days** from `NOW`, which is naive: `scheduled_cutoff` reads a
+    naive `now` as the machine's local time, and a test minutes from the boundary would pass
+    or fail by which timezone the runner is in.
+    """
+
+    def test_after_the_start_an_armed_scheduled_run_sends_nothing(self, wired) -> None:  # type: ignore[no-untyped-def]
+        api = wired(_Api(mstr="2026-09-01T18:45:00", mday=4), [_Plan("343", cmday=4)])
+
+        outcome = _run(scheduled=True)
+
+        assert outcome.refused == MATCHDAY_STARTED
+        assert api.submitted == [], "a scheduled run reshuffled a lineup in play"
+        assert "18:45" in outcome.detail
+
+    def test_before_the_start_it_submits(self, wired) -> None:  # type: ignore[no-untyped-def]
+        api = wired(_Api(mstr="2026-09-30T18:45:00", mday=4), [_Plan("343", cmday=4)])
+
+        outcome = _run(scheduled=True)
+
+        assert outcome.submitted is not None
+        assert api.submitted == ["343"]
+
+    def test_a_start_for_another_matchday_sends_nothing(self, wired) -> None:  # type: ignore[no-untyped-def]
+        api = wired(_Api(mstr="2026-09-30T18:45:00", mday=5), [_Plan("343", cmday=4)])
+
+        outcome = _run(scheduled=True)
+
+        assert outcome.refused == MATCHDAY_MISMATCH
+        assert api.submitted == []
+
+    def test_the_cutoff_outranks_the_arm_check(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """For the matchday refusal's reason: a dry run that printed a plan the armed run
+        would have refused is a rehearsal of the wrong thing."""
+        wired(_Api(mstr="2026-09-01T18:45:00", mday=4), [_Plan("343", cmday=4)])
+
+        outcome = _run(scheduled=True, arm=False, auto_act=False)
+
+        assert outcome.refused == MATCHDAY_STARTED
+
+    def test_a_manual_run_after_the_start_still_only_warns(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """Unchanged for a human at the keyboard: warns, submits, the platform decides."""
+        api = wired(_Api(mstr="2026-09-01T18:45:00", mday=4), [_Plan("343", cmday=4)])
+
+        outcome = _run()
+
+        assert outcome.submitted is not None and api.submitted == ["343"]
+        assert outcome.past_deadline
+
+    def test_the_status_is_read_once(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """The cutoff and the kickoff warning read the same `league_status`, not two."""
+        api = wired(_Api(mstr="2026-09-30T18:45:00", mday=4), [_Plan("343", cmday=4)])
+
+        _run(scheduled=True)
+
+        assert api.status_reads == 1

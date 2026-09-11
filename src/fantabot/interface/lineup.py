@@ -160,6 +160,12 @@ def _submit(
     arm: bool = typer.Option(
         False, "--arm", help="Second, positive lock. Submit is OFF without it (and AUTO_ACT)."
     ),
+    scheduled: bool = typer.Option(
+        False,
+        "--scheduled",
+        help="The unattended run (launchd): once the matchday has started, skip instead of "
+        "warning — never reshuffle a lineup in play.",
+    ),
 ) -> None:
     """Build the formation and submit it — **behind two locks, dry run by default.**
 
@@ -178,6 +184,11 @@ def _submit(
         submit_lineup,
     )
     from fantabot.config import settings
+    from fantabot.domain.lineup.deadline import (
+        MATCHDAY_MISMATCH,
+        MATCHDAY_STARTED,
+        NO_START_TIME,
+    )
     from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
@@ -193,6 +204,7 @@ def _submit(
                 competition=competition,
                 arm=arm,
                 now=_now,
+                scheduled=scheduled,
             )
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")
@@ -212,6 +224,16 @@ def _submit(
             "[red]no matchday context for this competition (the lineup has no saved "
             "coordinates yet) — refusing to submit. Try once the matchday opens.[/red]"
         )
+        raise typer.Exit(code=1)
+
+    # A scheduled run past its matchday's start is doing its job, not failing: exit 0, so a
+    # `launchd` log full of Saturday-night runs does not read as a broken job. An unreadable
+    # start is different — nothing could be verified, and that is worth a non-zero code.
+    if outcome.refused in (MATCHDAY_STARTED, MATCHDAY_MISMATCH):
+        console.print(f"[dim]scheduled run skipped: {outcome.detail}[/dim]")
+        raise typer.Exit(code=0)
+    if outcome.refused == NO_START_TIME:
+        console.print(f"[red]scheduled run refused: {outcome.detail}[/red]")
         raise typer.Exit(code=1)
 
     if outcome.refused == NOT_ARMED:

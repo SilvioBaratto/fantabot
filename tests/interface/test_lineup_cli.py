@@ -451,3 +451,37 @@ def test_the_submitted_tid_comes_from_my_team_not_the_lineup_dto(
         "the submitted tid did not come from my_team — a DTO read would send 0 and the "
         "platform would file the lineup against no team"
     )
+
+
+def test_a_scheduled_submit_after_the_start_exits_zero_and_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--scheduled` is the `launchd` job's flag. After the start it is a normal skip, not a
+    failure: exit 0, nothing POSTed, and a sentence saying why."""
+    from fantabot.adapters.http import apileague
+
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+    # `_fakes_plan`'s lineup is Serie A matchday 3 (`cmday`), so the status must be too.
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2020-01-01T00:00:00", "mday": 3}
+    )
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm", "--scheduled"])
+
+    assert result.exit_code == 0, result.output
+    assert posted == [], "a scheduled run reshuffled a lineup in play"
+    assert "started" in result.output
+
+
+def test_a_scheduled_submit_before_the_start_submits(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fantabot.adapters.http import apileague
+
+    posted = _submit_fakes(monkeypatch, auto_act=True)
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00", "mday": 3}
+    )
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm", "--scheduled"])
+
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1
