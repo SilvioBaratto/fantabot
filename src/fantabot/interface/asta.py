@@ -7,7 +7,8 @@ by ``register(app)``, mirroring ``aste/cli.py``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import date
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -143,6 +144,50 @@ def bid_writer(
         return BidOutcome(price=clean, node=node, dry_run=True, sent=False, status=None)
 
     return hold
+
+
+@contextmanager
+def _disarm_on_sigint(armed: list[bool]) -> Iterator[None]:
+    """First Ctrl-C clears `armed[0]` and keeps going; the second exits. One handler, two commands.
+
+    Mid-auction the operator far more often wants "stop bidding, keep showing me the room"
+    than "quit" — `news fetch`'s pattern, for the same reason. The writer must read
+    `armed[0]` on **every** bid for this to mean anything: a writer bound once at loop start
+    keeps bidding after the operator disarmed.
+
+    This lived inline in `asta_room`, and `asta_bid` never had it at all — two copies of the
+    live loop drifted, and the one that lost the disarm was the one that spends credits.
+    Lifted here so there is one. A run that was never armed has nothing to disarm, so its
+    first Ctrl-C exits.
+
+    **Restored in a `finally`.** `asta_room` restored on the line after its loop, so a loop
+    that raised left the handler installed for the rest of the process.
+
+    Off the main thread Python refuses a signal handler. That costs the graceful disarm and
+    nothing else; refusing to run the room over it would be the worse trade.
+    """
+    import signal
+
+    previous = signal.getsignal(signal.SIGINT)
+
+    def _disarm(_signum: int, _frame: Any) -> None:
+        if not armed[0]:
+            signal.signal(signal.SIGINT, previous)
+            raise KeyboardInterrupt
+        armed[0] = False
+        console.print("[yellow]disarmed — still watching. Ctrl-C again to exit.[/yellow]")
+
+    try:
+        signal.signal(signal.SIGINT, _disarm)
+    except ValueError:
+        installed = False
+    else:
+        installed = True
+    try:
+        yield
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, previous)
 
 
 def _lega_rules(
@@ -926,7 +971,8 @@ def asta_bid(
     every run for the rest of the day; ``--arm`` is what makes arming a thing the operator does
     now, deliberately, for this room. Participant only: it bids, it never settles a lot (that is the admin's
     close/confirm). The walk-aways re-plan each cycle off the live ``purchases/`` ledger, so they
-    already account for what has been spent. Ctrl-C to stop.
+    already account for what has been spent. Ctrl-C once stops bidding and keeps watching;
+    twice exits — the same gesture as ``asta room``, through the same handler.
 
     Fully unauthenticated: the shard (``--db``), seat (``--team``) and uid (``--user``) are given,
     and the live RTDB read + bid need no token (docs/fantalab/06 §10). The seat is claimed once,
@@ -1040,12 +1086,26 @@ def asta_bid(
         )
         arm = False
 
+    # A list so the SIGINT handler can clear it without a global, and read by the writer on
+    # every bid. This was a plain `arm` bool captured once by the write closure, with no
+    # handler installed at all: Ctrl-C went straight to `run_bid_loop`'s
+    # `except KeyboardInterrupt` and ended the run. The one command that places real raises
+    # was the one live command that could not be told "stop bidding, keep watching".
+    #
+    # The ambient lock is read once for the banner and again on every write by
+    # `live_auto_act`; `armed` is the per-invocation half, which only a Ctrl-C can clear.
+    auto_act_now = live_auto_act()
+    armed = [bool(auto_act_now and arm)]
+
     # Said before the first poll, not after: the operator has to be able to tell an armed run
     # from a rehearsal at a glance, and the heartbeat that follows looks identical either way.
-    if live_auto_act() and arm:
-        console.print("[bold red]● ARMED — bids are real credits[/bold red]")
+    if armed[0]:
+        console.print(
+            "[bold red]● ARMED — bids are real credits. "
+            "Ctrl-C once stops bidding and keeps watching; twice exits.[/bold red]"
+        )
     else:
-        why = "--arm not given" if live_auto_act() else "FANTABOT_AUTO_ACT is false"
+        why = "--arm not given" if auto_act_now else "FANTABOT_AUTO_ACT is false"
         console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
 
     journal = RoomJournal(journal_path())
@@ -1135,27 +1195,29 @@ def asta_bid(
         console.print(f"[red]{type(exc).__name__}: {exc} ({consecutive} in a row)[/red]")
         _timed_journal(error_row(exc, now_ms=int(time.time() * 1000)))
 
-    report = room.run_bid_loop(
-        seat=seat,
-        fantaleague_id=league,
-        remaining_budget=_remaining,
-        max_cap=_cap,
-        target_of=target_of,
-        read=_timed_read,
-        # Bound per call for the same reason as the live room above: the ambient lock is
-        # re-read on every write, so editing `.env` mid-evening disarms this loop too.
-        write=lambda payload: bid_writer(
-            auto_act=live_auto_act(),
-            arm=arm,
-            send=router.write_raise,
-        )(payload),
-        now=lambda: int(time.time() * 1000),
-        sleep=time.sleep,
-        keep_going=lambda _cycle: True,
-        heartbeat=heartbeat,
-        on_error=on_error,
-        poll_seconds=poll,
-    )
+    with _disarm_on_sigint(armed):
+        report = room.run_bid_loop(
+            seat=seat,
+            fantaleague_id=league,
+            remaining_budget=_remaining,
+            max_cap=_cap,
+            target_of=target_of,
+            read=_timed_read,
+            # Bound per call for the same reason as the live room above: the ambient lock is
+            # re-read on every write, so editing `.env` mid-evening disarms this loop too.
+            # `armed[0]`, not `arm`: read per bid, so the first Ctrl-C holds the very next raise.
+            write=lambda payload: bid_writer(
+                auto_act=live_auto_act(),
+                arm=armed[0],
+                send=router.write_raise,
+            )(payload),
+            now=lambda: int(time.time() * 1000),
+            sleep=time.sleep,
+            keep_going=lambda _cycle: True,
+            heartbeat=heartbeat,
+            on_error=on_error,
+            poll_seconds=poll,
+        )
     journal.close()
     _report_stopped(report)
 

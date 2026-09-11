@@ -67,3 +67,205 @@ class TestADisarmedWriteIsWellFormed:
         outcome = bid_writer(auto_act=False, arm=False, send=_send, node="assign")
 
         assert outcome({"price": 1}).node == "assign"
+
+
+# -- the disarm: first Ctrl-C stops bidding, second exits (3.9a) ------------------------
+
+import contextlib  # noqa: E402 — grouped with the tests that need them
+import signal  # noqa: E402
+import threading  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import pytest  # noqa: E402
+from typer.testing import CliRunner  # noqa: E402
+
+
+class TestTheTwoStageInterrupt:
+    """One handler, shared by both live commands.
+
+    `asta room` had it inline; `asta bid` never had it at all. Two copies of "the live loop"
+    drifted and the one that lost the disarm is the one that spends credits — the plan's own
+    words: *"The command that spends credits is the one that cannot be disarmed."*
+
+    The handler is called directly rather than signalled at the process, for the reason
+    `test_news_fetch_write.py` gives: that is exactly what Ctrl-C delivers, and a test that
+    signals its own runner is a test that can kill the suite.
+    """
+
+    def test_the_first_interrupt_disarms_and_the_second_exits(self) -> None:
+        from fantabot.interface.asta import _disarm_on_sigint
+
+        armed = [True]
+        with _disarm_on_sigint(armed):
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler) and handler is not signal.default_int_handler
+
+            handler(signal.SIGINT, None)
+            assert armed == [False], "the first Ctrl-C must stop bidding"
+
+            with pytest.raises(KeyboardInterrupt):
+                handler(signal.SIGINT, None)
+
+    def test_a_run_that_was_never_armed_exits_on_the_first(self) -> None:
+        """Nothing to disarm, so the first Ctrl-C means what it always meant."""
+        from fantabot.interface.asta import _disarm_on_sigint
+
+        with _disarm_on_sigint([False]):
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            with pytest.raises(KeyboardInterrupt):
+                handler(signal.SIGINT, None)
+
+    def test_the_previous_handler_comes_back_even_when_the_run_raises(self) -> None:
+        """`asta room` restored it on the happy path only — the line after the loop, not a
+        `finally` — so a loop that raised left its handler installed for the process."""
+        from fantabot.interface.asta import _disarm_on_sigint
+
+        before = signal.getsignal(signal.SIGINT)
+        with pytest.raises(RuntimeError), _disarm_on_sigint([True]):
+            raise RuntimeError("the loop died")
+
+        assert signal.getsignal(signal.SIGINT) is before
+
+    def test_off_the_main_thread_it_installs_nothing_and_the_run_still_happens(self) -> None:
+        """Python refuses a signal handler off the main thread. That costs the graceful
+        disarm and nothing else — refusing to run the room over it is the worse trade."""
+        from fantabot.interface.asta import _disarm_on_sigint
+
+        before = signal.getsignal(signal.SIGINT)
+        ran: list[bool] = []
+        failed: list[BaseException] = []
+
+        def body() -> None:
+            try:
+                with _disarm_on_sigint([True]):
+                    ran.append(True)
+            except BaseException as exc:
+                failed.append(exc)
+
+        worker = threading.Thread(target=body)
+        worker.start()
+        worker.join()
+
+        assert ran == [True] and failed == []
+        assert signal.getsignal(signal.SIGINT) is before
+
+
+def _wire_asta_bid(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Everything between `asta bid`'s entry and its loop, faked. Returns what was sent.
+
+    No socket, no database: the bridge, the plan inputs, the band, the tracker, the journal
+    and the router are all stand-ins. What is real is the command body itself — the part
+    that decides whether a Ctrl-C can reach the writer.
+    """
+    from fantabot import config
+    from fantabot.adapters.files import room_journal
+    from fantabot.adapters.http.fantalab import listone, room
+    from fantabot.adapters.http.fantalab.rtdb import BidOutcome
+    from fantabot.adapters.persistence import database_manager, news_sentiment
+    from fantabot.application import asta_room
+    from fantabot.domain.asta.state import RosterRules
+    from fantabot.interface import asta
+
+    # Both locks open: the ambient one through `live_auto_act`'s exported branch.
+    monkeypatch.setattr(config, "_DOTENV_INJECTED", {})
+    monkeypatch.setenv(config.AUTO_ACT_VAR, "true")
+
+    monkeypatch.setattr(listone, "fetch", lambda **_k: {"uuid-1": 1})
+    monkeypatch.setattr(listone, "cache_age", lambda *_a, **_k: 0.0)
+    monkeypatch.setattr(listone, "is_stale", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        database_manager, "get_session", lambda: contextlib.nullcontext(object())
+    )
+    monkeypatch.setattr(news_sentiment, "NewsSentimentSource", lambda _s: None)
+    monkeypatch.setattr(asta, "sentiment_rows", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        asta,
+        "read_plan_inputs",
+        lambda *_a, **_k: SimpleNamespace(
+            pool=["p1"], value={}, prices={}, teams={}, legality=None, names={}
+        ),
+    )
+    monkeypatch.setattr(
+        asta, "_lega_rules", lambda _lega, fmt, **_k: (RosterRules(), "a test band", fmt)
+    )
+    monkeypatch.setattr(asta_room, "RoomTracker", lambda **_k: SimpleNamespace())
+    monkeypatch.setattr(
+        room_journal,
+        "RoomJournal",
+        lambda _p: SimpleNamespace(write=lambda _row: None, close=lambda: None),
+    )
+
+    sent: list[int] = []
+
+    class _Router:
+        node = "auction"
+
+        def __init__(self, **_k: Any) -> None:
+            pass
+
+        def write_raise(self, payload: dict[str, Any]) -> Any:
+            sent.append(int(payload["price"]))
+            return BidOutcome(
+                price=payload["price"], node="auction", dry_run=False, sent=True, status=200
+            )
+
+    monkeypatch.setattr(room, "LotRouter", _Router)
+    return sent
+
+
+class TestAstaBidCanBeDisarmedMidRun:
+    """3.9a's acceptance: *"an armed `asta bid` is disarmable mid-run from the terminal."*
+
+    It bound `bid_writer(arm=arm)` from a plain bool captured once, and installed no SIGINT
+    handler — every `signal.signal` in `interface/asta.py` was inside `asta_room`. So Ctrl-C
+    went straight to `run_bid_loop`'s `except KeyboardInterrupt` and ended the run: no
+    "stop bidding, keep watching", on the one command that places real raises.
+    """
+
+    def test_the_first_ctrl_c_holds_the_next_bid_and_the_second_ends_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.adapters.http.fantalab import room
+        from fantabot.adapters.http.fantalab.room import LoopReport
+        from fantabot.interface.app import app
+
+        sent = _wire_asta_bid(monkeypatch)
+        seen: dict[str, Any] = {}
+
+        def loop(**kw: Any) -> LoopReport:
+            write = kw["write"]
+            seen["first"] = write({"price": 7}).sent
+
+            handler = signal.getsignal(signal.SIGINT)
+            seen["installed"] = callable(handler) and handler is not signal.default_int_handler
+            if not seen["installed"]:
+                # Calling Python's default handler would raise a real `KeyboardInterrupt`
+                # through the runner and abort the whole pytest session.
+                return LoopReport(cycles=1, bids_sent=1, refused={})
+
+            handler(signal.SIGINT, None)  # the first Ctrl-C
+            seen["second"] = write({"price": 8}).sent
+            try:
+                handler(signal.SIGINT, None)  # the second
+            except KeyboardInterrupt:
+                seen["exited"] = True  # what `run_bid_loop` does with it: return the report
+            return LoopReport(cycles=2, bids_sent=1, refused={})
+
+        monkeypatch.setattr(room, "run_bid_loop", loop)
+        before = signal.getsignal(signal.SIGINT)
+
+        result = CliRunner().invoke(
+            app,
+            ["asta", "bid", "--league", "L1", "--db", "1", "--team", "T1", "--user", "U1",
+             "--arm"],
+        )
+
+        assert seen.get("installed"), "asta bid installed no interrupt handler: Ctrl-C cannot disarm it"
+        assert result.exit_code == 0, result.output
+        assert seen["first"] is True, "an armed run must bid before anyone interrupts it"
+        assert seen["second"] is False, "a bid was sent after the operator disarmed"
+        assert sent == [7], f"only the pre-interrupt bid may reach the room, sent {sent}"
+        assert seen.get("exited") is True, "the second Ctrl-C must end the run"
+        assert "disarmed" in result.output
+        assert signal.getsignal(signal.SIGINT) is before, "the handler was left installed"
