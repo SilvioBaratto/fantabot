@@ -39,6 +39,9 @@ CAPTURE = (
     # evening's only record, and one that can block on Postgres at 21:47 loses the lot it
     # was writing as well as the one after it.
     "fantabot.adapters.files.room_journal",
+    # The scheduled lineup's run record — its most important rows are the runs that failed
+    # *because* Postgres was down after a reboot, so it may not depend on Postgres either.
+    "fantabot.adapters.files.lineup_runs",
     # The role lock. It is taken *before* the first frame and held until the last, so a
     # path from it to Postgres would let a database outage refuse to start a collector —
     # precisely the power the landing zone exists to deny the database.

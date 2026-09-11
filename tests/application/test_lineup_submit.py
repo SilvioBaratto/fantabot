@@ -409,3 +409,85 @@ class TestAScheduledRunNeverTouchesALineupInPlay:
         _run(scheduled=True)
 
         assert api.status_reads == 1
+
+
+class TestEveryRunBecomesARecord:
+    """Which rows the app paints red is decided here, once, and not by each reader.
+
+    Four states. **submitted** and **unconfirmed** reached the platform — the second could not
+    read it back to prove it. **skipped** is a run doing its job: past the start, the wrong
+    matchday, nothing opened yet. **failed** is a run that should have submitted and did not.
+
+    A scheduled run that is not armed is a **failure**, not a dry run: the job exists to
+    submit, and a shut lock at 18:00 on a Friday is the silent miss the record is for.
+    """
+
+    def test_a_confirmed_submit_names_what_went_in(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.adapters.files.lineup_runs import SUBMITTED
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(mstr="2026-09-30T18:45:00", mday=4), [_Plan("343", cmday=4)])
+        outcome = _run(scheduled=True)
+
+        run = run_record(outcome, league_id=4103937, scheduled=True, at="2026-09-12T10:00:00+02:00")
+
+        assert run.status == SUBMITTED
+        assert run.module == "343" and run.serie_a_matchday == 4
+        assert run.starters == ("Svilar",)
+
+    def test_an_unconfirmed_submit_is_its_own_state(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.adapters.files.lineup_runs import UNCONFIRMED
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(mstr="2026-09-30T18:45:00", mday=4, read_raises=ApiTimeout(10)), [_Plan("343", cmday=4)])
+        outcome = _run(scheduled=True)
+
+        run = run_record(outcome, league_id=4103937, scheduled=True, at="t")
+
+        assert run.status == UNCONFIRMED and "10s" in run.detail
+
+    def test_past_the_start_is_a_skip(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.adapters.files.lineup_runs import SKIPPED
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(mstr="2026-09-01T18:45:00", mday=4), [_Plan("343", cmday=4)])
+        outcome = _run(scheduled=True)
+
+        run = run_record(outcome, league_id=4103937, scheduled=True, at="t")
+
+        assert run.status == SKIPPED and run.code == MATCHDAY_STARTED
+
+    def test_a_scheduled_run_that_is_not_armed_failed_at_its_job(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.adapters.files.lineup_runs import FAILED
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(mstr="2026-09-30T18:45:00", mday=4), [_Plan("343", cmday=4)])
+        outcome = _run(scheduled=True, arm=False, auto_act=False)
+
+        run = run_record(outcome, league_id=4103937, scheduled=True, at="t")
+
+        assert run.status == FAILED and run.code == NOT_ARMED
+        assert "FANTABOT_AUTO_ACT" in run.detail, "the record must say which lock is shut"
+
+    def test_every_module_refused_failed(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.adapters.files.lineup_runs import FAILED
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(mstr="2026-09-30T18:45:00", mday=4, refuse=("343",)), [_Plan("343", cmday=4)])
+        outcome = _run(scheduled=True)
+
+        run = run_record(outcome, league_id=4103937, scheduled=True, at="t")
+
+        assert run.status == FAILED and run.code == ALL_MODULES_REFUSED
+
+    def test_a_run_that_raised_is_a_failure_with_its_reason(self) -> None:
+        from fantabot.adapters.files.lineup_runs import FAILED
+        from fantabot.application.lineup_submit import failed_run
+
+        run = failed_run(
+            "TokenMissing", "no stored token for lega 4103937", league_id=4103937,
+            scheduled=True, at="t",
+        )
+
+        assert run.status == FAILED and run.code == "TokenMissing"
+        assert run.detail == "no stored token for lega 4103937"

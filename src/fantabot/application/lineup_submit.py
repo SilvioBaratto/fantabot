@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from datetime import datetime
 
+    from fantabot.adapters.files.lineup_runs import LineupRun
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.domain.lineup.models import PlannedLineup
 
@@ -238,11 +239,106 @@ def submit_lineup(
     )
 
 
+def run_record(
+    outcome: SubmitOutcome, *, league_id: int, scheduled: bool, at: str
+) -> LineupRun:
+    """What one run did, as the history will show it. **Which rows are red is decided here.**
+
+    Four states, and the line between *skipped* and *failed* is the whole point: a skip is a
+    run doing its job by not acting; a failure is a run that should have submitted and did
+    not. Every reader — the app's panel, anything after it — takes this word for it rather
+    than re-deriving it from codes, which is how two screens come to disagree about the same
+    Saturday.
+
+    **A scheduled run that is not armed failed.** The job exists to submit; a shut lock at
+    18:00 on a Friday is the silent miss the record is for. A manual dry run is a skip.
+    """
+    from dataclasses import replace
+
+    from fantabot.adapters.files.lineup_runs import (
+        FAILED,
+        SKIPPED,
+        SUBMITTED,
+        UNCONFIRMED,
+        LineupRun,
+    )
+    from fantabot.application.arming import CLI_SENTENCES
+    from fantabot.domain.lineup.deadline import MATCHDAY_MISMATCH, MATCHDAY_STARTED
+
+    plan = outcome.plan
+
+    def named(ids: Any) -> tuple[str, ...]:
+        return tuple(outcome.names.get(pid, str(pid)) for pid in ids)
+
+    base = LineupRun(
+        at=at,
+        league=league_id,
+        scheduled=scheduled,
+        status=FAILED,
+        module=plan.module if plan else "",
+        matchday=plan.mday if plan else None,
+        serie_a_matchday=plan.cmday if plan else None,
+        starters=named(plan.starts) if plan else (),
+        bench=named(plan.bench) if plan else (),
+        rejected=tuple(f"{module} ({code})" for module, code in outcome.rejected),
+    )
+
+    if outcome.refused is None:
+        if outcome.unconfirmed:
+            return replace(base, status=UNCONFIRMED, detail=outcome.unconfirmed)
+        past = f"submitted past {outcome.past_deadline}" if outcome.past_deadline else ""
+        return replace(base, status=SUBMITTED, detail=past)
+
+    code = outcome.refused
+    if code in (MATCHDAY_STARTED, MATCHDAY_MISMATCH):
+        return replace(base, status=SKIPPED, code=code, detail=outcome.detail)
+    if code == NO_MATCHDAY:
+        return replace(
+            base,
+            status=SKIPPED,
+            code=code,
+            detail="the platform has not opened this matchday's lineup yet — no coordinates",
+        )
+    if code == NOT_ARMED:
+        return replace(
+            base,
+            status=FAILED if scheduled else SKIPPED,
+            code=code,
+            detail=f"not armed: {outcome.arming.because(CLI_SENTENCES)}",
+        )
+    if code == ALL_MODULES_REFUSED:
+        refused = ", ".join(base.rejected) or "none recorded"
+        return replace(
+            base,
+            status=FAILED,
+            code=code,
+            detail=f"the platform refused every fieldable module ({refused})",
+        )
+    # `NO_START_TIME` — and anything a later refusal adds before this learns its name. An
+    # unknown refusal is a failure until someone decides otherwise: silence is the risk.
+    return replace(base, status=FAILED, code=code, detail=outcome.detail)
+
+
+def failed_run(code: str, detail: str, *, league_id: int, scheduled: bool, at: str) -> LineupRun:
+    """A run that raised before it had an outcome — a dead token, an unreachable database.
+
+    These are the failures most worth recording, because they stop everything else: no
+    plan, no module, nothing to name but the reason.
+    """
+    from fantabot.adapters.files.lineup_runs import FAILED, LineupRun
+
+    return LineupRun(
+        at=at, league=league_id, scheduled=scheduled, status=FAILED, code=code, detail=detail
+    )
+
+
 __all__ = [
     "ALL_MODULES_REFUSED",
     "NOT_ARMED",
     "NO_MATCHDAY",
     "SubmitOutcome",
     "build_plans",
+    "failed_run",
+    "run_record",
     "submit_lineup",
 ]

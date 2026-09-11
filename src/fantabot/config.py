@@ -144,6 +144,24 @@ def journal_path() -> Path:
     return (Settings().fantabot_data_dir / JOURNAL_FILE).resolve()
 
 
+#: The scheduled lineup's run record, one JSONL line per `lineup submit --scheduled`.
+LINEUP_RUNS_FILE = "lineup_runs.jsonl"
+
+
+def lineup_runs_path() -> Path:
+    """Where every scheduled lineup run is recorded, and where the app reads the history.
+
+    **Derived from the home directory, not from `./data`.** `journal_path` above is relative
+    and says so: a writer and a reader agree only when both started from the repository
+    root. The `launchd` job starts in the repository and the app starts wherever its
+    launcher was, so a relative path here would put the record where the app never looks —
+    the silent failure the record exists to prevent. `harvest_dir` is the precedent.
+
+    Read at call time rather than bound at import, so a test that repoints `HOME` sees it.
+    """
+    return Path.home() / ".fantabot" / LINEUP_RUNS_FILE
+
+
 def bundled_database_url(database: str = "fantabot") -> str:
     """The DSN of the app's bundled Postgres — the canonical database.
 

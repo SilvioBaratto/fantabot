@@ -8,6 +8,7 @@ pure formatter is tested directly; the command is a thin wrapper around it.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -485,3 +486,116 @@ def test_a_scheduled_submit_before_the_start_submits(monkeypatch: pytest.MonkeyP
 
     assert result.exit_code == 0, result.output
     assert len(posted) == 1
+
+
+# -- the record every scheduled run leaves -----------------------------------------------
+
+
+def _records(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point the derived home at `tmp_path`, and return where the record will land."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    return tmp_path / ".fantabot" / "lineup_runs.jsonl"
+
+
+def test_a_scheduled_run_leaves_exactly_one_record(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from fantabot.adapters.files.lineup_runs import SUBMITTED, read_runs
+    from fantabot.adapters.http import apileague
+
+    log = _records(monkeypatch, tmp_path)
+    _submit_fakes(monkeypatch, auto_act=True)
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00", "mday": 3}
+    )
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm", "--scheduled"])
+
+    assert result.exit_code == 0, result.output
+    runs, skipped = read_runs(log)
+    assert skipped == 0 and len(runs) == 1
+    assert runs[0].status == SUBMITTED
+    assert runs[0].scheduled is True and runs[0].league == 4103937
+
+
+def test_a_run_that_fails_before_any_plan_is_still_recorded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The failures most worth a record are the ones that stop everything else. A dead
+    token raises out of the very first read — no outcome, no plan — and a record written
+    only from an outcome would say nothing on the Saturday that mattered."""
+    from fantabot.adapters.files.lineup_runs import FAILED, read_runs
+    from fantabot.adapters.http import apileague
+    from fantabot.domain.tokens.errors import TokenMissing
+
+    log = _records(monkeypatch, tmp_path)
+    _submit_fakes(monkeypatch, auto_act=True)
+
+    def dead(*_a: Any, **_k: Any) -> Any:
+        raise TokenMissing(4103937)
+
+    monkeypatch.setattr(apileague, "my_team", dead)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm", "--scheduled"])
+
+    assert result.exit_code == 1, result.output
+    [run] = read_runs(log)[0]
+    assert run.status == FAILED and run.code == "TokenMissing"
+    assert "auth login" in run.detail
+
+
+def test_an_unreachable_database_is_recorded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The reboot case: the bundled Postgres is not up, and the token lives in it."""
+    from sqlalchemy.exc import OperationalError
+
+    from fantabot.adapters.files.lineup_runs import FAILED, read_runs
+    from fantabot.adapters.persistence import database_manager
+
+    log = _records(monkeypatch, tmp_path)
+    _submit_fakes(monkeypatch, auto_act=True)
+
+    def down() -> Any:
+        raise OperationalError("SELECT 1", {}, ConnectionRefusedError("no server"))
+
+    monkeypatch.setattr(database_manager, "get_session", down)
+
+    result = runner.invoke(app, ["lineup", "submit", "--arm", "--scheduled"])
+
+    assert result.exit_code == 1, result.output
+    [run] = read_runs(log)[0]
+    assert run.status == FAILED and run.code == "database-unreachable"
+
+
+def test_a_manual_run_leaves_no_record(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The history is the automation's. A person at the terminal already saw the answer."""
+    log = _records(monkeypatch, tmp_path)
+    _submit_fakes(monkeypatch, auto_act=True)
+
+    runner.invoke(app, ["lineup", "submit", "--arm"])
+
+    assert not log.exists()
+
+
+def test_the_record_is_stamped_by_the_lineup_clock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`_now` is the lineup surface's one clock read, and the clock guard counts it. A
+    record stamped by a second `datetime.now()` would be a second seam the parity tier
+    cannot freeze."""
+    from fantabot.adapters.files.lineup_runs import read_runs
+    from fantabot.adapters.http import apileague
+    from fantabot.interface import lineup as lineup_cli
+
+    log = _records(monkeypatch, tmp_path)
+    _submit_fakes(monkeypatch, auto_act=True)
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2099-01-01T00:00:00", "mday": 3}
+    )
+    monkeypatch.setattr(lineup_cli, "_now", lambda: datetime(2026, 9, 12, 10, 0))
+
+    runner.invoke(app, ["lineup", "submit", "--arm", "--scheduled"])
+
+    [run] = read_runs(log)[0]
+    assert run.at.startswith("2026-09-12T10:00")

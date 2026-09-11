@@ -174,6 +174,7 @@ def _submit(
     """
     from sqlalchemy.exc import SQLAlchemyError
 
+    from fantabot.adapters.files.lineup_runs import LineupRun, append_run
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.arming import CLI_SENTENCES
@@ -181,9 +182,11 @@ def _submit(
         ALL_MODULES_REFUSED,
         NO_MATCHDAY,
         NOT_ARMED,
+        failed_run,
+        run_record,
         submit_lineup,
     )
-    from fantabot.config import settings
+    from fantabot.config import lineup_runs_path, settings
     from fantabot.domain.lineup.deadline import (
         MATCHDAY_MISMATCH,
         MATCHDAY_STARTED,
@@ -194,6 +197,18 @@ def _submit(
     from fantabot.domain.tokens.errors import TokenError
 
     league_id = _resolve_league(league)
+
+    # The run record — `--scheduled` only: the history is the automation's, and a person at
+    # the terminal has already read the answer. Stamped once, by `_now`, the lineup
+    # surface's one clock read; `astimezone` attaches this machine's offset without a
+    # second one.
+    at = _now().astimezone().isoformat(timespec="seconds")
+
+    def record(run: LineupRun) -> None:
+        if not scheduled:
+            return
+        if not append_run(lineup_runs_path(), run):
+            console.print(f"[yellow]could not write the run record at {lineup_runs_path()}[/yellow]")
 
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
@@ -207,11 +222,25 @@ def _submit(
                 scheduled=scheduled,
             )
     except (TokenError, LineupError) as exc:
+        # Recorded before anything else: these stop the run before a plan exists, which is
+        # exactly the Saturday the record has to speak for.
+        record(failed_run(type(exc).__name__, str(exc), league_id=league_id,
+                          scheduled=scheduled, at=at))
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
+        # The type and a fixed sentence, never `str(exc)`: a driver's message can carry the
+        # connection string, and this line ends up in a file the app renders.
+        record(failed_run(
+            "database-unreachable",
+            f"the bundled Postgres is not reachable ({type(exc).__name__}) — the token lives "
+            "there. Start it with `fantabot-app db start`.",
+            league_id=league_id, scheduled=scheduled, at=at,
+        ))
         console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
         raise typer.Exit(code=1) from exc
+
+    record(run_record(outcome, league_id=league_id, scheduled=scheduled, at=at))
 
     # Everything from here is presentation and an exit code. What happened is decided in
     # `application/lineup_submit.py`, so the app can reach the same eight decisions.
