@@ -120,6 +120,20 @@ _LINEUP_INFO = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _never_the_operators_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Every test in this file runs against a throwaway `HOME`.
+
+    `config.lineup_runs_path()` is `~/.fantabot/lineup_runs.jsonl`, and a `lineup submit
+    --scheduled` writes one line there — so two tests that exercised the flag without
+    repointing `HOME` appended **34 records of `GK0`/`Player0`** into the operator's real
+    run log, where the app renders them as submits that happened. Autouse rather than a
+    helper each test remembers to call: the tests that did the damage were the two that
+    did not call it.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 def _fakes_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     from fantabot import config
     from fantabot.adapters.http import apileague
@@ -492,8 +506,7 @@ def test_a_scheduled_submit_before_the_start_submits(monkeypatch: pytest.MonkeyP
 
 
 def _records(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Point the derived home at `tmp_path`, and return where the record will land."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    """Where the record lands. `HOME` is already the throwaway one, autouse, above."""
     return tmp_path / ".fantabot" / "lineup_runs.jsonl"
 
 
