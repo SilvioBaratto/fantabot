@@ -1,12 +1,19 @@
 """The scheduled run's cutoff: an unattended submit never touches a lineup in play. Pure.
 
-`mstr` is `league_status`'s matchday start. Against the recorded Serie A kickoffs it is two
-hours early on both matchdays that can be checked — `16:30` for giornata 1's 18:30 first
-kickoff (`docs/leghe-api.md`), `18:45` for giornata 3's 20:45 (`league_snapshot`). That fits
-two readings summer time cannot separate: a lineup deadline two hours before kickoff, or the
-kickoff itself in UTC (CEST is UTC+2). **Read as Italian wall-clock time it is at or before
-the real kickoff under both**, so that is the reading a run with nobody watching uses. The
-first matchday on CET settles it: a one-hour gap means `mstr` is UTC.
+**`mstr` is the first kickoff, in UTC.** Settled 2026-09-18, four ways, after a week of
+reading it conservatively as Italian wall-clock time:
+
+  - giornata 1 `16:30` -> 18:30 kickoff, giornata 3 `18:45` -> 20:45, giornata 5 `18:45` ->
+    20:45 (Monza-Sassuolo, Friday) — every gap exactly the CEST offset;
+  - a lineup **saved at 19:13 Rome on 2026-09-18 was accepted**, so 18:45 Rome was never a
+    deadline;
+  - `league_snapshot.stopped` was `False` at 14:26 with the giornata-4 lineup open, and `True`
+    once giornata 5 had kicked off — so the platform locks at the kickoff, not two hours before;
+  - `league_status.sto` is that same lock flag.
+
+The Rome reading was safe but cost two hours: it would have stopped the scheduled run at 18:45
+Rome when the lineup was open until 20:45 — and the operator asked for the last run to be
+*close to kickoff*, which is exactly the window where a late injury shows up.
 
 A human at the keyboard keeps the old contract — `is_past_deadline` warns and never blocks,
 because a guess that blocked would lose a matchday to caution. A `launchd` job has nobody to
@@ -26,47 +33,50 @@ from fantabot.domain.lineup.deadline import (
     scheduled_cutoff,
 )
 
-#: Matchday 4, exactly as the platform posted it on 2026-09-11.
-START = "2026-09-11T18:45:00"
+#: Giornata 5, exactly as the platform posted it on 2026-09-18 — 20:45 Rome, the
+#: Monza-Sassuolo kickoff that locked the lineup.
+START = "2026-09-18T18:45:00"
 
 
-def _utc(hour: int, minute: int, *, day: int = 11, month: int = 9) -> datetime:
+def _utc(hour: int, minute: int, *, day: int = 18, month: int = 9) -> datetime:
     return datetime(2026, month, day, hour, minute, tzinfo=UTC)
 
 
-class TestReadAsItalianWallClock:
-    def test_a_minute_before_the_posted_start_it_may_act(self) -> None:
-        assert scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(16, 44)) is None
+class TestReadAsUtc:
+    def test_a_minute_before_kickoff_it_may_act(self) -> None:
+        """18:44Z is 20:44 in Rome — a minute before Monza-Sassuolo kicked off."""
+        assert scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(18, 44)) is None
 
-    def test_from_the_posted_start_it_may_not(self) -> None:
-        cut = scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(16, 45))
-
-        assert cut is not None and cut.code == MATCHDAY_STARTED
-
-    def test_the_utc_reading_would_have_acted_for_two_more_hours(self) -> None:
-        """The mutation this pins. Read as UTC, 17:30Z — 19:30 in Rome, 75 minutes before
-        the 20:45 kickoff and 45 past the posted start — still looks like "before"."""
-        cut = scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(17, 30))
+    def test_from_kickoff_it_may_not(self) -> None:
+        cut = scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(18, 45))
 
         assert cut is not None and cut.code == MATCHDAY_STARTED
 
-    def test_it_is_the_italian_zone_and_not_a_fixed_offset(self) -> None:
-        """November is CET, UTC+1. A hardcoded `+02:00` stops an hour early in winter."""
-        winter = "2026-11-06T19:45:00"
+    def test_it_does_not_stop_two_hours_early(self) -> None:
+        """The mutation this pins, and the one the Rome reading *was*.
+
+        At 17:30Z the lineup is open for another 75 minutes — the platform accepted a save at
+        19:13 Rome (17:13Z) on the day this was measured. Reading `mstr` as Rome time would
+        have refused here, which is the two hours of late team news the operator asked to keep.
+        """
+        assert scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(17, 30)) is None
+
+    def test_winter_kickoffs_are_not_shifted_by_the_offset_that_changed(self) -> None:
+        """November is CET. A reading that hardcoded +02:00 anywhere would be an hour out."""
+        winter = "2026-11-06T19:45:00"  # 20:45 in Rome
 
         before = scheduled_cutoff(
-            mstr=winter, status_mday=11, plan_cmday=11, now=_utc(18, 44, day=6, month=11)
+            mstr=winter, status_mday=11, plan_cmday=11, now=_utc(19, 44, day=6, month=11)
         )
         after = scheduled_cutoff(
-            mstr=winter, status_mday=11, plan_cmday=11, now=_utc(18, 45, day=6, month=11)
+            mstr=winter, status_mday=11, plan_cmday=11, now=_utc(19, 45, day=6, month=11)
         )
 
-        assert before is None, "19:44 CET is before a 19:45 start"
-        assert after is not None and after.code == MATCHDAY_STARTED
+        assert before is None and after is not None and after.code == MATCHDAY_STARTED
 
     def test_a_start_that_carries_its_own_zone_is_taken_at_its_word(self) -> None:
         cut = scheduled_cutoff(
-            mstr="2026-09-11T16:45:00+00:00", status_mday=4, plan_cmday=4, now=_utc(16, 44)
+            mstr="2026-09-18T20:45:00+02:00", status_mday=4, plan_cmday=4, now=_utc(18, 44)
         )
 
         assert cut is None
@@ -102,7 +112,8 @@ class TestNothingKnownIsNotPermission:
         assert cut is not None and cut.code == NO_START_TIME
 
     def test_the_reason_names_the_start_and_the_matchday(self) -> None:
-        cut = scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(19, 0))
+        cut = scheduled_cutoff(mstr=START, status_mday=4, plan_cmday=4, now=_utc(20, 0))
 
         assert cut is not None
-        assert "18:45" in cut.reason and "4" in cut.reason
+        # Shown on the operator's wall clock (20:45 Rome), not in the UTC it was posted in.
+        assert "20:45" in cut.reason and "4" in cut.reason

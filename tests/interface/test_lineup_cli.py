@@ -471,7 +471,7 @@ def test_a_scheduled_submit_after_the_start_exits_zero_and_sends_nothing(
 
     assert result.exit_code == 0, result.output
     assert posted == [], "a scheduled run reshuffled a lineup in play"
-    assert "started" in result.output
+    assert "skipped" in result.output and "kicked off" in result.output
 
 
 def test_a_scheduled_submit_before_the_start_submits(monkeypatch: pytest.MonkeyPatch) -> None:

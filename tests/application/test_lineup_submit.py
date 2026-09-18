@@ -366,7 +366,8 @@ class TestAScheduledRunNeverTouchesALineupInPlay:
 
         assert outcome.refused == MATCHDAY_STARTED
         assert api.submitted == [], "a scheduled run reshuffled a lineup in play"
-        assert "18:45" in outcome.detail
+        # 20:45 Rome — the kickoff `mstr` posts as 18:45 UTC, shown on the operator's clock.
+        assert "20:45" in outcome.detail
 
     def test_before_the_start_it_submits(self, wired) -> None:  # type: ignore[no-untyped-def]
         api = wired(_Api(mstr="2026-09-30T18:45:00", mday=4), [_Plan("343", cmday=4)])

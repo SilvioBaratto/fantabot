@@ -11,20 +11,25 @@ expensive of the two mistakes.
 
 **An unattended run is the exception, and `scheduled_cutoff` is its rule.** A `launchd` job has
 nobody to read a warning, and the operator asked on 2026-09-11 for it never to reshuffle a
-lineup once its matchday has started. Against the recorded Serie A kickoffs, `mstr` is two
-hours early on both matchdays that can be checked — `16:30` for giornata 1's 18:30 first
-kickoff (`docs/leghe-api.md`), `18:45` for giornata 3's 20:45 (`league_snapshot`). Summer time
-cannot separate the two readings that fits: a lineup deadline two hours before kickoff, or the
-kickoff itself in UTC (CEST is UTC+2). **Read as Italian wall-clock time, `mstr` is at or
-before the real kickoff under both**, so that is the reading the cutoff uses. The cost if it is
-UTC is stopping two hours early; the first matchday on CET settles it, a one-hour gap meaning
-UTC.
+lineup once its matchday has started.
+
+**`mstr` is the first kickoff, in UTC.** It was read conservatively as Italian wall-clock time
+for a week, because summer time cannot tell that apart from "a deadline two hours before
+kickoff". 2026-09-18 settled it four ways: giornate 1, 3 and 5 each sit exactly the CEST offset
+behind their real first kickoff (`16:30`/18:30, `18:45`/20:45, `18:45`/20:45 Monza-Sassuolo); a
+lineup **saved at 19:13 Rome was accepted**, so 18:45 Rome was never a deadline;
+`league_snapshot.stopped` was `False` with the giornata-4 lineup open and `True` once giornata
+5 had kicked off; and `league_status.sto` is that same lock flag.
+
+The Rome reading was safe and cost two hours — it would have stopped the scheduled run at 18:45
+Rome while the platform accepted saves until 20:45. That window is exactly where late team news
+lands, which is why the operator asked for the last run to be close to kickoff.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 def is_past_deadline(mstr: str, now: datetime) -> bool:
@@ -43,7 +48,8 @@ MATCHDAY_STARTED = "matchday-started"
 MATCHDAY_MISMATCH = "matchday-mismatch"
 NO_START_TIME = "no-start-time"
 
-#: The zone a zoneless `mstr` is read in. The platform is Italian and posts wall-clock times.
+#: The zone the kickoff is *shown* in. `mstr` itself is UTC; this is only so the reason a
+#: scheduled run gives reads like the clock on the operator's wall.
 KICKOFF_ZONE = "Europe/Rome"
 
 
@@ -67,9 +73,8 @@ def scheduled_cutoff(
        platform advances and before the lineup does — `mstr` then belongs to the *next*
        matchday, in the future, while the lineup is still the one in play. Acting on the next
        matchday's clock would reshuffle this one mid-matchday.
-    2. **The start cannot be placed in time** — unreadable, or no zone data for Rome. Fail
-       closed: nothing known is not permission, and the refusal lands in the run record,
-       where the operator looks.
+    2. **The start cannot be read.** Fail closed: nothing known is not permission, and the
+       refusal lands in the run record, where the operator looks.
     3. **The matchday has started.** `now` at or past `mstr` read as Italian wall-clock time.
 
     A naive `now` is taken as this machine's local time (`astimezone`'s own rule), which is
@@ -83,16 +88,6 @@ def scheduled_cutoff(
             "cannot say this one is not already in play",
         )
 
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-    try:
-        rome = ZoneInfo(KICKOFF_ZONE)
-    except ZoneInfoNotFoundError:
-        return Cutoff(
-            NO_START_TIME,
-            f"no timezone data for {KICKOFF_ZONE} (install `tzdata`) — matchday "
-            f"{status_mday}'s start cannot be placed in time",
-        )
     try:
         start = datetime.fromisoformat(mstr)
     except (ValueError, TypeError):
@@ -102,14 +97,30 @@ def scheduled_cutoff(
             "lineup is not already in play",
         )
 
-    start = start.replace(tzinfo=rome) if start.tzinfo is None else start.astimezone(rome)
-    if now.astimezone(rome) >= start:
+    # Zoneless means UTC, which is what the platform posts. A zone it carries itself is
+    # taken at its word.
+    start = start.replace(tzinfo=UTC) if start.tzinfo is None else start
+    if now.astimezone(UTC) >= start:
         return Cutoff(
             MATCHDAY_STARTED,
-            f"matchday {status_mday} started at {start:%Y-%m-%d %H:%M} (Rome) — a scheduled "
-            "run does not touch a lineup in play",
+            f"matchday {status_mday} kicked off at {_on_the_wall(start)} — a scheduled run "
+            "does not touch a lineup in play",
         )
     return None
+
+
+def _on_the_wall(start: datetime) -> str:
+    """The kickoff as the operator reads a clock: Rome, or UTC when the zone is unavailable.
+
+    Presentation only, so a missing `tzdata` costs a nicer string and never a refusal — the
+    comparison above is in UTC either way.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        return f"{start.astimezone(ZoneInfo(KICKOFF_ZONE)):%Y-%m-%d %H:%M} (Rome)"
+    except (ImportError, KeyError, OSError, ValueError):
+        return f"{start:%Y-%m-%d %H:%M} (UTC)"
 
 
 __all__ = [
