@@ -504,7 +504,11 @@ src/fantabot/
   only resets, and `osascript` has no assistive access. Granting Full Disk Access to Terminal
   or VS Code does **not** help — TCC attributes to the responsible process, and launchd is
   the parent, not the terminal. ⚠ A `uv python` upgrade moves that path and the job silently
-  goes back to hanging.
+  goes back to hanging — so `schedule install` records the **resolved** binary in
+  `~/.fantabot/com.fantabot.lineup.interpreter.json` and `schedule status` reports `MOVED`
+  with both paths when it stops matching. Unrecorded and moved are kept apart: a job
+  installed before that record existed reads `grant not recorded`, whose fix is re-running
+  `install`, not a System Settings dialog that would change nothing.
   **`uninstall` boots out before it unlinks**: `bootout` addresses the job by label and
   launchd resolves that label through the file, so unlinking first leaves the job running
   with nothing left to name it.

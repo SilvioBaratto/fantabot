@@ -435,6 +435,25 @@ def schedule_status() -> None:
     # is gone, and nothing else in the app would say why the records stopped.
     readable = "readable" if state.working_dir_readable else "UNREADABLE (is the disk mounted?)"
     typer.echo(f"  working directory {state.working_dir} — {readable}")
+    # The TCC hazard, named. macOS attributes Full Disk Access to the *resolved* binary,
+    # never to the venv symlink the plist carries, so a `uv python` upgrade silently
+    # ungrants the job. A CPython refused by TCC **hangs** — zero bytes on both logs, no
+    # traceback, dead under SIGINT — so nothing else would ever say why the records stopped.
+    if state.interpreter_resolved is None:
+        typer.echo(f"  interpreter {state.interpreter} — MISSING (launchd cannot start it)")
+    elif state.interpreter_drifted:
+        typer.echo(f"  interpreter {state.interpreter_resolved} — MOVED")
+        typer.echo(f"    Full Disk Access was granted to {state.interpreter_recorded},")
+        typer.echo("    which is not what runs now. Grant it to the path above (System")
+        typer.echo("    Settings → Privacy & Security → Full Disk Access → + → ⇧⌘G), then")
+        typer.echo("    re-run schedule install. Until then the job hangs, it does not fail.")
+    elif state.interpreter_recorded is None:
+        typer.echo(
+            f"  interpreter {state.interpreter_resolved} — grant not recorded "
+            "(re-run schedule install)"
+        )
+    else:
+        typer.echo(f"  interpreter {state.interpreter_resolved} — Full Disk Access grant recorded")
 
 
 @schedule_app.command("uninstall")

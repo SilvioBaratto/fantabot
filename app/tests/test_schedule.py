@@ -380,3 +380,146 @@ class TestTheCommand:
         removed = runner.invoke(app, ["schedule", "uninstall"])
         assert removed.exit_code == 0
         assert "not installed" in removed.output.lower()
+
+
+def _fake_interpreter(root: Path, name: str) -> Path:
+    """A real file standing in for a uv-managed CPython, at its own versioned path."""
+    real = root / "uv" / name / "bin" / "python3.11"
+    real.parent.mkdir(parents=True, exist_ok=True)
+    real.write_text("#!/bin/sh\n")
+    real.chmod(0o755)
+    return real
+
+
+def _venv_symlink(root: Path, target: Path) -> Path:
+    """`app/.venv/bin/python3` — the name the plist carries, pointing at the real one.
+
+    This indirection *is* the hazard: the plist names the symlink, macOS TCC attributes the
+    Full Disk Access grant to whatever is actually exec'd, and `uv python` moves that.
+    """
+    link = root / "venv" / "bin" / "python3"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(target)
+    return link
+
+
+class TestTheInterpreterGrant:
+    """The Full Disk Access grant is on a path nothing in the repository recorded.
+
+    The job hung for seven minutes with both logs at 0 bytes on 2026-09-18, and the cause
+    was macOS TCC: a LaunchAgent starts in `gui/<uid>` with no inherited rights, so it could
+    not read `/Volumes/External SSD`. `/bin/sh` gets a clean `EPERM`; **CPython hangs
+    instead**, which is why there was no traceback and no output — it never reached user
+    code. The fix is a GUI grant only the operator can make, and it attributes to the
+    **resolved** interpreter, not to the venv symlink the plist names.
+
+    So a `uv python` upgrade moves the granted binary and the job goes back to hanging, with
+    nothing to explain why: the only symptom is a run record that stops appearing. These
+    tests are the record that was missing.
+    """
+
+    def test_install_records_the_resolved_interpreter_and_not_the_symlink(
+        self, home: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        """The recorded path is what TCC sees, which is never the symlink."""
+        real = _fake_interpreter(tmp_path, "cpython-3.11.15")
+        link = _venv_symlink(tmp_path, real)
+
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+
+        assert schedule.read_interpreter_record() == real.resolve()
+
+    def test_status_is_quiet_while_the_grant_still_points_at_the_same_binary(
+        self, home: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        real = _fake_interpreter(tmp_path, "cpython-3.11.15")
+        link = _venv_symlink(tmp_path, real)
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+
+        state = schedule.status(launchctl=Spy())
+
+        assert state.interpreter_drifted is False
+        assert state.interpreter_resolved == real.resolve()
+        assert state.interpreter_recorded == real.resolve()
+
+    def test_status_names_the_drift_when_a_uv_upgrade_moved_the_interpreter(
+        self, home: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        """The whole point. The plist is untouched and still runs; the grant is gone."""
+        old = _fake_interpreter(tmp_path, "cpython-3.11.15")
+        link = _venv_symlink(tmp_path, old)
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+
+        new = _fake_interpreter(tmp_path, "cpython-3.11.16")
+        _venv_symlink(tmp_path, new)  # what `uv python upgrade` leaves behind
+
+        state = schedule.status(launchctl=Spy())
+
+        assert state.interpreter_drifted is True
+        assert state.interpreter_recorded == old.resolve()
+        assert state.interpreter_resolved == new.resolve()
+
+    def test_a_job_installed_before_the_record_existed_reads_as_unrecorded(
+        self, home: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        """Unrecorded and drifted are different facts, and the operator acts on them
+        differently: one is re-run `install`, the other is re-grant in System Settings.
+        Reporting the first as the second sends them to a dialog that changes nothing."""
+        real = _fake_interpreter(tmp_path, "cpython-3.11.15")
+        link = _venv_symlink(tmp_path, real)
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+        schedule.interpreter_record_path().unlink()
+
+        state = schedule.status(launchctl=Spy())
+
+        assert state.interpreter_recorded is None
+        assert state.interpreter_drifted is False
+        assert state.interpreter_resolved == real.resolve()
+
+    def test_an_interpreter_that_is_gone_is_reported_as_gone(
+        self, home: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        """A dangling symlink resolves to a path without raising, so `resolve()` alone
+        cannot tell "moved" from "deleted". launchd fails such a job outright rather than
+        hanging, which is a different message and a different fix."""
+        real = _fake_interpreter(tmp_path, "cpython-3.11.15")
+        link = _venv_symlink(tmp_path, real)
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+        real.unlink()
+
+        state = schedule.status(launchctl=Spy())
+
+        assert state.interpreter_resolved is None
+        assert state.interpreter_drifted is True
+
+    def test_uninstall_takes_the_record_with_the_plist(
+        self, home: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        """A record outliving its job would report drift on a machine with no job at all."""
+        link = _venv_symlink(tmp_path, _fake_interpreter(tmp_path, "cpython-3.11.15"))
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+
+        schedule.uninstall(launchctl=Spy())
+
+        assert not schedule.interpreter_record_path().exists()
+
+    def test_the_status_command_names_both_paths_and_what_to_do(
+        self, home: Path, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both paths, because the operator has to paste one into ⇧⌘G in System Settings,
+        and the sentence that says the job will hang rather than fail."""
+        old = _fake_interpreter(tmp_path, "cpython-3.11.15")
+        link = _venv_symlink(tmp_path, old)
+        schedule.install(_job(repo, python=str(link)), launchctl=Spy())
+        new = _fake_interpreter(tmp_path, "cpython-3.11.16")
+        _venv_symlink(tmp_path, new)
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=schedule.NOT_LOADED_CODE))
+
+        result = runner.invoke(app, ["schedule", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert str(new.resolve()) in result.output
+        assert str(old.resolve()) in result.output
+        assert "Full Disk Access" in result.output

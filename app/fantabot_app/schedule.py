@@ -33,12 +33,14 @@ mounted. ``status`` reports that case by name for the same reason.
 
 from __future__ import annotations
 
+import json
 import os
 import plistlib
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fantabot_app import paths
@@ -52,10 +54,14 @@ __all__ = [
     "bootstrap_line",
     "build_job",
     "install",
+    "interpreter_record_path",
     "launchctl",
     "plist_path",
+    "read_interpreter_record",
+    "record_interpreter",
     "render",
     "require_darwin",
+    "resolve_interpreter",
     "run_command",
     "status",
     "uninstall",
@@ -194,6 +200,72 @@ def build_job(
     )
 
 
+def interpreter_record_path(label: str = LABEL) -> Path:
+    """Where the granted interpreter is recorded: ``~/.fantabot/<label>.interpreter.json``.
+
+    Beside the logs, on the internal disk, for the same reason they are: the repository is
+    on an external SSD, and a record that cannot be read when that disk is missing goes
+    quiet exactly when the job does.
+
+    Not a key in the plist. launchd owns that file's schema, and an unknown key there is a
+    warning in a log nobody reads; this is the app's own record and it belongs in the app's
+    own home.
+    """
+    return paths.home() / f"{label}.interpreter.json"
+
+
+def resolve_interpreter(program: str) -> Path | None:
+    """What macOS actually exec's for *program*, or ``None`` when nothing is there.
+
+    The distinction is the whole reason this is a function. ``Path.resolve()`` does not
+    raise on a dangling symlink — it returns the target it could not find — so "the
+    interpreter moved" and "the interpreter is gone" resolve to the same shape, and they
+    are different failures with different fixes: one is a lost Full Disk Access grant and a
+    job that **hangs**, the other is a job launchd refuses to start at all.
+    """
+    resolved = Path(program).expanduser().resolve()
+    return resolved if resolved.exists() else None
+
+
+def record_interpreter(job: Job) -> Path:
+    """Write down which binary the Full Disk Access grant has to be made on.
+
+    The plist names ``app/.venv/bin/python3``; TCC attributes the grant to whatever is
+    actually exec'd, which is the uv-managed CPython that symlink points at. Nothing in the
+    repository recorded that path, so a ``uv python`` upgrade moved it and the job went back
+    to hanging with no output to explain why — the symptom is a run record that stops
+    appearing, and there was nothing to compare against.
+    """
+    target = interpreter_record_path(job.label)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    resolved = resolve_interpreter(job.python)
+    body = {
+        "program": job.python,
+        "resolved": str(resolved) if resolved is not None else None,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+    target.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def read_interpreter_record(label: str = LABEL) -> Path | None:
+    """The recorded binary, or ``None`` when the job predates this record.
+
+    Unrecorded is **not** drift, and the two must not be conflated: one is fixed by re-running
+    ``schedule install``, the other by a dialog in System Settings. Reporting the first as
+    the second sends the operator to a grant that changes nothing.
+    """
+    target = interpreter_record_path(label)
+    if not target.is_file():
+        return None
+    try:
+        body = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    resolved = body.get("resolved") if isinstance(body, dict) else None
+    return Path(str(resolved)) if resolved else None
+
+
 def plist_path(label: str = LABEL) -> Path:
     """Where launchd reads the job from: ``~/Library/LaunchAgents/<label>.plist``."""
     return paths.launch_agents() / f"{label}.plist"
@@ -232,6 +304,7 @@ def install(job: Job, *, launchctl: Launchctl) -> Path:
     job.stdout.parent.mkdir(parents=True, exist_ok=True)
     target = plist_path(job.label)
     target.write_bytes(render(job))
+    record_interpreter(job)
     return target
 
 
@@ -260,6 +333,16 @@ class Status:
     working_dir_readable: bool
     league: int | None
     armed: bool | None
+    #: The interpreter as the plist names it — normally a venv symlink.
+    interpreter: Path | None = None
+    #: What that name resolves to now, or `None` when nothing is there any more.
+    interpreter_resolved: Path | None = None
+    #: What `install` recorded, which is the path the Full Disk Access grant is on.
+    #: `None` for a job installed before this was recorded — unrecorded, not drifted.
+    interpreter_recorded: Path | None = None
+    #: The recorded grant no longer describes what launchd will exec. The job does not
+    #: fail: a CPython refused by TCC **hangs**, so this is the only available warning.
+    interpreter_drifted: bool = False
 
 
 def status(*, launchctl: Launchctl, label: str = LABEL, uid: int | None = None) -> Status:
@@ -282,6 +365,9 @@ def status(*, launchctl: Launchctl, label: str = LABEL, uid: int | None = None) 
     if "--league" in argv:
         candidate = argv[argv.index("--league") + 1]
         league = int(candidate) if candidate.isdigit() else None
+    program = argv[0] if argv else None
+    resolved = resolve_interpreter(program) if program else None
+    recorded = read_interpreter_record(label)
     return Status(
         plist=target,
         installed=True,
@@ -290,6 +376,11 @@ def status(*, launchctl: Launchctl, label: str = LABEL, uid: int | None = None) 
         working_dir_readable=working_dir.is_dir(),
         league=league,
         armed="--arm" in argv,
+        interpreter=Path(program) if program else None,
+        interpreter_resolved=resolved,
+        interpreter_recorded=recorded,
+        # An unrecorded job cannot have drifted — there is nothing it drifted from.
+        interpreter_drifted=recorded is not None and resolved != recorded,
     )
 
 
@@ -305,4 +396,6 @@ def uninstall(*, launchctl: Launchctl, label: str = LABEL, uid: int | None = Non
         return "not_installed"
     launchctl(["launchctl", "bootout", domain_target(label, uid=uid)])
     target.unlink()
+    # A record outliving its job would report drift on a machine with no job at all.
+    interpreter_record_path(label).unlink(missing_ok=True)
     return "removed"
