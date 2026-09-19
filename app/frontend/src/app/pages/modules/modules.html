@@ -1,28 +1,52 @@
-<header class="mb-8">
-  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Mantra modules</h1>
-  <p class="mt-1 text-sm text-text-secondary">The 11 schemi and the roles each slot accepts.</p>
+<header class="page-head">
+  <h1 class="page-title">Mantra modules</h1>
+  <p class="page-lede">The 11 schemi and the roles each slot accepts</p>
 </header>
 
 @if (loading()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
-} @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
-} @else if (grid(); as g) {
-  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-    @for (schema of g.schemi; track schema.nome) {
-      <section class="overflow-hidden rounded-lg border border-border bg-surface-raised p-5">
-        <h2 class="font-display text-lg font-bold tabular-nums text-text">{{ schema.nome }}</h2>
-        <div class="mt-3 flex flex-wrap gap-1.5">
-          @for (slot of schema.slots; track $index) {
-            <span class="rounded border border-border-muted bg-surface-inset px-1.5 py-0.5 text-xs text-text-secondary">
-              {{ slot.join('/') }}
-            </span>
-          }
-        </div>
-      </section>
-    }
+  <div class="page-state">
+    <mat-progress-bar mode="indeterminate" aria-label="Loading modules" />
+    <p class="page-state-text">Loading modules…</p>
   </div>
+} @else if (errorMsg(); as message) {
+  <mat-card class="state-card state-card-error" appearance="outlined" role="alert">
+    <mat-card-content class="state-body">
+      <lucide-icon class="state-icon" name="triangle-alert" [size]="24" aria-hidden="true" />
+      <div>
+        <h2 class="state-title">API unreachable</h2>
+        <p class="state-detail">{{ message }} Make sure fantabot-app is running.</p>
+      </div>
+    </mat-card-content>
+  </mat-card>
+} @else if (grid(); as g) {
+  @if (g.schemi.length) {
+    <ul class="schema-feed" role="list" aria-label="Modules">
+      @for (schema of g.schemi; track schema.nome) {
+        <li class="schema-item">
+          <mat-card class="schema-card" appearance="outlined">
+            <mat-card-header>
+              <h2 mat-card-title class="schema-name">{{ schema.nome }}</h2>
+            </mat-card-header>
+            <mat-card-content>
+              <ol class="slot-list" role="list" [attr.aria-label]="'Slots in ' + schema.nome">
+                @for (slot of schema.slots; track $index) {
+                  <li class="slot">{{ slot.join('/') }}</li>
+                }
+              </ol>
+            </mat-card-content>
+          </mat-card>
+        </li>
+      }
+    </ul>
+  } @else {
+    <mat-card class="state-card" appearance="outlined">
+      <mat-card-content class="state-body">
+        <lucide-icon class="state-icon" name="clipboard-list" [size]="24" aria-hidden="true" />
+        <div>
+          <h2 class="state-title">No modules found</h2>
+          <p class="state-detail">The Mantra schema grid is missing from this install.</p>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  }
 }

@@ -3,12 +3,24 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  Injector,
   OnInit,
+  afterNextRender,
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatCardModule } from '@angular/material/card';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatTableModule } from '@angular/material/table';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { AstaService } from '../../core/api/asta.service';
@@ -17,21 +29,76 @@ import { AstaPlan } from '../../core/models/asta-plan';
 import { JournalPage } from '../../core/models/journal';
 import { LegaOverview } from '../../core/models/lega';
 import { RoomCheck } from '../../core/models/room';
+import { WindowSizeClassService } from '../../core/window-size-class';
 
 /** One page of the journal. The server bounds it too; this is the client's request. */
 const JOURNAL_PAGE = 100;
 
 @Component({
   selector: 'app-asta',
-  imports: [LucideAngularModule, DecimalPipe],
+  imports: [
+    LucideAngularModule,
+    DecimalPipe,
+    MatButtonModule,
+    MatButtonToggleModule,
+    MatCardModule,
+    MatDividerModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatProgressBarModule,
+    MatTableModule,
+  ],
   templateUrl: './asta.html',
+  styleUrl: './asta.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class AstaComponent implements OnInit {
   private readonly lega = inject(LegaService);
   private readonly asta = inject(AstaService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
+
+  /** Where focus goes when a page turn takes away the button that asked for it. */
+  private readonly journalBody = viewChild<ElementRef<HTMLElement>>('journalBody');
+
+  /**
+   * Which button asked for the page currently in flight.
+   *
+   * Not a signal: nothing renders from it, and it is read once per response. It exists so
+   * `rescueFocus` can tell a page turn (where the pressed button may be about to vanish)
+   * from the first load, which nobody pressed a pager for.
+   */
+  private pagedWith: 'newer' | 'older' | null = null;
+
+  /**
+   * Presentation only. Read here — rather than left to a CSS media query — because the two
+   * tables on this page do not merely *restyle* below their width, they become a different
+   * tree: nine journal columns cannot be squeezed into 456px, and the M3 answer to a table
+   * that will not fit is a card list, never a horizontal scroll
+   * (`layout/breakpoints.md:67`). Everything that only changes style stays in `asta.scss`.
+   */
+  private readonly size = inject(WindowSizeClassService);
+
+  /** Compact (<600): one column, the plan's targets as cards, the lega picker stacked. */
+  readonly compact = computed(() => this.size.current() === 'compact');
+
+  /**
+   * The journal's eight columns need roughly 900px, which is more than the pane has below
+   * 840px once the shell's docked rail is taken out of the window. Card list up to there.
+   */
+  readonly journalAsCards = computed(() => !this.size.twoPane());
+
+  readonly playerColumns = ['nome', 'price', 'walkAway'];
+  readonly journalColumns = [
+    'index',
+    'lot',
+    'price',
+    'walkAway',
+    'decision',
+    'cap',
+    'left',
+    'bargain',
+  ];
 
   readonly leagues = signal<LegaOverview[]>([]);
   readonly selectedId = signal<number | null>(null);
@@ -151,12 +218,14 @@ export class AstaComponent implements OnInit {
   nextPage(): void {
     if (!this.hasNextPage()) return;
     const page = this.journal();
+    this.pagedWith = 'older';
     this.loadJournal(this.journalOffset() + (page?.limit ?? JOURNAL_PAGE));
   }
 
   previousPage(): void {
     if (!this.hasPreviousPage()) return;
     const page = this.journal();
+    this.pagedWith = 'newer';
     this.loadJournal(Math.max(0, this.journalOffset() - (page?.limit ?? JOURNAL_PAGE)));
   }
 
@@ -174,12 +243,33 @@ export class AstaComponent implements OnInit {
           // paged from its request would drift one page per clamp.
           this.journalOffset.set(page.offset);
           this.journalLoading.set(false);
+          this.rescueFocus();
         },
         error: () => {
           this.journalError.set('Could not reach the API.');
           this.journalLoading.set(false);
+          this.pagedWith = null;
         },
       });
+  }
+
+  /**
+   * Keep focus off `<body>` when a page turn reaches a bound.
+   *
+   * The pager buttons stay enabled while a page is in flight, so the click itself no
+   * longer costs focus. What can still take it away is arriving at the last (or first)
+   * page: the button just pressed becomes genuinely unavailable and the browser blurs it.
+   * Only then, and only for the button that was actually used, focus moves into the rows.
+   * `afterNextRender` because the disable happens when the view refreshes, which is after
+   * this subscriber returns.
+   */
+  private rescueFocus(): void {
+    const pressed = this.pagedWith;
+    this.pagedWith = null;
+    if (pressed === null) return;
+    const stillUsable = pressed === 'older' ? this.hasNextPage() : this.hasPreviousPage();
+    if (stillUsable) return;
+    afterNextRender(() => this.journalBody()?.nativeElement.focus(), { injector: this.injector });
   }
 
   select(leagueId: number): void {

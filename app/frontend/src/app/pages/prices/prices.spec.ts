@@ -48,6 +48,21 @@ describe('PricesComponent', () => {
     };
   }
 
+  /** A report with both lists and a flag count, so every section of the page renders. */
+  function priced(system: string, stored = 0) {
+    return {
+      found: true,
+      outcome: 'priced',
+      reason: null,
+      system,
+      stored,
+      fades: [],
+      biggest_bumps: [tp('Dybala', 20, 28)],
+      biggest_cuts: [tp('Someone', 15, 8)],
+      flag_counts: { floor_qi: 3 },
+    };
+  }
+
   it('renders bumps and cuts for the selected system', async () => {
     const fixture = TestBed.createComponent(PricesComponent);
     fixture.detectChanges();
@@ -168,7 +183,15 @@ describe('PricesComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    fixture.componentInstance.store();
+    // Pressed, not called: the button is a Material filled button now, and the test that
+    // says "presses the button" should go through the element the operator presses.
+    const refit = fixture.nativeElement.querySelector(
+      '[data-refit-store]',
+    ) as HTMLButtonElement | null;
+    expect(refit).toBeTruthy();
+    expect(refit!.disabled).toBe(false);
+    refit!.click();
+
     const write = httpMock.expectOne((r) => r.url.includes('target-prices'));
     expect(write.request.method).toBe('POST');
     write.flush({
@@ -195,22 +218,128 @@ describe('PricesComponent', () => {
     const fixture = TestBed.createComponent(PricesComponent);
     fixture.detectChanges();
 
-    httpMock.expectOne((r) => r.url.includes('target-prices')).flush({
-      found: false,
-      outcome: 'unknown_system',
-      reason: "unknown system 'mantr'; expected one of classic, mantra",
-      system: 'mantr',
-      stored: 0,
-      fades: [],
-      biggest_bumps: [],
-      biggest_cuts: [],
-      flag_counts: {},
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('target-prices'))
+      .flush({
+        found: false,
+        outcome: 'unknown_system',
+        reason: "unknown system 'mantr'; expected one of classic, mantra",
+        system: 'mantr',
+        stored: 0,
+        fades: [],
+        biggest_bumps: [],
+        biggest_cuts: [],
+        flag_counts: {},
+      });
     fixture.detectChanges();
     await fixture.whenStable();
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('That is not a listone');
     expect(text).toContain('classic, mantra');
+  });
+
+  it('re-reads the report when the listone changes', async () => {
+    // The system picker was two colour-only buttons; it is a single-selection
+    // mat-button-toggle-group, so the current listone is carried by aria-checked and a
+    // check mark rather than by a background colour.
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.includes('target-prices')).flush(priced('classic'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mantra = fixture.nativeElement.querySelector(
+      'mat-button-toggle[data-system="mantra"] button',
+    ) as HTMLButtonElement | null;
+    expect(mantra).toBeTruthy();
+    expect(mantra!.getAttribute('aria-checked')).toBe('false');
+
+    mantra!.click();
+    const second = httpMock.expectOne((r) => r.url.includes('target-prices'));
+    expect(second.request.method).toBe('GET');
+    expect(second.request.urlWithParams).toContain('system=mantra');
+    second.flush(priced('mantra'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.system()).toBe('mantra');
+    expect(mantra!.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('renders each mover list as a table with column and row headers', async () => {
+    // The two lists were nested divs on a CSS grid, which reads as one run-on line to a
+    // screen reader. They are real tables: the player is the row header and the two
+    // numbers are their own cells, in the `col-num` column the stylesheet right-aligns
+    // and sets in tabular figures.
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.includes('target-prices')).flush(priced('classic'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const bumps = fixture.nativeElement.querySelector(
+      'table[aria-labelledby="bumps-title"]',
+    ) as HTMLTableElement | null;
+    expect(bumps).toBeTruthy();
+    expect(
+      Array.from(bumps!.querySelectorAll('thead th[scope="col"]')).map((h) =>
+        (h.textContent ?? '').trim(),
+      ),
+    ).toEqual(['Player', 'QI', 'Target']);
+
+    const row = bumps!.querySelector('tbody tr') as HTMLTableRowElement;
+    expect((row.querySelector('th[scope="row"]')?.textContent ?? '').trim()).toContain('Dybala');
+    expect(
+      Array.from(row.querySelectorAll('td.col-num')).map((c) => (c.textContent ?? '').trim()),
+    ).toEqual(['20', '28']);
+  });
+
+  it('gives the page one h1 and a heading for every section', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.includes('target-prices')).flush(priced('classic'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const h1s = Array.from(fixture.nativeElement.querySelectorAll('h1')) as HTMLElement[];
+    expect(h1s.map((h) => (h.textContent ?? '').trim())).toEqual(['Target prices']);
+
+    const h2s = Array.from(fixture.nativeElement.querySelectorAll('h2')) as HTMLElement[];
+    expect(h2s.map((h) => (h.textContent ?? '').trim())).toEqual([
+      'Biggest bumps',
+      'Biggest cuts',
+      'Flags',
+    ]);
+  });
+
+  it('shows a progress bar and disables the button while a fit is in flight', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.includes('target-prices')).flush(priced('classic'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.querySelector('mat-progress-bar')).toBeNull();
+
+    const refit = fixture.nativeElement.querySelector('[data-refit-store]') as HTMLButtonElement;
+    refit.click();
+    // No `whenStable` here: the POST is still open and HttpClient holds a pending task.
+    fixture.detectChanges();
+
+    const write = httpMock.expectOne((r) => r.url.includes('target-prices'));
+    expect(write.request.method).toBe('POST');
+    expect(refit.disabled).toBe(true);
+    expect(fixture.nativeElement.querySelector('mat-progress-bar')).toBeTruthy();
+    // The wait is announced once, from the page's one live region.
+    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement;
+    expect((status.textContent ?? '').trim()).toBe('Storing target prices');
+
+    write.flush(priced('classic', 1142));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(refit.disabled).toBe(false);
+    expect(fixture.nativeElement.querySelector('mat-progress-bar')).toBeNull();
   });
 });

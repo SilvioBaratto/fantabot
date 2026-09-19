@@ -1,54 +1,122 @@
-<header class="mb-8">
-  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Synchronize</h1>
-  <p class="mt-1 text-sm text-text-secondary">Pull a lega from fantacalcio.it and watch it land.</p>
+<header class="page-header">
+  <h1 class="page-title">Synchronize</h1>
+  <p class="page-lede">Pull a lega from fantacalcio.it and watch each read land.</p>
 </header>
 
 @if (errorMsg(); as error) {
-  <div class="mb-6 rounded-lg border border-danger/40 bg-surface-raised p-4 text-sm text-danger">{{ error }}</div>
+  <p class="page-error" role="alert">
+    <lucide-icon class="page-error-icon" [size]="18" name="CircleX" aria-hidden="true" />
+    <span>{{ error }}</span>
+  </p>
 }
 
-<section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Lega sync</div>
-  <div class="p-6">
-    <p class="mb-4 text-sm text-text-secondary">
-      Read a lega (rosters, credits, settings, calendar) and store it. Safe to re-run — every write is an upsert.
-    </p>
-    <div class="flex flex-wrap items-center gap-3">
-      <input
-        type="number"
-        inputmode="numeric"
-        placeholder="league id, e.g. 4103937"
-        (input)="setLeagueId($any($event.target).value)"
-        class="w-56 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text tabular-nums placeholder:text-text-tertiary"
-      />
-      <button
-        type="button"
-        (click)="runLegaSync()"
-        [disabled]="!leagueId() || running()"
-        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
-      >
-        <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="running()"></lucide-icon>
-        {{ running() ? 'Running…' : 'Run lega sync' }}
-      </button>
-    </div>
-  </div>
-</section>
+<div class="panes">
+  <!-- The control. It is the supporting pane at expanded+ (fixed width, sticky) and the
+       run outcome is the flexible one: the output is what the page is for, and a log of
+       eight reads in a 360px column is unreadable. -->
+  <section class="pane-control" aria-labelledby="lega-sync-heading">
+    <mat-card appearance="outlined" class="control-card">
+      <mat-card-header>
+        <h2 mat-card-title id="lega-sync-heading">Lega sync</h2>
+      </mat-card-header>
 
-@if (jobStatus()) {
-  <section class="mt-6 rounded-md border border-border-muted bg-surface-inset p-4">
-    <div class="mb-2 flex items-center gap-2">
-      <span
-        class="h-2.5 w-2.5 rounded-full"
-        [class.bg-warning]="jobStatus() === 'running'"
-        [class.bg-signature]="jobStatus() === 'done' && jobOk() !== false"
-        [class.bg-danger]="jobStatus() === 'error' || jobOk() === false"
-      ></span>
-      <span class="text-sm font-medium text-text">{{ jobStatus() }}{{ jobOk() === false ? ' (partial)' : '' }}</span>
-    </div>
-    @for (line of lines(); track $index) {
-      <p class="font-mono text-xs text-text-secondary">{{ line }}</p>
-    } @empty {
-      <p class="text-xs text-text-tertiary">Waiting for output…</p>
-    }
+      <mat-card-content>
+        <p class="control-lede">
+          Read a lega (rosters, credits, settings, calendar) and store it. Safe to re-run — every
+          write is an upsert.
+        </p>
+
+        <mat-form-field appearance="outline" class="league-field">
+          <mat-label>League id</mat-label>
+          <input
+            matInput
+            type="number"
+            inputmode="numeric"
+            (input)="setLeagueId($any($event.target).value)"
+          />
+          <mat-hint>For example 4103937</mat-hint>
+        </mat-form-field>
+      </mat-card-content>
+
+      <mat-card-actions class="control-actions">
+        <button
+          matButton="filled"
+          type="button"
+          (click)="runLegaSync()"
+          [disabled]="!leagueId() || running()"
+        >
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [class.icon-spin]="running()"
+            [size]="18"
+            [name]="running() ? 'Loader2' : 'RefreshCw'"
+            aria-hidden="true"
+          />
+          {{ running() ? 'Running…' : 'Run lega sync' }}
+        </button>
+      </mat-card-actions>
+    </mat-card>
   </section>
-}
+
+  <section class="pane-outcome" aria-labelledby="run-outcome-heading">
+    <mat-card appearance="outlined" class="outcome-card">
+      <mat-card-header>
+        <h2 mat-card-title id="run-outcome-heading">Run outcome</h2>
+      </mat-card-header>
+
+      @if (running()) {
+        <mat-progress-bar
+          class="outcome-progress"
+          mode="indeterminate"
+          aria-label="Lega sync running"
+        />
+      }
+
+      <mat-card-content class="outcome-body">
+        <!-- The live region is in the DOM from first paint, so the status inserted when a
+             run starts or ends is announced. Only the status lives here: marking the whole
+             log live would read every line out as it arrives. -->
+        <div class="run-status-slot" aria-live="polite">
+          @if (outcome() !== 'idle') {
+            <p class="run-status" [attr.data-run-status]="outcome()">
+              <lucide-icon
+                class="run-status-icon"
+                [class.icon-spin]="running()"
+                [size]="20"
+                [name]="statusIcon()"
+                aria-hidden="true"
+              />
+              <span>{{ statusLabel() }}</span>
+            </p>
+
+            @if (outcome() === 'partial') {
+              <p class="run-status-note">
+                Some of the eight reads did not land. Everything that did was still written, and
+                re-running is safe.
+              </p>
+            }
+          }
+        </div>
+
+        @if (outcome() === 'idle') {
+          <p class="outcome-empty">
+            No sync has run yet. Enter a league id and run a sync — each read reports here as it
+            lands.
+          </p>
+        } @else if (lines().length) {
+          <!-- One row per reported read, never one collapsed summary: a sync ends with a
+               mix of reads that landed and reads that did not. `role="list"` because
+               `list-style: none` stops WebKit announcing this as a list. -->
+          <ol class="run-log" role="list" aria-label="Sync output">
+            @for (line of lines(); track $index) {
+              <li class="run-log-line">{{ line }}</li>
+            }
+          </ol>
+        } @else {
+          <p class="outcome-waiting">Waiting for output…</p>
+        }
+      </mat-card-content>
+    </mat-card>
+  </section>
+</div>

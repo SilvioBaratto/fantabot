@@ -1,0 +1,407 @@
+/* Accounts — Material 3, stock azure palette, light only.
+ *
+ * Every colour, type, shape and elevation value here is a `--mat-sys-*` role. There is
+ * no hex, no rgb() and no literal type size except the one monospace stack below, which
+ * M3 has no token for.
+ *
+ * Size classes (M3 windows: 600 / 840 / 1200 / 1600):
+ *   compact   < 600  one pane, 16px gutter, row meta wraps under the credential name
+ *   medium    600+   one pane, 24px gutter, each row on a single line
+ *   expanded  840+   two panes — leagues flexible, FantaLab a fixed 360px supporting pane
+ *   large    1200+   the same two panes, fixed pane at 412px
+ * The confirmation is a `MatDialog` at every size: M3 puts a decision in a dialog at
+ * compact as well, and a full-screen dialog is for long forms, which this is not. The
+ * component TREE never differs, so none of this reaches `WindowSizeClassService` —
+ * plain media queries only, and nothing to flash on first paint.
+ */
+
+/* No token for a monospace face; M3's typescale is one plain and one brand family. */
+$mono: ui-monospace, 'SF Mono', 'SFMono-Regular', menlo, consolas, monospace;
+
+:host {
+  display: block;
+  box-sizing: border-box;
+  max-inline-size: 1440px;
+  margin-inline: auto;
+  padding: 16px 16px 32px;
+
+  /* The page is the container the pane rules below ask about. The shell's rail takes
+     96–280px out of the window, so an 840px WINDOW can leave this page far less; the
+     window class still gates two panes and the container query can only narrow it. */
+  container-type: inline-size;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px 24px 40px;
+  }
+}
+
+/* Body copy stays inside a readable measure wherever the pane is wide. */
+.measure {
+  max-inline-size: 60ch;
+}
+
+/* --------------------------------------------------------------- page header --- */
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 24px;
+}
+
+.page-head-text {
+  min-inline-size: 0;
+}
+
+.page-head h1 {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+}
+
+@media (min-width: 840px) {
+  .page-head h1 {
+    font: var(--mat-sys-headline-medium);
+    letter-spacing: var(--mat-sys-headline-medium-tracking);
+  }
+}
+
+.page-head-sub {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* 8px is M3's minimum between groups of controls; each button carries its own 48px
+   touch target, which overhangs the visual box. */
+.page-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------------- banners --- */
+
+.banner {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: var(--mat-sys-corner-medium);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.banner-error {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+.banner-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.banner-notice p {
+  margin: 0;
+  max-inline-size: 70ch;
+}
+
+.banner-icon {
+  display: flex;
+  flex: none;
+  /* Optical alignment with the first line of body text. */
+  margin-block-start: 1px;
+}
+
+.banner-notice code {
+  font-family: $mono;
+  font-size: 0.9em;
+}
+
+/* -------------------------------------------------------- the sign-in task card --- */
+
+.capture,
+.notice-card {
+  margin-block-end: 16px;
+  /* The progress bar sits flush at the top edge and has to follow the card's corner. */
+  overflow: hidden;
+}
+
+.card-body {
+  padding: 16px;
+}
+
+@media (min-width: 600px) {
+  .card-body {
+    padding: 24px;
+  }
+}
+
+.card-body h2 {
+  margin: 0 0 4px;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+.card-body p {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* `max-block-size` in rem, not px, so the log grows with the text at 200%. */
+.capture-log {
+  margin: 16px 0 0;
+  padding: 12px;
+  max-block-size: 12rem;
+  overflow: auto;
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+  font-family: $mono;
+  font-size: var(--mat-sys-body-small-size);
+  line-height: var(--mat-sys-body-small-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.capture mat-card-actions {
+  justify-content: flex-end;
+  padding: 0 16px 16px;
+}
+
+@media (min-width: 600px) {
+  .capture mat-card-actions {
+    padding: 0 24px 24px;
+  }
+}
+
+/* ------------------------------------------------------------------ first load --- */
+
+.loading-pane {
+  padding-block: 24px;
+}
+
+.loading-pane p {
+  margin: 12px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* ----------------------------------------------------------------------- panes --- */
+
+.panes {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 600px) {
+  .panes {
+    gap: 24px;
+  }
+}
+
+@media (min-width: 840px) {
+  @container (min-width: 760px) {
+    .panes {
+      grid-template-columns: minmax(0, 1fr) 360px;
+      align-items: start;
+    }
+
+    /* The list-detail split named rather than left to source order: leagues are the
+       flexible pane and the FantaLab session the fixed supporting one, and reordering the
+       markup must not quietly swap which is which. Scoped inside the guard on purpose — a
+       `grid-column` outside it would invent a second column in the stacked layout. */
+    .pane-flexible {
+      grid-column: 1;
+    }
+
+    .pane-fixed {
+      grid-column: 2;
+    }
+  }
+}
+
+@media (min-width: 1200px) {
+  @container (min-width: 900px) {
+    .panes {
+      grid-template-columns: minmax(0, 1fr) 412px;
+    }
+  }
+}
+
+.pane {
+  min-inline-size: 0;
+}
+
+/* ----------------------------------------------------------------------- cards --- */
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 16px;
+}
+
+.card-head h2 {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+/* The heading takes focus when a confirmed removal deletes the row that had it, so it
+   needs a ring of its own — Material's strong focus indicators only reach components. */
+.card-head h2:focus-visible {
+  outline: 3px solid var(--mat-sys-primary);
+  outline-offset: 4px;
+  border-radius: var(--mat-sys-corner-extra-small);
+}
+
+/* ------------------------------------------------------------------------ rows --- */
+
+/* `role="list"` is on the element: WebKit stops announcing a list once its markers are
+   removed, and these rows are a list. */
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+.row:last-child {
+  border-block-end: 0;
+}
+
+.row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.row-id {
+  min-inline-size: 0;
+}
+
+.row-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
+.row-sub {
+  margin: 2px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-inline-start: auto;
+}
+
+.row-fact {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.row mat-progress-bar {
+  margin-block-start: 8px;
+  border-radius: var(--mat-sys-corner-full);
+}
+
+/* ------------------------------------------------------------------ state badge --- */
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--mat-sys-corner-full);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+.state lucide-icon {
+  display: flex;
+  flex: none;
+}
+
+/* Neutral is the uneventful case; the two that need the operator are the coloured ones.
+   The icon carries the same split, so the tone is never the only signal. */
+.state-ok {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.state-warn {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.state-bad {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+/* ---------------------------------------------------------------- empty states --- */
+
+.empty {
+  padding: 24px 16px;
+}
+
+.empty p {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* Two classes, so it outranks `.empty p` without an `!important`. */
+.empty .empty-title {
+  margin-block-end: 4px;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
+/* --------------------------------------------------------------------- motion --- */
+
+@keyframes accounts-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The global `prefers-reduced-motion` block in material.scss stops this. */
+.spinning {
+  animation: accounts-spin 1s linear infinite;
+}

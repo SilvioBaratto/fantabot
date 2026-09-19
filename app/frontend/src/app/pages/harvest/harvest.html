@@ -1,300 +1,473 @@
-<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="font-display text-3xl font-bold tracking-tight text-text">Harvest</h1>
-    <p class="mt-1 text-sm text-text-secondary">
-      What the collector actually put in the database, per format.
+<header class="page-header">
+  <div class="page-heading">
+    <h1 class="page-title">Harvest</h1>
+    <p class="page-lede">
+      Scan the live auctions, follow them into the landing zone, and load what was recorded
+      into Postgres.
     </p>
   </div>
-  <button
-    type="button"
-    (click)="load()"
-    class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-  >
-    <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
-    Refresh
+
+  <button matButton type="button" (click)="load()">
+    <lucide-icon
+      matButtonIcon
+      class="lucide-slot"
+      [size]="18"
+      name="refresh-cw"
+      aria-hidden="true"
+    />
+    Refresh counts
   </button>
 </header>
 
-<!-- The registry, beside the corpus and never summed with it: a scan grows the seed
-     whether or not one frame was ever received. -->
-<section data-panel="seed" class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="flex flex-wrap items-start justify-between gap-4 p-6">
-    <div class="min-w-0">
-      <h2 class="font-display text-lg font-semibold text-text">Seed</h2>
-      @if (seed(); as s) {
-        @if (!s.ok) {
-          <p class="mt-1 text-sm text-danger">
-            The seed could not be read: <span class="font-mono">{{ s.error ?? 'unknown' }}</span>.
-          </p>
-        } @else if (!s.exists) {
-          <p class="mt-1 text-sm text-text-secondary">
-            No seed yet. Scan to write one at
-            <span class="break-all font-mono text-xs">{{ s.path }}</span>.
-          </p>
-        } @else {
-          <p class="mt-2 font-display text-4xl font-bold tabular-nums text-text">
-            {{ s.rows | number }}
-          </p>
-          <p class="mt-1 text-sm text-text-secondary">
-            auctions registered &middot;
-            @for (entry of seedFormats(); track entry[0]) {
-              <span class="capitalize">{{ entry[0] }}</span> {{ entry[1] | number }}@if (!$last) {,&nbsp;}
+@if (loading()) {
+  <mat-progress-bar
+    class="page-progress"
+    mode="indeterminate"
+    aria-label="Reading the corpus and the seed"
+  />
+}
+
+<div class="jobs">
+  <!-- The registry, beside the corpus and never summed with it: a scan grows the seed
+       whether or not one frame was ever received. -->
+  <section class="job" data-panel="seed" aria-labelledby="seed-heading">
+    <mat-card appearance="outlined" class="job-card">
+      <mat-card-header>
+        <h2 mat-card-title id="seed-heading">Seed</h2>
+      </mat-card-header>
+
+      <mat-card-content>
+        @if (seed(); as s) {
+          @if (!s.ok) {
+            <p class="seed-problem">The seed could not be read: <code>{{ s.error ?? 'unknown' }}</code>.</p>
+          } @else if (!s.exists) {
+            <p class="job-lede">No seed yet. Scan to write one at <code>{{ s.path }}</code>.</p>
+          } @else {
+            <p class="seed-count">{{ s.rows | number }}</p>
+            <p class="seed-split">
+              auctions registered &middot;
+              @for (entry of seedFormats(); track entry[0]) {
+                <span class="format-name">{{ entry[0] }}</span> {{ entry[1] | number }}@if (!$last) {,&nbsp;}
+              }
+            </p>
+            <p class="seed-path">
+              <code>{{ s.path }}</code>
+            </p>
+            @if (s.mtime) {
+              <p class="seed-meta">last written {{ s.mtime }}</p>
             }
-          </p>
-          <p class="mt-2 break-all font-mono text-xs text-text-tertiary">{{ s.path }}</p>
-          @if (s.mtime) {
-            <p class="text-xs text-text-tertiary">last written {{ s.mtime }}</p>
           }
+        } @else {
+          <p class="job-lede">Reading the seed&hellip;</p>
         }
-      } @else {
-        <p class="mt-1 text-sm text-text-secondary">Reading the seed&hellip;</p>
+      </mat-card-content>
+
+      <mat-card-actions class="job-actions">
+        <button matButton="outlined" type="button" (click)="runScan()" [disabled]="scanning()">
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [size]="18"
+            name="clipboard-list"
+            aria-hidden="true"
+          />
+          {{ scanning() ? 'Scanning…' : 'Scan live auctions' }}
+        </button>
+      </mat-card-actions>
+
+      @if (scanning()) {
+        <mat-progress-bar class="job-progress" mode="indeterminate" aria-label="Scan running" />
       }
-    </div>
 
-    <button
-      type="button"
-      (click)="runScan()"
-      [disabled]="scanning()"
-      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-inset px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-raised disabled:opacity-50"
-    >
-      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="scanning()"></lucide-icon>
-      {{ scanning() ? 'Scanning…' : 'Scan live auctions' }}
-    </button>
-  </div>
+      <div class="job-state" aria-live="polite" aria-atomic="true">
+        @if (scanning()) {
+          <p class="job-state-line">Scanning the live auctions</p>
+        } @else if (scanOk() === true) {
+          <p class="job-state-line">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="check-circle"
+              aria-hidden="true"
+            />
+            Scan finished
+          </p>
+        } @else if (scanOk() === false) {
+          <p class="job-state-line is-failed">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="triangle-alert"
+              aria-hidden="true"
+            />
+            Scan failed
+          </p>
+        }
+      </div>
 
-  <!-- A merge adds and updates; it never removes. So a rising count says a scan ran,
-       and says nothing at all about whether an evening was followed. -->
-  <p class="border-t border-border px-6 py-3 text-xs text-text-tertiary">
-    A scan merges both formats into this file: it adds and updates, and never removes.
-    Counted after the merge.
-  </p>
+      <!-- A merge adds and updates; it never removes. So a rising count says a scan ran,
+           and says nothing at all about whether an evening was followed. -->
+      <div class="job-note">
+        <p>
+          A scan merges both formats into this file: it adds and updates, and never removes.
+          Counted after the merge.
+        </p>
+      </div>
 
-  @if (scanError(); as message) {
-    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
-  }
-  @if (scanLines().length) {
-    <pre class="max-h-48 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of scanLines(); track $index) {{{ line }}
+      @if (scanError(); as message) {
+        <p class="job-error">
+          <lucide-icon
+            class="job-error-icon"
+            [size]="18"
+            name="triangle-alert"
+            aria-hidden="true"
+          />
+          <span class="job-error-text">{{ message }}</span>
+        </p>
+      }
+      @if (scanLines().length) {
+        <div class="job-log" tabindex="0" role="region" aria-label="Scan log">
+          <pre>@for (line of scanLines(); track $index) {{{ line }}
 }</pre>
-  }
-</section>
+        </div>
+      }
+    </mat-card>
+  </section>
 
-<!-- The loader, supervised as a child process rather than run on a thread: it holds ~17x
-     its 32 MB window, and it must survive the server it was started from. -->
-<section data-panel="loader" class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="flex flex-wrap items-end justify-between gap-4 p-6">
-    <div>
-      <h2 class="font-display text-lg font-semibold text-text">Loader</h2>
-      <p class="mt-1 text-sm text-text-secondary">
-        Carries the landing zone into Postgres, resuming where the last pass stopped.
-      </p>
+  <!-- The loader, supervised as a child process rather than run on a thread: it holds ~17x
+       its 32 MB window, and it must survive the server it was started from. -->
+  <section class="job" data-panel="loader" aria-labelledby="loader-heading">
+    <mat-card appearance="outlined" class="job-card">
+      <mat-card-header>
+        <h2 mat-card-title id="loader-heading">Loader</h2>
+      </mat-card-header>
 
-      <div class="mt-4 flex flex-wrap items-center gap-4">
-        <label class="flex items-center gap-2 text-sm text-text-secondary">
-          Format
+      <mat-card-content>
+        <p class="job-lede">
+          Carries the landing zone into Postgres, resuming where the last pass stopped.
+        </p>
+
+        <div class="job-controls">
           <!-- A seed holds both formats and a load carries one, so this is a parameter of
                the read — not the collection-time filter the scan is forbidden. -->
-          <select
-            [value]="loadFormat()"
-            (change)="loadFormat.set($any($event.target).value)"
-            [disabled]="loaderRunning()"
-            class="rounded-md border border-border bg-surface-inset px-2 py-1 text-sm capitalize text-text disabled:opacity-50"
-          >
-            @for (format of formats; track format) {
-              <option [value]="format" class="capitalize">{{ format }}</option>
-            }
-          </select>
-        </label>
+          <mat-form-field appearance="outline" class="field-format">
+            <mat-label>Format</mat-label>
+            <mat-select
+              [value]="loadFormat()"
+              [disabled]="loaderRunning()"
+              (selectionChange)="loadFormat.set($event.value)"
+            >
+              @for (format of formats; track format) {
+                <mat-option [value]="format">{{ format | titlecase }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
 
-        <label class="flex items-center gap-2 text-sm text-text-secondary">
-          <input
-            type="checkbox"
+          <mat-checkbox
             [checked]="loadFollow()"
-            (change)="loadFollow.set($any($event.target).checked)"
             [disabled]="loaderRunning()"
-            class="h-4 w-4 rounded border-border"
+            (change)="loadFollow.set($event.checked)"
+          >
+            Keep following
+          </mat-checkbox>
+        </div>
+      </mat-card-content>
+
+      <mat-card-actions class="job-actions">
+        <button matButton="tonal" type="button" (click)="runLoad()" [disabled]="loaderRunning()">
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [size]="18"
+            name="database"
+            aria-hidden="true"
           />
-          Keep following
-        </label>
-      </div>
-    </div>
-
-    <div class="flex items-center gap-2">
-      <button
-        type="button"
-        (click)="runLoad()"
-        [disabled]="loaderRunning()"
-        class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-inset px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-raised disabled:opacity-50"
-      >
-        <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loaderRunning()"></lucide-icon>
-        {{ loaderRunning() ? 'Loading…' : 'Start loader' }}
-      </button>
-      @if (loaderRunning()) {
-        <button
-          type="button"
-          (click)="stopLoad()"
-          class="inline-flex items-center gap-2 rounded-md border border-danger/40 px-3 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
-        >
-          Stop
+          {{ loaderRunning() ? 'Loading…' : 'Start loader' }}
         </button>
-      }
-    </div>
-  </div>
-
-  <!-- SPEC §3.2: the app may never reset a load checkpoint. It has no control that could;
-       the recovery that re-reads 1.31 GB stays a terminal act. -->
-  <p class="border-t border-border px-6 py-3 text-xs text-text-tertiary">
-    Stopping asks the child politely first and says so if it has to escalate. The offset
-    only ever moves forward from here — resetting it is
-    <span class="font-mono">fantabot harvest load</span>, at a terminal, deliberately.
-  </p>
-
-  @if (loaderError(); as message) {
-    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
-  }
-  @if (loaderLines().length) {
-    <pre class="max-h-64 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of loaderLines(); track $index) {{{ line }}
-}</pre>
-  }
-</section>
-
-<!-- The irreplaceable one, and therefore last. A frame that never reached disk is gone,
-     and an evening of auctions does not come back. -->
-<section data-panel="collector" class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="flex flex-wrap items-end justify-between gap-4 p-6">
-    <div>
-      <h2 class="font-display text-lg font-semibold text-text">Collector</h2>
-      <p class="mt-1 text-sm text-text-secondary">
-        Subscribes to every auction in the seed and appends each state to the landing zone.
-      </p>
-
-      <label class="mt-4 flex items-center gap-2 text-sm text-text-secondary">
-        Pool
-        <!-- No format selector, deliberately: one seed carries both, and each row states
-             its own. A selector here would be the collection-time filter again. -->
-        <input
-          type="number"
-          min="1"
-          [value]="pool()"
-          (change)="pool.set(+$any($event.target).value)"
-          [disabled]="collecting()"
-          class="w-28 rounded-md border border-border bg-surface-inset px-2 py-1 text-sm tabular-nums text-text disabled:opacity-50"
-        />
-        @if (seed(); as s) {
-          <span class="text-xs text-text-tertiary">of {{ s.rows | number }} registered</span>
+        @if (loaderRunning()) {
+          <span class="danger-zone">
+            <button matButton="outlined" type="button" (click)="stopLoad()">
+              <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="x" aria-hidden="true" />
+              Stop loader
+            </button>
+          </span>
         }
-      </label>
-    </div>
+      </mat-card-actions>
 
-    <div class="flex items-center gap-2">
-      <button
-        type="button"
-        (click)="runCollect()"
-        [disabled]="collecting()"
-        class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-inset px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-raised disabled:opacity-50"
-      >
-        <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="collecting()"></lucide-icon>
-        {{ collecting() ? 'Collecting…' : 'Start collector' }}
-      </button>
-      @if (collecting()) {
-        <button
-          type="button"
-          (click)="stopCollect()"
-          class="inline-flex items-center gap-2 rounded-md border border-danger/40 px-3 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
-        >
-          Stop
-        </button>
+      @if (loaderRunning()) {
+        <mat-progress-bar class="job-progress" mode="indeterminate" aria-label="Loader running" />
       }
-    </div>
-  </div>
 
-  <!-- The bound is ours and on a live evening it is permanent: a watcher does not finish,
-       so a queued auction never gets a permit and never connects. 145 of 395, 2026-08-27. -->
-  <p class="border-t border-border px-6 py-3 text-xs text-text-tertiary">
-    A pool below the number registered is silent starvation — those auctions wait for a slot
-    a live evening never frees. Starting is refused rather than trimmed.
-  </p>
+      <div class="job-state" aria-live="polite" aria-atomic="true">
+        @if (loaderRunning()) {
+          <p class="job-state-line">Loading the landing zone into Postgres</p>
+        } @else if (loaderOk() === true) {
+          <p class="job-state-line">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="check-circle"
+              aria-hidden="true"
+            />
+            Load finished
+          </p>
+        } @else if (loaderOk() === false) {
+          <p class="job-state-line is-failed">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="triangle-alert"
+              aria-hidden="true"
+            />
+            Load failed
+          </p>
+        }
+      </div>
 
-  @if (collectError(); as message) {
-    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
-  }
-  @if (collectLines().length) {
-    <pre class="max-h-64 overflow-auto border-t border-border bg-surface-inset px-6 py-3 text-xs text-text-secondary">@for (line of collectLines(); track $index) {{{ line }}
+      <!-- SPEC §3.2: the app may never reset a load checkpoint. It has no control that could;
+           the recovery that re-reads 1.31 GB stays a terminal act. -->
+      <div class="job-note">
+        <p>
+          Stopping asks the child politely first and says so if it has to escalate. The offset
+          only ever moves forward from here — resetting it is
+          <code>fantabot harvest load</code>, at a terminal, deliberately.
+        </p>
+      </div>
+
+      @if (loaderError(); as message) {
+        <p class="job-error">
+          <lucide-icon
+            class="job-error-icon"
+            [size]="18"
+            name="triangle-alert"
+            aria-hidden="true"
+          />
+          <span class="job-error-text">{{ message }}</span>
+        </p>
+      }
+      @if (loaderLines().length) {
+        <div class="job-log" tabindex="0" role="region" aria-label="Loader log">
+          <pre>@for (line of loaderLines(); track $index) {{{ line }}
 }</pre>
+        </div>
+      }
+    </mat-card>
+  </section>
+
+  <!-- The irreplaceable one, and therefore last — and the one primary action on this page.
+       A frame that never reached disk is gone, and an evening of auctions does not come back. -->
+  <section class="job" data-panel="collector" aria-labelledby="collector-heading">
+    <mat-card appearance="outlined" class="job-card">
+      <mat-card-header>
+        <h2 mat-card-title id="collector-heading">Collector</h2>
+      </mat-card-header>
+
+      <mat-card-content>
+        <p class="job-lede">
+          Subscribes to every auction in the seed and appends each state to the landing zone.
+        </p>
+
+        <div class="job-controls">
+          <!-- No format selector, deliberately: one seed carries both, and each row states
+               its own. A selector here would be the collection-time filter again. -->
+          <mat-form-field appearance="outline" class="field-pool">
+            <mat-label>Pool</mat-label>
+            <input
+              matInput
+              type="number"
+              min="1"
+              inputmode="numeric"
+              [value]="pool()"
+              [disabled]="collecting()"
+              (change)="pool.set(+$any($event.target).value)"
+            />
+            <mat-hint>
+              @if (seed(); as s) {
+                of {{ s.rows | number }} registered
+              }
+            </mat-hint>
+          </mat-form-field>
+        </div>
+      </mat-card-content>
+
+      <mat-card-actions class="job-actions">
+        <button matButton="filled" type="button" (click)="runCollect()" [disabled]="collecting()">
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [size]="18"
+            name="monitor"
+            aria-hidden="true"
+          />
+          {{ collecting() ? 'Collecting…' : 'Start collector' }}
+        </button>
+        @if (collecting()) {
+          <span class="danger-zone">
+            <button matButton="outlined" type="button" (click)="stopCollect()">
+              <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="x" aria-hidden="true" />
+              Stop collector
+            </button>
+          </span>
+        }
+      </mat-card-actions>
+
+      @if (collecting()) {
+        <mat-progress-bar
+          class="job-progress"
+          mode="indeterminate"
+          aria-label="Collector running"
+        />
+      }
+
+      <div class="job-state" aria-live="polite" aria-atomic="true">
+        @if (collecting()) {
+          <p class="job-state-line">Following the live auctions</p>
+        } @else if (collectOk() === true) {
+          <p class="job-state-line">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="check-circle"
+              aria-hidden="true"
+            />
+            Collection finished
+          </p>
+        } @else if (collectOk() === false) {
+          <p class="job-state-line is-failed">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="triangle-alert"
+              aria-hidden="true"
+            />
+            Collection failed
+          </p>
+        }
+      </div>
+
+      <!-- The bound is ours and on a live evening it is permanent: a watcher does not finish,
+           so a queued auction never gets a permit and never connects. 145 of 395, 2026-08-27. -->
+      <div class="job-note">
+        <p>
+          A pool below the number registered is silent starvation — those auctions wait for a
+          slot a live evening never frees. Starting is refused rather than trimmed.
+        </p>
+      </div>
+
+      @if (collectError(); as message) {
+        <p class="job-error">
+          <lucide-icon
+            class="job-error-icon"
+            [size]="18"
+            name="triangle-alert"
+            aria-hidden="true"
+          />
+          <span class="job-error-text">{{ message }}</span>
+        </p>
+      }
+      @if (collectLines().length) {
+        <div class="job-log" tabindex="0" role="region" aria-label="Collector log">
+          <pre>@for (line of collectLines(); track $index) {{{ line }}
+}</pre>
+        </div>
+      }
+    </mat-card>
+  </section>
+</div>
+
+<section class="corpus" aria-labelledby="corpus-heading">
+  <h2 id="corpus-heading" class="section-heading">Corpus</h2>
+  <p class="section-lede">What the collector actually put in the database, per format.</p>
+
+  @if (loading() && !corpus()) {
+    <mat-card appearance="outlined" class="notice-card">
+      <mat-card-content>
+        <p class="notice-text">Reading the corpus&hellip;</p>
+      </mat-card-content>
+    </mat-card>
+  } @else if (errorMsg(); as message) {
+    <mat-card appearance="outlined" class="notice-card notice-error">
+      <mat-card-content>
+        <div class="notice-header">
+          <lucide-icon class="notice-icon" [size]="20" name="triangle-alert" aria-hidden="true" />
+          <h3 class="notice-heading">API unreachable</h3>
+        </div>
+        <p class="notice-text">{{ message }} Make sure fantabot-app is running.</p>
+      </mat-card-content>
+    </mat-card>
+  } @else if (corpus(); as c) {
+    @if (!c.ok) {
+      <!-- The endpoint answered; what it answered is that it could not read. An empty
+           table here would hide the one line that says why. -->
+      <mat-card appearance="outlined" class="notice-card notice-error">
+        <mat-card-content>
+          <div class="notice-header">
+            <lucide-icon class="notice-icon" [size]="20" name="triangle-alert" aria-hidden="true" />
+            <h3 class="notice-heading">Corpus unreadable</h3>
+          </div>
+          <p class="notice-text">
+            The database refused the read: <code>{{ c.error ?? 'unknown' }}</code>. Start it
+            with <code>fantabot-app db start</code>, then refresh.
+          </p>
+        </mat-card-content>
+      </mat-card>
+    } @else {
+      <div class="corpus-grid">
+        @for (f of c.formats; track f.asta_type) {
+          <mat-card appearance="outlined" class="corpus-card" [attr.data-format]="f.asta_type">
+            <mat-card-header>
+              <h3 mat-card-title class="corpus-title">{{ f.asta_type }}</h3>
+            </mat-card-header>
+
+            <mat-card-content>
+              <p class="corpus-metric">{{ f.planner_sales | number }}</p>
+              <p class="corpus-metric-label">sales the planner reads</p>
+              <!-- The number is meaningless without its filter, and this is the contract,
+                   not a tooltip: read under another shape it is a different number. -->
+              <p class="corpus-filter">
+                {{ c.num_teams }} &times; {{ c.num_credits }}, buyer and player link present
+              </p>
+
+              @if (!f.planner_sales) {
+                <p class="corpus-flag">
+                  <lucide-icon
+                    class="corpus-flag-icon"
+                    [size]="18"
+                    name="triangle-alert"
+                    aria-hidden="true"
+                  />
+                  <span>Nothing here reaches a plan. Every count below says where it stopped.</span>
+                </p>
+              }
+
+              <dl class="corpus-rows">
+                @for (
+                  row of [
+                    { label: 'rooms registered', value: f.rooms },
+                    { label: 'rooms with events', value: f.rooms_with_events },
+                    { label: 'event rows', value: f.events },
+                    { label: 'assignments', value: f.assignments },
+                    { label: 'with a buyer', value: f.assignments_with_buyer },
+                    { label: 'with a player link', value: f.assignments_with_player }
+                  ];
+                  track row.label
+                ) {
+                  <div class="corpus-row">
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value | number }}</dd>
+                  </div>
+                }
+              </dl>
+            </mat-card-content>
+          </mat-card>
+        }
+      </div>
+
+      <p class="corpus-foot">
+        Registered is not collected: a seed grows on every scan whether or not a single frame
+        was received, so <span class="emphasis">rooms with events</span> is the one that says
+        an evening was followed.
+      </p>
+    }
   }
 </section>
-
-@if (loading() && !corpus()) {
-  <div class="h-56 animate-shimmer rounded-lg border border-border"></div>
-} @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
-} @else if (corpus(); as c) {
-  @if (!c.ok) {
-    <!-- The endpoint answered; what it answered is that it could not read. An empty
-         table here would hide the one line that says why. -->
-    <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-      <h2 class="font-display text-lg font-semibold text-danger">Corpus unreadable</h2>
-      <p class="mt-1 text-sm text-text-secondary">
-        The database refused the read: <span class="font-mono">{{ c.error ?? 'unknown' }}</span>.
-        Start it with <span class="font-mono">fantabot-app db start</span>, then refresh.
-      </p>
-    </section>
-  } @else {
-    <div class="grid gap-6 lg:grid-cols-2">
-      @for (f of c.formats; track f.asta_type) {
-        <section
-          [attr.data-format]="f.asta_type"
-          class="overflow-hidden rounded-lg border border-border bg-surface-raised"
-        >
-          <div class="h-1 w-full" [class.bg-signature]="f.planner_sales" [class.bg-danger]="!f.planner_sales"></div>
-
-          <div class="p-6">
-            <h2 class="font-display text-lg font-semibold capitalize text-text">{{ f.asta_type }}</h2>
-
-            <p class="mt-4 font-display text-5xl font-bold tabular-nums text-text">
-              {{ f.planner_sales | number }}
-            </p>
-            <p class="mt-1 text-sm text-text-secondary">sales the planner reads</p>
-            <!-- The number is meaningless without its filter, and this is the contract,
-                 not a tooltip: read under another shape it is a different number. -->
-            <p class="mt-1 text-xs text-text-tertiary">
-              {{ c.num_teams }} &times; {{ c.num_credits }}, buyer and player link present
-            </p>
-
-            @if (!f.planner_sales) {
-              <p class="mt-3 rounded-md border border-danger/40 px-3 py-2 text-xs text-danger">
-                Nothing here reaches a plan. Every count below says where it stopped.
-              </p>
-            }
-          </div>
-
-          <dl class="border-t border-border">
-            @for (row of [
-              { label: 'rooms registered', value: f.rooms },
-              { label: 'rooms with events', value: f.rooms_with_events },
-              { label: 'event rows', value: f.events },
-              { label: 'assignments', value: f.assignments },
-              { label: 'with a buyer', value: f.assignments_with_buyer },
-              { label: 'with a player link', value: f.assignments_with_player }
-            ]; track row.label) {
-              <div
-                class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border-muted px-6 py-2.5 last:border-b-0"
-              >
-                <dt class="text-sm text-text-secondary">{{ row.label }}</dt>
-                <dd class="text-sm tabular-nums text-text">{{ row.value | number }}</dd>
-              </div>
-            }
-          </dl>
-        </section>
-      }
-    </div>
-
-    <p class="mt-6 text-xs text-text-tertiary">
-      Registered is not collected: a seed grows on every scan whether or not a single frame
-      was received, so <span class="font-medium">rooms with events</span> is the one that says
-      an evening was followed.
-    </p>
-  }
-}

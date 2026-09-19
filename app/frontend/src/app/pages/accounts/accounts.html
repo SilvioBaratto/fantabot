@@ -1,78 +1,79 @@
-<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="font-display text-3xl font-bold tracking-tight text-text">Accounts</h1>
-    <p class="mt-1 text-sm text-text-secondary">Stored tokens the bot uses to read your leghe.</p>
+<header class="page-head">
+  <div class="page-head-text">
+    <h1>Accounts</h1>
+    <p class="page-head-sub">Stored tokens the bot uses to read your leghe</p>
   </div>
-  <div class="flex gap-2">
-    <button
-      type="button"
-      (click)="onConnect()"
-      [disabled]="connecting()"
-      class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
-    >
-      <lucide-icon name="plus" class="h-4 w-4"></lucide-icon>
+
+  <!-- One primary action on the page, and it is this one. Refresh steps down to
+       outlined; a row's Disconnect steps down again to a text button. -->
+  <div class="page-head-actions">
+    <button matButton="filled" type="button" (click)="onConnect()" [disabled]="connecting()">
+      <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="plus" />
       Connect account
     </button>
-    <button
-      type="button"
-      (click)="load()"
-      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-    >
-      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
+    <button matButton="outlined" type="button" (click)="load()">
+      <lucide-icon
+        matButtonIcon
+        class="lucide-slot"
+        [class.spinning]="loading()"
+        [size]="18"
+        name="refresh-cw"
+      />
       Refresh
     </button>
   </div>
 </header>
 
 @if (connectError(); as error) {
-  <div class="mb-6 rounded-lg border border-danger/40 bg-surface-raised p-4 text-sm text-danger">{{ error }}</div>
+  <p class="banner banner-error" role="alert">{{ error }}</p>
 }
 
 @if (connecting()) {
-  <section class="mb-6 overflow-hidden rounded-lg border border-primary/40 bg-surface-raised">
-    <div class="h-1 w-full bg-primary"></div>
-    <div class="p-6">
-      <h2 class="font-display text-lg font-semibold text-text">Sign in in the browser window</h2>
+  <mat-card class="capture" appearance="outlined">
+    <mat-progress-bar mode="indeterminate" aria-label="Waiting for you to sign in" />
+    <div class="card-body">
+      <h2>Sign in in the browser window</h2>
       @if (connectKind() === 'fantalab') {
-        <p class="mt-1 text-sm text-text-secondary">
-          A browser opened on this machine. Sign in to FantaLab — nothing is typed for
-          you — then click Continue.
+        <p class="measure">
+          A browser opened on this machine. Sign in to FantaLab — nothing is typed for you
+          — then choose Confirm sign-in.
         </p>
       } @else {
-        <p class="mt-1 text-sm text-text-secondary">
+        <p class="measure">
           A browser opened on this machine. Sign in to fantacalcio.it — nothing is typed
-          for you — then click Continue.
+          for you — then choose Confirm sign-in.
         </p>
       }
+
       <!-- The job's own output, live. It was always being written; nothing displayed
-           it, because the UI only started polling after the Continue button. -->
+           it, because the UI only started polling after the Continue button.
+           `tabindex` because it scrolls, and a scrollable region needs a keyboard. -->
       @if (captureLog().length) {
-        <pre class="mt-4 max-h-40 overflow-y-auto rounded-md bg-surface-inset px-3 py-2 font-mono text-xs text-text-secondary">@for (line of captureLog(); track $index) {{{ line }}
+        <pre class="capture-log" tabindex="0" role="group" aria-label="Sign-in log">@for (line of captureLog(); track $index) {{{ line }}
 }</pre>
       }
-
-      <div class="mt-4 flex gap-2">
-        <button
-          type="button"
-          data-confirm-signin
-          (click)="onContinue()"
-          [disabled]="finishing()"
-          class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-surface-raised transition-colors hover:bg-primary-hover disabled:opacity-50"
-        >
-          <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="finishing()"></lucide-icon>
-          {{ finishing() ? 'Reading…' : 'Continue' }}
-        </button>
-        <button
-          type="button"
-          data-cancel-connect
-          (click)="cancelConnect()"
-          class="rounded-md border border-border px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
-  </section>
+
+    <mat-card-actions align="end">
+      <button matButton type="button" data-cancel-connect (click)="cancelConnect()">Cancel</button>
+      <button
+        matButton="filled"
+        type="button"
+        data-confirm-signin
+        (click)="onContinue()"
+        [disabled]="finishing()"
+      >
+        <lucide-icon
+          matButtonIcon
+          class="lucide-slot"
+          [class.spinning]="finishing()"
+          [size]="18"
+          name="loader-2"
+        />
+        {{ finishing() ? 'Reading…' : 'Confirm sign-in' }}
+      </button>
+    </mat-card-actions>
+  </mat-card>
 }
 
 <!-- Rendered empty up-front so a screen reader is already watching it when the
@@ -80,180 +81,169 @@
 <div role="status" aria-live="polite" class="sr-only">{{ captureStatus() }}</div>
 
 @if (loading() && !status()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+  <div class="loading-pane">
+    <mat-progress-bar mode="indeterminate" aria-label="Reading stored credentials" />
+    <p>Reading stored credentials…</p>
+  </div>
 } @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
+  <mat-card class="notice-card" appearance="outlined">
+    <div class="card-body">
+      <h2>API unreachable</h2>
+      <p class="measure">{{ message }} Make sure fantabot-app is running.</p>
+    </div>
+  </mat-card>
 } @else if (status(); as s) {
   @if (!s.has_key) {
-    <div class="mb-6 flex items-start gap-3 rounded-lg border border-warning/40 bg-surface-raised p-4">
-      <span class="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-warning"></span>
-      <p class="text-sm text-text-secondary">
-        No encryption key is set. Configure <code class="text-text">FANTABOT_ENCRYPTION_KEY</code>
-        before connecting an account, so tokens can be stored.
+    <div class="banner banner-notice" role="status">
+      <lucide-icon class="banner-icon" [size]="20" name="triangle-alert" />
+      <p>
+        No encryption key is set. Configure <code>FANTABOT_ENCRYPTION_KEY</code> before
+        connecting an account, so tokens can be stored.
       </p>
     </div>
   }
 
-  <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-    <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Leagues</div>
-    @if (s.leagues.length) {
-      @for (l of s.leagues; track l.league_id) {
-        <div class="border-b border-border-muted px-6 py-4 last:border-b-0">
-          <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-            <div>
-              <p class="font-display text-base font-semibold text-text">{{ l.league_name ?? l.league_id }}</p>
-              <p class="mt-0.5 text-xs text-text-tertiary tabular-nums">#{{ l.league_id }}</p>
-            </div>
-            <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
-              <span class="text-sm text-text-secondary tabular-nums">expires {{ l.expires_at | date: 'd MMM y' }}</span>
-              <span
-                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-                [class.bg-signature]="tone(l.state) === 'ok'"
-                [class.text-surface-raised]="tone(l.state) === 'ok'"
-                [class.bg-warning]="tone(l.state) === 'warn'"
-                [class.bg-danger]="tone(l.state) === 'bad'"
-                [class.text-white]="tone(l.state) !== 'ok'"
-              >
-                {{ l.state }}
-              </span>
-              <!-- Stays in place while armed, disabled rather than swapped out: the confirm
-                   used to render over this button's own footprint, so a double-click armed
-                   and confirmed in one gesture. Disabled here, the second click hits nothing. -->
-              <button
-                type="button"
-                [attr.data-disconnect-league]="l.league_id"
-                [attr.aria-label]="'Disconnect ' + (l.league_name ?? l.league_id)"
-                (click)="armDisconnect(rowKey('league', l.league_id))"
-                [disabled]="disconnectBusy()"
-                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-secondary"
-              >
-                Disconnect
-              </button>
-            </div>
-          </div>
-
-          @if (pendingId() === rowKey('league', l.league_id)) {
-            <!-- Its own line, so the destructive button never overlaps the one that armed it
-                 and the cluster cannot overflow the card's `overflow-hidden` on a phone. -->
-            <div
-              role="group"
-              aria-live="polite"
-              [attr.aria-label]="'Confirm disconnecting ' + (l.league_name ?? l.league_id)"
-              class="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3"
-            >
-              <span class="mr-auto text-sm text-text-secondary">
-                Disconnect {{ l.league_name ?? l.league_id }}? This removes the stored
-                token <em class="not-italic font-medium text-text">and everything the
-                last sync saved</em> — rosters, credits, calendar and player pool. The
-                lega disappears from every page until you connect and sync again.
-              </span>
-              <button
-                type="button"
-                (click)="disarmDisconnect()"
-                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
-              >
-                Keep
-              </button>
-              <button
-                type="button"
-                [attr.data-confirm-league]="l.league_id"
-                (click)="disconnectLeague(l.league_id)"
-                [disabled]="removingId() !== null"
-                class="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {{ removingId() === rowKey('league', l.league_id) ? 'Removing…' : 'Remove' }}
-              </button>
-            </div>
-          }
+  <div class="panes">
+    <section class="pane pane-flexible" aria-labelledby="leagues-heading">
+      <mat-card appearance="outlined">
+        <div class="card-head">
+          <h2 id="leagues-heading" tabindex="-1" #leaguesHeading>Leagues</h2>
         </div>
-      }
-    } @else {
-      <div class="px-6 py-10 text-center">
-        <p class="font-display text-base font-semibold text-text">No account connected yet</p>
-        <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
-          Connect your fantacalcio account so the bot can read your leghe. Connecting opens a
-          real browser for you to sign in — coming from this screen next.
-        </p>
-      </div>
-    }
-  </section>
+        <mat-divider />
 
-  <section class="mt-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-6 py-3">
-      <span class="text-sm font-semibold text-text">FantaLab session</span>
-      <!-- Scoped to this card rather than the page header: "Connect account" above
-           captures the lega tokens, and the two credentials are unrelated. -->
-      <button
-        type="button"
-        data-connect-fantalab
-        (click)="onConnectFantalab()"
-        [disabled]="connecting()"
-        class="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
-      >
-        <lucide-icon name="plus" class="h-4 w-4"></lucide-icon>
-        {{ s.fantalab.length ? 'Reconnect FantaLab' : 'Connect FantaLab' }}
-      </button>
-    </div>
-    @if (s.fantalab.length) {
-      @for (f of s.fantalab; track f.user_id) {
-        <div class="px-6 py-4">
-          <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-            <p class="font-display text-base font-semibold text-text">{{ f.user_id }}</p>
-            <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
-              <span class="text-sm text-text-secondary tabular-nums">
-                captured {{ f.captured_at | date: 'd MMM y' }}
-              </span>
-              <button
-                type="button"
-                [attr.data-disconnect-fantalab]="f.user_id"
-                [attr.aria-label]="'Disconnect FantaLab session ' + f.user_id"
-                (click)="armDisconnect(rowKey('fantalab', f.user_id))"
-                [disabled]="disconnectBusy()"
-                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-secondary"
-              >
-                Disconnect
-              </button>
-            </div>
+        @if (s.leagues.length) {
+          <ul class="rows" role="list">
+            @for (l of s.leagues; track l.league_id) {
+              @let leagueKey = rowKey('league', l.league_id);
+              @let leagueName = l.league_name ?? l.league_id;
+              <li class="row" [attr.aria-busy]="removingId() === leagueKey ? 'true' : null">
+                <div class="row-line">
+                  <div class="row-id">
+                    <p class="row-title">{{ leagueName }}</p>
+                    <p class="row-sub">#{{ l.league_id }}</p>
+                  </div>
+
+                  <div class="row-meta">
+                    <span class="row-fact">Expires {{ l.expires_at | date: 'd MMM y' }}</span>
+                    <!-- The state string itself is the indicator and the icon repeats it,
+                         so nothing here is carried by colour alone — which matters twice
+                         over on this palette: azure ships no tertiary ramp, so Material
+                         derives one from primary and `tertiary-container` comes out the
+                         same hex as `primary-container`. Three tones need three roles
+                         that really differ: neutral, primary and error. -->
+                    <span
+                      class="state"
+                      [class.state-ok]="tone(l.state) === 'ok'"
+                      [class.state-warn]="tone(l.state) === 'warn'"
+                      [class.state-bad]="tone(l.state) === 'bad'"
+                    >
+                      <lucide-icon
+                        [size]="16"
+                        [name]="tone(l.state) === 'ok' ? 'check-circle' : 'triangle-alert'"
+                      />
+                      <span class="sr-only">Token state:&nbsp;</span>{{ l.state }}
+                    </span>
+                    <!-- Stays in place while armed, disabled rather than swapped out: the
+                         confirm used to render over this button's own footprint, so a
+                         double-click armed and confirmed in one gesture. -->
+                    <button
+                      matButton
+                      type="button"
+                      aria-haspopup="dialog"
+                      [attr.data-disconnect-league]="l.league_id"
+                      [attr.aria-label]="'Disconnect ' + leagueName"
+                      (click)="armDisconnect(leagueKey, leagueName)"
+                      [disabled]="disconnectBusy()"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+
+                @if (removingId() === leagueKey) {
+                  <mat-progress-bar
+                    mode="indeterminate"
+                    [attr.aria-label]="'Disconnecting ' + leagueName"
+                  />
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <div class="empty">
+            <p class="empty-title">No account connected yet</p>
+            <p class="measure">
+              Connect your fantacalcio account so the bot can read your leghe. Connecting
+              opens a real browser for you to sign in.
+            </p>
           </div>
+        }
+      </mat-card>
+    </section>
 
-          @if (pendingId() === rowKey('fantalab', f.user_id)) {
-            <div
-              role="group"
-              aria-live="polite"
-              [attr.aria-label]="'Confirm disconnecting FantaLab session ' + f.user_id"
-              class="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3"
-            >
-              <span class="mr-auto text-sm text-text-secondary">
-                Remove the stored FantaLab session for {{ f.user_id }}?
-              </span>
-              <button
-                type="button"
-                (click)="disarmDisconnect()"
-                class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-inset"
-              >
-                Keep
-              </button>
-              <button
-                type="button"
-                [attr.data-confirm-fantalab]="f.user_id"
-                (click)="disconnectFantalab(f.user_id)"
-                [disabled]="removingId() !== null"
-                class="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {{ removingId() === rowKey('fantalab', f.user_id) ? 'Removing…' : 'Remove' }}
-              </button>
-            </div>
-          }
+    <section class="pane pane-fixed" aria-labelledby="fantalab-heading">
+      <mat-card appearance="outlined">
+        <div class="card-head">
+          <h2 id="fantalab-heading" tabindex="-1" #fantalabHeading>FantaLab session</h2>
+          <!-- Scoped to this card rather than the page header: "Connect account" above
+               captures the lega tokens, and the two credentials are unrelated. -->
+          <button
+            matButton="outlined"
+            type="button"
+            data-connect-fantalab
+            (click)="onConnectFantalab()"
+            [disabled]="connecting()"
+          >
+            <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="plus" />
+            {{ s.fantalab.length ? 'Reconnect FantaLab' : 'Connect FantaLab' }}
+          </button>
         </div>
-      }
-    } @else {
-      <div class="px-6 py-6 text-sm text-text-secondary">
-        Not connected. FantaLab hosts the asta — the bot needs this only to watch or bid
-        in one, not to read your leghe.
-      </div>
-    }
-  </section>
+        <mat-divider />
+
+        @if (s.fantalab.length) {
+          <ul class="rows" role="list">
+            @for (f of s.fantalab; track f.user_id) {
+              @let fantalabKey = rowKey('fantalab', f.user_id);
+              <li class="row" [attr.aria-busy]="removingId() === fantalabKey ? 'true' : null">
+                <div class="row-line">
+                  <div class="row-id">
+                    <p class="row-title">{{ f.user_id }}</p>
+                    <p class="row-sub">Captured {{ f.captured_at | date: 'd MMM y' }}</p>
+                  </div>
+
+                  <div class="row-meta">
+                    <button
+                      matButton
+                      type="button"
+                      aria-haspopup="dialog"
+                      [attr.data-disconnect-fantalab]="f.user_id"
+                      [attr.aria-label]="'Disconnect FantaLab session ' + f.user_id"
+                      (click)="armDisconnect(fantalabKey, f.user_id)"
+                      [disabled]="disconnectBusy()"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+
+                @if (removingId() === fantalabKey) {
+                  <mat-progress-bar
+                    mode="indeterminate"
+                    [attr.aria-label]="'Disconnecting FantaLab session ' + f.user_id"
+                  />
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <div class="empty">
+            <p class="measure">
+              Not connected. FantaLab hosts the asta — the bot needs this only to watch or
+              bid in one, not to read your leghe.
+            </p>
+          </div>
+        }
+      </mat-card>
+    </section>
+  </div>
 }

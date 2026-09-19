@@ -1,293 +1,370 @@
-<header class="mb-8">
-  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Asta plan</h1>
-  <p class="mt-1 text-sm text-text-secondary">
-    The roster the optimizer would buy, on the lega's rules.
-  </p>
+<header class="page-head">
+  <h1 class="page-title">Asta plan</h1>
+  <p class="page-lede">The roster the optimizer would buy, on the lega's rules.</p>
 </header>
 
-<!-- Room check. A read of a room's configuration — the app never bids (app/CLAUDE.md),
-     and this section deliberately offers no control that could. It is also the only
-     surface that says whether the stored FantaLab credential still authenticates. -->
-<section class="mb-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="flex flex-wrap items-end gap-3 p-6">
-    <div class="min-w-64 flex-1">
-      <label for="room-url" class="block text-xs font-semibold text-text-tertiary"
-        >Room check</label
-      >
-      <input
-        id="room-url"
-        type="text"
-        placeholder="https://app.fantalab.it/asta?asta=..."
-        [value]="roomUrl()"
-        (input)="setRoomUrl($any($event.target).value)"
-        (keyup.enter)="checkRoom()"
-        class="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-tertiary"
-      />
-    </div>
-    <button
-      type="button"
-      (click)="checkRoom()"
-      [disabled]="roomChecking()"
-      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
-    >
-      <lucide-icon
-        name="loader-2"
-        class="h-4 w-4"
-        [class.animate-spin]="roomChecking()"
-      ></lucide-icon>
-      Check
-    </button>
-  </div>
-
-  @if (room(); as r) {
-    @if (r.outcome === 'resolved') {
-      <dl class="grid gap-x-10 gap-y-4 border-t border-border px-6 py-5 sm:grid-cols-3">
-        <div>
-          <dt class="text-xs text-text-tertiary">seat</dt>
-          <dd class="text-sm font-medium text-text">{{ r.seat_team_name ?? r.seat_team_id }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs text-text-tertiary">format &middot; shard</dt>
-          <dd class="text-sm text-text">{{ r.asta_type }} &middot; {{ r.shard ?? 'default' }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs text-text-tertiary">mode</dt>
-          <dd class="text-sm text-text">{{ r.asta_mode }}/{{ r.raise_mode }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs text-text-tertiary">room</dt>
-          <dd class="text-sm tabular-nums text-text">
-            {{ r.num_teams }} teams &times; {{ r.num_credits }} credits
-          </dd>
-        </div>
-        <div class="sm:col-span-2">
-          <dt class="text-xs text-text-tertiary">roster</dt>
-          <dd class="text-sm tabular-nums text-text">
-            {{ r.roster_size }}
-            <!-- The provenance sits beside the number, not behind a hover: a band nobody
-                 declared and a band the room stated are different facts. -->
-            <span class="ml-2 text-xs font-normal text-text-secondary">{{
-              r.roster_provenance
-            }}</span>
-          </dd>
-        </div>
-      </dl>
-    } @else {
-      <div class="border-t border-border px-6 py-5">
-        <p
-          class="text-sm font-semibold"
-          [class.text-danger]="r.outcome !== 'bad_link'"
-          [class.text-text]="r.outcome === 'bad_link'"
-        >
-          @switch (r.outcome) {
-            @case ('refused') {
-              The room refused us
-            }
-            @case ('bad_link') {
-              That is not a room link
-            }
-            @case ('no_credential') {
-              FantaLab is not connected
-            }
-            @default {
-              Could not reach the room
-            }
-          }
-        </p>
-        <p class="mt-1 text-sm text-text-secondary">{{ r.reason }}</p>
-        @if (r.outcome === 'no_credential') {
-          <p class="mt-2 text-xs text-text-tertiary">
-            Connect FantaLab from the Accounts page, or run
-            <span class="font-mono">fantabot auth fantalab-login</span>.
-          </p>
-        }
-      </div>
-    }
-  }
-</section>
-
-@if (loading()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
-} @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
-} @else if (!leagues().length) {
-  <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-    <p class="font-display text-base font-semibold text-text">No leagues yet</p>
-    <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">Run a lega sync first.</p>
-  </section>
-} @else {
-  <div class="mb-6 flex flex-wrap gap-2">
+<!-- One lega at a time. A segmented button rather than chips: a chip listbox deselects on a
+     second click and would leave the page with no lega at all, and this choice is required. -->
+@if (!loading() && !errorMsg() && leagues().length) {
+  <mat-button-toggle-group
+    class="lega-picker"
+    aria-label="Lega"
+    [vertical]="compact()"
+    [value]="selectedId()"
+    (change)="select($event.value)"
+  >
     @for (l of leagues(); track l.league_id) {
-      <button
-        type="button"
-        (click)="select(l.league_id)"
-        class="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
-        [class.border-primary]="selectedId() === l.league_id"
-        [class.bg-primary-light]="selectedId() === l.league_id"
-        [class.text-primary]="selectedId() === l.league_id"
-        [class.border-border]="selectedId() !== l.league_id"
-        [class.text-text-secondary]="selectedId() !== l.league_id"
-      >
+      <mat-button-toggle [value]="l.league_id">
         {{ l.league_name ?? 'Lega ' + l.league_id }}
-      </button>
+      </mat-button-toggle>
+    }
+  </mat-button-toggle-group>
+}
+
+<!-- One flexible pane. From 840px up — and only when the pane itself is wide enough, because
+     the shell's docked rail takes 96px or 280px out of the window — the room check moves
+     beside the plan as a supporting pane: it is the answer to "can I use this tonight", which
+     only means anything next to the plan it would be used on. -->
+<div class="overview">
+  <div class="overview-main">
+    @if (loading()) {
+      <mat-card class="panel" appearance="outlined">
+        <div class="panel-body loading-block">
+          <p class="loading-text">Loading the plan…</p>
+          <mat-progress-bar mode="indeterminate" aria-label="Loading the plan" />
+        </div>
+      </mat-card>
+    } @else if (errorMsg(); as message) {
+      <mat-card class="panel" appearance="outlined">
+        <div class="panel-body">
+          <h2 class="state-title is-error">API unreachable</h2>
+          <p class="state-body">{{ message }} Make sure fantabot-app is running.</p>
+        </div>
+      </mat-card>
+    } @else if (!leagues().length) {
+      <mat-card class="panel" appearance="outlined">
+        <div class="panel-body is-centered">
+          <h2 class="state-title">No leagues yet</h2>
+          <p class="state-body">Run a lega sync first.</p>
+        </div>
+      </mat-card>
+    } @else if (planLoading()) {
+      <mat-card class="panel" appearance="outlined">
+        <div class="panel-body loading-block">
+          <p class="loading-text">Loading the plan…</p>
+          <mat-progress-bar mode="indeterminate" aria-label="Loading the plan" />
+        </div>
+      </mat-card>
+    } @else if (plan(); as p) {
+      @if (p.found) {
+        <mat-card class="panel" appearance="outlined">
+          <div class="panel-body">
+            <h2 class="panel-title">Summary</h2>
+            <div class="stats">
+              <div class="stat">
+                <p class="stat-value num">
+                  {{ p.total_cost | number: '1.0-0'
+                  }}<span class="stat-of">/{{ p.budget | number: '1.0-0' }}</span>
+                </p>
+                <p class="stat-label">Credits spent</p>
+              </div>
+              <div class="stat">
+                <p class="stat-value num">{{ p.roster_size }}</p>
+                <p class="stat-label">Players · {{ p.listone }}</p>
+                <!-- The provenance sits beside the number, as it does on the room check. -->
+                <p class="stat-note">{{ p.roster_provenance }}</p>
+              </div>
+              <div class="stat">
+                <p class="stat-value num is-accent">{{ p.objective | number: '1.0-0' }}</p>
+                <p class="stat-label">Objective</p>
+              </div>
+            </div>
+          </div>
+
+          <mat-divider />
+
+          <!-- What the plan was built on. The page used to show a number with none of this,
+               and the inputs behind it differed from the command's in ten places. -->
+          <div class="panel-body">
+            <dl class="facts">
+              <div class="fact">
+                <dt>Risk (lam)</dt>
+                <dd class="num">{{ p.lam | number: '1.0-2' }}</dd>
+              </div>
+              <div class="fact">
+                <dt>Already owned</dt>
+                <dd class="num">{{ p.owned.length }}</dd>
+              </div>
+              <div class="fact">
+                <dt>Callable pool</dt>
+                <!-- `null` is rendered as what it is. It means the listone was unreachable and
+                     the plan ran over the whole pool, which is a different fact from a pool
+                     that was narrowed to nothing. -->
+                <dd class="num">
+                  @if (p.callable_pool === null) {
+                    <span class="tag">Not narrowed</span>
+                  } @else {
+                    {{ p.callable_pool }}
+                  }
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          @if (p.fallbacks.length) {
+            <mat-divider />
+            <div class="panel-body">
+              <p class="facts-title">Next best, one per top target lost</p>
+              <ol class="fallbacks" role="list">
+                @for (f of p.fallbacks; track $index) {
+                  <li class="fallback num">
+                    <span class="fallback-rank">{{ $index + 1 }}</span>
+                    cost {{ f.total_cost | number: '1.0-0' }} · obj
+                    {{ f.objective | number: '1.0-0' }}
+                  </li>
+                }
+              </ol>
+            </div>
+          }
+        </mat-card>
+      } @else {
+        <!-- Seven outcomes, seven headings. They were one — "No plan yet", under a
+             suggestion to sync the lega, which is the right remedy for exactly one of them
+             and a wasted evening for the rest. The reason underneath carries the remedy. -->
+        <mat-card class="panel" appearance="outlined">
+          <div class="panel-body is-centered">
+            <h2
+              class="state-title"
+              [class.is-error]="p.outcome === 'unreachable' || p.outcome === 'infeasible'"
+            >
+              @switch (p.outcome) {
+                @case ('no_lega') {
+                  This lega has never been synced
+                }
+                @case ('no_sentiment') {
+                  The news feed is empty
+                }
+                @case ('no_corpus') {
+                  No recorded auctions of this shape
+                }
+                @case ('empty_pool') {
+                  No player pool for this format and season
+                }
+                @case ('infeasible') {
+                  No legal rosa fits this budget
+                }
+                @case ('unreachable') {
+                  Could not reach the database
+                }
+                @default {
+                  No plan yet
+                }
+              }
+            </h2>
+            <p class="state-body">
+              {{
+                p.reason ??
+                  'No player pool for this lega and season. Sync the lega and make sure quotazioni are loaded.'
+              }}
+            </p>
+          </div>
+        </mat-card>
+      }
     }
   </div>
 
-  @if (planLoading()) {
-    <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
-  } @else if (plan(); as p) {
-    @if (p.found) {
-      <section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="h-1 w-full bg-primary"></div>
-        <div class="flex flex-wrap items-end gap-x-12 gap-y-6 p-6">
-          <div>
-            <p class="font-display text-5xl font-bold tabular-nums text-text">
-              {{ p.total_cost | number: '1.0-0'
-              }}<span class="text-2xl text-text-tertiary">/{{ p.budget | number: '1.0-0' }}</span>
-            </p>
-            <p class="mt-1 text-sm text-text-secondary">credits spent</p>
-          </div>
-          <div>
-            <p class="font-display text-5xl font-bold tabular-nums text-text">
-              {{ p.roster_size }}
-            </p>
-            <p class="mt-1 text-sm text-text-secondary">players · {{ p.listone }}</p>
-            <!-- The provenance sits beside the number, as it does on the room-check panel. -->
-            <p class="text-xs text-text-tertiary">{{ p.roster_provenance }}</p>
-          </div>
-          <div>
-            <p class="font-display text-5xl font-bold tabular-nums text-signature">
-              {{ p.objective | number: '1.0-0' }}
-            </p>
-            <p class="mt-1 text-sm text-text-secondary">objective</p>
-          </div>
+  <!-- Room check. A read of a room's configuration — the app never bids (app/CLAUDE.md),
+       and this pane deliberately offers no control that could. It is also the only surface
+       that says whether the stored FantaLab credential still authenticates. -->
+  <aside class="overview-side" aria-labelledby="room-check-heading">
+    <mat-card class="panel" appearance="outlined">
+      <div class="panel-body">
+        <h2 id="room-check-heading" class="panel-title">Room check</h2>
+        <p class="panel-sub">
+          A read of the room's configuration, and of whether the stored FantaLab credential still
+          works. Nothing here bids.
+        </p>
+
+        <div class="room-form">
+          <mat-form-field
+            class="room-field"
+            appearance="outline"
+            floatLabel="always"
+            subscriptSizing="dynamic"
+          >
+            <mat-label>Room link</mat-label>
+            <input
+              matInput
+              id="room-url"
+              type="text"
+              inputmode="url"
+              autocomplete="off"
+              placeholder="https://app.fantalab.it/asta?asta=..."
+              [value]="roomUrl()"
+              (input)="setRoomUrl($any($event.target).value)"
+              (keyup.enter)="checkRoom()"
+            />
+          </mat-form-field>
+          <button
+            matButton="filled"
+            type="button"
+            class="room-submit"
+            [disabled]="roomChecking()"
+            (click)="checkRoom()"
+          >
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [class.is-spinning]="roomChecking()"
+              [size]="18"
+              [name]="roomChecking() ? 'loader-2' : 'refresh-cw'"
+              aria-hidden="true"
+            />
+            Check room
+          </button>
         </div>
+      </div>
 
-        <!-- What the plan was built on. The page used to show a number with none of this,
-             and the inputs behind it differed from the command's in ten places. -->
-        <dl class="grid gap-x-10 gap-y-3 border-t border-border px-6 py-4 text-sm sm:grid-cols-3">
-          <div>
-            <dt class="text-xs text-text-tertiary">risk (lam)</dt>
-            <dd class="tabular-nums text-text">{{ p.lam | number: '1.0-2' }}</dd>
-          </div>
-          <div>
-            <dt class="text-xs text-text-tertiary">already owned</dt>
-            <dd class="tabular-nums text-text">{{ p.owned.length }}</dd>
-          </div>
-          <div>
-            <dt class="text-xs text-text-tertiary">callable pool</dt>
-            <!-- `null` is rendered as what it is. It means the listone was unreachable and
-                 the plan ran over the whole pool, which is a different fact from a pool
-                 that was narrowed to nothing. -->
-            <dd class="tabular-nums text-text">
-              @if (p.callable_pool === null) {
-                <span class="text-warning">not narrowed</span>
-              } @else {
-                {{ p.callable_pool }}
-              }
-            </dd>
-          </div>
-        </dl>
-
-        @if (p.fallbacks.length) {
-          <div class="border-t border-border px-6 py-4">
-            <p class="text-xs font-semibold text-text-tertiary">
-              Next best, one per top target lost
-            </p>
-            <div class="mt-2 flex flex-wrap gap-x-8 gap-y-2">
-              @for (f of p.fallbacks; track $index) {
-                <p class="text-sm tabular-nums text-text-secondary">
-                  <span class="text-text-tertiary">{{ $index + 1 }}.</span>
-                  cost {{ f.total_cost | number: '1.0-0' }} &middot; obj
-                  {{ f.objective | number: '1.0-0' }}
+      <div class="room-result" aria-live="polite">
+        @if (room(); as r) {
+          <mat-divider />
+          @if (r.outcome === 'resolved') {
+            <div class="panel-body">
+              <dl class="facts room-facts">
+                <div class="fact">
+                  <dt>Seat</dt>
+                  <dd class="is-strong">{{ r.seat_team_name ?? r.seat_team_id }}</dd>
+                </div>
+                <div class="fact">
+                  <dt>Format · shard</dt>
+                  <dd>{{ r.asta_type }} · {{ r.shard ?? 'default' }}</dd>
+                </div>
+                <div class="fact">
+                  <dt>Mode</dt>
+                  <dd>{{ r.asta_mode }}/{{ r.raise_mode }}</dd>
+                </div>
+                <div class="fact">
+                  <dt>Room</dt>
+                  <dd class="num">{{ r.num_teams }} teams × {{ r.num_credits }} credits</dd>
+                </div>
+                <div class="fact fact-wide">
+                  <dt>Roster</dt>
+                  <!-- The provenance sits beside the number, not behind a hover: a band nobody
+                       declared and a band the room stated are different facts. -->
+                  <dd class="num">
+                    {{ r.roster_size }}
+                    <span class="prov">{{ r.roster_provenance }}</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          } @else {
+            <div class="panel-body">
+              <h3 class="state-title" [class.is-error]="r.outcome !== 'bad_link'">
+                @switch (r.outcome) {
+                  @case ('refused') {
+                    The room refused us
+                  }
+                  @case ('bad_link') {
+                    That is not a room link
+                  }
+                  @case ('no_credential') {
+                    FantaLab is not connected
+                  }
+                  @default {
+                    Could not reach the room
+                  }
+                }
+              </h3>
+              <p class="state-body">{{ r.reason }}</p>
+              @if (r.outcome === 'no_credential') {
+                <p class="state-hint">
+                  Connect FantaLab from the Accounts page, or run
+                  <code>fantabot auth fantalab-login</code>.
                 </p>
               }
             </div>
-          </div>
+          }
         }
-      </section>
+      </div>
+    </mat-card>
+  </aside>
+</div>
 
-      <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <!-- Two numbers, two labels. "Price" was the only one, and it is the *market's*
-             number — the observed mean clearing price from the recorded corpus. The one an
-             operator bids against is the walk-away. -->
-        <div
-          class="grid grid-cols-[1fr_5rem_6rem] gap-4 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
-        >
-          <span>Player</span>
-          <span class="text-right">Corpus price</span>
-          <span class="text-right">Walk-away</span>
-        </div>
+<!-- The targets, full width and below both panes: three columns need the whole pane at
+     840px+, and at compact the room check must not sit behind a thirty-row list.
+     `plan()` is null while a fetch is in flight and after a failed one, so `?.found` is
+     the whole guard. -->
+@if (plan()?.found) {
+  <!-- Two numbers, two labels. "Price" was the only one, and it is the *market's*
+       number — the observed mean clearing price from the recorded corpus. The one an
+       operator bids against is the walk-away. -->
+  <section class="targets" aria-labelledby="targets-heading">
+    <h2 id="targets-heading" class="section-title">Targets</h2>
+
+    @if (compact()) {
+      <ul class="target-list" role="list">
         @for (player of players(); track player.player_id) {
-          <div
-            class="grid grid-cols-[1fr_5rem_6rem] items-start gap-4 border-b border-border-muted px-6 py-2 last:border-b-0"
-          >
-            <span class="text-sm text-text">{{ player.nome }}</span>
-            <span class="text-right text-sm tabular-nums text-text-tertiary">{{
-              player.price | number: '1.0-0'
-            }}</span>
-            <span class="text-right">
+          <li class="target-card">
+            <p class="target-name">{{ player.nome }}</p>
+            <dl class="target-figures">
+              <div class="figure">
+                <dt>Corpus price</dt>
+                <dd class="num">{{ player.price | number: '1.0-0' }}</dd>
+              </div>
+              <div class="figure">
+                <dt>Walk-away</dt>
+                <!-- A null walk-away is rendered as one and never as a zero: zero means
+                     "a substitute exists at this price", which is a real answer. -->
+                <dd class="num is-strong" [class.is-absent]="player.walk_away === null">
+                  {{ player.walk_away === null ? '—' : (player.walk_away | number: '1.0-0') }}
+                </dd>
+              </div>
+            </dl>
+            <p class="prov">{{ player.walk_away_provenance }}</p>
+          </li>
+        }
+      </ul>
+    } @else {
+      <mat-card class="panel" appearance="outlined">
+        <table mat-table [dataSource]="players()" class="data-table targets-table">
+          <caption class="sr-only">
+            The rosa this plan buys, with the market's clearing price and the walk-away price for
+            each player
+          </caption>
+
+          <ng-container matColumnDef="nome">
+            <th mat-header-cell *matHeaderCellDef scope="col">Player</th>
+            <td mat-cell *matCellDef="let player">{{ player.nome }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="price">
+            <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Corpus price</th>
+            <td mat-cell *matCellDef="let player" class="col-end num is-muted">
+              {{ player.price | number: '1.0-0' }}
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="walkAway">
+            <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Walk-away</th>
+            <td mat-cell *matCellDef="let player" class="col-end">
               <!-- A null walk-away is rendered as one and never as a zero: zero means "a
                    substitute exists at this price", which is a real answer. -->
               <span
-                class="block text-sm font-semibold tabular-nums"
-                [class.text-text]="player.walk_away !== null"
-                [class.text-text-tertiary]="player.walk_away === null"
+                class="num is-strong walk-value"
+                [class.is-absent]="player.walk_away === null"
                 >{{ player.walk_away === null ? '—' : (player.walk_away | number: '1.0-0') }}</span
               >
-              <span class="block text-[0.65rem] leading-tight text-text-tertiary">{{
-                player.walk_away_provenance
-              }}</span>
-            </span>
-          </div>
-        }
-      </section>
-    } @else {
-      <!-- Seven outcomes, seven headings. They were one — "No plan yet", under a
-           suggestion to sync the lega, which is the right remedy for exactly one of them
-           and a wasted evening for the rest. The reason underneath carries the remedy. -->
-      <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-        <p
-          class="font-display text-base font-semibold"
-          [class.text-danger]="p.outcome === 'unreachable' || p.outcome === 'infeasible'"
-          [class.text-text]="p.outcome !== 'unreachable' && p.outcome !== 'infeasible'"
-        >
-          @switch (p.outcome) {
-            @case ('no_lega') {
-              This lega has never been synced
-            }
-            @case ('no_sentiment') {
-              The news feed is empty
-            }
-            @case ('no_corpus') {
-              No recorded auctions of this shape
-            }
-            @case ('empty_pool') {
-              No player pool for this format and season
-            }
-            @case ('infeasible') {
-              No legal rosa fits this budget
-            }
-            @case ('unreachable') {
-              Could not reach the database
-            }
-            @default {
-              No plan yet
-            }
-          }
-        </p>
-        <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">
-          {{
-            p.reason ??
-              'No player pool for this lega and season. Sync the lega and make sure quotazioni are loaded.'
-          }}
-        </p>
-      </section>
+              <span class="prov">{{ player.walk_away_provenance }}</span>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="playerColumns; sticky: true"></tr>
+          <tr mat-row *matRowDef="let row; columns: playerColumns"></tr>
+        </table>
+      </mat-card>
     }
-  }
+  </section>
 }
 
 <!-- The room journal. The CLI's record of a live evening, read back — the app writes
@@ -295,160 +372,267 @@
      than a tenth nav entry (§7 of the archived phase spec,
      tasks/archive/fantalab-in-the-app-spec.md), and it loads on open rather than on
      arrival: the recorded evening is 5,192 rows and 1.6 MB. -->
-<section class="mt-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-    <div>
-      <h2 class="font-display text-lg font-semibold text-text">Room journal</h2>
-      <p class="mt-0.5 text-sm text-text-secondary">
-        The <span class="font-semibold">CLI's</span> record of a live room — one line per cycle,
-        written by <span class="font-mono text-xs">fantabot asta room</span> and
-        <span class="font-mono text-xs">fantabot asta bid</span>. The app never bids.
-      </p>
-    </div>
-    <button
-      type="button"
-      (click)="toggleJournal()"
-      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-    >
-      <lucide-icon
-        [name]="journalOpen() ? 'chevron-down' : 'chevron-right'"
-        class="h-4 w-4"
-      ></lucide-icon>
-      {{ journalOpen() ? 'Hide' : 'Show' }}
-    </button>
-  </div>
-
-  @if (journalOpen()) {
-    @if (journalLoading() && !journal()) {
-      <div class="mx-6 mb-6 h-40 animate-shimmer rounded-lg border border-border"></div>
-    } @else if (journalError(); as message) {
-      <div class="border-t border-border px-6 py-5">
-        <p class="text-sm font-semibold text-danger">API unreachable</p>
-        <p class="mt-1 text-sm text-text-secondary">
-          {{ message }} Make sure fantabot-app is running.
+<section class="journal" aria-labelledby="journal-heading">
+  <mat-card class="panel" appearance="outlined">
+    <div class="panel-body panel-head">
+      <div class="panel-head-text">
+        <h2 id="journal-heading" class="panel-title">Room journal</h2>
+        <p class="panel-sub">
+          The <strong>CLI's</strong> record of a live room — one line per cycle, written by
+          <code>fantabot asta room</code> and <code>fantabot asta bid</code>. The app never bids.
         </p>
       </div>
-    } @else if (journal(); as j) {
-      @if (!j.ok) {
-        <div class="border-t border-border px-6 py-5">
-          <p class="text-sm font-semibold text-danger">The journal could not be read</p>
-          <p class="mt-1 text-sm text-text-secondary">{{ j.error }}</p>
-          <p class="mt-1 break-all font-mono text-xs text-text-tertiary">{{ j.path }}</p>
-        </div>
-      } @else if (!j.exists || !j.total) {
-        <!-- Not an error, and the path is the whole answer: `fantabot_data_dir` is
-             relative, so it resolves against whatever directory the launcher started in. -->
-        <div class="border-t border-border px-6 py-10 text-center">
-          <p class="font-display text-base font-semibold text-text">No journal yet</p>
-          <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">
-            Nothing at <span class="break-all font-mono text-xs">{{ j.path }}</span
-            >. It is written by
-            <span class="font-mono text-xs">fantabot asta room &lt;url&gt;</span> or
-            <span class="font-mono text-xs">fantabot asta bid</span>, in the terminal.
-          </p>
-        </div>
-      } @else {
-        <div
-          class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-3"
-        >
-          <p class="text-sm tabular-nums text-text-secondary">
-            {{ journalRange() }}
-            @if (j.skipped) {
-              <!-- Reported, never hidden: the journal flushes per line, so the one line a
-                   crash can tear is the newest — and tail-first that is the first row. -->
-              <span class="ml-2 text-warning">{{ j.skipped }} line(s) skipped, unparseable</span>
-            }
-          </p>
-          <div class="flex gap-2">
-            <button
-              type="button"
-              (click)="previousPage()"
-              [disabled]="!hasPreviousPage() || journalLoading()"
-              class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-40"
-            >
-              Newer
-            </button>
-            <button
-              type="button"
-              (click)="nextPage()"
-              [disabled]="!hasNextPage() || journalLoading()"
-              class="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-40"
-            >
-              Older
-            </button>
-          </div>
-        </div>
+      <button
+        matButton="outlined"
+        type="button"
+        class="journal-toggle"
+        aria-controls="journal-body"
+        [attr.aria-expanded]="journalOpen()"
+        (click)="toggleJournal()"
+      >
+        <lucide-icon
+          matButtonIcon
+          class="lucide-slot"
+          [size]="18"
+          [name]="journalOpen() ? 'chevron-down' : 'chevron-right'"
+          aria-hidden="true"
+        />
+        {{ journalOpen() ? 'Hide journal' : 'Show journal' }}
+      </button>
+    </div>
 
-        <div class="overflow-x-auto">
-          <div
-            class="grid min-w-[57rem] grid-cols-[4rem_1fr_5rem_5rem_6rem_5rem_5rem_5rem] gap-2 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
-          >
-            <span class="text-right">#</span>
-            <span>Lot</span>
-            <span class="text-right">Price</span>
-            <span class="text-right">Walk-away</span>
-            <span>Decision</span>
-            <span class="text-right">Cap</span>
-            <span class="text-right">Left</span>
-            <!-- Credits already gone on lots the plan never named, over the evening's
-                 ceiling for them. Written since 44cfe89 and read by nothing until now:
-                 an aggregate cap the operator cannot see is one they learn about by not
-                 understanding why a bid was held. -->
-            <span class="text-right">Bargain</span>
+    <!-- Focusable, never a tab stop. Turning to the last (or first) page disables the
+         button that was just pressed, and a disabled element cannot hold focus — without
+         somewhere to put it the browser drops it on `<body>` and the keyboard restarts at
+         the top of the page. The rows it turned to are where it belongs. -->
+    <div id="journal-body" #journalBody tabindex="-1">
+      @if (journalOpen()) {
+        @if (journalLoading() && !journal()) {
+          <mat-divider />
+          <div class="panel-body loading-block">
+            <p class="loading-text">Loading the journal…</p>
+            <mat-progress-bar mode="indeterminate" aria-label="Loading the journal" />
           </div>
-          @for (r of j.rows; track r.index) {
-            <div
-              class="grid min-w-[57rem] grid-cols-[4rem_1fr_5rem_5rem_6rem_5rem_5rem_5rem] items-center gap-2 border-b border-border-muted px-6 py-2 last:border-b-0"
-            >
-              <span class="text-right text-xs tabular-nums text-text-tertiary">{{ r.index }}</span>
-              <span class="truncate text-sm text-text">
-                {{ r.name ?? r.lot }}
-                @if (r.reason) {
-                  <span class="ml-2 text-xs text-text-tertiary">{{ r.reason }}</span>
-                }
-                <!-- A waiting row and an error row both carry two or three keys, so
-                     without this they are the same row of nulls — and telling a skipped
-                     poll from a crash is the whole purpose of writing an error row. -->
-                @if (r.error) {
-                  <span class="ml-2 text-xs font-medium text-danger">{{ r.error }}</span>
-                }
-              </span>
-              <span class="text-right text-sm tabular-nums text-text-secondary">{{ r.price }}</span>
-              <!-- A null walk-away is rendered as one. It was null on 4,501 of the 5,192
-                   recorded rows, which is what defect B2 looks like in the file; a dash
-                   that reads as zero would hide it. -->
-              <span
-                class="text-right text-sm tabular-nums"
-                [class.text-text-secondary]="r.walk_away !== null"
-                [class.text-warning]="r.walk_away === null"
-                >{{ r.walk_away ?? 'null' }}</span
-              >
-              <span
-                class="text-sm font-medium"
-                [class.text-signature]="r.decision === 'bid'"
-                [class.text-danger]="r.decision === 'pass'"
-                [class.text-text-secondary]="r.decision !== 'bid' && r.decision !== 'pass'"
-                >{{ r.decision }}</span
-              >
-              <span class="text-right text-sm tabular-nums text-text-tertiary">{{
-                r.max_cap
-              }}</span>
-              <span class="text-right text-sm tabular-nums text-text-secondary">{{
-                r.credits_left
-              }}</span>
-              <span class="text-right text-xs tabular-nums text-text-tertiary">
-                @if (r.bargain_allowance !== null) {
-                  {{ r.bargain_spent ?? 0 }}/{{ r.bargain_allowance }}
-                }
-              </span>
+        } @else if (journalError(); as message) {
+          <mat-divider />
+          <div class="panel-body">
+            <h3 class="state-title is-error">API unreachable</h3>
+            <p class="state-body">{{ message }} Make sure fantabot-app is running.</p>
+          </div>
+        } @else if (journal(); as j) {
+          @if (!j.ok) {
+            <mat-divider />
+            <div class="panel-body">
+              <h3 class="state-title is-error">The journal could not be read</h3>
+              <p class="state-body">{{ j.error }}</p>
+              <p class="path">{{ j.path }}</p>
             </div>
-          }
-        </div>
+          } @else if (!j.exists || !j.total) {
+            <!-- Not an error, and the path is the whole answer: `fantabot_data_dir` is
+                 relative, so it resolves against whatever directory the launcher started in. -->
+            <mat-divider />
+            <div class="panel-body is-centered">
+              <h3 class="state-title">No journal yet</h3>
+              <p class="state-body">
+                Nothing at <code class="path">{{ j.path }}</code
+                >. It is written by <code>fantabot asta room &lt;url&gt;</code> or
+                <code>fantabot asta bid</code>, in the terminal.
+              </p>
+            </div>
+          } @else {
+            <mat-divider />
+            <div class="panel-body journal-bar">
+              <p class="journal-range num">
+                {{ journalRange() }}
+                @if (j.skipped) {
+                  <!-- Reported, never hidden: the journal flushes per line, so the one line a
+                       crash can tear is the newest — and tail-first that is the first row. -->
+                  <span class="is-error"
+                    >{{ j.skipped }} {{ j.skipped === 1 ? 'line' : 'lines' }} skipped,
+                    unparseable</span
+                  >
+                }
+              </p>
+              <!-- Disabled at the bounds and nowhere else. `journalLoading()` used to be in
+                   both of these, and `loadJournal` sets it synchronously on click — so the
+                   browser blurred the button the operator had just pressed and focus fell to
+                   `<body>` on every page turn. The in-flight guard lives in `loadJournal`,
+                   which is where a second request is actually refused. -->
+              <div class="journal-nav">
+                <button
+                  matButton="outlined"
+                  type="button"
+                  [disabled]="!hasPreviousPage()"
+                  (click)="previousPage()"
+                >
+                  Newer
+                </button>
+                <button
+                  matButton="outlined"
+                  type="button"
+                  [disabled]="!hasNextPage()"
+                  (click)="nextPage()"
+                >
+                  Older
+                </button>
+              </div>
+            </div>
 
-        <p class="border-t border-border px-6 py-3 font-mono text-xs break-all text-text-tertiary">
-          {{ j.path }}
-        </p>
+            @if (journalAsCards()) {
+              <ul class="journal-list" role="list">
+                @for (r of j.rows; track r.index) {
+                  <li class="journal-card">
+                    <div class="journal-card-head">
+                      <span class="journal-index num">#{{ r.index }}</span>
+                      <!-- The badge carries the column's header in a card, where there is no
+                           header row to associate it with. -->
+                      <span
+                        class="decision"
+                        [class.d-bid]="r.decision === 'bid'"
+                        [class.d-pass]="r.decision === 'pass'"
+                        [class.d-fault]="r.decision === 'error'"
+                        ><span class="sr-only">Decision: </span>{{ r.decision }}</span
+                      >
+                    </div>
+                    <p class="journal-lot">{{ r.name ?? r.lot }}</p>
+                    @if (r.reason) {
+                      <p class="journal-reason">{{ r.reason }}</p>
+                    }
+                    <!-- A waiting row and an error row both carry two or three keys, so
+                         without this they are the same row of nulls — and telling a skipped
+                         poll from a crash is the whole purpose of writing an error row. -->
+                    @if (r.error) {
+                      <p class="journal-fault">{{ r.error }}</p>
+                    }
+                    <dl class="journal-figures">
+                      <div class="figure">
+                        <dt>Price</dt>
+                        <dd class="num">{{ r.price }}</dd>
+                      </div>
+                      <div class="figure">
+                        <dt>Walk-away</dt>
+                        <!-- A null walk-away is rendered as one. It was null on 4,501 of the
+                             5,192 recorded rows, which is what defect B2 looks like in the
+                             file; a dash that reads as zero would hide it. -->
+                        <dd class="num" [class.is-null]="r.walk_away === null">
+                          {{ r.walk_away ?? 'null' }}
+                        </dd>
+                      </div>
+                      <div class="figure">
+                        <dt>Cap</dt>
+                        <dd class="num">{{ r.max_cap }}</dd>
+                      </div>
+                      <div class="figure">
+                        <dt>Left</dt>
+                        <dd class="num">{{ r.credits_left }}</dd>
+                      </div>
+                      @if (r.bargain_allowance !== null) {
+                        <!-- Credits already gone on lots the plan never named, over the
+                             evening's ceiling for them. Written since 44cfe89 and read by
+                             nothing until now: an aggregate cap the operator cannot see is one
+                             they learn about by not understanding why a bid was held. -->
+                        <div class="figure">
+                          <dt>Bargain</dt>
+                          <dd class="num">{{ r.bargain_spent ?? 0 }}/{{ r.bargain_allowance }}</dd>
+                        </div>
+                      }
+                    </dl>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <table mat-table [dataSource]="j.rows" class="data-table journal-table">
+                <caption class="sr-only">
+                  One row per bidding cycle, newest first, as the CLI recorded it
+                </caption>
+
+                <ng-container matColumnDef="index">
+                  <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">#</th>
+                  <td mat-cell *matCellDef="let r" class="col-end num is-muted">{{ r.index }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="lot">
+                  <th mat-header-cell *matHeaderCellDef scope="col">Lot</th>
+                  <td mat-cell *matCellDef="let r">
+                    <span class="lot-name">{{ r.name ?? r.lot }}</span>
+                    @if (r.reason) {
+                      <span class="lot-note">{{ r.reason }}</span>
+                    }
+                    <!-- A waiting row and an error row both carry two or three keys, so
+                         without this they are the same row of nulls — and telling a skipped
+                         poll from a crash is the whole purpose of writing an error row. -->
+                    @if (r.error) {
+                      <span class="lot-fault">{{ r.error }}</span>
+                    }
+                  </td>
+                </ng-container>
+
+                <ng-container matColumnDef="price">
+                  <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Price</th>
+                  <td mat-cell *matCellDef="let r" class="col-end num">{{ r.price }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="walkAway">
+                  <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Walk-away</th>
+                  <!-- A null walk-away is rendered as one. It was null on 4,501 of the 5,192
+                       recorded rows, which is what defect B2 looks like in the file; a dash
+                       that reads as zero would hide it. -->
+                  <td
+                    mat-cell
+                    *matCellDef="let r"
+                    class="col-end num"
+                    [class.is-null]="r.walk_away === null"
+                  >
+                    {{ r.walk_away ?? 'null' }}
+                  </td>
+                </ng-container>
+
+                <ng-container matColumnDef="decision">
+                  <th mat-header-cell *matHeaderCellDef scope="col">Decision</th>
+                  <td mat-cell *matCellDef="let r">
+                    <span
+                      class="decision"
+                      [class.d-bid]="r.decision === 'bid'"
+                      [class.d-pass]="r.decision === 'pass'"
+                      [class.d-fault]="r.decision === 'error'"
+                      >{{ r.decision }}</span
+                    >
+                  </td>
+                </ng-container>
+
+                <ng-container matColumnDef="cap">
+                  <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Cap</th>
+                  <td mat-cell *matCellDef="let r" class="col-end num is-muted">{{ r.max_cap }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="left">
+                  <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Left</th>
+                  <td mat-cell *matCellDef="let r" class="col-end num">{{ r.credits_left }}</td>
+                </ng-container>
+
+                <!-- Credits already gone on lots the plan never named, over the evening's
+                     ceiling for them. Written since 44cfe89 and read by nothing until now: an
+                     aggregate cap the operator cannot see is one they learn about by not
+                     understanding why a bid was held. -->
+                <ng-container matColumnDef="bargain">
+                  <th mat-header-cell *matHeaderCellDef scope="col" class="col-end">Bargain</th>
+                  <td mat-cell *matCellDef="let r" class="col-end num is-muted">
+                    @if (r.bargain_allowance !== null) {
+                      {{ r.bargain_spent ?? 0 }}/{{ r.bargain_allowance }}
+                    }
+                  </td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="journalColumns; sticky: true"></tr>
+                <tr mat-row *matRowDef="let row; columns: journalColumns"></tr>
+              </table>
+            }
+
+            <mat-divider />
+            <p class="panel-body path journal-path">{{ j.path }}</p>
+          }
+        }
       }
-    }
-  }
+    </div>
+  </mat-card>
 </section>

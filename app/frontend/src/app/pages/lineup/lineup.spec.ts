@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 
 import { environment } from '../../../environments/environment';
+import { ICON_PROVIDER } from '../../icons';
 import { LineupRun, LineupRuns } from '../../core/models/lineup';
 import { LineupComponent } from './lineup';
 
@@ -26,7 +27,7 @@ describe('LineupComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [LineupComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), ICON_PROVIDER],
     }).compileComponents();
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -37,6 +38,17 @@ describe('LineupComponent', () => {
     httpMock.match((r) => r.url.includes('lineup/runs')).forEach((r) => r.flush(NO_RUNS));
     httpMock.verify();
   });
+
+  /** A plan the page draws as a refusal — enough to satisfy a `lineup/plan` request. */
+  const NO_PLAN = {
+    found: false,
+    outcome: 'no_lineup',
+    reason: 'x',
+    module: '',
+    matchday: null,
+    starters: [],
+    bench: [],
+  };
 
   function overview(id: number) {
     return {
@@ -79,6 +91,46 @@ describe('LineupComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('4-3-3');
     expect(text).toContain('Svilar');
+  });
+
+  it('titles the page with one h1', async () => {
+    // One `h1` per routed page, and the sections under it are all `h2`
+    // (`accessibility/designing.md:183`).
+    const fixture = TestBed.createComponent(LineupComponent);
+    fixture.detectChanges();
+    httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelectorAll('h1').length).toBe(1);
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe('Lineup');
+  });
+
+  it('offers the leagues as one single-select group', async () => {
+    // A segmented button, not chips: `mat-chip-option` deselects on a second click, which
+    // here would leave the page with no lega and ask for a plan for `null`.
+    const fixture = TestBed.createComponent(LineupComponent);
+    fixture.detectChanges();
+    httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937), overview(3584692)]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    httpMock.expectOne((r) => r.url.includes('lineup/plan')).flush(NO_PLAN);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const el: HTMLElement = fixture.nativeElement;
+    const group = el.querySelector('[role="radiogroup"]');
+    expect(group?.getAttribute('aria-label')).toBe('Lega');
+
+    const options = group?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [];
+    expect(options.length).toBe(2);
+
+    options[1].click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selectedId()).toBe(3584692);
+    httpMock.expectOne((r) => r.url.includes('league_id=3584692')).flush(NO_PLAN);
   });
 
   it('shows the reason when not connected', async () => {
@@ -253,6 +305,71 @@ describe('LineupComponent', () => {
         });
     });
 
+    it('never drops focus on <body> when the irreversible act is taken', async () => {
+      // The arm button used to sit inside `@if (canArm())`, and `canArm` included
+      // `!submitting()` while `arm()` sets `submitting` as its first act — so clicking the
+      // one action in this app that cannot be undone destroyed the focused element and the
+      // keyboard restarted at the top of the page. The button now survives the click and
+      // the outcome takes focus.
+      const fixture = await withPlan();
+      fixture.componentInstance.runDry();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const armButton = Array.from(host.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Submit this lineup for real'),
+      );
+      expect(armButton).toBeDefined();
+      armButton?.focus();
+      expect(document.activeElement).toBe(armButton);
+
+      armButton?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      // In flight: disabled against a second submit, and still the same element.
+      expect(host.contains(armButton as Node)).toBe(true);
+      expect(armButton?.disabled).toBe(true);
+
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/submit'))
+        .flush({
+          ...DRY,
+          outcome: 'submitted',
+          reason: '',
+          submitted: true,
+          saved_starters: 11,
+        });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const focused = document.activeElement as HTMLElement;
+      expect(focused).not.toBe(document.body);
+      expect(focused.classList.contains('feedback-block')).toBe(true);
+      expect(focused.textContent).toContain('Submitted 4-3-3');
+
+      // The quiet plan refresh `arm()` always fires.
+      httpMock.expectOne((r) => r.url.includes('lineup/plan')).flush(NO_PLAN);
+    });
+
+    it('announces the dry run, and draws the arm control inside the same region', async () => {
+      // The outcome lands in a live region that is already in the DOM, so it is announced
+      // rather than merely rendered; the second act sits below the run it arms, so the run
+      // on screen is always the run being armed.
+      const fixture = await withPlan();
+      fixture.componentInstance.runDry();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const live: HTMLElement | null = fixture.nativeElement.querySelector('[aria-live="polite"]');
+      expect(live?.getAttribute('role')).toBe('status');
+      expect(live?.textContent).toContain('Dry run — nothing was sent');
+      expect(live?.textContent).toContain('Submit this lineup for real');
+    });
+
     it('says a submit is unconfirmed when the read-back failed', async () => {
       // The POST returned 200 and the confirming GET did not. `submitted` is true — the
       // lineup is on the platform — so the page must not say "Not submitted", and must not
@@ -265,14 +382,16 @@ describe('LineupComponent', () => {
       await fixture.whenStable();
 
       fixture.componentInstance.arm();
-      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush({
-        ...DRY,
-        outcome: 'submitted',
-        reason: '',
-        submitted: true,
-        saved_starters: 0,
-        unconfirmed: 'apileague did not answer within 10s.',
-      });
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/submit'))
+        .flush({
+          ...DRY,
+          outcome: 'submitted',
+          reason: '',
+          submitted: true,
+          saved_starters: 0,
+          unconfirmed: 'apileague did not answer within 10s.',
+        });
       fixture.detectChanges();
       await fixture.whenStable();
 
@@ -375,7 +494,12 @@ describe('LineupComponent', () => {
         exists: true,
         total: 2,
         runs: [
-          run({ status: 'failed', code: 'TokenMissing', detail: 'no stored token for lega 4103937', module: '' }),
+          run({
+            status: 'failed',
+            code: 'TokenMissing',
+            detail: 'no stored token for lega 4103937',
+            module: '',
+          }),
           run(),
         ],
         last_at: '2026-09-12T19:05:00+02:00',
@@ -391,17 +515,30 @@ describe('LineupComponent', () => {
       expect(el.textContent).toContain('no stored token for lega 4103937');
     });
 
-    it('paints a failed run as danger', async () => {
+    it('paints a failed run as danger, and never by colour alone', async () => {
+      // The class carries the `error-container` / `on-error-container` pairing (it was
+      // Tailwind's `text-danger` before the Material 3 conversion). The word and the icon
+      // beside it are what a colour-blind reader goes by, so both are asserted too.
       const fixture = await withRuns({
         ...NO_RUNS,
         exists: true,
         total: 1,
-        runs: [run({ status: 'failed', code: 'not-armed', detail: 'not armed: FANTABOT_AUTO_ACT is false' })],
+        runs: [
+          run({
+            status: 'failed',
+            code: 'not-armed',
+            detail: 'not armed: FANTABOT_AUTO_ACT is false',
+          }),
+        ],
         last_age_hours: 0.5,
       });
 
-      const label = fixture.nativeElement.querySelector('[data-run-status="failed"]');
-      expect(label?.classList).toContain('text-danger');
+      const label: HTMLElement | null = fixture.nativeElement.querySelector(
+        '[data-run-status="failed"]',
+      );
+      expect(label?.classList).toContain('status-danger');
+      expect(label?.textContent).toContain('Failed');
+      expect(label?.querySelector('lucide-icon')).not.toBeNull();
     });
 
     it('warns when no scheduled run has happened for too long', async () => {
@@ -425,7 +562,12 @@ describe('LineupComponent', () => {
     });
 
     it('says when the record cannot be read, and where', async () => {
-      const fixture = await withRuns({ ...NO_RUNS, ok: false, exists: true, error: 'IsADirectoryError' });
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        ok: false,
+        exists: true,
+        error: 'IsADirectoryError',
+      });
 
       const text = fixture.nativeElement.textContent;
       expect(text).toContain('IsADirectoryError');

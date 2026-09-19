@@ -1,5 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ANIMATION_MODULE_TYPE } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { LucideIconConfig } from 'lucide-angular';
@@ -18,6 +19,10 @@ describe('AccountsComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         ICON_PROVIDER,
+        // The disconnect confirmation is a MatDialog, and Material closes one behind a
+        // real timer unless animations are off. With them off the close resolves on a
+        // microtask, so a test can assert the DELETE without waiting out an animation.
+        { provide: ANIMATION_MODULE_TYPE, useValue: 'NoopAnimations' },
         {
           provide: LucideIconConfig,
           useFactory: () => {
@@ -31,7 +36,13 @@ describe('AccountsComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    // A dialog panel is attached to the document, not to the fixture, so a test that
+    // leaves one open would otherwise be visible to the next one's `document` queries.
+    // The TestBed teardown removes it too; this makes the guarantee not depend on that.
+    document.querySelectorAll('.cdk-overlay-container').forEach((node) => node.remove());
+  });
 
   function flush(body: object) {
     httpMock.expectOne(`${environment.apiUrl}auth/status`).flush(body);
@@ -79,6 +90,30 @@ describe('AccountsComponent', () => {
     const button = fixture.nativeElement.querySelector(selector) as HTMLButtonElement | null;
     expect(button).toBeTruthy();
     button!.click();
+  }
+
+  /**
+   * The confirmation is a dialog, and a dialog panel is a CDK overlay attached to the
+   * document — not to the fixture. Everything about it is queried from `document`.
+   */
+  function dialogPanel(): HTMLElement | null {
+    return document.querySelector('[role="alertdialog"]');
+  }
+
+  function clickInDialog(selector: string) {
+    const panel = dialogPanel();
+    expect(panel).toBeTruthy();
+    const button = panel!.querySelector(selector) as HTMLButtonElement | null;
+    expect(button).toBeTruthy();
+    button!.click();
+  }
+
+  function dialogActionLabels(): string[] {
+    const panel = dialogPanel();
+    expect(panel).toBeTruthy();
+    return Array.from(panel!.querySelectorAll('mat-dialog-actions button')).map((button) =>
+      (button.textContent ?? '').trim(),
+    );
   }
 
   it('renders a connected league with its state', async () => {
@@ -129,6 +164,17 @@ describe('AccountsComponent', () => {
     await fixture.whenStable();
 
     expect(fixture.nativeElement.textContent).toContain('FANTABOT_ENCRYPTION_KEY');
+  });
+
+  it('gives the page exactly one h1 and no skipped heading level', async () => {
+    const fixture = await rendered();
+    const levels = Array.from(
+      fixture.nativeElement.querySelectorAll('h1, h2, h3, h4, h5, h6') as NodeListOf<HTMLElement>,
+    ).map((heading) => Number(heading.tagName.slice(1)));
+
+    expect(levels.filter((level) => level === 1)).toHaveLength(1);
+    expect(levels[0]).toBe(1);
+    expect(Math.max(...levels)).toBe(2);
   });
 
   it('starts a login job and begins watching it with no confirm step', async () => {
@@ -223,7 +269,7 @@ describe('AccountsComponent', () => {
 
     // The prompt names the lega, as `fantabot auth forget` does before its confirm —
     // and says what else goes, because the disconnect now takes the synced data too.
-    const prompt = fixture.nativeElement.textContent as string;
+    const prompt = dialogPanel()!.textContent as string;
     expect(prompt).toContain('Disconnect Legamiallerotaie2?');
     expect(prompt).toContain('everything the last sync saved');
     // The arming click alone must not delete anything — afterEach's verify() would
@@ -231,11 +277,24 @@ describe('AccountsComponent', () => {
     httpMock.expectNone(`${environment.apiUrl}auth/league/4103937`);
   });
 
+  it('names the FantaLab session, and not a lega, in its own confirmation', async () => {
+    const fixture = await rendered();
+    click(fixture, '[data-disconnect-fantalab="user9"]');
+    fixture.detectChanges();
+
+    const prompt = dialogPanel()!.textContent as string;
+    expect(prompt).toContain('Disconnect user9?');
+    expect(prompt).toContain('FantaLab session');
+    // Only a lega purge takes the synced data with it; saying so here would be a lie.
+    expect(prompt).not.toContain('everything the last sync saved');
+  });
+
   it('deletes the league token and reloads from the server on confirm', async () => {
     const fixture = await rendered();
     click(fixture, '[data-disconnect-league="4103937"]');
     fixture.detectChanges();
-    click(fixture, '[data-confirm-league="4103937"]');
+    clickInDialog('[data-confirm-league="4103937"]');
+    await tick();
 
     const request = httpMock.expectOne(`${environment.apiUrl}auth/league/4103937`);
     expect(request.request.method).toBe('DELETE');
@@ -252,7 +311,8 @@ describe('AccountsComponent', () => {
     const fixture = await rendered();
     click(fixture, '[data-disconnect-fantalab="user9"]');
     fixture.detectChanges();
-    click(fixture, '[data-confirm-fantalab="user9"]');
+    clickInDialog('[data-confirm-fantalab="user9"]');
+    await tick();
 
     const request = httpMock.expectOne(`${environment.apiUrl}auth/fantalab/user9`);
     expect(request.request.method).toBe('DELETE');
@@ -268,9 +328,33 @@ describe('AccountsComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.pendingId()).toBe('league:4103937');
 
-    fixture.componentInstance.disarmDisconnect();
+    const keep = Array.from(dialogPanel()!.querySelectorAll('mat-dialog-actions button')).find(
+      (button) => (button.textContent ?? '').trim() === 'Keep',
+    ) as HTMLButtonElement | undefined;
+    expect(keep).toBeTruthy();
+    keep!.click();
+    await tick();
     fixture.detectChanges();
+
     expect(fixture.componentInstance.pendingId()).toBeNull();
+    expect(dialogPanel()).toBeNull();
+    httpMock.expectNone(`${environment.apiUrl}auth/league/4103937`);
+  });
+
+  it('closes the open confirmation when the page disarms', async () => {
+    // `disarmDisconnect()` is the page's own escape hatch. Leaving the dialog up while
+    // `pendingId` is null would offer a Disconnect for a row nothing is armed on.
+    const fixture = await rendered();
+    click(fixture, '[data-disconnect-league="4103937"]');
+    fixture.detectChanges();
+    expect(dialogPanel()).toBeTruthy();
+
+    fixture.componentInstance.disarmDisconnect();
+    await tick();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.pendingId()).toBeNull();
+    expect(dialogPanel()).toBeNull();
     httpMock.expectNone(`${environment.apiUrl}auth/league/4103937`);
   });
 
@@ -278,7 +362,8 @@ describe('AccountsComponent', () => {
     const fixture = await rendered();
     click(fixture, '[data-disconnect-league="4103937"]');
     fixture.detectChanges();
-    click(fixture, '[data-confirm-league="4103937"]');
+    clickInDialog('[data-confirm-league="4103937"]');
+    await tick();
 
     httpMock
       .expectOne(`${environment.apiUrl}auth/league/4103937`)
@@ -307,20 +392,48 @@ describe('AccountsComponent', () => {
     expect(arm.disabled).toBe(true);
   });
 
-  it('renders the confirm outside the row cluster, on its own line', async () => {
-    // Inline, the cluster overflowed the card's overflow-hidden at phone widths and
-    // "Keep" became untappable — leaving the destructive button as the only target.
+  it('asks in an alertdialog whose actions put Keep ahead of the destructive button', async () => {
+    // Inline, the confirm cluster overflowed the card's overflow-hidden at phone widths
+    // and "Keep" became untappable — leaving the destructive button as the only target.
+    // In an overlay it cannot be clipped by the row, and DOM order is what decides where
+    // `autoFocus: 'first-tabbable'` lands.
     const fixture = await rendered();
     click(fixture, '[data-disconnect-league="4103937"]');
     fixture.detectChanges();
 
-    const confirm = fixture.nativeElement.querySelector('[data-confirm-league="4103937"]')!;
+    const panel = dialogPanel();
+    expect(panel).toBeTruthy();
+
     const arm = fixture.nativeElement.querySelector('[data-disconnect-league="4103937"]')!;
-    const group = confirm.closest('[role="group"]');
-    expect(group).toBeTruthy();
-    expect(group!.contains(arm)).toBe(false);
-    // Both escape routes live in the same group, so neither can be clipped alone.
-    expect(group!.textContent).toContain('Keep');
+    expect(panel!.contains(arm)).toBe(false);
+
+    // Both escape routes live in the same actions row, so neither can be clipped alone,
+    // and the destructive one is never first.
+    expect(dialogActionLabels()).toEqual(['Keep', 'Disconnect']);
+    const confirm = panel!.querySelector('[data-confirm-league="4103937"]');
+    expect(confirm).toBeTruthy();
+    expect(Array.from(panel!.querySelectorAll('mat-dialog-actions button')).indexOf(confirm!)).toBe(
+      1,
+    );
+  });
+
+  it('moves focus to the section heading when the confirmed row goes away', async () => {
+    // `restoreFocus` would send focus back to the Disconnect button, which this removal
+    // has just disabled — so it would land nowhere, at the top of the document.
+    const fixture = await rendered();
+    click(fixture, '[data-disconnect-league="4103937"]');
+    fixture.detectChanges();
+    clickInDialog('[data-confirm-league="4103937"]');
+    await tick();
+
+    httpMock
+      .expectOne(`${environment.apiUrl}auth/league/4103937`)
+      .flush({ ok: true, removed: true, rows_removed: 1 });
+
+    expect((document.activeElement as HTMLElement | null)?.id).toBe('leagues-heading');
+
+    flush({ has_key: true, fantalab: [], leagues: [] });
+    fixture.detectChanges();
   });
 
   it('cannot arm a second row while a delete is in flight', async () => {
@@ -351,7 +464,8 @@ describe('AccountsComponent', () => {
 
     click(fixture, '[data-disconnect-league="111"]');
     fixture.detectChanges();
-    click(fixture, '[data-confirm-league="111"]');
+    clickInDialog('[data-confirm-league="111"]');
+    await tick();
     fixture.detectChanges();
 
     // 111's DELETE is open. B's button must be inert — arming it would be wiped when

@@ -1,0 +1,538 @@
+@use '@angular/material' as mat;
+
+/* The Lineup page.
+ *
+ * Canonical layout: a **supporting pane**. The XI is the primary content; the bench only
+ * means anything beside it, so it is the fixed pane (360px from 840px, 412px from 1200px —
+ * `layout/breakpoints.md:17`, `:20`) and stacks below the XI at compact and medium, where
+ * M3 recommends one pane.
+ *
+ * The two-pane rule is guarded by a page-width container query nested inside each window
+ * media query, so the window still decides *whether* two panes are allowed and the guard
+ * can only narrow the result. Without it, an 840px window with the shell's rail docked
+ * would hand a 360px fixed bench to a ~700px pane.
+ *
+ * Every colour here is a `--mat-sys-*` role. Measured in the light scheme (the only one):
+ * on-surface 16.4:1, on-surface-variant 8.9:1, on-*-container over its container 7.2:1+.
+ */
+
+:host {
+  display: block;
+  container: lineup-page / inline-size;
+  max-inline-size: 1600px;
+  margin-inline: auto;
+  padding: 16px 16px 32px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px 24px 40px;
+  }
+}
+
+/* ---------------------------------------------------------------- page header */
+
+.page-header {
+  margin-block-end: 20px;
+}
+
+.page-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-medium);
+  letter-spacing: var(--mat-sys-headline-medium-tracking);
+}
+
+.page-intro {
+  margin: 6px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* ------------------------------------------------------------ shared surfaces */
+
+mat-card {
+  margin-block-end: 16px;
+}
+
+@media (min-width: 600px) {
+  mat-card {
+    margin-block-end: 24px;
+  }
+}
+
+.pane-title,
+.state-title {
+  margin: 0 0 8px;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+.state-text {
+  margin: 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* Element-qualified so it beats `.mat-mdc-card-content:first-child`, which has the same
+   class specificity and no guaranteed order against a component stylesheet. */
+mat-card-content.state-empty {
+  padding-block: 24px;
+}
+
+.state-card mat-progress-bar {
+  margin-block-start: 12px;
+}
+
+/* -------------------------------------------------------------- the callouts */
+
+/* A filled container plus its own `on-` role: a pairing M3 guarantees, which is why the
+   warning and error states are containers rather than coloured body text. The icon
+   inherits the text colour, so it clears 3:1 wherever the text clears 4.5:1.
+ *
+ * Three tones need three roles that really differ, and on this palette there are exactly
+ * three families that do: neutral, blue and red. The stock azure palette declares no
+ * tertiary group, so Material derives one from primary and `tertiary-container` comes out
+ * the same #d7e3ff as `primary-container` — the warning and the success were one blue box.
+ * The split is therefore by what the operator has to do, the way `accounts.scss` already
+ * split it: nothing (neutral), look at this (blue), it did not happen (red). Each variant
+ * keeps its own icon and wording, so the tone was never the only signal and still isn't.
+ *
+ * Measured with the skill's `scripts/contrast.py` against the azure palette, light scheme
+ * (the only one — `material.scss` pins `color-scheme: light`):
+ *   on-surface-variant   #44474e on surface-container-high #e9e7eb   7.57:1
+ *   on-primary-container #00458f on primary-container      #d7e3ff   7.26:1
+ *   on-error-container   #93000a on error-container        #ffdad6   7.24:1
+ */
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-block-start: 12px;
+  padding: 12px 16px;
+  border-radius: var(--mat-sys-corner-medium);
+}
+
+.callout:first-child {
+  margin-block-start: 0;
+}
+
+.callout-error {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+/* Needs the operator: a deadline that has passed, a submit the read-back could not prove,
+   a scheduled job that has gone quiet. */
+.callout-warning {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+/* The uneventful outcome. It reports, it does not demand, so it is the neutral one. */
+.callout-done {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* The title inside a neutral callout is the line worth reading first. 14.01:1. */
+.callout-done .callout-title {
+  color: var(--mat-sys-on-surface);
+}
+
+.callout-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-block-start: 2px;
+}
+
+.callout-body {
+  min-inline-size: 0;
+}
+
+.callout-title {
+  margin: 0;
+  color: inherit;
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
+.callout-text {
+  margin: 0;
+  max-inline-size: 60ch;
+  color: inherit;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.callout-title + .callout-text,
+.callout-text + .callout-text {
+  margin-block-start: 4px;
+}
+
+/* --------------------------------------------------------------- lega picker */
+
+/* The group scrolls rather than clipping: at 200% text the segments outgrow a phone, and
+   a clipped label is lost information while a scrolled one is not. The vertical padding
+   keeps the focus ring (drawn outside the control) inside the scroll box. */
+.lega-picker {
+  margin-block-end: 16px;
+  padding-block: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+@media (min-width: 600px) {
+  .lega-picker {
+    margin-block-end: 24px;
+  }
+}
+
+.lega-group {
+  /* 3rem (48px), not the 40px default: this is the page's only pointer target that would
+     otherwise fall under the M3 minimum (`accessibility/designing.md:282`). In rem because
+     the token also drives the label's `line-height`, and a px value clips the label when
+     text alone is resized to 200%. */
+  @include mat.button-toggle-overrides(
+    (
+      height: 3rem,
+    )
+  );
+}
+
+/* ----------------------------------------------------------------- plan card */
+
+.plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
+.plan-label {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+.plan-module {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-display-small);
+  letter-spacing: var(--mat-sys-display-small-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-matchday {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* --------------------------------------------------------------- the panes */
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.panes > mat-card {
+  margin-block-end: 16px;
+}
+
+@media (min-width: 600px) {
+  .panes > mat-card {
+    margin-block-end: 24px;
+  }
+}
+
+/* A grid item's `min-width: auto` can push past its track, so a long name in the XI would
+   widen the flexible column instead of wrapping inside it. */
+.pane {
+  min-inline-size: 0;
+}
+
+/* Two panes from 840px, and only while the pane itself is wide enough for them. */
+@media (min-width: 840px) {
+  @container lineup-page (min-width: 620px) {
+    .panes {
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .panes > mat-card {
+      margin-block-end: 24px;
+    }
+
+    /* The two-pane split named rather than left to source order: the XI is the flexible
+       pane and the bench the fixed supporting one, and reordering the markup must not
+       quietly swap which is which. Scoped inside the guard on purpose — a `grid-column`
+       outside it would invent a second column in the stacked layout. */
+    .pane-primary {
+      grid-column: 1;
+    }
+
+    .pane-supporting {
+      grid-column: 2;
+    }
+  }
+}
+
+@media (min-width: 1200px) {
+  @container lineup-page (min-width: 700px) {
+    .panes {
+      grid-template-columns: minmax(0, 1fr) 412px;
+    }
+  }
+}
+
+/* -------------------------------------------------------------- player lists */
+
+/* `mat-list.` rather than `.player-list`: Material's own `.mdc-list` rule has the same
+   specificity, and the order the two stylesheets land in is not guaranteed. */
+mat-list.player-list {
+  /* Full-bleed rows inside the card's 16px content padding, the way a list reads. */
+  margin-inline: -16px;
+  padding-block: 0;
+
+  @include mat.list-overrides(
+    (
+      list-item-one-line-container-height: 2.75rem,
+      list-item-label-text-size: var(--mat-sys-body-medium-size),
+      list-item-label-text-line-height: var(--mat-sys-body-medium-line-height),
+    )
+  );
+}
+
+/* A row that can grow instead of clipping: the fixed one-line height would cut a long
+   name in half once the text is resized. */
+.player-list mat-list-item {
+  block-size: auto;
+  min-block-size: 2.75rem;
+  padding-block: 8px;
+  cursor: default;
+}
+
+.player-list mat-list-item + mat-list-item {
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+}
+
+.player-list .player-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  white-space: normal;
+  overflow: visible;
+}
+
+.player-list .player-name {
+  white-space: normal;
+  overflow: visible;
+  color: var(--mat-sys-on-surface);
+}
+
+.player-index {
+  flex: none;
+  inline-size: 1.5em;
+  text-align: end;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------------------- submit card */
+
+mat-card-actions.submit-actions {
+  padding: 8px 16px 16px;
+}
+
+.submit-feedback:empty {
+  display: none;
+}
+
+.feedback-block {
+  padding: 0 16px 16px;
+}
+
+/* The submit's outcome takes focus when it lands, because the button that produced it is
+   gone by then. Material's strong focus indicators only reach its own components, so the
+   ring is drawn here — outside the block, with a gap (`interaction/states.md:198`). */
+.feedback-block:focus-visible {
+  outline: 3px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+  border-radius: var(--mat-sys-corner-extra-small);
+}
+
+.feedback-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
+.feedback-text {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.feedback-strong {
+  color: var(--mat-sys-on-surface);
+}
+
+.feedback-module {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.feedback-aside {
+  margin: 8px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+/* The second act. Its own block, below the dry run's output, so the run it arms is the
+   run in view. `.danger-zone` (global) remaps the primary roles to the error ones, which
+   is what turns the filled button red without a hex anywhere. */
+.arm-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 16px 16px;
+  padding: 16px;
+  border: 1px solid var(--mat-sys-error);
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-surface);
+}
+
+.arm-note {
+  margin: 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+@media (min-width: 600px) {
+  .arm-block {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+}
+
+/* --------------------------------------------------------- scheduled history */
+
+.runs-age {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.run-list {
+  margin: 16px -16px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-item {
+  padding: 12px 16px;
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+}
+
+.run-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+/* Status is icon + word + colour, never colour on its own. Each variant is a filled
+   container read with its own `on-` role, so all four clear 4.5:1 by construction.
+ *
+ * Four statuses, three tones — see the callout note above for why this palette has only
+ * three container families it can tell apart. The tones say what the operator has to do,
+ * and the two that ask for nothing share one: `submitted` is the one that worked and
+ * `skipped` the one that deliberately did not, which the check-circle / circle-minus icons
+ * and their words already separate. Emphasis carries the rest: `submitted` reads at
+ * `on-surface`, `skipped` at `on-surface-variant`. Measured, light scheme:
+ *   on-surface           #1a1b1f on surface-container-high    #e9e7eb  14.01:1
+ *   on-surface-variant   #44474e on surface-container-highest #e3e2e6   7.22:1
+ *   on-primary-container #00458f on primary-container         #d7e3ff   7.26:1
+ *   on-error-container   #93000a on error-container           #ffdad6   7.24:1
+ */
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: var(--mat-sys-corner-full);
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+.run-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.run-status.status-success {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+}
+
+.run-status.status-warning {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.run-status.status-muted {
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.run-status.status-danger {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+/* The one place a status colours text rather than a container: the refusal heading in an
+   otherwise empty pane. `--mat-sys-error` on `--mat-sys-surface` measures 6.16:1. */
+.state-title-danger {
+  color: var(--mat-sys-error);
+}
+
+.run-meta {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-detail {
+  margin: 4px 0 0;
+  max-inline-size: 70ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}

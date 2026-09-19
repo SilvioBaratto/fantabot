@@ -1,0 +1,54 @@
+<div class="rail-header" [class.rail-header-expanded]="expanded()">
+  @if (showToggle()) {
+    <button
+      matIconButton
+      type="button"
+      [attr.aria-label]="expanded() ? 'Collapse navigation' : 'Expand navigation'"
+      [attr.aria-expanded]="expanded()"
+      (click)="toggleExpanded.emit()"
+    >
+      <lucide-icon name="Menu" [size]="24" aria-hidden="true" />
+    </button>
+  }
+  @if (expanded()) {
+    <span class="rail-brand">fantabot</span>
+  }
+</div>
+
+@if (expanded()) {
+  <!-- mat-nav-list already renders role="navigation", so it is not wrapped in a <nav>. -->
+  <mat-nav-list aria-label="Primary">
+    @for (item of items(); track item.route) {
+      <a
+        mat-list-item
+        [routerLink]="item.route"
+        routerLinkActive
+        #rla="routerLinkActive"
+        [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }"
+        [activated]="rla.isActive"
+        (click)="navigated.emit()"
+      >
+        <lucide-icon matListItemIcon [name]="item.icon" [size]="24" aria-hidden="true" />
+        <span matListItemTitle>{{ item.name }}</span>
+      </a>
+    }
+  </mat-nav-list>
+} @else {
+  <nav class="rail" aria-label="Primary">
+    @for (item of items(); track item.route) {
+      <a
+        class="rail-item"
+        [routerLink]="item.route"
+        routerLinkActive="is-active"
+        ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }"
+        (click)="navigated.emit()"
+      >
+        <span class="indicator">
+          <lucide-icon [name]="item.icon" [size]="24" aria-hidden="true" />
+        </span>
+        <span class="label">{{ item.name }}</span>
+      </a>
+    }
+  </nav>
+}

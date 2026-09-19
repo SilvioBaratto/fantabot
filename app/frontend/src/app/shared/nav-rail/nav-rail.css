@@ -1,0 +1,113 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  overflow-y: auto;
+  background: var(--mat-sys-surface);
+}
+
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-block-size: 64px;
+  padding-inline: 12px;
+  flex: none;
+}
+
+.rail-header-expanded {
+  justify-content: flex-start;
+  padding-inline: 16px;
+}
+
+.rail-brand {
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* Collapsed rail: ~96px wide, icon over label, per the M3 navigation rail component spec. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px 12px;
+}
+
+.rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  inline-size: 80px;
+  min-block-size: 48px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  text-decoration: none;
+  outline: none;
+}
+
+.indicator {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  inline-size: 56px;
+  block-size: 32px;
+  border-radius: var(--mat-sys-corner-full);
+  overflow: hidden;
+}
+
+.indicator::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+@media (hover: hover) {
+  .rail-item:hover .indicator::before {
+    opacity: var(--mat-sys-hover-state-layer-opacity);
+  }
+}
+
+.rail-item:focus-visible .indicator {
+  outline: 3px solid var(--mat-sys-secondary);
+  outline-offset: 2px;
+  overflow: visible;
+}
+
+.rail-item:focus-visible .indicator::before {
+  opacity: var(--mat-sys-focus-state-layer-opacity);
+  border-radius: inherit;
+}
+
+.rail-item:active .indicator::before {
+  opacity: var(--mat-sys-pressed-state-layer-opacity);
+}
+
+.is-active {
+  color: var(--mat-sys-secondary);
+}
+
+.is-active .indicator {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.is-active .label {
+  font-weight: var(--mat-sys-label-medium-weight-prominent);
+}
+
+.label {
+  text-align: center;
+  /* The labels stay visible at every width; they wrap rather than truncate so a
+     1.5x-longer translation is still readable (M3 content_design/global_writing.md:34). */
+  line-height: 1.1;
+}

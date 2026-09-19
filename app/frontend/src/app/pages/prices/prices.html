@@ -1,123 +1,161 @@
-<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="font-display text-3xl font-bold tracking-tight text-text">Target prices</h1>
-    <p class="mt-1 text-sm text-text-secondary">
-      QI fade and team discount — the biggest moves from list price.
-    </p>
+<header class="page-header">
+  <div class="page-heading">
+    <h1>Target prices</h1>
+    <p class="page-subtitle">QI fade and team discount — the biggest moves from list price.</p>
   </div>
-  <div class="flex flex-wrap items-center gap-3">
-    <!-- The one control here that writes. It was not a control at all: `pricing.run`
-         upserts `target_price` and the GET called it, so arriving on this page stored a
-         fit nobody asked for. -->
-    <button
-      type="button"
-      (click)="store()"
-      [disabled]="storing()"
-      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
+
+  <div class="page-actions">
+    <!-- Single-selection group: Material renders role="radiogroup"/role="radio" and a
+         check mark on the selected toggle, so the current listone is never carried by
+         colour alone (interaction/selection.md:23). -->
+    <mat-button-toggle-group
+      class="system-toggle"
+      name="listone"
+      aria-label="Listone"
+      [value]="system()"
+      (change)="setSystem($event.value)"
     >
-      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="storing()"></lucide-icon>
+      <mat-button-toggle value="classic" data-system="classic">Classic</mat-button-toggle>
+      <mat-button-toggle value="mantra" data-system="mantra">Mantra</mat-button-toggle>
+    </mat-button-toggle-group>
+
+    <!-- The one control here that writes, and the page's primary action. It was not a
+         control at all: `pricing.run` upserts `target_price` and the GET called it, so
+         arriving on this page stored a fit nobody asked for. -->
+    <button
+      matButton="filled"
+      type="button"
+      data-refit-store
+      [disabled]="storing()"
+      (click)="store()"
+    >
+      <lucide-icon
+        matButtonIcon
+        class="lucide-slot"
+        name="refresh-cw"
+        [size]="18"
+        aria-hidden="true"
+      />
       {{ storing() ? 'Storing…' : 'Refit and store' }}
     </button>
-    <div class="flex gap-1 rounded-md border border-border bg-surface-raised p-1">
-      @for (s of ['classic', 'mantra']; track s) {
-        <button
-          type="button"
-          (click)="setSystem($any(s))"
-          class="rounded px-3 py-1 text-sm font-medium capitalize transition-colors"
-          [class.bg-primary]="system() === s"
-          [class.text-surface-raised]="system() === s"
-          [class.text-text-secondary]="system() !== s"
-        >
-          {{ s }}
-        </button>
-      }
-    </div>
   </div>
 </header>
 
+<!-- One live region for both waits, so a screen reader hears each of them once. The
+     visible indicators below are aria-hidden for the same reason. -->
+<p class="sr-only" role="status">
+  @if (loading()) {
+    Loading target prices
+  } @else if (storing()) {
+    Storing target prices
+  }
+</p>
+
+<!-- Always 4px tall, so the bar appearing never pushes the report down. -->
+<div class="page-activity" aria-hidden="true">
+  @if (loading() || storing()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+</div>
+
 @if (loading()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+  <p class="loading-text" aria-hidden="true">Loading target prices…</p>
 } @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
+  <mat-card class="notice-card notice-card--error">
+    <h2>API unreachable</h2>
+    <p class="notice-card__body">{{ message }} Make sure fantabot-app is running.</p>
+  </mat-card>
 } @else if (report(); as r) {
   @if (r.found && (r.biggest_bumps.length || r.biggest_cuts.length)) {
     <!-- `stored` is 0 on the GET, and that is the truth rather than a failure: reading
          this page no longer writes. Saying "0 prices stored" would read as "the model
          stored nothing", so the two cases say different things. -->
-    <p class="mb-6 text-sm text-text-secondary tabular-nums">
+    <p class="report-status">
       @if (r.stored > 0) {
-        {{ r.stored }} prices stored
+        {{ r.stored }} {{ r.stored === 1 ? 'price' : 'prices' }} stored
       } @else {
-        Read-only — press <span class="font-medium text-text">Refit and store</span> to update the
-        cached prices.
+        Read-only — use <span class="report-status__control">Refit and store</span> to update the
+        cached prices
       }
     </p>
 
-    <div class="grid gap-6 lg:grid-cols-2">
-      <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="h-1 w-full bg-signature"></div>
-        <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">
-          Biggest bumps
+    <div class="movers">
+      <mat-card class="mover-card mover-card--up">
+        <div class="mover-card__header">
+          <h2 id="bumps-title">Biggest bumps</h2>
         </div>
-        @for (p of r.biggest_bumps; track p.id) {
-          <div
-            class="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border-muted px-6 py-2 last:border-b-0"
-          >
-            <span class="truncate text-sm text-text"
-              >{{ p.nome }} <span class="text-xs text-text-tertiary">{{ p.squadra }}</span></span
-            >
-            <span class="text-right text-sm tabular-nums text-text-tertiary">{{ p.qi }}</span>
-            <span class="w-12 text-right text-sm font-semibold tabular-nums text-signature">{{
-              p.target_price
-            }}</span>
-          </div>
-        }
-      </section>
+        <table aria-labelledby="bumps-title">
+          <thead>
+            <tr>
+              <th scope="col" class="col-player">Player</th>
+              <th scope="col" class="col-num">QI</th>
+              <th scope="col" class="col-num">Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of r.biggest_bumps; track p.id) {
+              <tr>
+                <th scope="row" class="col-player">
+                  {{ p.nome }}<span class="player-team">{{ p.squadra }}</span>
+                </th>
+                <td class="col-num">{{ p.qi }}</td>
+                <td class="col-num col-target">{{ p.target_price }}</td>
+              </tr>
+            } @empty {
+              <tr>
+                <td class="table-empty" colspan="3">No bumps</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </mat-card>
 
-      <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="h-1 w-full bg-danger"></div>
-        <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">
-          Biggest cuts
+      <mat-card class="mover-card mover-card--down">
+        <div class="mover-card__header">
+          <h2 id="cuts-title">Biggest cuts</h2>
         </div>
-        @for (p of r.biggest_cuts; track p.id) {
-          <div
-            class="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border-muted px-6 py-2 last:border-b-0"
-          >
-            <span class="truncate text-sm text-text"
-              >{{ p.nome }} <span class="text-xs text-text-tertiary">{{ p.squadra }}</span></span
-            >
-            <span class="text-right text-sm tabular-nums text-text-tertiary">{{ p.qi }}</span>
-            <span class="w-12 text-right text-sm font-semibold tabular-nums text-danger">{{
-              p.target_price
-            }}</span>
-          </div>
-        }
-      </section>
+        <table aria-labelledby="cuts-title">
+          <thead>
+            <tr>
+              <th scope="col" class="col-player">Player</th>
+              <th scope="col" class="col-num">QI</th>
+              <th scope="col" class="col-num">Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of r.biggest_cuts; track p.id) {
+              <tr>
+                <th scope="row" class="col-player">
+                  {{ p.nome }}<span class="player-team">{{ p.squadra }}</span>
+                </th>
+                <td class="col-num">{{ p.qi }}</td>
+                <td class="col-num col-target">{{ p.target_price }}</td>
+              </tr>
+            } @empty {
+              <tr>
+                <td class="table-empty" colspan="3">No cuts</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </mat-card>
     </div>
 
     @if (flagList().length) {
-      <div class="mt-6 flex flex-wrap gap-2">
-        @for (f of flagList(); track f.flag) {
-          <span
-            class="rounded-full border border-border bg-surface-raised px-3 py-1 text-xs text-text-secondary tabular-nums"
-          >
-            {{ f.flag }} · {{ f.count }}
-          </span>
-        }
-      </div>
+      <section class="flags" aria-labelledby="flags-title">
+        <h2 class="flags__title" id="flags-title">Flags</h2>
+        <mat-chip-set>
+          @for (f of flagList(); track f.flag) {
+            <mat-chip class="flag-chip">{{ f.flag }} · {{ f.count }}</mat-chip>
+          }
+        </mat-chip-set>
+      </section>
     }
   } @else {
     <!-- "No data" and "the database would not open" are different facts, and the fix for
          one is loading a season while the fix for the other is starting Postgres. -->
-    <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-      <p
-        class="font-display text-base font-semibold"
-        [class.text-danger]="r.outcome === 'unreachable'"
-        [class.text-text]="r.outcome !== 'unreachable'"
-      >
+    <mat-card class="notice-card" [class.notice-card--error]="r.outcome === 'unreachable'">
+      <h2>
         @switch (r.outcome) {
           @case ('unreachable') {
             Could not reach the database
@@ -129,8 +167,8 @@
             No target prices
           }
         }
-      </p>
-      <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">
+      </h2>
+      <p class="notice-card__body">
         {{
           r.reason ??
             'The model needs quotazioni and prior-season stats for ' +
@@ -138,6 +176,6 @@
               '. Load the season data, then refresh.'
         }}
       </p>
-    </section>
+    </mat-card>
   }
 }

@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
@@ -8,10 +9,37 @@ import { ICON_PROVIDER } from '../../icons';
 import { AstaPlan } from '../../core/models/asta-plan';
 import { JournalPage, JournalRow } from '../../core/models/journal';
 import { RoomCheck } from '../../core/models/room';
+import { WINDOW_SIZE_QUERIES, WindowSizeClass } from '../../core/window-size-class';
 import { AstaComponent } from './asta';
 
 describe('AstaComponent', () => {
   let httpMock: HttpTestingController;
+
+  /**
+   * Make `matchMedia` report a match for exactly one M3 query, the same seam
+   * `WindowSizeClassService` reads in production. jsdom evaluates no CSS and reports no
+   * width, so with no stub nothing matches and the service falls back to `compact` — which
+   * is what every test below that does not call this one is exercising.
+   *
+   * It has to run before the component is created: the service is injected in a field
+   * initializer and reads the queries once, on construction.
+   */
+  function stubSizeClass(size: WindowSizeClass): void {
+    const target = WINDOW_SIZE_QUERIES[size];
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === target,
+          media: query,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    );
+  }
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -33,7 +61,10 @@ describe('AstaComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    httpMock.verify();
+  });
 
   function overview(id: number) {
     return {
@@ -108,7 +139,8 @@ describe('AstaComponent', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Svilar');
-    expect(text).toContain('objective');
+    // Sentence case, per the M3 content rules; this label was lower-case `objective`.
+    expect(text).toContain('Objective');
   });
 
   it('says what the plan was built on', async () => {
@@ -117,9 +149,10 @@ describe('AstaComponent', () => {
     const fixture = await readyWithPlan(plan({ lam: 0.3, owned: ['9'], callable_pool: 529 }));
 
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('risk (lam)');
+    // Sentence case, per the M3 content rules; these labels were lower-case.
+    expect(text).toContain('Risk (lam)');
     expect(text).toContain('0.3');
-    expect(text).toContain('callable pool');
+    expect(text).toContain('Callable pool');
     expect(text).toContain('529');
   });
 
@@ -128,7 +161,7 @@ describe('AstaComponent', () => {
     // pool narrowed to nothing is a different fact and would be a plan over nobody.
     const fixture = await readyWithPlan(plan({ callable_pool: null }));
 
-    expect(fixture.nativeElement.textContent).toContain('not narrowed');
+    expect(fixture.nativeElement.textContent).toContain('Not narrowed');
   });
 
   it('shows the next-best plans the command prints', async () => {
@@ -444,6 +477,71 @@ describe('AstaComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('5092');
     });
 
+    it('keeps the pager focusable while its page is in flight', async () => {
+      // Both buttons carried `|| journalLoading()`, and `loadJournal` sets that flag
+      // synchronously — so the browser disabled the button the operator had just pressed
+      // and focus fell to `<body>` on every page turn. The in-flight guard belongs in
+      // `loadJournal`, which is where a second request is actually refused.
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ rows: [journalRow()] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const older = Array.from(host.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === 'Older',
+      );
+      expect(older).toBeDefined();
+      older?.focus();
+      older?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.journalLoading()).toBe(true);
+      expect(older?.disabled).toBe(false);
+      expect(document.activeElement).toBe(older);
+
+      // And the guard still holds: a second click while one is in flight asks for nothing.
+      older?.click();
+      const inFlight = httpMock.match((r) => r.url.includes('asta/journal'));
+      expect(inFlight.length).toBe(1);
+      inFlight[0].flush(page({ offset: 100, rows: [journalRow({ index: 5092 })] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+    });
+
+    it('moves focus into the rows when a page turn reaches the last page', async () => {
+      // Reaching a bound is the one thing that still takes the pressed button away, and a
+      // disabled element cannot hold focus. The rows it turned to are where focus belongs.
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ total: 101, limit: 100, rows: [journalRow()] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const older = Array.from(host.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === 'Older',
+      );
+      older?.focus();
+      older?.click();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ total: 101, limit: 100, offset: 100, rows: [journalRow({ index: 5092 })] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.hasNextPage()).toBe(false);
+      expect(older?.disabled).toBe(true);
+      expect(document.activeElement).not.toBe(document.body);
+      expect((document.activeElement as HTMLElement).id).toBe('journal-body');
+    });
+
     it('names the path and the commands when there is no journal yet', async () => {
       const fixture = await ready();
       fixture.componentInstance.toggleJournal();
@@ -471,6 +569,101 @@ describe('AstaComponent', () => {
       await fixture.whenStable();
 
       expect(fixture.nativeElement.textContent).toContain('1 line');
+    });
+
+    /**
+     * Eight columns need roughly 900px, which is more than this page's pane has below 840px
+     * once the shell's docked rail is out of the window. M3's answer to a table that will
+     * not fit is a different layout, never a horizontal scroll of eight columns
+     * (`layout/breakpoints.md:67`), so below 840px each row is a card — and every label the
+     * header row would have carried travels with it.
+     */
+    it('draws the journal as cards below 840px, with every column still labelled', async () => {
+      stubSizeClass('medium');
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(
+          page({
+            rows: [
+              journalRow({
+                name: 'Holm',
+                walk_away: null,
+                bargain_spent: 37,
+                bargain_allowance: 50,
+              }),
+            ],
+          }),
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.querySelector('table')).toBeNull();
+      expect(fixture.nativeElement.querySelectorAll('.journal-card').length).toBe(1);
+
+      const text = fixture.nativeElement.textContent as string;
+      for (const label of ['Price', 'Walk-away', 'Decision', 'Cap', 'Left', 'Bargain']) {
+        expect(text).toContain(label);
+      }
+      expect(text).toContain('#5192');
+      expect(text).toContain('37/50');
+      // Still a null and never a zero: 4,501 of the 5,192 recorded rows look like this.
+      expect(text).toContain('null');
+    });
+
+    it('draws the journal as a table from 840px up', async () => {
+      stubSizeClass('expanded');
+      const fixture = await ready();
+      fixture.componentInstance.toggleJournal();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(page({ rows: [journalRow({ name: 'Holm' })] }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const table = fixture.nativeElement.querySelector('table.journal-table') as HTMLTableElement;
+      expect(table).not.toBeNull();
+      expect(
+        Array.from(table.querySelectorAll('thead th')).map((h) => h.textContent?.trim()),
+      ).toEqual(['#', 'Lot', 'Price', 'Walk-away', 'Decision', 'Cap', 'Left', 'Bargain']);
+      expect(table.querySelectorAll('tbody tr').length).toBe(1);
+      expect(table.textContent).toContain('Holm');
+    });
+  });
+
+  /**
+   * The targets. Three columns fit a phone; the walk-away's provenance sentence does not,
+   * so at compact the row becomes a card and the two figures get their labels back.
+   */
+  describe('targets, per size class', () => {
+    it('draws the targets as cards at compact, not a table', async () => {
+      stubSizeClass('compact');
+      const fixture = await readyWithPlan(plan());
+
+      expect(fixture.nativeElement.querySelector('table')).toBeNull();
+      expect(fixture.nativeElement.querySelectorAll('.target-card').length).toBe(1);
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Svilar');
+      expect(text).toContain('Corpus price');
+      expect(text).toContain('Walk-away');
+      expect(text).toContain('34');
+      expect(text).toContain('re-solved');
+    });
+
+    it('draws the targets as a table from 600px up', async () => {
+      stubSizeClass('medium');
+      const fixture = await readyWithPlan(plan());
+
+      const table = fixture.nativeElement.querySelector('table.targets-table') as HTMLTableElement;
+      expect(table).not.toBeNull();
+      expect(
+        Array.from(table.querySelectorAll('thead th')).map((h) => h.textContent?.trim()),
+      ).toEqual(['Player', 'Corpus price', 'Walk-away']);
+      expect(table.textContent).toContain('Svilar');
+      // The provenance stays beside the number it explains, never behind a hover.
+      expect(table.textContent).toContain('re-solved');
     });
   });
 

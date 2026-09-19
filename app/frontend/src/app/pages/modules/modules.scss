@@ -1,0 +1,207 @@
+@use '@angular/material' as mat;
+
+/* Mantra modules.
+ *
+ * Every colour, type ramp, radius and elevation here is a `--mat-sys-*` role. No literal
+ * colour appears in this file by design (`src/styles/material.scss` is the only theme).
+ *
+ * Measured with the skill's `contrast.py` against the stock azure palette, light scheme:
+ *   on-surface-variant on surface ................. 8.88:1  (page lede, slot fallback)
+ *   on-surface-variant on surface-container-highest  7.22:1  (slot token)
+ *   on-error-container on error-container .......... 7.24:1  (error card, text and icon)
+ * The outlined card's hairline (outline-variant on surface) measures 1.62:1. That is
+ * Material's own default and it is kept: a card is a grouping container, not a control, so
+ * WCAG 1.4.11's 3:1 for "component boundaries" does not bite. Nothing here is identified by
+ * its border alone.
+ */
+
+/* `container-type: inline-size` makes the pane queryable. The window media queries below
+ * decide what the *screen* allows; the nested container queries can only take that away
+ * when the shell's rail is docked expanded (280px) and the pane is narrower than the window
+ * suggests. An unguarded 840px rule would put three columns into a 560px pane. */
+:host {
+  display: block;
+  container-type: inline-size;
+  container-name: modules-pane;
+  padding: 16px 16px 32px; /* compact margin (`layout/breakpoints.md:9`) */
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px 24px 40px;
+  }
+}
+
+/* --------------------------------------------------------------------------- Header */
+
+.page-head {
+  margin-block-end: 24px;
+}
+
+.page-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+}
+
+@media (min-width: 840px) {
+  .page-title {
+    font: var(--mat-sys-headline-medium);
+    letter-spacing: var(--mat-sys-headline-medium-tracking);
+  }
+}
+
+.page-lede {
+  margin: 4px 0 0;
+  /* Body text stays inside 40–60ch whatever the window does. */
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* ---------------------------------------------------------------------------- States */
+
+.page-state {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.page-state-text {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.state-card {
+  max-inline-size: 60ch;
+}
+
+.state-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.state-icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.state-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+.state-detail {
+  margin: 4px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* The one place a card is not neutral. `card-overrides` retints the outlined card's own
+ * tokens rather than fighting them with a background declaration. */
+.state-card-error {
+  @include mat.card-overrides(
+    (
+      outlined-container-color: var(--mat-sys-error-container),
+      outlined-outline-color: var(--mat-sys-error),
+    )
+  );
+
+  color: var(--mat-sys-on-error-container);
+
+  .state-icon,
+  .state-detail {
+    color: var(--mat-sys-on-error-container);
+  }
+}
+
+/* ------------------------------------------------------------------------------ Feed */
+
+.schema-feed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  /* `role="list"` is on the element: WebKit drops list semantics when the marker goes. */
+  list-style: none;
+}
+
+@media (min-width: 600px) {
+  .schema-feed {
+    gap: 24px; /* pane spacer (`layout/breakpoints.md:9`) */
+  }
+
+  @container modules-pane (min-width: 420px) {
+    .schema-feed {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+}
+
+@media (min-width: 840px) {
+  @container modules-pane (min-width: 660px) {
+    .schema-feed {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+}
+
+@media (min-width: 1200px) {
+  @container modules-pane (min-width: 900px) {
+    .schema-feed {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+}
+
+.schema-item {
+  display: flex;
+}
+
+.schema-card {
+  flex: 1;
+}
+
+.schema-name {
+  /* Aligns the digits of "3-4-1-2" with those of "4-4-2" down a column of cards. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------------------- Slots */
+
+/* `mat-card-header` ends at padding-block-end 0 and `mat-card-content` starts at 0, so the
+ * gap between the schema name and its slots is this margin and nothing else. */
+.slot-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 12px 0;
+  margin-inline: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slot {
+  display: inline-flex;
+  align-items: center;
+  /* min-, never a fixed height: the token has to grow with a 200% text setting. */
+  min-block-size: 24px;
+  padding-block: 2px;
+  padding-inline: 10px;
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

@@ -1,5 +1,18 @@
 import { Injectable, OnDestroy, signal } from '@angular/core';
 
+/* The toast state, and only the state.
+ *
+ * The surface is Material's snackbar, presented by `ToastComponent` from this list —
+ * the split is deliberate. Pages call `show()` from anywhere, including before the
+ * shell has drawn, and `MatSnackBar` shows one snackbar at a time by design, so the
+ * queue has to outlive whatever is on screen. Keeping the clock here also means
+ * `dismiss(id)` is the single way a toast ends, whoever asks: the timer, the snackbar's
+ * own Dismiss button, or a caller holding the id.
+ *
+ * This file's public API is load-bearing — every page calls it — so it is unchanged
+ * from the pre-Material version: same names, same parameters, same semantics.
+ */
+
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
 export interface Toast {

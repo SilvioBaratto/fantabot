@@ -1,0 +1,693 @@
+@use '@angular/material' as mat;
+
+/* Asta plan.
+ *
+ * Every colour, type step, radius and elevation on this page is a `--mat-sys-*` role: there
+ * is not one hex, `rgb()` or Tailwind utility left. Roles are picked by PAIRING — content on
+ * a container uses that container's `on-` role — never by hue.
+ *
+ * Two roles this page deliberately does NOT use:
+ *   `--mat-sys-outline` never colours text. It is tuned for the 3:1 graphics threshold and
+ *   lands under 4.5:1 as small text; de-emphasised text is `on-surface-variant` (8.42:1 on
+ *   `surface-container-low`, measured).
+ *   There is no warning role in M3 and this app has no palette entry for one, so the
+ *   caveats that used to be amber ("not narrowed") are an outlined tag whose WORDS carry the
+ *   meaning, and the two that are genuine failures (an unparseable journal line, a crashed
+ *   poll) use `error`. `--mat-sys-tertiary` is not an option here: the stock azure palette
+ *   declares no tertiary group, so Material derives it from primary and the two resolve to
+ *   the same #005cbb.
+ */
+
+/* Page gutter: 16px at compact, 24px from 600 up (`layout/breakpoints.md:9`).
+ *
+ * `container-type` makes this element a query container so the two-column region below can
+ * ask how wide the PANE is, not how wide the window is — the shell docks a rail that takes
+ * 96px (280px expanded) out of every window width. `inline-size` containment adds no paint
+ * containment, so the tables' sticky headers still resolve against the shell's `main`. */
+:host {
+  display: block;
+  container-type: inline-size;
+  padding-inline: 16px;
+  padding-block: 16px 32px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding-inline: 24px;
+    padding-block: 24px 40px;
+  }
+}
+
+/* ---------------------------------------------------------------- page head */
+
+.page-head {
+  margin-block-end: 24px;
+}
+
+.page-title {
+  margin: 0;
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.page-lede {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ------------------------------------------------------------- lega picker */
+
+/* Material ships the segmented button at 40px; targets are 48x48
+   (`accessibility/designing.md:282`). This is the token, not a height on the host, so the
+   label, the state layer and the focus ring all grow with it. */
+.lega-picker {
+  @include mat.button-toggle-overrides(
+    (
+      height: 48px,
+    )
+  );
+
+  margin-block-end: 24px;
+  max-inline-size: 100%;
+}
+
+/* Vertical at compact (bound in the template), so a long lega name is never clipped by the
+   group's own `overflow: hidden`. */
+@media (max-width: 599.98px) {
+  .lega-picker {
+    inline-size: 100%;
+  }
+}
+
+/* --------------------------------------------------------------- the panes */
+
+.overview {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+}
+
+.overview-main {
+  min-inline-size: 0;
+  display: grid;
+  gap: 24px;
+  align-content: start;
+}
+
+.overview-side {
+  min-inline-size: 0;
+}
+
+/* Two panes are recommended from 840px (`layout/breakpoints.md:17`), with a 360px fixed pane
+   that widens to 412px at 1200px. The nested container guard can only NARROW that result:
+   without it a 840px window minus a docked rail would put a 360px pane beside a 340px one. */
+@media (min-width: 840px) {
+  @container (min-width: 880px) {
+    .overview {
+      grid-template-columns: minmax(0, 1fr) 360px;
+    }
+  }
+}
+
+@media (min-width: 1200px) {
+  @container (min-width: 1000px) {
+    .overview {
+      grid-template-columns: minmax(0, 1fr) 412px;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ panels */
+
+.panel {
+  /* An outlined card is `surface` by default, which is also the page background, so the
+     grouping would be a hairline alone. Grouped regions read `surface-container-*`. */
+  @include mat.card-overrides(
+    (
+      outlined-container-color: var(--mat-sys-surface-container-low),
+    )
+  );
+}
+
+.panel-body {
+  padding: 16px;
+}
+
+.panel-body.is-centered {
+  padding-block: 40px;
+  text-align: center;
+}
+
+.panel-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.panel-sub {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panel-head-text {
+  min-inline-size: 0;
+  flex: 1 1 18rem;
+}
+
+/* Full width and below both panes. */
+.targets {
+  display: block;
+  margin-block-start: 24px;
+}
+
+.section-title {
+  margin: 0 0 12px;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* ------------------------------------------------------------ state blocks */
+
+.state-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* 40–60 characters per line (`layout/breakpoints.md:101`). The block is only centred inside
+   a centred state panel; anywhere else `auto` would float it away from its heading. */
+.state-body {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.state-hint {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.is-centered .state-body,
+.is-centered .state-hint {
+  margin-inline: auto;
+}
+
+.is-error {
+  color: var(--mat-sys-error);
+}
+
+.loading-block {
+  display: grid;
+  gap: 12px;
+}
+
+.loading-text {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ------------------------------------------------------------------- stats */
+
+.stats {
+  display: grid;
+  gap: 24px;
+  margin-block-start: 16px;
+}
+
+@media (min-width: 600px) {
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.stat-value {
+  margin: 0;
+  font: var(--mat-sys-display-small);
+  letter-spacing: var(--mat-sys-display-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.stat-value.is-accent {
+  color: var(--mat-sys-primary);
+}
+
+.stat-of {
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.stat-label {
+  margin: 4px 0 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.stat-note {
+  margin: 2px 0 0;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ------------------------------------------------------------------- facts */
+
+.facts {
+  display: grid;
+  gap: 16px 32px;
+  margin: 0;
+}
+
+@media (min-width: 600px) {
+  .facts {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+
+  .fact-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.fact dt {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.fact dd {
+  margin: 2px 0 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.facts-title {
+  margin: 0;
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.fallbacks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fallback {
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.fallback-rank {
+  margin-inline-end: 4px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* -------------------------------------------------------- shared text bits */
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.is-strong {
+  font-weight: var(--mat-sys-title-medium-weight);
+}
+
+.is-muted {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* An absent walk-away, and an absent journal walk-away. Never a zero: a zero means "a
+   substitute exists at this price", which is a real answer. */
+.is-absent,
+.is-null {
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+  font-weight: inherit;
+}
+
+.prov {
+  display: block;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* A caveat, not a failure: the outline carries the emphasis and the words carry the fact. */
+.tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--mat-sys-outline);
+  border-radius: var(--mat-sys-corner-full);
+  font: var(--mat-sys-label-small);
+  letter-spacing: var(--mat-sys-label-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+code {
+  font-family: ui-monospace, 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
+  font-size: var(--mat-sys-body-small-size);
+}
+
+.path {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
+  font-size: var(--mat-sys-body-small-size);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* -------------------------------------------------------------- room check */
+
+.room-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin-block-start: 16px;
+}
+
+.room-field {
+  inline-size: 100%;
+  max-inline-size: 52ch;
+}
+
+.room-submit {
+  align-self: flex-start;
+  margin-block-start: 8px;
+}
+
+@keyframes asta-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.is-spinning {
+  animation: asta-spin 1s linear infinite;
+}
+
+.room-facts dd {
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.data-table {
+  inline-size: 100%;
+  /* Sticky cells inherit their background; the card's own colour keeps the pinned header
+     opaque over the rows scrolling beneath it. */
+  background: var(--mat-sys-surface-container-low);
+}
+
+.data-table thead th {
+  background: var(--mat-sys-surface-container-low);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+}
+
+/* No fixed row height: text has to reach 200% without clipping. */
+.data-table tr.mat-mdc-row,
+.data-table tr.mat-mdc-header-row {
+  block-size: auto;
+}
+
+.data-table th.mat-mdc-header-cell,
+.data-table td.mat-mdc-cell {
+  padding-block: 8px;
+  padding-inline: 8px;
+}
+
+.data-table th.mat-mdc-header-cell:first-of-type,
+.data-table td.mat-mdc-cell:first-of-type {
+  padding-inline-start: 16px;
+}
+
+.data-table th.mat-mdc-header-cell:last-of-type,
+.data-table td.mat-mdc-cell:last-of-type {
+  padding-inline-end: 16px;
+}
+
+.data-table .col-end {
+  text-align: end;
+}
+
+.targets-table thead th:first-of-type {
+  border-start-start-radius: var(--mat-sys-corner-medium);
+}
+
+.targets-table thead th:last-of-type {
+  border-start-end-radius: var(--mat-sys-corner-medium);
+}
+
+.walk-value {
+  display: block;
+}
+
+.targets-table .prov {
+  max-inline-size: 22ch;
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+/* ------------------------------------------------- targets, compact (cards) */
+
+.target-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* `outline`, not `outline-variant`: this border is the item's only boundary, and a boundary
+   needs 3:1 (`accessibility/designing.md:61`). Measured 4.05:1 on `surface-container-low`,
+   against `outline-variant`'s 1.54:1. */
+.target-card {
+  padding: 12px 16px;
+  border: 1px solid var(--mat-sys-outline);
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.target-name {
+  margin: 0;
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.target-figures,
+.journal-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 8px 0 0;
+}
+
+.figure dt {
+  font: var(--mat-sys-label-small);
+  letter-spacing: var(--mat-sys-label-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.figure dd {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.target-card .prov {
+  margin-block-start: 6px;
+}
+
+/* ----------------------------------------------------------------- journal */
+
+.journal {
+  margin-block-start: 24px;
+}
+
+/* The toggle keeps its natural width so the heading and its paragraph take the slack:
+   `.panel-head-text` is `flex: 1 1 18rem`, and a shrinkable button beside it wraps
+   "Show journal" onto two lines long before the text pane has run out of room. */
+.journal-toggle {
+  flex: none;
+}
+
+/* The rows take focus when a page turn reaches a bound and the pressed button goes away
+   (`asta.ts::rescueFocus`). Material's strong focus indicators only reach its own
+   components, so the ring is drawn here — outside the element, with a gap. */
+#journal-body:focus-visible {
+  outline: 3px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+  border-radius: var(--mat-sys-corner-extra-small);
+}
+
+.journal-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.journal-range {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.journal-range .is-error {
+  margin-inline-start: 8px;
+}
+
+/* 8px between groups of controls (`accessibility/designing.md:282`). */
+.journal-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.journal-path {
+  padding-block: 12px;
+}
+
+/* A status label in a dense table, not a chip: chips are interactive and there is one of
+   these per row. The word is always the signal; the container only reinforces it. */
+.decision {
+  /* Containing block for the visually-hidden column label the card carries. */
+  position: relative;
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--mat-sys-corner-full);
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  white-space: nowrap;
+}
+
+.decision.d-bid {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.decision.d-pass {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.decision.d-fault {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+.journal-table .lot-name {
+  display: block;
+  color: var(--mat-sys-on-surface);
+}
+
+.journal-table .lot-note,
+.journal-table .lot-fault {
+  display: block;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.journal-table .lot-note {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.journal-table .lot-fault {
+  color: var(--mat-sys-error);
+}
+
+.journal-table .col-end {
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------- journal, <840px (cards) */
+
+.journal-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 16px 16px;
+  list-style: none;
+}
+
+.journal-card {
+  padding: 12px 16px;
+  border: 1px solid var(--mat-sys-outline);
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-surface-container);
+}
+
+.journal-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.journal-index {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.journal-lot {
+  margin: 6px 0 0;
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.journal-reason,
+.journal-fault {
+  margin: 2px 0 0;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.journal-reason {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.journal-fault {
+  color: var(--mat-sys-error);
+}

@@ -3,33 +3,49 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   OnInit,
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, Observable, catchError, switchMap, takeWhile, timer } from 'rxjs';
 
 import { AuthService } from '../../core/api/auth.service';
 import { JobsService } from '../../core/api/jobs.service';
 import { AuthStatus } from '../../core/models/auth-status';
+import { DisconnectDialogComponent, DisconnectRequest } from './disconnect-dialog';
 
 type Tone = 'ok' | 'warn' | 'bad';
 type ConnectKind = 'league' | 'fantalab';
 
 @Component({
   selector: 'app-accounts',
-  imports: [LucideAngularModule, DatePipe],
+  imports: [
+    LucideAngularModule,
+    DatePipe,
+    MatButtonModule,
+    MatCardModule,
+    MatDividerModule,
+    MatProgressBarModule,
+  ],
   templateUrl: './accounts.html',
+  styleUrl: './accounts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class AccountsComponent implements OnInit {
   private readonly service = inject(AuthService);
   private readonly jobs = inject(JobsService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialog = inject(MatDialog);
 
   readonly status = signal<AuthStatus | null>(null);
   readonly loading = signal(true);
@@ -46,12 +62,24 @@ export class AccountsComponent implements OnInit {
   readonly finishing = signal(false);
   private jobId: string | null = null;
 
-  // Disconnect flow. The app has no dialog primitive and `window.confirm` blocks the
-  // page, so the confirmation is the row itself: `pendingId` holds the one key armed
-  // for removal, and the row swaps its button for "Remove / Keep". One key at a time —
-  // arming a second row disarms the first, so two rows can never be primed at once.
+  // Disconnect flow. `pendingId` holds the one key armed for removal — one key at a
+  // time, so arming a second row disarms the first and two rows can never be primed at
+  // once. The confirmation used to be the row itself, because the app had no dialog
+  // primitive and `window.confirm` blocks the page; it is now a `MatDialog` opened with
+  // `role: 'alertdialog'`, which is the M3 surface for a decision at every size class.
+  // `pendingId` survives that change because it is also what makes every OTHER row's
+  // Disconnect inert while one is armed.
   readonly pendingId = signal<string | null>(null);
   readonly removingId = signal<string | null>(null);
+
+  /** The one open confirmation, so `disarmDisconnect()` can close it from outside. */
+  private confirmRef: MatDialogRef<DisconnectDialogComponent, boolean> | null = null;
+
+  // Where focus goes when a confirmed removal takes the row away. `restoreFocus` would
+  // send it back to the Disconnect button, which is disabled by then (`disconnectBusy`)
+  // and so cannot take focus — leaving it on <body>, at the top of the document.
+  private readonly leaguesHeading = viewChild<ElementRef<HTMLElement>>('leaguesHeading');
+  private readonly fantalabHeading = viewChild<ElementRef<HTMLElement>>('fantalabHeading');
 
   /**
    * Every row's Disconnect is inert while one row is armed or being removed.
@@ -187,14 +215,25 @@ export class AccountsComponent implements OnInit {
     return `${kind}:${id}`;
   }
 
-  armDisconnect(key: string): void {
+  /**
+   * Arm one row and ask about it.
+   *
+   * `label` is the credential as the operator knows it and is only ever passed by the
+   * template; called without one — which the specs do, to assert the guard below — the
+   * key stands in, because no caller without a row has a better name to offer.
+   */
+  armDisconnect(key: string, label?: string | number): void {
     if (this.disconnectBusy()) return; // the template disables this; belt and braces
     this.connectError.set(null);
     this.pendingId.set(key);
+    this.askToDisconnect(key, String(label ?? key));
   }
 
   disarmDisconnect(): void {
     this.pendingId.set(null);
+    const open = this.confirmRef;
+    this.confirmRef = null;
+    open?.close(false);
   }
 
   disconnectLeague(leagueId: number): void {
@@ -211,6 +250,63 @@ export class AccountsComponent implements OnInit {
     return 'bad'; // EXPIRED, KEY MISMATCH, MISSING
   }
 
+  /** `rowKey`'s inverse: the one thing the armed key still has to be read back for. */
+  private askToDisconnect(key: string, name: string): void {
+    const separator = key.indexOf(':');
+    const data: DisconnectRequest = {
+      kind: key.slice(0, separator) === 'fantalab' ? 'fantalab' : 'league',
+      id: key.slice(separator + 1),
+      name,
+    };
+
+    const ref = this.dialog.open<DisconnectDialogComponent, DisconnectRequest, boolean>(
+      DisconnectDialogComponent,
+      {
+        // An alertdialog is announced whole, so the operator hears what is lost and not
+        // only the title. `autoFocus` is Material's default and is safe because Keep is
+        // first in the dialog's DOM.
+        role: 'alertdialog',
+        ariaDescribedBy: 'disconnect-dialog-body',
+        // M3 sizes a simple dialog to 560dp. `maxWidth` has to move with it: Material's
+        // own default is 80vw, which on a 360px phone would leave 36px of gutter either
+        // side instead of the 16px the compact size class asks for.
+        width: 'min(560px, calc(100vw - 32px))',
+        maxWidth: 'calc(100vw - 32px)',
+        data,
+      },
+    );
+    this.confirmRef = ref;
+
+    ref
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        this.confirmRef = null;
+        if (!confirmed) {
+          // Focus is already back on the Disconnect button: `restoreFocus` is on, and
+          // nothing has disabled it, because nothing was removed.
+          this.pendingId.set(null);
+          return;
+        }
+        if (data.kind === 'league') this.disconnectLeague(Number(data.id));
+        else this.disconnectFantalab(data.id);
+      });
+  }
+
+  /**
+   * Put focus on the heading of the section the removed row was in.
+   *
+   * `restoreFocus` sends focus back to the Disconnect button that opened the dialog, and
+   * on a confirm that button is disabled by the time the overlay detaches — a disabled
+   * button cannot take focus, so the restore silently lands on `<body>`. This runs a
+   * whole HTTP round-trip after the dialog closed, which is what keeps it out of a race
+   * with that restore rather than a step ahead of it by luck.
+   */
+  private focusSection(key: string): void {
+    const heading = key.startsWith('fantalab:') ? this.fantalabHeading() : this.leaguesHeading();
+    heading?.nativeElement.focus();
+  }
+
   private runDisconnect(key: string, request: Observable<{ removed: boolean }>): void {
     this.removingId.set(key);
     request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -221,11 +317,16 @@ export class AccountsComponent implements OnInit {
         this.pendingId.set(null);
         this.removingId.set(null);
         this.load();
+        this.focusSection(key);
       },
       error: () => {
         this.pendingId.set(null);
         this.removingId.set(null);
         this.connectError.set('Could not disconnect. Nothing was removed.');
+        // The row survives and its button is enabled again, but focus is already gone:
+        // the restore ran while it was still disabled. The heading is where to land, and
+        // the error banner is a `role="alert"`, so the failure is announced either way.
+        this.focusSection(key);
       },
     });
   }

@@ -1,0 +1,59 @@
+@use '@angular/material' as mat;
+
+:host {
+  display: block;
+  block-size: 100dvh;
+}
+
+.shell {
+  block-size: 100%;
+}
+
+/* mat-sidenav-content is already height: 100%; this stacks the top bar, the pane and the
+   navigation bar, and gives the pane the only scroll. */
+.shell-content {
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  /* Keeps a scroll chain inside this region: no OS rubber-band or pull-to-refresh leak. */
+  overscroll-behavior: contain;
+}
+
+.top-bar {
+  flex: none;
+  gap: 8px;
+  padding-block-start: env(safe-area-inset-top);
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+}
+
+.top-bar-title {
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+}
+
+app-nav-bar {
+  flex: none;
+}
+
+/* Rail width is a sidenav token (its default is 360px, for a drawer this is not).
+   96px collapsed and 280px expanded come from the M3 navigation rail component spec. */
+.rail {
+  @include mat.sidenav-overrides((container-width: 96px));
+
+  border-inline-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+.rail.rail-expanded {
+  @include mat.sidenav-overrides((container-width: 280px));
+}
+
+/* A docked rail is square against the pane; the modal one keeps its rounded trailing corners. */
+.rail.mat-drawer-side {
+  @include mat.sidenav-overrides((container-shape: 0));
+}

@@ -1,294 +1,391 @@
-<header class="mb-8">
-  <h1 class="font-display text-3xl font-bold tracking-tight text-text">Lineup</h1>
-  <p class="mt-1 text-sm text-text-secondary">
-    The best fieldable formation. Preview only — it never submits.
+<header class="page-header">
+  <h1 class="page-title">Lineup</h1>
+  <p class="page-intro">
+    The best fieldable formation for the lega you pick. Submitting takes two acts — a dry run first,
+    then arming the run you can see.
   </p>
 </header>
 
 @if (loading()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+  <mat-card appearance="outlined" class="state-card">
+    <mat-card-content>
+      <p class="state-text">Loading leagues…</p>
+      <mat-progress-bar mode="indeterminate" aria-label="Loading leagues" />
+    </mat-card-content>
+  </mat-card>
 } @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
+  <mat-card appearance="outlined" class="state-card">
+    <mat-card-content>
+      <div class="callout callout-error">
+        <lucide-icon class="callout-icon" name="circle-x" [size]="20" aria-hidden="true" />
+        <div class="callout-body">
+          <h2 class="callout-title">API unreachable</h2>
+          <p class="callout-text">{{ message }} Make sure fantabot-app is running.</p>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
 } @else if (!leagues().length) {
-  <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-    <p class="font-display text-base font-semibold text-text">No leagues yet</p>
-    <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">Run a lega sync first.</p>
-  </section>
+  <mat-card appearance="outlined" class="state-card">
+    <mat-card-content class="state-empty">
+      <h2 class="state-title">No leagues yet</h2>
+      <p class="state-text">Run a lega sync first</p>
+    </mat-card-content>
+  </mat-card>
 } @else {
-  <div class="mb-6 flex flex-wrap gap-2">
-    @for (l of leagues(); track l.league_id) {
-      <button
-        type="button"
-        (click)="select(l.league_id)"
-        class="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
-        [class.border-primary]="selectedId() === l.league_id"
-        [class.bg-primary-light]="selectedId() === l.league_id"
-        [class.text-primary]="selectedId() === l.league_id"
-        [class.border-border]="selectedId() !== l.league_id"
-        [class.text-text-secondary]="selectedId() !== l.league_id"
-      >
-        {{ l.league_name ?? 'Lega ' + l.league_id }}
-      </button>
-    }
+  <!-- A segmented button, not chips: in single-select mode a toggle can only ever become
+       checked, while a `mat-chip-option` deselects on a second click — which here would
+       leave the page with no lega and refetch a plan for `null`. -->
+  <div class="lega-picker">
+    <mat-button-toggle-group class="lega-group" aria-label="Lega" [value]="selectedId()">
+      @for (l of leagues(); track l.league_id) {
+        <mat-button-toggle [value]="l.league_id" (change)="select(l.league_id)">
+          {{ l.league_name ?? 'Lega ' + l.league_id }}
+        </mat-button-toggle>
+      }
+    </mat-button-toggle-group>
   </div>
 
   @if (planLoading()) {
-    <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+    <mat-card appearance="outlined" class="state-card">
+      <mat-card-content>
+        <p class="state-text">Loading the plan…</p>
+        <mat-progress-bar mode="indeterminate" aria-label="Loading the lineup plan" />
+      </mat-card-content>
+    </mat-card>
   } @else if (plan(); as p) {
     @if (p.found) {
-      <section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="h-1 w-full bg-primary"></div>
-        <div class="flex flex-wrap items-end gap-x-12 gap-y-4 p-6">
-          <div>
-            <p class="font-display text-5xl font-bold tabular-nums text-text">{{ p.module }}</p>
-            <p class="mt-1 text-sm text-text-secondary">
-              module
-              @if (p.matchday !== null) {
-                · matchday {{ p.matchday }}
+      <mat-card appearance="outlined">
+        <mat-card-content class="plan-summary">
+          <h2 class="plan-label">Planned formation</h2>
+          <p class="plan-module">{{ p.module }}</p>
+          @if (p.matchday !== null) {
+            <p class="plan-matchday">Matchday {{ p.matchday }}</p>
+          }
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Primary pane: the XI. Supporting pane: the bench, which only means anything
+           beside it, so it is a fixed 360px (412px from 1200px up) and stacks below 840. -->
+      <div class="panes">
+        <mat-card appearance="outlined" class="pane pane-primary">
+          <mat-card-content>
+            <h2 class="pane-title">Starters</h2>
+            <mat-list class="player-list" role="list">
+              @for (player of p.starters; track player.player_id; let i = $index) {
+                <mat-list-item role="listitem">
+                  <span matListItemTitle class="player-row">
+                    <span class="player-index" aria-hidden="true">{{ i + 1 }}</span>
+                    <span class="player-name">{{ player.nome }}</span>
+                  </span>
+                </mat-list-item>
               }
-            </p>
-          </div>
-        </div>
-      </section>
+            </mat-list>
+          </mat-card-content>
+        </mat-card>
 
-      <div class="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-          <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">
-            Starters
-          </div>
-          @for (player of p.starters; track player.player_id; let i = $index) {
-            <div
-              class="flex items-center gap-3 border-b border-border-muted px-6 py-2 last:border-b-0"
-            >
-              <span class="w-5 text-right text-xs tabular-nums text-text-tertiary">{{
-                i + 1
-              }}</span>
-              <span class="text-sm text-text">{{ player.nome }}</span>
-            </div>
-          }
-        </section>
-
-        <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-          <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Bench</div>
-          @for (player of p.bench; track player.player_id) {
-            <div
-              class="border-b border-border-muted px-6 py-2 text-sm text-text-secondary last:border-b-0"
-            >
-              {{ player.nome }}
-            </div>
-          }
-        </section>
+        <mat-card appearance="outlined" class="pane pane-supporting">
+          <mat-card-content>
+            <h2 class="pane-title">Bench</h2>
+            @if (p.bench.length) {
+              <mat-list class="player-list" role="list">
+                @for (player of p.bench; track player.player_id) {
+                  <mat-list-item role="listitem">
+                    <span matListItemTitle class="player-name">{{ player.nome }}</span>
+                  </mat-list-item>
+                }
+              </mat-list>
+            } @else {
+              <p class="state-text">Nobody on the bench in this plan</p>
+            }
+          </mat-card-content>
+        </mat-card>
       </div>
+
       <!-- Submitting. Two acts, and the second is only reachable once the first has put a
            dry run on screen — not a checkbox, because a checkbox pre-ticked from last time
            is not a second act and a session manager can restore one.
 
-           The Arm button does not exist until then. `arm()` refuses as well, because a
+           The Arm button does not exist until then, and it is drawn *below* the dry run's
+           output so the run it arms is the run in view. `arm()` refuses as well, because a
            disabled control is a suggestion and this is the one call in the app that spends
            a matchday. -->
-      <section class="mt-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="flex flex-wrap items-center gap-3 p-6">
-          <button
-            type="button"
-            (click)="runDry()"
-            [disabled]="submitting()"
-            class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
-          >
-            {{ submitting() && !dryRun() ? 'Checking…' : 'Dry run' }}
-          </button>
+      <mat-card appearance="outlined" class="submit-card">
+        <mat-card-content>
+          <h2 class="pane-title">Submit</h2>
+          <p class="state-text">A dry run reports the XI that would be sent and sends nothing.</p>
+        </mat-card-content>
 
-          @if (canArm()) {
-            <button
-              type="button"
-              (click)="arm()"
-              class="inline-flex items-center gap-2 rounded-md border border-danger bg-surface-raised px-3 py-2 text-sm font-semibold text-danger transition-colors hover:bg-danger/10"
-            >
-              Submit this lineup for real
-            </button>
+        <mat-card-actions class="submit-actions">
+          <button matButton="filled" type="button" (click)="runDry()" [disabled]="submitting()">
+            <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="clipboard-list" />
+            {{ submitting() && !dryRun() ? 'Checking…' : 'Run dry run' }}
+          </button>
+        </mat-card-actions>
+
+        @if (submitting()) {
+          <mat-progress-bar mode="indeterminate" aria-label="Talking to the platform" />
+        }
+
+        <!-- One live region, always in the DOM, so what lands in it is announced. -->
+        <div class="submit-feedback" role="status" aria-live="polite">
+          @if (dryRun(); as d) {
+            <div class="feedback-block">
+              <p class="feedback-title">
+                @switch (d.outcome) {
+                  @case ('not_armed') {
+                    Dry run — nothing was sent
+                  }
+                  @case ('no_matchday') {
+                    No matchday context yet
+                  }
+                  @case ('all_modules_refused') {
+                    The platform refused every module
+                  }
+                  @case ('no_credential') {
+                    This lega is not connected
+                  }
+                  @case ('refused') {
+                    The platform refused us
+                  }
+                  @default {
+                    Could not reach the platform
+                  }
+                }
+              </p>
+              <p class="feedback-text">{{ d.reason }}</p>
+              @if (d.outcome === 'not_armed') {
+                <p class="feedback-text feedback-strong">
+                  Would send <b class="feedback-module">{{ d.module }}</b> —
+                  {{ d.starters.length }} starters, {{ d.bench.length }} on the bench.
+                </p>
+              }
+              @if (d.past_deadline) {
+                <!-- A warning, never a block: `mstr` is not confirmed to be the lineup
+                     deadline, so the platform stays the authority. -->
+                <div class="callout callout-warning">
+                  <lucide-icon
+                    class="callout-icon"
+                    name="triangle-alert"
+                    [size]="20"
+                    aria-hidden="true"
+                  />
+                  <p class="callout-text">
+                    Past {{ d.past_deadline }} — that looks like kickoff. The platform will refuse
+                    it if it is truly closed.
+                  </p>
+                </div>
+              }
+            </div>
+          }
+
+          <!-- `armVisible`, not `canArm`: the block must not depend on `submitting`, or the
+               click would remove the button under the keyboard. It goes disabled and stays,
+               and focus moves to the outcome once that lands (`lineup.ts::focusResult`). -->
+          @if (armVisible()) {
+            <div class="arm-block danger-zone">
+              <p class="arm-note">
+                Arming sends this XI now and replaces whatever lineup the platform has saved for
+                this matchday
+              </p>
+              <button matButton="filled" type="button" [disabled]="submitting()" (click)="arm()">
+                Submit this lineup for real
+              </button>
+            </div>
+          }
+
+          <!-- Focusable, never a tab stop: the submit is the one act in this app that cannot
+               be taken back, so the keyboard is put on its outcome instead of on `<body>`. -->
+          @if (result(); as r) {
+            <div class="feedback-block" #resultBlock tabindex="-1">
+              @if (r.submitted && r.unconfirmed) {
+                <!--
+                  On the platform, but unproven: the POST returned 200 and the confirming read
+                  failed. `saved_starters` came from what we sent, not from what was kept, so
+                  it is not shown here — showing it would be presenting the request as the
+                  evidence, which is the one thing the read-back exists to avoid.
+                -->
+                <div class="callout callout-warning">
+                  <lucide-icon
+                    class="callout-icon"
+                    name="triangle-alert"
+                    [size]="20"
+                    aria-hidden="true"
+                  />
+                  <div class="callout-body">
+                    <h3 class="callout-title">Submitted {{ r.module }} — not confirmed</h3>
+                    <p class="callout-text">{{ r.unconfirmed }}</p>
+                    <p class="callout-text">
+                      The lineup reached the platform; reading it back to prove it did not work.
+                      Check it before re-submitting.
+                    </p>
+                  </div>
+                </div>
+              } @else if (r.submitted) {
+                <div class="callout callout-done">
+                  <lucide-icon
+                    class="callout-icon"
+                    name="check-circle"
+                    [size]="20"
+                    aria-hidden="true"
+                  />
+                  <div class="callout-body">
+                    <h3 class="callout-title">
+                      Submitted {{ r.module }} — the platform kept {{ r.saved_starters }} starters
+                    </h3>
+                    @if (r.saved_at) {
+                      <p class="callout-text">Saved at {{ r.saved_at }}</p>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <div class="callout callout-error">
+                  <lucide-icon
+                    class="callout-icon"
+                    name="circle-x"
+                    [size]="20"
+                    aria-hidden="true"
+                  />
+                  <div class="callout-body">
+                    <h3 class="callout-title">Not submitted</h3>
+                    <p class="callout-text">{{ r.reason }}</p>
+                  </div>
+                </div>
+              }
+              @if (r.rejected.length) {
+                <!-- The LUP009 walk-down: a refused module is survived, not fatal. -->
+                <p class="feedback-aside">Refused first: {{ r.rejected.join(', ') }}</p>
+              }
+            </div>
           }
         </div>
-
-        @if (dryRun(); as d) {
-          <div class="border-t border-border px-6 py-4">
-            <p class="text-sm font-semibold text-text">
-              @switch (d.outcome) {
-                @case ('not_armed') {
-                  Dry run — nothing was sent
-                }
-                @case ('no_matchday') {
-                  No matchday context yet
-                }
-                @case ('all_modules_refused') {
-                  The platform refused every module
-                }
-                @case ('no_credential') {
-                  This lega is not connected
-                }
-                @case ('refused') {
-                  The platform refused us
-                }
-                @default {
-                  Could not reach the platform
-                }
-              }
-            </p>
-            <p class="mt-1 text-sm text-text-secondary">{{ d.reason }}</p>
-            @if (d.outcome === 'not_armed') {
-              <p class="mt-2 text-sm text-text">
-                Would send <span class="font-semibold">{{ d.module }}</span> —
-                {{ d.starters.length }} starters, {{ d.bench.length }} on the bench.
-              </p>
-            }
-            @if (d.past_deadline) {
-              <!-- A warning, never a block: `mstr` is not confirmed to be the lineup
-                   deadline, so the platform stays the authority. -->
-              <p class="mt-2 text-sm text-warning">
-                Past {{ d.past_deadline }} — looks like kickoff. The platform will refuse it if it
-                is truly closed.
-              </p>
-            }
-          </div>
-        }
-
-        @if (result(); as r) {
-          <div class="border-t border-border px-6 py-4">
-            @if (r.submitted && r.unconfirmed) {
-              <!--
-                On the platform, but unproven: the POST returned 200 and the confirming read
-                failed. `saved_starters` came from what we sent, not from what was kept, so
-                it is not shown here — showing it would be presenting the request as the
-                evidence, which is the one thing the read-back exists to avoid.
-              -->
-              <p class="text-sm font-semibold text-signature">
-                Submitted {{ r.module }} — not confirmed.
-              </p>
-              <p class="mt-1 text-sm text-text-secondary">{{ r.unconfirmed }}</p>
-              <p class="mt-1 text-sm text-text-tertiary">
-                The lineup reached the platform; reading it back to prove it did not work.
-                Check it before re-submitting.
-              </p>
-            } @else if (r.submitted) {
-              <p class="text-sm font-semibold text-signature">
-                Submitted {{ r.module }} — the platform saved {{ r.saved_starters }} starters
-                @if (r.saved_at) {
-                  at {{ r.saved_at }}
-                }
-                .
-              </p>
-            } @else {
-              <p class="text-sm font-semibold text-danger">Not submitted</p>
-              <p class="mt-1 text-sm text-text-secondary">{{ r.reason }}</p>
-            }
-            @if (r.rejected.length) {
-              <!-- The LUP009 walk-down: a refused module is survived, not fatal. -->
-              <p class="mt-2 text-xs text-text-tertiary">
-                Refused first: {{ r.rejected.join(', ') }}
-              </p>
-            }
-          </div>
-        }
-      </section>
+      </mat-card>
     } @else {
       <!-- Four refusals, four headings. They shared one reason string, so a timeout and a
            rosa the platform will not accept read identically. -->
-      <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-        <p
-          class="font-display text-base font-semibold"
-          [class.text-danger]="p.outcome === 'refused'"
-          [class.text-text]="p.outcome !== 'refused'"
-        >
-          @switch (p.outcome) {
-            @case ('no_credential') {
-              This lega is not connected
+      <mat-card appearance="outlined" class="state-card">
+        <mat-card-content class="state-empty">
+          <h2 class="state-title" [class.state-title-danger]="p.outcome === 'refused'">
+            @switch (p.outcome) {
+              @case ('no_credential') {
+                This lega is not connected
+              }
+              @case ('refused') {
+                The platform refused us
+              }
+              @case ('unreachable') {
+                Could not reach the platform
+              }
+              @default {
+                No fieldable lineup yet
+              }
             }
-            @case ('refused') {
-              The platform refused us
-            }
-            @case ('unreachable') {
-              Could not reach the platform
-            }
-            @default {
-              No fieldable lineup yet
-            }
-          }
-        </p>
-        <p class="mx-auto mt-1 max-w-md text-sm text-text-secondary">{{ p.reason }}</p>
-      </section>
+          </h2>
+          <p class="state-text">{{ p.reason }}</p>
+        </mat-card-content>
+      </mat-card>
     }
   }
 }
 
 <!-- The scheduled lineup's history: what the launchd job did, read back. Read-only on purpose —
      turning the job on and off lives in `.env` and the launchd plist, never on this page. -->
-<section class="mt-8 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="border-b border-border px-6 py-4">
-    <h2 class="font-display text-lg font-semibold text-text">Automatic submits</h2>
+<mat-card appearance="outlined" class="runs-card">
+  <mat-card-content>
+    <h2 class="pane-title">Automatic submits</h2>
     @if (runs(); as h) {
       @if (h.last_age_hours !== null) {
-        <p
-          class="mt-1 text-sm"
-          [class.text-warning]="h.stale"
-          [class.text-text-secondary]="!h.stale"
-        >
-          Last run {{ h.last_age_hours }} h ago
-          @if (h.stale) {
-            — no scheduled run in over 12 hours; the job may not be running.
-          }
-        </p>
+        <p class="runs-age">Last run {{ h.last_age_hours }} h ago</p>
+        @if (h.stale) {
+          <div class="callout callout-warning">
+            <lucide-icon
+              class="callout-icon"
+              name="triangle-alert"
+              [size]="20"
+              aria-hidden="true"
+            />
+            <p class="callout-text">
+              No scheduled run in over 12 hours — the job may not be running.
+            </p>
+          </div>
+        }
       }
     }
-  </div>
-  @if (runsError(); as message) {
-    <p class="px-6 py-4 text-sm text-danger">{{ message }}</p>
-  } @else if (runs(); as h) {
-    @if (!h.ok) {
-      <p class="px-6 py-4 text-sm text-danger">
-        Could not read the run record at {{ h.path }} ({{ h.error }}).
-      </p>
-    } @else if (!h.runs.length) {
-      <p class="px-6 py-4 text-sm text-text-secondary">No scheduled run recorded yet.</p>
-    } @else {
-      <ul class="divide-y divide-border">
-        @for (run of h.runs; track $index) {
-          <li class="px-6 py-3">
-            <p class="text-sm">
-              <span
-                class="font-semibold"
-                [attr.data-run-status]="run.status"
-                [class.text-signature]="run.status === 'submitted'"
-                [class.text-warning]="run.status === 'unconfirmed'"
-                [class.text-text-tertiary]="run.status === 'skipped'"
-                [class.text-danger]="run.status === 'failed'"
-              >
-                @switch (run.status) {
-                  @case ('submitted') {
-                    Submitted
+
+    @if (runsError(); as message) {
+      <div class="callout callout-error">
+        <lucide-icon class="callout-icon" name="circle-x" [size]="20" aria-hidden="true" />
+        <p class="callout-text">{{ message }}</p>
+      </div>
+    } @else if (runs(); as h) {
+      @if (!h.ok) {
+        <div class="callout callout-error">
+          <lucide-icon class="callout-icon" name="circle-x" [size]="20" aria-hidden="true" />
+          <p class="callout-text">Could not read the run record at {{ h.path }} ({{ h.error }})</p>
+        </div>
+      } @else if (!h.runs.length) {
+        <p class="state-text">No scheduled run recorded yet</p>
+      } @else {
+        <!-- `list-style: none` alone stops WebKit announcing a list, so the role is explicit. -->
+        <ul class="run-list" role="list">
+          @for (run of h.runs; track $index) {
+            <li class="run-item">
+              <p class="run-line">
+                <span
+                  class="run-status"
+                  [attr.data-run-status]="run.status"
+                  [class.status-success]="run.status === 'submitted'"
+                  [class.status-warning]="run.status === 'unconfirmed'"
+                  [class.status-muted]="run.status === 'skipped'"
+                  [class.status-danger]="run.status === 'failed'"
+                >
+                  @switch (run.status) {
+                    @case ('submitted') {
+                      <lucide-icon
+                        class="run-icon"
+                        name="check-circle"
+                        [size]="16"
+                        aria-hidden="true"
+                      />Submitted
+                    }
+                    @case ('unconfirmed') {
+                      <lucide-icon
+                        class="run-icon"
+                        name="triangle-alert"
+                        [size]="16"
+                        aria-hidden="true"
+                      />Unconfirmed
+                    }
+                    @case ('skipped') {
+                      <lucide-icon
+                        class="run-icon"
+                        name="circle-minus"
+                        [size]="16"
+                        aria-hidden="true"
+                      />Skipped
+                    }
+                    @default {
+                      <lucide-icon
+                        class="run-icon"
+                        name="circle-x"
+                        [size]="16"
+                        aria-hidden="true"
+                      />Failed
+                    }
                   }
-                  @case ('unconfirmed') {
-                    Unconfirmed
-                  }
-                  @case ('skipped') {
-                    Skipped
-                  }
-                  @default {
-                    Failed
-                  }
+                </span>
+                <span class="run-meta">{{ run.at }}</span>
+                @if (run.module) {
+                  <span class="run-meta">{{ run.module }}</span>
                 }
-              </span>
-              <span class="text-text-secondary"> · {{ run.at }}</span>
-              @if (run.module) {
-                <span class="text-text-secondary"> · {{ run.module }}</span>
+              </p>
+              @if (run.detail) {
+                <p class="run-detail">{{ run.detail }}</p>
               }
-            </p>
-            @if (run.detail) {
-              <p class="mt-0.5 text-xs text-text-secondary">{{ run.detail }}</p>
-            }
-          </li>
-        }
-      </ul>
+            </li>
+          }
+        </ul>
+      }
     }
-  }
-</section>
+  </mat-card-content>
+</mat-card>

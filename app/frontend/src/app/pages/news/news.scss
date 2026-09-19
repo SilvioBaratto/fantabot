@@ -1,0 +1,573 @@
+@use '@angular/material' as mat;
+
+/* News — the M3 *feed* canonical layout (`layout/canonical_examples.md:71`): many peer
+ * readings with no detail view to pair them with, so one flexible pane and a card grid
+ * that gains columns with the window, never a list-detail split.
+ *
+ * Every colour here is a `--mat-sys-*` role. The page carries no hex, no `rgb()`, and no
+ * dark-mode block: the theme is pinned to `color-scheme: light` in `styles/material.scss`.
+ *
+ * Breakpoints are the real M3 window size classes — 600 / 840 / 1200 — repeated as
+ * literals because a custom property cannot appear inside a media query. Nothing here
+ * changes the component *tree*, so the page never injects `WindowSizeClassService`.
+ */
+
+:host {
+  display: block;
+  /* The shell's <main> is the only scroll container; this is a page gutter, not a frame. */
+  padding: 16px 16px 32px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px 24px 40px;
+  }
+}
+
+/* From large up the grid would otherwise stretch a reading card across half the screen. */
+@media (min-width: 1200px) {
+  :host {
+    max-inline-size: 1440px;
+    margin-inline: auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Page header
+ * ------------------------------------------------------------------------ */
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 8px;
+}
+
+/* Grows to fill the header row, and wraps under the button rather than squeezing it. */
+.page-heading {
+  flex: 1 1 18rem;
+  min-inline-size: 0;
+}
+
+.page-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+}
+
+@media (min-width: 840px) {
+  .page-title {
+    font: var(--mat-sys-headline-medium);
+    letter-spacing: var(--mat-sys-headline-medium-tracking);
+  }
+}
+
+.page-subtitle {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* A reserved strip so an indeterminate bar never pushes the page down when it appears. */
+.page-progress {
+  block-size: 4px;
+  margin-block: 12px 20px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Sections
+ * ------------------------------------------------------------------------ */
+
+.page-section {
+  margin-block-end: 24px;
+}
+
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-block-end: 12px;
+}
+
+.section-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+}
+
+.section-count {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+.section-subtitle {
+  margin: 0 0 16px;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* ---------------------------------------------------------------------------
+ * News fetch
+ * ------------------------------------------------------------------------ */
+
+.fetch-card {
+  overflow: hidden;
+}
+
+.fetch-controls {
+  display: flex;
+  flex-wrap: wrap;
+  /* 8px between groups of controls, and the field's own subscript takes the rest. */
+  align-items: flex-start;
+  gap: 8px 16px;
+}
+
+.season-field {
+  inline-size: 100%;
+}
+
+/* From medium up the field and its button sit on one line. */
+@media (min-width: 600px) {
+  .season-field {
+    inline-size: 12rem;
+  }
+}
+
+/* The button aligns with the field's input row rather than its subscript. */
+.fetch-controls > button {
+  margin-block-start: 8px;
+}
+
+.job-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 12px 16px;
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.job-error lucide-icon {
+  display: flex;
+  flex-shrink: 0;
+  /* Nudges the 18px glyph onto the first text line without pinning a height. */
+  margin-block-start: 2px;
+}
+
+/* The strip is drawn in two halves because the live region has to be in the DOM before it
+   has anything to say — a region inserted together with its first message is generally
+   not announced, so the first status was silently lost. The slot carries the strip's top
+   edge and `:empty` hides it until a fetch starts; `.job-output` carries the rest and is
+   still conditional, since the log and the bar have no reason to exist before then. */
+.job-status-slot {
+  padding: 16px 16px 0;
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.job-status-slot:empty {
+  display: none;
+}
+
+.job-output {
+  padding: 0 16px 16px;
+  background: var(--mat-sys-surface-container-low);
+}
+
+.job-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
+.job-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.job-icon.is-good {
+  color: var(--mat-sys-primary);
+}
+
+.job-icon.is-bad {
+  color: var(--mat-sys-error);
+}
+
+.job-icon.is-running {
+  color: var(--mat-sys-on-surface-variant);
+  animation: news-spin 1.2s linear infinite;
+}
+
+@keyframes news-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.job-lines {
+  margin-block-start: 12px;
+  max-block-size: 16rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--mat-sys-corner-extra-small);
+}
+
+.job-lines:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+}
+
+.job-lines ol {
+  margin: 0;
+  padding: 0;
+  /* `list-style: none` alone stops VoiceOver announcing a list; role="list" is in the
+     template for that reason. */
+  list-style: none;
+}
+
+.job-lines li {
+  /* M3 ships no monospace role; command output has to stay column-aligned, so the family
+     is the one literal on this page and every colour and size around it is a token. */
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  font-size: var(--mat-sys-body-small-size);
+  line-height: var(--mat-sys-body-small-line-height);
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.job-lines li.job-waiting {
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ---------------------------------------------------------------------------
+ * Role drift
+ * ------------------------------------------------------------------------ */
+
+.drift-card {
+  overflow: hidden;
+}
+
+.drift-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drift-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+.drift-row:last-child {
+  border-block-end: 0;
+}
+
+.drift-name {
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-large);
+  letter-spacing: var(--mat-sys-body-large-tracking);
+}
+
+.drift-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drift-arrow {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* Directional glyph: mirrored in RTL, since lucide has no `mat-icon-rtl-mirror`.
+   `:host-context`, not `[dir='rtl'] …` — the `dir` attribute sits above this component,
+   so a scoped descendant selector would carry `_ngcontent` onto an element that has none
+   and match nothing. */
+:host-context([dir='rtl']) .drift-arrow {
+  transform: scaleX(-1);
+}
+
+/* Height is left at Material's density-0 default on purpose: `container-height` is a px
+   token, so shrinking it clips the label when only the text is resized to 200%. */
+.role-chip {
+  @include mat.chips-overrides((label-text-color: var(--mat-sys-on-surface-variant)));
+
+  font-variant-numeric: tabular-nums;
+}
+
+/* The observed role is the drift itself, so it reads as the accent half of the pair —
+   and never by colour alone: the sr-only "Tagged"/"observed" pair carries the meaning.
+   `primary-container`, not `tertiary-container`: the stock azure palette declares no
+   tertiary group, so Material derives one from primary and the two resolve to the same
+   #d7e3ff. Naming the role that is actually painted keeps this honest, and keeps the
+   accent where it was designed if a tertiary palette is ever added.
+   Measured: on-primary-container #00458f on primary-container #d7e3ff = 7.26:1. */
+.role-chip.is-observed {
+  @include mat.chips-overrides(
+    (
+      elevated-container-color: var(--mat-sys-primary-container),
+      label-text-color: var(--mat-sys-on-primary-container),
+      outline-width: 0,
+    )
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Feed — one column at compact, two at medium, reflowing from expanded up
+ * ------------------------------------------------------------------------ */
+
+.feed {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* `min(100%, …)` inside the track, not `repeat(2, 1fr)`: the shell docks a 96px rail from
+   600px up, so a fixed column count is a guess about a width this page does not own. The
+   track can only ever narrow to the pane, never overflow it — and at medium that still
+   lands on the two columns M3 draws (`layout/canonical_examples.md:105`). */
+@media (min-width: 600px) {
+  .feed {
+    gap: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  }
+}
+
+@media (min-width: 840px) {
+  .feed {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  }
+}
+
+.feed-item {
+  display: flex;
+}
+
+.reading {
+  inline-size: 100%;
+}
+
+.reading-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reading-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reading-id {
+  min-inline-size: 0;
+}
+
+.reading-name {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  overflow-wrap: anywhere;
+}
+
+.reading-roles {
+  margin: 2px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+}
+
+/* --- sentiment badge -------------------------------------------------------
+ * A static reading, so the chip is never interactive: Material renders `<mat-chip>`
+ * with `role=null` and spans (no button), which is exactly what a data badge wants.
+ * Direction is carried by the glyph and the signed number, never by the fill alone.
+ */
+.sentiment-chip {
+  @include mat.chips-overrides(
+    (
+      elevated-container-color: var(--mat-sys-surface-container-highest),
+      label-text-color: var(--mat-sys-on-surface-variant),
+      outline-width: 0,
+    )
+  );
+
+  flex-shrink: 0;
+}
+
+/* Three tones, three roles that really differ: neutral (flat), blue (up), red (down).
+   `tertiary-container` used to stand in for the blue and rendered as `primary-container`
+   anyway — azure ships no tertiary ramp — so the token is now the one that is painted.
+   Measured: on-primary-container #00458f on primary-container #d7e3ff = 7.26:1;
+   on-error-container #93000a on error-container #ffdad6 = 7.24:1. */
+.sentiment-chip.tone-up {
+  @include mat.chips-overrides(
+    (
+      elevated-container-color: var(--mat-sys-primary-container),
+      label-text-color: var(--mat-sys-on-primary-container),
+    )
+  );
+}
+
+.sentiment-chip.tone-down {
+  @include mat.chips-overrides(
+    (
+      elevated-container-color: var(--mat-sys-error-container),
+      label-text-color: var(--mat-sys-on-error-container),
+    )
+  );
+}
+
+/* Projected content keeps this component's encapsulation attribute, so these reach the
+   icon and value inside the chip without `::ng-deep`. */
+.sentiment-chip lucide-icon {
+  display: inline-flex;
+  vertical-align: -0.2em;
+  margin-inline-end: 4px;
+}
+
+.sentiment-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- metrics ---------------------------------------------------------------
+ * Label + number + a redundant bar. The number is always present, so the reading never
+ * depends on the bar (or on colour), and the bar stays out of the a11y tree.
+ */
+.metrics {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.metric-label {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+}
+
+.metric-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.metric-number {
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  display: block;
+  /* rem, so the bar grows with the text at 200% zoom instead of clipping beside it. */
+  inline-size: 4rem;
+  block-size: 0.375rem;
+  border-radius: var(--mat-sys-corner-full);
+  background: var(--mat-sys-surface-container-highest);
+  overflow: hidden;
+}
+
+.meter-fill {
+  display: block;
+  block-size: 100%;
+  max-inline-size: 100%;
+  border-radius: inherit;
+  background: var(--mat-sys-primary);
+}
+
+.meter-fill.is-muted {
+  background: var(--mat-sys-outline);
+}
+
+/* ---------------------------------------------------------------------------
+ * Loading, error and empty states
+ * ------------------------------------------------------------------------ */
+
+.state-card {
+  margin-block-end: 24px;
+}
+
+.state-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+.state-title lucide-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.state-card.is-error .state-title {
+  color: var(--mat-sys-error);
+}
+
+.state-body {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-block: 24px;
+}
+
+.empty-state .state-body {
+  margin-inline: auto;
+}
+
+.empty-icon {
+  display: flex;
+  margin-block-end: 8px;
+  color: var(--mat-sys-on-surface-variant);
+}

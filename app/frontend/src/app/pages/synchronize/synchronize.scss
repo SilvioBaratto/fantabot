@@ -1,0 +1,330 @@
+@use '@angular/material' as mat;
+
+/* Synchronize — run one lega sync and watch each read land.
+ *
+ * Content shape: one short control (a league id and one acting button) and one stream of
+ * per-read reports. The stream is the primary content — the page exists to show what the
+ * sync did — and the control is what produces it, so this is a **supporting pane**
+ * (`layout/canonical_examples.md:238`), not list-detail: nothing here is a parent whose
+ * child fills the second pane.
+ *
+ * Deviation, stated: M3 puts the supporting pane at the fixed width, and the fixed pane
+ * here is the *control* rather than the output. The alternative is a 360px log, and the
+ * lines it carries ("matchday 3 · budget 500 · rosa 30 · 11 moduli") are data that must not
+ * wrap. Reading order still runs control → result.
+ *
+ * Per size class — the component tree is identical at every width, only the boxes move, so
+ * this file carries the whole adaptation and the component injects no
+ * `WindowSizeClassService` (`core/window-size-class.ts` says to prefer media queries for
+ * exactly this case):
+ *
+ *   compact   (<600)    16px gutter, one pane. Control above, outcome below. The field and
+ *                       the primary button each span the card: one thumb target each.
+ *   medium    (600–839) 24px gutter, still ONE pane — M3 recommends one at medium
+ *                       (`layout/breakpoints.md:9`) and the log is dense text, not the
+ *                       low-density content that earns two.
+ *   expanded  (840+)    24px spacer, two panes: a 360px fixed control pane, sticky against
+ *                       the shell's scroll region, and the outcome flexible beside it.
+ *   large     (1200+)   the fixed pane widens to 412px (`layout/breakpoints.md:20`).
+ *   x-large   (1600+)   unchanged; the page is capped at 1440px so the log keeps a
+ *                       readable measure rather than stretching across the window.
+ *
+ * The pane rules are guarded by a page-width `@container` nested inside each window query
+ * (mapping §5): the shell docks a rail of 96px collapsed and 280px expanded, so an 840px
+ * window can leave this page anywhere from 512px to 696px. The guard can only narrow the
+ * result — below it the panes stay stacked instead of squeezing the log to 176px.
+ *
+ * Emphasis: ONE primary action on the view (`usability/overview.md:105`) — Run lega sync,
+ * the only thing here that acts. Nothing else is a button.
+ *
+ * Every colour is a `--mat-sys-*` role. Contrast measured with the skill's script against
+ * the stock azure palette (light scheme, the only one this app has):
+ *   on-surface         / surface                    16.41:1
+ *   on-surface-variant / surface                     8.88:1
+ *   on-surface         / surface-container-low      15.57:1
+ *   on-surface-variant / surface-container-low       8.42:1
+ *   on-surface-variant / surface-container-high      7.57:1
+ *   on-error-container / error-container             7.24:1
+ *   error              / surface-container-low       5.84:1
+ *   primary            / surface-container-low       5.85:1
+ */
+
+:host {
+  /* The one non-token family on the page: M3 has no monospace role, and a log whose lines
+     are ` · `-separated figures has to line up. Size and weight still come from tokens. */
+  --sync-mono: ui-monospace, 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+
+  display: block;
+  container-name: sync-page;
+  container-type: inline-size;
+  max-inline-size: 1440px;
+  margin-inline: auto;
+  padding: 16px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px;
+  }
+}
+
+/* --- page header --------------------------------------------------------------------- */
+
+.page-header {
+  margin-block-end: 16px;
+}
+
+@media (min-width: 600px) {
+  .page-header {
+    margin-block-end: 24px;
+  }
+}
+
+.page-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-medium);
+  letter-spacing: var(--mat-sys-headline-medium-tracking);
+}
+
+.page-lede {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* --- the trigger failed ---------------------------------------------------------------
+ * Not a snackbar: this one says the job never started, so it has to stay on screen next to
+ * the button that did not work. M3 has no banner component, so it is built on the error
+ * container roles. */
+
+.page-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+@media (min-width: 600px) {
+  .page-error {
+    margin-block-end: 24px;
+  }
+}
+
+.page-error-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-block-start: 2px;
+}
+
+/* --- panes ---------------------------------------------------------------------------- */
+
+.panes {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 600px) {
+  .panes {
+    gap: 24px;
+  }
+}
+
+/* The log holds unbroken paths and ids, and a grid item's `min-width: auto` lets those
+   push past their track — which here would squeeze the fixed control pane rather than
+   wrap. The control pane has no such content, so only the outcome needs the floor. */
+.pane-outcome {
+  min-inline-size: 0;
+}
+
+@media (min-width: 840px) {
+  /* 360 fixed + 24 spacer + 296 minimum for the log. */
+  @container sync-page (min-width: 680px) {
+    .panes {
+      grid-template-columns: 360px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    /* The shell's `main` is the scroll container, so this sticks without a nested scroll
+       area of its own — the whole page still scrolls as one.
+       `grid-column` is named rather than left to source order: the control is the fixed
+       pane and the outcome the flexible one, and reordering the markup must not swap
+       them. Scoped inside the guard — a `grid-column` outside it would invent a second
+       column in the stacked layout. */
+    .pane-control {
+      position: sticky;
+      inset-block-start: 0;
+      grid-column: 1;
+    }
+
+    .pane-outcome {
+      grid-column: 2;
+    }
+  }
+}
+
+@media (min-width: 1200px) {
+  @container sync-page (min-width: 776px) {
+    .panes {
+      grid-template-columns: 412px minmax(0, 1fr);
+    }
+  }
+}
+
+/* --- cards ----------------------------------------------------------------------------- */
+
+.control-card,
+.outcome-card {
+  /* An outlined card defaults to `surface`, which is also the page background: the two
+     panes would read as one sheet with hairlines on it. One step up separates them. */
+  @include mat.card-overrides(
+    (
+      outlined-container-color: var(--mat-sys-surface-container-low),
+    )
+  );
+}
+
+/* A card whose content is followed by actions gets no bottom padding from Material, which
+   would leave the field's hint 8px from the button. */
+.control-card mat-card-content {
+  padding-block-end: 8px;
+}
+
+.control-lede {
+  margin: 0 0 8px;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.league-field {
+  inline-size: 100%;
+  max-inline-size: 18rem;
+}
+
+.league-field input {
+  font-variant-numeric: tabular-nums;
+}
+
+.control-actions {
+  padding: 0 16px 16px;
+}
+
+/* At compact the one acting button spans the card — a full-width thumb target at the
+   bottom of the control, with nothing beside it to mis-hit. */
+.control-actions button {
+  inline-size: 100%;
+}
+
+@media (min-width: 600px) {
+  .control-actions button {
+    inline-size: auto;
+  }
+}
+
+/* --- run outcome ------------------------------------------------------------------------ */
+
+.outcome-body {
+  padding-block-end: 16px;
+}
+
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
+.run-status-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+/* Tone reinforces the icon and the wording; the state is never carried by colour alone
+   (`interaction/selection.md:23`). M3 has no success role, so a clean run reads as
+   `primary` — measured 5.85:1 on the card, above the 3:1 an essential icon needs. */
+.run-status[data-run-status='running'] .run-status-icon,
+.run-status[data-run-status='complete'] .run-status-icon {
+  color: var(--mat-sys-primary);
+}
+
+.run-status[data-run-status='partial'] .run-status-icon,
+.run-status[data-run-status='failed'] .run-status-icon {
+  color: var(--mat-sys-error);
+}
+
+.run-status-note {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.outcome-empty,
+.outcome-waiting {
+  margin: 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.outcome-waiting {
+  margin-block-start: 12px;
+}
+
+/* One row per reported read. No `max-block-size` and no scroll of its own: a sync reports
+   under a dozen lines, and a nested scroll area inside the shell's one scroll container is
+   what M3 tells you to avoid. */
+.run-log {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 12px;
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-surface-container-high);
+}
+
+.run-log-line {
+  margin: 0;
+  padding: 3px 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-family: var(--sync-mono);
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- the running indicator --------------------------------------------------------------- */
+
+.outcome-progress {
+  margin-block-start: 8px;
+}
+
+/* `prefers-reduced-motion` is handled once, globally, in `styles/material.scss`. */
+.icon-spin {
+  animation: sync-icon-spin 1s linear infinite;
+}
+
+@keyframes sync-icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}

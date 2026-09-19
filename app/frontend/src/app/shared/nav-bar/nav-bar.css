@@ -1,0 +1,87 @@
+/* Dimensions follow the M3 navigation bar component spec: 64px bar, 56x32 indicator,
+   48px minimum target. Colors, type, shape and state opacities are all tokens. */
+.nav-bar {
+  display: flex;
+  align-items: stretch;
+  min-block-size: 64px;
+  padding-block-end: env(safe-area-inset-bottom);
+  background: var(--mat-sys-surface-container);
+}
+
+.nav-bar-item {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-block-size: 48px;
+  padding-block: 8px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  text-decoration: none;
+  /* Replaced by the ring on .indicator, so the focus ring follows the pill, not the column. */
+  outline: none;
+}
+
+.indicator {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  inline-size: 56px;
+  block-size: 32px;
+  border-radius: var(--mat-sys-corner-full);
+  overflow: hidden;
+}
+
+/* The state layer: one state at a time, in the content color. */
+.indicator::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+@media (hover: hover) {
+  .nav-bar-item:hover .indicator::before {
+    opacity: var(--mat-sys-hover-state-layer-opacity);
+  }
+}
+
+.nav-bar-item:focus-visible .indicator {
+  outline: 3px solid var(--mat-sys-secondary);
+  outline-offset: 2px;
+  overflow: visible;
+}
+
+.nav-bar-item:focus-visible .indicator::before {
+  opacity: var(--mat-sys-focus-state-layer-opacity);
+  border-radius: inherit;
+}
+
+.nav-bar-item:active .indicator::before {
+  opacity: var(--mat-sys-pressed-state-layer-opacity);
+}
+
+/* The current location: an indicator AND aria-current, never color alone. */
+.is-active {
+  color: var(--mat-sys-secondary);
+}
+
+.is-active .indicator {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.is-active .label {
+  font-weight: var(--mat-sys-label-medium-weight-prominent);
+}
+
+.label {
+  text-align: center;
+}

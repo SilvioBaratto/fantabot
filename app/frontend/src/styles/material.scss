@@ -1,0 +1,170 @@
+@use '@angular/material' as mat;
+
+/* Material 3 theme — the app's single source of color, type, shape and elevation.
+ *
+ * Light-only by decision (the operator, 2026-09-19): `color-scheme: light` pins every
+ * `light-dark()` token to its light value, so there is no dark palette to verify and no
+ * theme service. Do not add a `prefers-color-scheme` block without re-measuring contrast
+ * on every custom surface.
+ *
+ * Stock azure palette, also by decision. The pitch-green/turf palette this app used to
+ * carry lived in Tailwind's `@theme` and is deliberately gone: a brand hex inside a
+ * component is what M3 roles exist to replace.
+ *
+ * This is now the app's ONLY global stylesheet (see angular.json). Tailwind and the
+ * `styles.css` that imported it were removed on 2026-09-19, once no template used a
+ * utility: what it still contributed was its preflight, a palette of literal hexes no
+ * longer referenced, and a `*:focus-visible` ring drawn in `#0e3b2e` over the Material
+ * focus indicator below. The one piece of preflight worth keeping is the box-sizing
+ * reset restated here; every page stylesheet already zeroes its own heading, paragraph
+ * and list-marker defaults rather than leaning on it.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+
+  @include mat.theme(
+    (
+      color: mat.$azure-palette,
+      typography: Roboto,
+      density: 0,
+    )
+  );
+
+  /* A visible ring on keyboard focus, drawn outside the component with a gap. */
+  @include mat.strong-focus-indicators();
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------------------------------------------------------------------------
+ * Shared helpers. Everything here used to come from Tailwind; it is defined
+ * once so removing Tailwind cannot silently drop it.
+ * ------------------------------------------------------------------------ */
+
+/* Visually hidden, still announced. The route announcer and icon-only labels use it. */
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip navigation — off-screen until focused. `<base href="/">` makes a bare `#main`
+ * href reload the app, so the shell moves focus in code and this stays a visible
+ * affordance with a real target. */
+.skip-link {
+  position: fixed;
+  inset-block-start: -100%;
+  inset-inline-start: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  border-radius: var(--mat-sys-corner-extra-small);
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  text-decoration: none;
+  transition: inset-block-start 100ms;
+}
+
+.skip-link:focus {
+  inset-block-start: 16px;
+}
+
+/* lucide-angular in a Material button's icon slot.
+ *
+ * `matButton` projects only `mat-icon`, `.material-icons` and `[matButtonIcon]`, so a
+ * Lucide icon needs `matButtonIcon` to reach the slot. That picks the slot, but Material's
+ * icon margins and 18px sizing target `.mat-icon`, which a `<lucide-icon>` is not — hence
+ * the margins here. `display: flex` kills the inline-SVG baseline gap.
+ *
+ *   <button matButton="filled">
+ *     <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="refresh-cw" />
+ *     Run sync
+ *   </button>
+ *
+ * Pass `[size]="18"`: lucide-angular writes width/height ATTRIBUTES on the svg it creates
+ * (default 24), which no host CSS can override.
+ */
+.lucide-slot {
+  display: flex;
+  flex-shrink: 0;
+  margin-inline: -8px 8px;
+}
+
+/* Trailing icon: `<lucide-icon matButtonIcon iconPositionEnd class="lucide-slot-end">` */
+.lucide-slot-end {
+  display: flex;
+  flex-shrink: 0;
+  margin-inline: 8px -8px;
+}
+
+/* Text buttons use -4px instead of -8px (their padding is tighter). */
+.mat-mdc-button > .lucide-slot {
+  margin-inline: -4px 8px;
+}
+
+.mat-mdc-button > .lucide-slot-end {
+  margin-inline: 8px -4px;
+}
+
+/* An icon button already sizes any svg inside it to 24px, so it needs no slot class. */
+
+/* Destructive regions. Components inside read error roles with no per-component CSS.
+ * Overlay panels do not inherit it — pass `danger-zone` as the panel class. */
+.danger-zone {
+  @include mat.theme-overrides(
+    (
+      primary: var(--mat-sys-error),
+      on-primary: var(--mat-sys-on-error),
+      primary-container: var(--mat-sys-error-container),
+      on-primary-container: var(--mat-sys-on-error-container),
+      secondary-container: var(--mat-sys-error-container),
+      on-secondary-container: var(--mat-sys-on-error-container),
+    )
+  );
+}
+
+/* Removes the ~300ms double-tap delay on tap targets; pinch zoom stays enabled (WCAG 1.4.4). */
+a,
+button,
+[role='button'],
+label {
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

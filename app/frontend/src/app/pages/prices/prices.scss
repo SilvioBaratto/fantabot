@@ -1,0 +1,285 @@
+@use '@angular/material' as mat;
+
+/* Target prices — Material 3 page styles.
+ *
+ * Every colour, type ramp, shape and elevation value below is a `--mat-sys-*` role: no
+ * hex, no `rgb()`, no Tailwind utility. Roles are paired — content on a container uses
+ * that container's `on-` role — and `outline-variant` appears only as a stroke, never as
+ * text: on `surface` it measures 1.62:1, so as text it would fail outright.
+ *
+ * Measured with the skill's contrast script, stock azure palette, light scheme:
+ *   on-surface-variant / surface-container-low  8.42:1  PASS  (headers, team, prose)
+ *   primary            / surface-container-low  5.85:1  PASS  (bump targets)
+ *   error              / surface-container-low  5.84:1  PASS  (cut targets, notice title)
+ *   on-surface-variant / surface                8.88:1  PASS  (page subtitle)
+ *
+ * Element selectors are used where the element is unique to one role on this page. They
+ * are scoped by view encapsulation, and they keep the emitted stylesheet small: this page
+ * is 2.85kB of the `anyComponentStyle` budget in `angular.json`, which the conversion
+ * recalibrated to 10kB warn / 12kB error once every page carried its own M3 stylesheet.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Page shell. The shell's `<main>` is the only scroll container, so nothing here
+ * sets a viewport height or its own overflow. `box-sizing` is declared locally
+ * rather than inherited: Tailwind's preflight used to supply it globally, and the
+ * reset in `styles/material.scss` is what supplies it now.
+ * ------------------------------------------------------------------------ */
+
+:host {
+  box-sizing: border-box;
+  display: block;
+  /* M3 page margin: 16px at compact (layout/breakpoints.md:9). */
+  padding: 16px 16px 32px;
+}
+
+h1 {
+  margin: 0;
+  font: var(--mat-sys-headline-medium);
+  letter-spacing: var(--mat-sys-headline-medium-tracking);
+}
+
+h2 {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+/* Supporting prose, held to a 60ch measure. */
+.page-subtitle,
+.loading-text,
+.notice-card__body {
+  max-inline-size: 60ch;
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.report-status,
+.player-team {
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ---- header ------------------------------------------------------------ */
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-block-end: 16px;
+}
+
+/* Lets the title block shrink in the flex row instead of pushing the actions off. */
+.page-heading {
+  min-inline-size: 0;
+}
+
+.page-subtitle {
+  margin-block-start: 4px;
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* At least 8px between groups of controls (accessibility/designing.md:282): the
+   * listone selector and the one action. */
+  gap: 12px 16px;
+}
+
+/* Material ships the segmented button at 40px, under the 48px target M3 asks for, and
+ * unlike `matButton` it has no touch-target span to make up the difference. */
+.system-toggle {
+  @include mat.button-toggle-overrides(
+    (
+      height: 48px,
+    )
+  );
+}
+
+/* ---- activity and status ----------------------------------------------- */
+
+.page-activity {
+  /* Reserved whether or not a bar is in it, so starting a fit shifts nothing. */
+  block-size: 4px;
+  margin-block-end: 16px;
+}
+
+.loading-text {
+  padding-block: 24px;
+}
+
+.report-status {
+  max-inline-size: 60ch;
+  margin: 0 0 16px;
+  /* After the `font` shorthand above, which resets font-variant. */
+  font-variant-numeric: tabular-nums;
+}
+
+.report-status__control {
+  color: var(--mat-sys-on-surface);
+  font-weight: 500;
+}
+
+/* ---- the two mover tables ----------------------------------------------
+ * Peer content of the same shape, so this is a feed reflow rather than list-detail:
+ * one column at compact and medium, two from 840px, where M3 recommends a second
+ * pane (layout/breakpoints.md:17).
+ * ------------------------------------------------------------------------ */
+
+.movers {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.mover-card {
+  /* mat-card supplies surface-container-low, the corner radius and level1. */
+  overflow: hidden;
+  padding-block-end: 4px;
+}
+
+.mover-card--up {
+  --prices-accent: var(--mat-sys-primary);
+}
+
+.mover-card--down {
+  --prices-accent: var(--mat-sys-error);
+}
+
+.mover-card__header {
+  padding: 16px 16px 12px;
+  /* Decorative: which list this is, is carried by the heading text. */
+  border-block-end: 2px solid var(--prices-accent);
+}
+
+table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+th,
+td {
+  padding: 10px 16px;
+  vertical-align: baseline;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+thead th {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+}
+
+tbody th {
+  font-weight: 400;
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+/* The gap comes from here, not from template whitespace. */
+.player-team {
+  margin-inline-start: 4px;
+}
+
+.col-player {
+  text-align: start;
+  /* Wrapping, not truncating: an ellipsis clips the name at 200% text zoom. */
+  overflow-wrap: anywhere;
+}
+
+.col-num {
+  /* Numbers right-aligned and column-aligned. */
+  text-align: end;
+  white-space: nowrap;
+  inline-size: 1%;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-target {
+  font-weight: 500;
+  color: var(--prices-accent);
+}
+
+.table-empty {
+  text-align: start;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ---- flag counts -------------------------------------------------------- */
+
+.flags {
+  margin-block-start: 24px;
+}
+
+.flags__title {
+  margin-block-end: 12px;
+}
+
+.flag-chip {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- notices: the HTTP failure, and the report's own empty outcomes ------ */
+
+.notice-card {
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.notice-card--error h2 {
+  color: var(--mat-sys-error);
+}
+
+.notice-card__body {
+  margin: 8px auto 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Size classes. Medium and up take the 24px page margin and put the actions
+ * beside the title; the second table column waits for 840px.
+ * ------------------------------------------------------------------------ */
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px 24px 40px;
+  }
+
+  .page-header {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-block-end: 24px;
+  }
+
+  .movers {
+    gap: 24px;
+  }
+}
+
+@media (min-width: 840px) {
+  .movers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Two ~600px table columns already exceed a comfortable scan width, and the rows are
+ * short (a name and two numbers), so the page stops widening rather than stretching a
+ * three-column table across 1500px. */
+@media (min-width: 1200px) {
+  :host {
+    max-inline-size: 1280px;
+    margin-inline: auto;
+  }
+}

@@ -1,0 +1,38 @@
+/* The dialog PANEL is an overlay and lives outside this component, so anything about the
+ * panel itself (width, panel class) is set from the page's `MatDialog` config. What is
+ * left here is the content, which does render inside this component and is reachable. */
+
+p {
+  margin: 0 0 12px;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+p:last-child {
+  margin-block-end: 0;
+}
+
+/* The clause that names what else is lost. Weight plus `on-surface` against the
+ * `on-surface-variant` around it, so the emphasis is not colour alone. */
+strong {
+  color: var(--mat-sys-on-surface);
+  /* The scale's medium weight — `<strong>` defaults to a bold heavier than M3 uses. */
+  font-weight: var(--mat-sys-title-medium-weight);
+}
+
+/* The wrapper exists only to scope `.danger-zone` to the destructive button: `display:
+ * contents` keeps the button itself a flex item of the actions row, and the remapped
+ * custom properties still inherit through it. */
+.danger-zone {
+  display: contents;
+}
+
+/* Material spaces dialog actions with `.mat-mdc-button-base + .mat-mdc-button-base`, an
+ * adjacent-SIBLING rule the `.danger-zone` wrapper breaks — `display: contents` changes
+ * the boxes, not the DOM. 8px is the same gap, and it is M3's minimum between groups of
+ * controls. */
+mat-dialog-actions {
+  gap: 8px;
+}

@@ -1,0 +1,306 @@
+@use '@angular/material' as mat;
+
+/* System — the local database's health and what it holds.
+ *
+ * Layout: ONE flexible pane at compact, medium and expanded; TWO from the large window
+ * class up (`layout/breakpoints.md:17`), with the health summary as the fixed 412px pane
+ * and the table inventory flexible. The split starts at 1200 rather than 840 because the
+ * shell's rail eats 96–280px: at an 840px window the inventory pane would be ~310px, and
+ * a table name plus its count stops fitting on one line.
+ *
+ * The `@container` guard is the second half of that rule. The window class asks for two
+ * panes; the guard can only narrow the answer, so a 1200px window with the rail expanded
+ * (~870px of pane) stays single-pane. A container query alone would let the rail, not the
+ * window, decide.
+ *
+ * Every colour here is a `--mat-sys-*` role. Measured in the light scheme (the theme pins
+ * `color-scheme: light`): primary/surface 6.17:1, error/surface 6.16:1,
+ * on-surface-variant/surface 8.88:1, on-error-container/error-container 7.24:1.
+ */
+
+:host {
+  display: block;
+  container-type: inline-size;
+  container-name: page;
+  /* M3 page margins: 16 at compact, 24 from 600 up (`layout/breakpoints.md:9`). */
+  padding-block: 16px 32px;
+  padding-inline: 16px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding-block: 24px 40px;
+    padding-inline: 24px;
+  }
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* Stops the inventory rows from stretching the name-to-count gap across an ultrawide. */
+  max-inline-size: 1440px;
+}
+
+@media (min-width: 600px) {
+  .page {
+    gap: 24px;
+  }
+}
+
+/* ---------------------------------------------------------------- header */
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  /* 8px minimum between groups of controls; 16 here for the wrapped compact case. */
+  gap: 16px;
+}
+
+.page-heading {
+  min-inline-size: 0;
+}
+
+.page-title {
+  margin: 0;
+  font: var(--mat-sys-headline-medium);
+  letter-spacing: var(--mat-sys-headline-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.page-subtitle {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* The indeterminate bar is 4px tall; reserving the slot keeps the page still. */
+.activity {
+  block-size: 4px;
+}
+
+.page-note {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ----------------------------------------------------------------- panes */
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.section-title {
+  margin: 0 0 12px;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* mat-card carries no padding of its own; mat-card-content's is fixed at 16px, and this
+   pane wants 24 from 600 up. */
+.card-body {
+  padding: 16px;
+}
+
+@media (min-width: 600px) {
+  .card-body {
+    padding: 24px;
+  }
+}
+
+/* ------------------------------------------------------------ health card */
+
+.health-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  margin: 0;
+}
+
+@media (min-width: 600px) {
+  .health-stats {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 24px 32px;
+  }
+}
+
+.stat {
+  min-inline-size: 0;
+}
+
+.stat-label {
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.stat-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 4px 0 0;
+  color: var(--mat-sys-on-surface);
+}
+
+.stat-number {
+  font: var(--mat-sys-display-small);
+  letter-spacing: var(--mat-sys-display-small-tracking);
+  /* After the `font` shorthand, which resets font-variant. */
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-unit {
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.stat-note {
+  flex-basis: 100%;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* Reachable / unreachable is never colour alone: the icon, the word and the colour all
+   change together (`interaction/selection.md:23`). */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mat-sys-primary);
+}
+
+.status-down {
+  color: var(--mat-sys-error);
+}
+
+.status-word {
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+}
+
+/* -------------------------------------------------------- table inventory */
+
+.table-legend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.table-legend > :last-child {
+  text-align: end;
+}
+
+.table-list {
+  margin: 0;
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 16px;
+  /* min-block-size, not block-size: the rows still grow at 200% text. */
+  min-block-size: 40px;
+  padding: 10px 16px;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+.table-row:last-child {
+  border-block-end: 0;
+}
+
+@media (min-width: 600px) {
+  .table-legend,
+  .table-row {
+    padding-inline: 24px;
+  }
+}
+
+.table-name {
+  min-inline-size: 0;
+  /* A long snake_case identifier wraps rather than pushing the count off the row. */
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* A table the database has not got. The em dash and the "Not created" text carry this
+   too, so the lower emphasis is reinforcement, not the signal. */
+.table-name-missing {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.table-count {
+  margin: 0;
+  text-align: end;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ------------------------------------------------------------ error state */
+
+.error-banner {
+  @include mat.card-overrides(
+    (
+      outlined-container-color: var(--mat-sys-error-container),
+      outlined-outline-color: var(--mat-sys-error),
+    )
+  );
+
+  color: var(--mat-sys-on-error-container);
+}
+
+.error-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+.error-body {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* ------------------------------------------------- large and extra-large */
+
+@media (min-width: 1200px) {
+  @container page (min-width: 900px) {
+    .panes {
+      /* M3's fixed pane is 412px from 1200 up (`layout/breakpoints.md:20`). */
+      grid-template-columns: 412px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    /* An empty database leaves the health pane alone; it takes the full width. */
+    .health-pane:only-child {
+      grid-column: 1 / -1;
+    }
+
+    /* The health pane is 412px here, so its three stats stack again. */
+    .health-stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

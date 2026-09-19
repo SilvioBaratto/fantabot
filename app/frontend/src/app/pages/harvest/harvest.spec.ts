@@ -193,9 +193,13 @@ describe('HarvestComponent', () => {
     // Scoped to the seed panel and checked as controls: the *load* panel legitimately
     // picks a format — a seed holds both and a load carries one — and the seed panel
     // legitimately prints "classic" and "mantra" while counting them.
+    //
+    // `mat-select` is checked alongside `select`: the Material 3 conversion replaced the
+    // native element, so a tag-only assertion would have gone quietly vacuous.
     const seed = (await render()).nativeElement.querySelector('[data-panel="seed"]') as HTMLElement;
 
     expect(seed.querySelector('select')).toBeNull();
+    expect(seed.querySelector('mat-select')).toBeNull();
     expect(seed.querySelector('input')).toBeNull();
     expect(
       [...seed.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim().toLowerCase()),
@@ -237,6 +241,18 @@ describe('HarvestComponent', () => {
     stop.flush({ ok: true });
 
     expect(stop.request.method).toBe('POST');
+  });
+
+  it('keeps the format a parameter of the load, and offers it nowhere else', async () => {
+    // The positive half of the two "no format selector here" tests. Without it, replacing
+    // the native `<select>` with a `mat-select` would have left three assertions that pass
+    // because the element they name no longer exists anywhere.
+    const root = (await render()).nativeElement as HTMLElement;
+    const loader = root.querySelector('[data-panel="loader"]') as HTMLElement;
+
+    expect(loader.querySelector('mat-select')).not.toBeNull();
+    expect(root.querySelectorAll('mat-select').length).toBe(1);
+    expect(root.querySelector('select')).toBeNull();
   });
 
   it('reattaches to a load that was already running', async () => {
@@ -329,6 +345,58 @@ describe('HarvestComponent', () => {
     ) as HTMLElement;
 
     expect(panel.querySelector('select')).toBeNull();
+    expect(panel.querySelector('mat-select')).toBeNull();
+  });
+
+  it('shows progress and a stop that names what it stops while the collector runs', async () => {
+    // Two buttons reading "Stop" on one page is the ambiguity the M3 content rules are
+    // about; the progress bar is what replaced a spinner glued inside the start button.
+    const fixture = await render();
+
+    fixture.componentInstance.runCollect();
+    fixture.detectChanges();
+    httpMock.expectOne(`${environment.apiUrl}harvest/collect?pool=1705`).flush({ job_id: 'C1' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const panel = fixture.nativeElement.querySelector(
+      '[data-panel="collector"]',
+    ) as HTMLElement;
+
+    expect(panel.querySelector('mat-progress-bar')).not.toBeNull();
+    expect(
+      [...panel.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim()),
+    ).toContain('Stop collector');
+  });
+
+  it('puts the streamed log in a named region the keyboard can reach', async () => {
+    // A scroll region a wheel is the only way into is unreachable from the keyboard
+    // (WCAG 2.1.1), and a collector log on a live evening is the longest one here.
+    const fixture = await render();
+    fixture.componentInstance.collectLines.set(['connected', 'lot 12 assigned']);
+    fixture.detectChanges();
+
+    const log = fixture.nativeElement.querySelector(
+      '[data-panel="collector"] [role="region"]',
+    ) as HTMLElement;
+
+    expect(log).not.toBeNull();
+    expect(log.getAttribute('aria-label')).toBe('Collector log');
+    expect(log.getAttribute('tabindex')).toBe('0');
+    expect(log.textContent).toContain('lot 12 assigned');
+  });
+
+  it('has exactly one h1 and skips no heading level', async () => {
+    const root = (await render()).nativeElement as HTMLElement;
+    const levels = [...root.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((h) =>
+      Number(h.tagName.slice(1)),
+    );
+
+    expect(levels.filter((level) => level === 1).length).toBe(1);
+    expect(levels[0]).toBe(1);
+    levels.slice(1).forEach((level, index) => {
+      expect(level - levels[index]).toBeLessThanOrEqual(1);
+    });
   });
 
   it('reattaches to a collect that was already running', async () => {

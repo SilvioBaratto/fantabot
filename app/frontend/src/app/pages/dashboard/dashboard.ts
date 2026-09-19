@@ -7,6 +7,10 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButton } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatProgressBar } from '@angular/material/progress-bar';
+import { MatTableModule } from '@angular/material/table';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { LegaService } from '../../core/api/lega.service';
@@ -14,14 +18,18 @@ import { LegaOverview, TeamRoster } from '../../core/models/lega';
 
 @Component({
   selector: 'app-dashboard',
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, MatButton, MatCardModule, MatProgressBar, MatTableModule],
   templateUrl: './dashboard.html',
+  styleUrl: './dashboard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class DashboardComponent implements OnInit {
   private readonly service = inject(LegaService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Column order for the roster `mat-table`. Presentation only — no read of it decides
+   * anything, and the four keys match the `matColumnDef`s in the template. */
+  readonly teamColumns = ['team', 'spent', 'left', 'players'];
 
   readonly leagues = signal<LegaOverview[]>([]);
   readonly loading = signal(true);
@@ -49,7 +57,7 @@ export class DashboardComponent implements OnInit {
           this.loading.set(false);
         },
         error: () => {
-          this.errorMsg.set('Could not reach the API.');
+          this.errorMsg.set('Could not reach the API');
           this.loading.set(false);
         },
       });

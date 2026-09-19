@@ -1,6 +1,9 @@
+import { OverlayContainer } from '@angular/cdk/overlay';
+import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 
+import { ICON_PROVIDER } from '../../../icons';
 import { ToastComponent } from './toast';
 import { ToastService, ToastVariant } from './toast.service';
 
@@ -95,26 +98,41 @@ describe('ToastService', () => {
   });
 });
 
+/* The component specs run on real timers with a duration long enough never to fire.
+ * The snackbar's own enter/exit and screen-reader hand-off are timer-driven, and faking
+ * the clock under them tests the fake, not the surface. Nothing here waits on those
+ * timers: every assertion holds as soon as the panel is attached and ticked. */
+const NEVER_EXPIRES = 600_000;
+
 describe('ToastComponent', () => {
   let fixture: ComponentFixture<ToastComponent>;
   let host: HTMLElement;
   let service: ToastService;
+  let overlay: HTMLElement;
+
+  /** The panel lives in the CDK overlay, outside the fixture, so a fixture-local check
+   *  would not reach it: tick the whole application. */
+  const sync = (): void => {
+    fixture.detectChanges();
+    TestBed.inject(ApplicationRef).tick();
+  };
 
   beforeEach(async () => {
-    vi.useFakeTimers();
     await TestBed.configureTestingModule({
       imports: [ToastComponent],
+      providers: [ICON_PROVIDER],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ToastComponent);
     host = fixture.nativeElement;
     service = TestBed.inject(ToastService);
-    fixture.detectChanges();
+    overlay = TestBed.inject(OverlayContainer).getContainerElement();
+    sync();
   });
 
   afterEach(() => {
     service.toasts().forEach((t) => service.dismiss(t.id));
-    vi.useRealTimers();
+    sync();
   });
 
   // --- structure ---
@@ -123,73 +141,105 @@ describe('ToastComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
+  it('when no toast is pending, nothing is drawn', () => {
+    expect(host.textContent).toBe('');
+    expect(overlay.querySelector('.mat-mdc-snack-bar-container')).toBeNull();
+  });
+
+  // --- the Material surface ---
+
+  it('when a toast is shown, it is drawn on a Material snackbar in the overlay', () => {
+    service.show('info', 'over the page', NEVER_EXPIRES);
+    sync();
+    expect(overlay.querySelector('.mat-mdc-snack-bar-container')).toBeTruthy();
+    expect(overlay.textContent).toContain('over the page');
+    // The outlet itself stays out of the page flow — the overlay does the positioning.
+    expect(host.textContent).toBe('');
+  });
+
+  it('when a toast is shown, the panel carries the hook classes global styles target', () => {
+    service.show('warning', 'careful', NEVER_EXPIRES);
+    sync();
+    expect(overlay.querySelector('.app-toast.app-toast-warning')).toBeTruthy();
+  });
+
   // --- polite region ---
 
   it('when an info toast is shown, it appears in the polite aria-live region', () => {
-    const id = service.show('info', 'hi there');
-    fixture.detectChanges();
-    const polite = host.querySelector('[aria-live="polite"]');
-    expect(polite?.textContent).toContain('hi there');
-    service.dismiss(id);
+    service.show('info', 'hi there', NEVER_EXPIRES);
+    sync();
+    const polite = overlay.querySelector('[aria-live="polite"]');
+    expect(polite).toBeTruthy();
+    expect(overlay.textContent).toContain('hi there');
   });
 
   // --- assertive region ---
 
   it('when an error toast is shown, it appears in the assertive aria-live region', () => {
-    const id = service.show('error', 'critical!');
-    fixture.detectChanges();
-    const assertive = host.querySelector('[aria-live="assertive"]');
-    expect(assertive?.textContent).toContain('critical!');
-    service.dismiss(id);
+    service.show('error', 'critical!', NEVER_EXPIRES);
+    sync();
+    const assertive = overlay.querySelector('[aria-live="assertive"]');
+    expect(assertive).toBeTruthy();
+    expect(overlay.textContent).toContain('critical!');
   });
 
-  it('when an error toast is shown, it does NOT appear in the polite region', () => {
-    const id = service.show('error', 'critical!');
-    fixture.detectChanges();
-    const polite = host.querySelector('[aria-live="polite"]');
-    expect(polite?.textContent).not.toContain('critical!');
-    service.dismiss(id);
+  it('when an error toast is shown, it does NOT go to a polite region', () => {
+    service.show('error', 'critical!', NEVER_EXPIRES);
+    sync();
+    expect(overlay.querySelector('[aria-live="polite"]')).toBeNull();
   });
 
   // --- manual close button ---
 
   it('when the close button is clicked, the toast is dismissed', () => {
-    service.show('success', 'bye');
-    fixture.detectChanges();
-    const btn = host.querySelector<HTMLButtonElement>('button[aria-label]')!;
+    service.show('success', 'bye', NEVER_EXPIRES);
+    sync();
+    const btn = overlay.querySelector<HTMLButtonElement>('button[aria-label]')!;
     expect(btn).toBeTruthy();
     btn.click();
-    fixture.detectChanges();
+    sync();
     expect(service.toasts().length).toBe(0);
   });
 
-  it('when a close button is rendered, it carries an aria-label', () => {
-    service.show('warning', 'warn');
-    fixture.detectChanges();
-    const btn = host.querySelector<HTMLButtonElement>('button')!;
-    expect(btn.getAttribute('aria-label')).toBeTruthy();
-    service.dismiss(service.toasts()[0].id);
+  it('when a close button is rendered, its label names the action', () => {
+    service.show('warning', 'warn', NEVER_EXPIRES);
+    sync();
+    const btn = overlay.querySelector<HTMLButtonElement>('button')!;
+    expect(btn.getAttribute('aria-label')).toBe('Dismiss notification');
   });
 
-  // --- positioning and safe-area ---
+  // --- one surface, a queue behind it ---
 
-  it('when rendered, the toast container has bottom-right fixed positioning classes', () => {
-    const container = host.querySelector('[aria-label="Notifications"]')!;
-    expect(container.className).toContain('fixed');
-    expect(container.className).toContain('bottom-');
-    expect(container.className).toContain('right-');
+  it('when two toasts are pending, only the oldest is on screen', () => {
+    service.show('info', 'first message', NEVER_EXPIRES);
+    service.show('info', 'second message', NEVER_EXPIRES);
+    sync();
+    expect(overlay.querySelectorAll('.app-toast').length).toBe(1);
+    expect(overlay.textContent).toContain('first message');
+    expect(overlay.textContent).not.toContain('second message');
   });
 
-  it('when rendered, the toast container has the pb-safe class', () => {
-    const container = host.querySelector('[aria-label="Notifications"]')!;
-    expect(container.className).toContain('pb-safe');
+  it('when the toast on screen is dismissed, the next one takes its place', () => {
+    const first = service.show('info', 'first message', NEVER_EXPIRES);
+    service.show('success', 'second message', NEVER_EXPIRES);
+    sync();
+    service.dismiss(first);
+    sync();
+    expect(overlay.textContent).toContain('second message');
+    expect(service.toasts().length).toBe(1);
   });
 
   // --- design tokens ---
 
   it('when rendered, no hardcoded hex colors appear in inline element styles', () => {
+    service.show('error', 'tokens only', NEVER_EXPIRES);
+    sync();
     const hexPattern = /#[0-9a-fA-F]{3,8}\b/;
-    const all: HTMLElement[] = [host, ...Array.from(host.querySelectorAll('*') as NodeListOf<HTMLElement>)];
+    const all: HTMLElement[] = [
+      host,
+      ...Array.from(host.querySelectorAll('*') as NodeListOf<HTMLElement>),
+      ...Array.from(overlay.querySelectorAll('*') as NodeListOf<HTMLElement>),
+    ];
     for (const el of all) {
       expect(el.getAttribute('style') ?? '').not.toMatch(hexPattern);
     }
@@ -198,34 +248,56 @@ describe('ToastComponent', () => {
 
 describe('ToastComponent variants', () => {
   let fixture: ComponentFixture<ToastComponent>;
-  let host: HTMLElement;
   let service: ToastService;
+  let overlay: HTMLElement;
+
+  const sync = (): void => {
+    fixture.detectChanges();
+    TestBed.inject(ApplicationRef).tick();
+  };
 
   beforeEach(async () => {
-    vi.useFakeTimers();
     await TestBed.configureTestingModule({
       imports: [ToastComponent],
+      providers: [ICON_PROVIDER],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ToastComponent);
-    host = fixture.nativeElement;
     service = TestBed.inject(ToastService);
-    fixture.detectChanges();
+    overlay = TestBed.inject(OverlayContainer).getContainerElement();
+    sync();
   });
 
   afterEach(() => {
     service.toasts().forEach((t) => service.dismiss(t.id));
-    vi.useRealTimers();
+    sync();
   });
 
   const variants: ToastVariant[] = ['info', 'success', 'warning', 'error'];
 
   variants.forEach((variant) => {
     it(`when variant is ${variant}, the toast message is visible`, () => {
-      const id = service.show(variant, `${variant}-msg`);
-      fixture.detectChanges();
-      expect(host.textContent).toContain(`${variant}-msg`);
-      service.dismiss(id);
+      service.show(variant, `${variant}-msg`, NEVER_EXPIRES);
+      sync();
+      expect(overlay.textContent).toContain(`${variant}-msg`);
     });
+  });
+
+  // The container is the same inverse surface for every variant, so the three that
+  // carry a status say so with a glyph as well. `info` is the neutral one.
+  const glyphed: ToastVariant[] = ['success', 'warning', 'error'];
+
+  glyphed.forEach((variant) => {
+    it(`when variant is ${variant}, a status glyph is drawn beside the message`, () => {
+      service.show(variant, `${variant}-msg`, NEVER_EXPIRES);
+      sync();
+      expect(overlay.querySelector('.toast-icon')).toBeTruthy();
+    });
+  });
+
+  it('when variant is info, no status glyph is drawn', () => {
+    service.show('info', 'plain', NEVER_EXPIRES);
+    sync();
+    expect(overlay.querySelector('.toast-icon')).toBeNull();
   });
 });

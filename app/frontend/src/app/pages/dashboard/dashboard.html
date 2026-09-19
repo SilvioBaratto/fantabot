@@ -1,112 +1,181 @@
-<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="font-display text-3xl font-bold tracking-tight text-text">Leagues</h1>
-    <p class="mt-1 text-sm text-text-secondary">Your leghe as of the last sync.</p>
+<header class="page-header">
+  <div class="page-heading">
+    <h1 class="page-title">Leagues</h1>
+    <p class="page-subtitle">Your leghe as of the last sync</p>
   </div>
-  <button
-    type="button"
-    (click)="load()"
-    class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-  >
-    <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
+
+  <button matButton="filled" type="button" (click)="load()">
+    <lucide-icon
+      matButtonIcon
+      class="lucide-slot"
+      [size]="18"
+      name="refresh-cw"
+      aria-hidden="true"
+    />
     Refresh
   </button>
 </header>
 
-@if (loading() && !loaded()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
-} @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
-} @else if (leagues().length) {
-  <div class="space-y-6">
-    @for (lega of leagues(); track lega.league_id) {
-      <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-        <div class="h-1 w-full bg-primary"></div>
-        <div class="flex flex-wrap items-start justify-between gap-4 p-6">
-          <div>
-            <h2 class="font-display text-xl font-semibold text-text">
-              {{ lega.league_name ?? 'Lega ' + lega.league_id }}
-            </h2>
-            <p class="mt-0.5 text-xs text-text-tertiary tabular-nums">
-              #{{ lega.league_id }}@if (lega.matchday !== null) { · matchday {{ lega.matchday }} }
-            </p>
-          </div>
-          <button
-            type="button"
-            (click)="toggleTeams(lega.league_id)"
-            class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-          >
-            {{ expandedId() === lega.league_id ? 'Hide teams' : lega.team_count + ' teams' }}
-            <lucide-icon
-              name="chevron-down"
-              class="h-4 w-4 transition-transform"
-              [class.rotate-180]="expandedId() === lega.league_id"
-            ></lucide-icon>
-          </button>
-        </div>
+<!-- A 4px slot the bar drops into, so starting a refresh moves nothing on the page. -->
+<div class="progress-slot">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" aria-label="Loading leagues" />
+  }
+</div>
 
-        <div class="grid grid-cols-2 gap-x-10 gap-y-4 px-6 pb-6 sm:grid-cols-4">
-          <div>
-            <p class="font-display text-2xl font-bold tabular-nums text-text">{{ lega.budget ?? '—' }}</p>
-            <p class="text-xs text-text-secondary">budget</p>
-          </div>
-          <div>
-            <p class="font-display text-2xl font-bold tabular-nums text-text">{{ lega.roster_size ?? '—' }}</p>
-            <p class="text-xs text-text-secondary">roster size</p>
-          </div>
-          <div>
-            <p class="font-display text-2xl font-bold tabular-nums text-text">{{ lega.bench_size ?? '—' }}</p>
-            <p class="text-xs text-text-secondary">bench</p>
-          </div>
-          <div>
-            <p class="font-display text-2xl font-bold tabular-nums text-text">{{ lega.modules?.length ?? 0 }}</p>
-            <p class="text-xs text-text-secondary">modules</p>
-          </div>
-          @if (roleBand(lega); as band) {
-            <div class="col-span-2 sm:col-span-4">
-              <p class="text-sm tabular-nums text-text-secondary">roles {{ band }}</p>
+@if (loading() && !loaded()) {
+  <p class="state-note">Loading your leghe…</p>
+} @else if (errorMsg(); as message) {
+  <mat-card class="state-card state-card-error" appearance="outlined" role="alert">
+    <mat-card-content>
+      <h2 class="state-title">API unreachable</h2>
+      <p class="state-body">{{ message }}</p>
+      <p class="state-body">Make sure fantabot-app is running</p>
+    </mat-card-content>
+  </mat-card>
+} @else if (leagues().length) {
+  <div class="feed">
+    @for (lega of leagues(); track lega.league_id) {
+      <mat-card class="lega-card">
+        <mat-card-header>
+          <h2 mat-card-title class="lega-title">
+            {{ lega.league_name ?? 'Lega ' + lega.league_id }}
+          </h2>
+          <p mat-card-subtitle class="lega-meta">
+            #{{ lega.league_id }}@if (lega.matchday !== null) { · Matchday {{ lega.matchday }} }
+          </p>
+        </mat-card-header>
+
+        <mat-card-content>
+          <dl class="figures">
+            <div class="figure">
+              <dt>Budget</dt>
+              <dd>{{ lega.budget ?? '—' }}</dd>
             </div>
-          }
-        </div>
+            <div class="figure">
+              <dt>Roster size</dt>
+              <dd>{{ lega.roster_size ?? '—' }}</dd>
+            </div>
+            <div class="figure">
+              <dt>Bench</dt>
+              <dd>{{ lega.bench_size ?? '—' }}</dd>
+            </div>
+            <div class="figure">
+              <dt>Modules</dt>
+              <dd>{{ lega.modules?.length ?? 0 }}</dd>
+            </div>
+            @if (roleBand(lega); as band) {
+              <div class="figure figure-wide">
+                <dt>Role band</dt>
+                <dd>{{ band }}</dd>
+              </div>
+            }
+          </dl>
+        </mat-card-content>
+
+        <mat-card-actions class="lega-actions">
+          <button
+            matButton="outlined"
+            type="button"
+            [attr.aria-expanded]="expandedId() === lega.league_id"
+            [attr.aria-controls]="'teams-' + lega.league_id"
+            (click)="toggleTeams(lega.league_id)"
+          >
+            @if (expandedId() === lega.league_id) {
+              Hide teams
+            } @else if (lega.team_count === 1) {
+              Show 1 team
+            } @else {
+              Show {{ lega.team_count }} teams
+            }
+            <lucide-icon
+              matButtonIcon
+              iconPositionEnd
+              class="lucide-slot-end chevron"
+              [class.chevron-open]="expandedId() === lega.league_id"
+              [size]="18"
+              name="chevron-down"
+              aria-hidden="true"
+            />
+          </button>
+        </mat-card-actions>
 
         @if (expandedId() === lega.league_id) {
-          <div class="border-t border-border">
+          <div class="teams" [id]="'teams-' + lega.league_id">
             @if (rostersLoading()) {
-              <div class="h-24 animate-shimmer"></div>
+              <mat-progress-bar mode="indeterminate" aria-label="Loading teams" />
+              <p class="teams-note">Loading teams…</p>
             } @else if (rosters().length) {
-              <div class="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-6 py-2 text-xs font-semibold text-text-tertiary">
-                <span>Team</span>
-                <span class="text-right">Spent</span>
-                <span class="text-right">Left</span>
-                <span class="text-right">Players</span>
+              <!-- Focusable so the table can be scrolled by keyboard once text is
+                   enlarged past the card's width (WCAG 2.1.1 with 1.4.10). -->
+              <div
+                class="table-scroll"
+                role="region"
+                tabindex="0"
+                [attr.aria-label]="
+                  'Teams in ' + (lega.league_name ?? 'lega ' + lega.league_id)
+                "
+              >
+                <table mat-table [dataSource]="rosters()" class="teams-table">
+                  <caption class="sr-only">
+                    Each team with the credits it has spent, the credits it has left and the
+                    number of players on its roster
+                  </caption>
+
+                  <ng-container matColumnDef="team">
+                    <th mat-header-cell *matHeaderCellDef scope="col">Team</th>
+                    <td mat-cell *matCellDef="let team">
+                      <span class="team-name">{{ team.nome }}</span>
+                      <span class="team-owner">{{ team.owner }}</span>
+                    </td>
+                  </ng-container>
+
+                  <ng-container matColumnDef="spent">
+                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
+                      Spent
+                    </th>
+                    <td mat-cell *matCellDef="let team" class="cell-number">
+                      {{ team.credits_spent ?? '—' }}
+                    </td>
+                  </ng-container>
+
+                  <ng-container matColumnDef="left">
+                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
+                      Left
+                    </th>
+                    <td mat-cell *matCellDef="let team" class="cell-number">
+                      {{ team.credits_remaining ?? '—' }}
+                    </td>
+                  </ng-container>
+
+                  <ng-container matColumnDef="players">
+                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
+                      Players
+                    </th>
+                    <td mat-cell *matCellDef="let team" class="cell-number">
+                      {{ team.roster.length }}
+                    </td>
+                  </ng-container>
+
+                  <tr mat-header-row *matHeaderRowDef="teamColumns"></tr>
+                  <tr mat-row *matRowDef="let team; columns: teamColumns"></tr>
+                </table>
               </div>
-              @for (team of rosters(); track team.team_id) {
-                <div class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 border-t border-border-muted px-6 py-2.5">
-                  <div class="truncate">
-                    <span class="text-sm font-medium text-text">{{ team.nome }}</span>
-                    <span class="ml-2 text-xs text-text-tertiary">{{ team.owner }}</span>
-                  </div>
-                  <span class="text-right text-sm tabular-nums text-text-secondary">{{ team.credits_spent ?? '—' }}</span>
-                  <span class="text-right text-sm tabular-nums text-text-secondary">{{ team.credits_remaining ?? '—' }}</span>
-                  <span class="text-right text-sm tabular-nums text-text-secondary">{{ team.roster.length }}</span>
-                </div>
-              }
             } @else {
-              <p class="px-6 py-6 text-sm text-text-secondary">No roster data for this lega.</p>
+              <p class="teams-note">No roster data for this lega</p>
             }
           </div>
         }
-      </section>
+      </mat-card>
     }
   </div>
 } @else {
-  <section class="rounded-lg border border-border bg-surface-raised px-6 py-10 text-center">
-    <p class="font-display text-base font-semibold text-text">No leagues yet</p>
-    <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
-      Run a lega sync to read your leghe — rosters, credits, and settings.
-    </p>
-  </section>
+  <mat-card class="state-card" appearance="outlined">
+    <mat-card-content>
+      <h2 class="state-title">No leagues yet</h2>
+      <p class="state-body">
+        Run a lega sync to read your leghe — rosters, credits and settings
+      </p>
+    </mat-card-content>
+  </mat-card>
 }

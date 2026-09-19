@@ -1,0 +1,32 @@
+<h2 mat-dialog-title>Disconnect {{ data.name }}?</h2>
+
+<!-- `id` is what the page passes as `ariaDescribedBy`, so an alertdialog announces what
+     is lost and not only its title. -->
+<mat-dialog-content id="disconnect-dialog-body">
+  @if (data.kind === 'league') {
+    <p>
+      This removes the stored token <strong>and everything the last sync saved</strong> —
+      rosters, credits, calendar and player pool.
+    </p>
+    <p>The lega disappears from every page until you connect and sync again.</p>
+  } @else {
+    <p>This removes the stored FantaLab session for {{ data.name }}.</p>
+    <p>The bot can&rsquo;t watch or bid in an asta until you connect FantaLab again.</p>
+  }
+</mat-dialog-content>
+
+<!-- Keep is first in the DOM on purpose: it is what `autoFocus: 'first-tabbable'` lands
+     on, so the destructive button is never one blind Enter away. -->
+<mat-dialog-actions align="end">
+  <button matButton [mat-dialog-close]="false">Keep</button>
+  <span class="danger-zone">
+    <button
+      matButton="filled"
+      [attr.data-confirm-league]="data.kind === 'league' ? data.id : null"
+      [attr.data-confirm-fantalab]="data.kind === 'fantalab' ? data.id : null"
+      [mat-dialog-close]="true"
+    >
+      Disconnect
+    </button>
+  </span>
+</mat-dialog-actions>

@@ -1,149 +1,306 @@
-<header class="mb-8 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <h1 class="font-display text-3xl font-bold tracking-tight text-text">News</h1>
-    <p class="mt-1 text-sm text-text-secondary">
-      Availability and role signal from recent coverage.
-    </p>
+<header class="page-header">
+  <div class="page-heading">
+    <h1 class="page-title">News</h1>
+    <p class="page-subtitle">Availability and role signal from recent coverage</p>
   </div>
-  <button
-    type="button"
-    (click)="load()"
-    class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset"
-  >
-    <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="loading()"></lucide-icon>
-    Refresh
+
+  <button matButton="outlined" type="button" (click)="load()">
+    <lucide-icon
+      matButtonIcon
+      class="lucide-slot"
+      [size]="18"
+      name="refresh-cw"
+      aria-hidden="true"
+    />
+    Refresh readings
   </button>
 </header>
+
+<!-- A reserved 4px strip: the bar appears in place instead of pushing the page down. -->
+<div class="page-progress">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" aria-label="Loading news" />
+  }
+</div>
 
 <!-- News fetch. Removed from Synchronize at the operator's request and rehoused here,
      which is the topic's own page and therefore adds no nav entry (§7 of the archived
      phase spec, tasks/archive/fantalab-in-the-app-spec.md). One copy of the trigger
      exists in the UI and a fitness test keeps it that way. -->
-<section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-  <div class="flex flex-wrap items-end gap-3 p-6">
-    <div class="min-w-40">
-      <label for="news-season" class="block text-xs font-semibold text-text-tertiary">Season</label>
-      <input
-        id="news-season"
-        type="text"
-        [value]="season()"
-        (input)="setSeason($any($event.target).value)"
-        class="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text"
-      />
-    </div>
-    <button
-      type="button"
-      (click)="runFetch()"
-      [disabled]="running()"
-      class="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-inset disabled:opacity-50"
-    >
-      <lucide-icon name="loader-2" class="h-4 w-4" [class.animate-spin]="running()"></lucide-icon>
-      {{ running() ? 'Fetching…' : 'Run news fetch' }}
-    </button>
-    <p class="text-xs text-text-tertiary">
-      One reading per quotato per day; players already read today are skipped.
-    </p>
+<section class="page-section" aria-labelledby="fetch-heading">
+  <div class="section-head">
+    <h2 id="fetch-heading" class="section-title">News fetch</h2>
   </div>
 
-  @if (jobError(); as message) {
-    <p class="border-t border-border px-6 py-3 text-sm text-danger">{{ message }}</p>
-  }
+  <mat-card class="fetch-card" appearance="outlined">
+    <mat-card-content>
+      <p class="section-subtitle">
+        One reading per quotato per day; players already read today are skipped
+      </p>
 
-  @if (jobStatus()) {
-    <div class="border-t border-border bg-surface-inset px-6 py-4">
-      <div class="mb-2 flex items-center gap-2">
-        <span
-          class="h-2.5 w-2.5 rounded-full"
-          [class.bg-warning]="jobStatus() === 'running'"
-          [class.bg-signature]="jobStatus() === 'done' && jobOk() !== false"
-          [class.bg-danger]="jobStatus() === 'error' || jobOk() === false"
-        ></span>
-        <span class="text-sm font-medium text-text">{{ jobStatus() }}</span>
+      <div class="fetch-controls">
+        <mat-form-field class="season-field" appearance="outline">
+          <mat-label>Season</mat-label>
+          <input
+            id="news-season"
+            matInput
+            type="text"
+            [value]="season()"
+            (input)="setSeason($any($event.target).value)"
+          />
+        </mat-form-field>
+
+        <button matButton="filled" type="button" (click)="runFetch()" [disabled]="running()">
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [size]="18"
+            name="refresh-cw"
+            aria-hidden="true"
+          />
+          {{ running() ? 'Fetching…' : 'Run news fetch' }}
+        </button>
       </div>
-      @for (line of lines(); track $index) {
-        <p class="font-mono text-xs text-text-secondary">{{ line }}</p>
-      } @empty {
-        <p class="text-xs text-text-tertiary">Waiting for output…</p>
+
+      @if (jobError(); as message) {
+        <p class="job-error" role="alert">
+          <lucide-icon name="triangle-alert" [size]="18" aria-hidden="true" />
+          <span>{{ message }}</span>
+        </p>
+      }
+    </mat-card-content>
+
+    <!-- The live region is in the DOM from first paint, so the status inserted when a fetch
+         starts or ends is announced. A region created together with its first message is
+         generally not announced at all, which is how "Running" used to be lost. Only the
+         status lives in here: marking the whole output live would read every line of it
+         out as it arrives. `:empty` keeps the strip invisible until there is a status. -->
+    <div class="job-status-slot" aria-live="polite">
+      @if (jobStatus()) {
+        <p class="job-status">
+          @switch (jobStatus()) {
+            @case ('running') {
+              <lucide-icon
+                class="job-icon is-running"
+                name="loader-2"
+                [size]="18"
+                aria-hidden="true"
+              />
+              <span>Running</span>
+            }
+            @case ('done') {
+              @if (jobOk() === false) {
+                <lucide-icon
+                  class="job-icon is-bad"
+                  name="triangle-alert"
+                  [size]="18"
+                  aria-hidden="true"
+                />
+                <span>Finished with errors</span>
+              } @else {
+                <lucide-icon
+                  class="job-icon is-good"
+                  name="check-circle"
+                  [size]="18"
+                  aria-hidden="true"
+                />
+                <span>Done</span>
+              }
+            }
+            @case ('error') {
+              <lucide-icon
+                class="job-icon is-bad"
+                name="triangle-alert"
+                [size]="18"
+                aria-hidden="true"
+              />
+              <span>Failed</span>
+            }
+            @default {
+              <span>{{ jobStatus() }}</span>
+            }
+          }
+        </p>
       }
     </div>
-  }
+
+    @if (jobStatus()) {
+      <div class="job-output">
+        @if (running()) {
+          <mat-progress-bar mode="indeterminate" aria-label="News fetch in progress" />
+        }
+
+        <!-- The pane scrolls, so it is a tab stop: a scrollable region that only a mouse
+             wheel can move is unreachable from the keyboard (WCAG 2.1.1). -->
+        <div class="job-lines" role="group" aria-label="Fetch output" tabindex="0">
+          <ol role="list">
+            @for (line of lines(); track $index) {
+              <li>{{ line }}</li>
+            } @empty {
+              <li class="job-waiting">Waiting for output…</li>
+            }
+          </ol>
+        </div>
+      </div>
+    }
+  </mat-card>
 </section>
 
 @if (loading() && !loaded()) {
-  <div class="h-40 animate-shimmer rounded-lg border border-border"></div>
+  <mat-card class="state-card" appearance="outlined">
+    <mat-card-content>
+      <p class="state-body">Loading readings</p>
+    </mat-card-content>
+  </mat-card>
 } @else if (errorMsg(); as message) {
-  <section class="rounded-lg border border-danger/40 bg-surface-raised p-6">
-    <h2 class="font-display text-lg font-semibold text-danger">API unreachable</h2>
-    <p class="mt-1 text-sm text-text-secondary">{{ message }} Make sure fantabot-app is running.</p>
-  </section>
+  <mat-card class="state-card is-error" appearance="outlined">
+    <mat-card-content>
+      <h2 class="state-title">
+        <lucide-icon name="triangle-alert" [size]="20" aria-hidden="true" />
+        API unreachable
+      </h2>
+      <p class="state-body">{{ message }} Make sure fantabot-app is running.</p>
+    </mat-card-content>
+  </mat-card>
 } @else {
   @if (drifted().length) {
-    <section class="mb-6 overflow-hidden rounded-lg border border-border bg-surface-raised">
-      <div class="h-1 w-full bg-warning"></div>
-      <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">
-        Role drift — {{ drifted().length }} players
-      </div>
-      @for (d of drifted(); track d.player_id) {
-        <div
-          class="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-border-muted px-6 py-3 last:border-b-0"
+    <section class="page-section" aria-labelledby="drift-heading">
+      <div class="section-head">
+        <h2 id="drift-heading" class="section-title">Role drift</h2>
+        <span class="section-count"
+          >{{ drifted().length }} {{ drifted().length === 1 ? 'player' : 'players' }}</span
         >
-          <span class="text-sm font-medium text-text">{{ d.nome }}</span>
-          <span class="flex items-center gap-2 text-sm text-text-secondary">
-            <span class="tabular-nums">{{ d.ruoli_mantra }}</span>
-            <lucide-icon name="chevron-right" class="h-4 w-4 text-text-tertiary"></lucide-icon>
-            <span class="font-semibold text-warning tabular-nums">{{ d.ruolo_campo }}</span>
-          </span>
-        </div>
-      }
+      </div>
+
+      <mat-card class="drift-card" appearance="outlined">
+        <ul class="drift-list" role="list">
+          @for (d of drifted(); track d.player_id) {
+            <li class="drift-row">
+              <span class="drift-name">{{ d.nome }}</span>
+              <span class="drift-change">
+                <span class="sr-only">Tagged</span>
+                <mat-chip class="role-chip">{{ d.ruoli_mantra }}</mat-chip>
+                <lucide-icon
+                  class="drift-arrow"
+                  name="chevron-right"
+                  [size]="18"
+                  aria-hidden="true"
+                />
+                <span class="sr-only">observed</span>
+                <mat-chip class="role-chip is-observed">{{ d.ruolo_campo }}</mat-chip>
+              </span>
+            </li>
+          }
+        </ul>
+      </mat-card>
     </section>
   }
 
-  <section class="overflow-hidden rounded-lg border border-border bg-surface-raised">
-    <div class="border-b border-border px-6 py-3 text-sm font-semibold text-text">Sentiment</div>
-    @if (feed().length) {
-      <div
-        class="grid grid-cols-[1fr_repeat(4,4.5rem)] gap-2 border-b border-border px-6 py-2 text-xs font-semibold text-text-tertiary"
-      >
-        <span>Player</span>
-        <span class="text-right">Sent.</span>
-        <span class="text-right">Disp.</span>
-        <span class="text-right">Titol.</span>
-        <span class="text-right">Conf.</span>
-      </div>
-      @for (row of feed(); track row.player_id) {
-        <div
-          class="grid grid-cols-[1fr_repeat(4,4.5rem)] items-center gap-2 border-b border-border-muted px-6 py-2 last:border-b-0"
+  <section class="page-section" aria-labelledby="sentiment-heading">
+    <div class="section-head">
+      <h2 id="sentiment-heading" class="section-title">Sentiment</h2>
+      @if (feed().length) {
+        <span class="section-count"
+          >{{ feed().length }} {{ feed().length === 1 ? 'reading' : 'readings' }}</span
         >
-          <span class="truncate text-sm text-text">
-            {{ row.nome }}
-            <span class="ml-1 text-xs text-text-tertiary">{{ row.ruoli_mantra }}</span>
-          </span>
-          <span
-            class="text-right text-sm font-semibold tabular-nums"
-            [class.text-signature]="sentimentTone(row.sentiment) === 'up'"
-            [class.text-danger]="sentimentTone(row.sentiment) === 'down'"
-            [class.text-text-tertiary]="sentimentTone(row.sentiment) === 'flat'"
-          >
-            {{ row.sentiment | number: '1.2-2' }}
-          </span>
-          <span class="text-right text-sm tabular-nums text-text-secondary">{{
-            row.disponibilita | number: '1.2-2'
-          }}</span>
-          <span class="text-right text-sm tabular-nums text-text-secondary">{{
-            row.titolarita | number: '1.2-2'
-          }}</span>
-          <span class="text-right text-sm tabular-nums text-text-tertiary">{{
-            row.confidenza | number: '1.2-2'
-          }}</span>
-        </div>
       }
+    </div>
+
+    @if (feed().length) {
+      <ul class="feed" role="list">
+        @for (row of feed(); track row.player_id) {
+          <li class="feed-item">
+            <mat-card class="reading" appearance="outlined">
+              <mat-card-content class="reading-body">
+                <div class="reading-head">
+                  <div class="reading-id">
+                    <h3 class="reading-name">{{ row.nome }}</h3>
+                    <p class="reading-roles">
+                      <span class="sr-only">Roles </span>{{ row.ruoli_mantra }}
+                    </p>
+                  </div>
+
+                  <!-- `[class.x]`, not `[class]`: MatChip already host-binds `[class]`
+                       (`"mat-" + color`), and two class maps on one element is a fight
+                       nothing here needs to have. -->
+                  <mat-chip
+                    class="sentiment-chip"
+                    [class.tone-up]="sentimentTone(row.sentiment) === 'up'"
+                    [class.tone-down]="sentimentTone(row.sentiment) === 'down'"
+                  >
+                    @switch (sentimentTone(row.sentiment)) {
+                      @case ('up') {
+                        <lucide-icon name="trending-up" [size]="16" aria-hidden="true" />
+                        <span class="sr-only">Positive sentiment</span>
+                      }
+                      @case ('down') {
+                        <lucide-icon name="trending-down" [size]="16" aria-hidden="true" />
+                        <span class="sr-only">Negative sentiment</span>
+                      }
+                      @default {
+                        <lucide-icon name="minus" [size]="16" aria-hidden="true" />
+                        <span class="sr-only">Neutral sentiment</span>
+                      }
+                    }
+                    <span class="sentiment-value">{{ row.sentiment | number: '1.2-2' }}</span>
+                  </mat-chip>
+                </div>
+
+                <!-- Every meter is redundant: the reading is written out beside it, so the
+                     bar carries no information of its own and stays out of the a11y tree. -->
+                <dl class="metrics">
+                  <div class="metric">
+                    <dt class="metric-label">Availability</dt>
+                    <dd class="metric-value">
+                      <span class="metric-number">{{ row.disponibilita | number: '1.2-2' }}</span>
+                      <span class="meter" aria-hidden="true">
+                        <span
+                          class="meter-fill"
+                          [style.inline-size.%]="row.disponibilita * 100"
+                        ></span>
+                      </span>
+                    </dd>
+                  </div>
+                  <div class="metric">
+                    <dt class="metric-label">Starting chance</dt>
+                    <dd class="metric-value">
+                      <span class="metric-number">{{ row.titolarita | number: '1.2-2' }}</span>
+                      <span class="meter" aria-hidden="true">
+                        <span
+                          class="meter-fill"
+                          [style.inline-size.%]="row.titolarita * 100"
+                        ></span>
+                      </span>
+                    </dd>
+                  </div>
+                  <div class="metric">
+                    <dt class="metric-label">Confidence</dt>
+                    <dd class="metric-value">
+                      <span class="metric-number">{{ row.confidenza | number: '1.2-2' }}</span>
+                      <span class="meter" aria-hidden="true">
+                        <span
+                          class="meter-fill is-muted"
+                          [style.inline-size.%]="row.confidenza * 100"
+                        ></span>
+                      </span>
+                    </dd>
+                  </div>
+                </dl>
+              </mat-card-content>
+            </mat-card>
+          </li>
+        }
+      </ul>
     } @else {
-      <div class="px-6 py-10 text-center">
-        <p class="font-display text-base font-semibold text-text">No news yet</p>
-        <p class="mx-auto mt-1 max-w-sm text-sm text-text-secondary">
-          Run a news fetch to gather availability and role signal for the player pool.
-        </p>
-      </div>
+      <mat-card class="state-card" appearance="outlined">
+        <mat-card-content class="empty-state">
+          <lucide-icon class="empty-icon" name="message-square" [size]="32" aria-hidden="true" />
+          <h3 class="state-title">No news yet</h3>
+          <p class="state-body">
+            Run a news fetch to gather availability and role signal for the player pool.
+          </p>
+        </mat-card-content>
+      </mat-card>
     }
   </section>
 }

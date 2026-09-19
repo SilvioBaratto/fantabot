@@ -1,4 +1,4 @@
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -10,6 +10,13 @@ import {
 } from '@angular/core';
 import type { WritableSignal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
 import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'rxjs';
 
@@ -56,10 +63,23 @@ interface JobPanel {
  */
 @Component({
   selector: 'app-harvest',
-  imports: [LucideAngularModule, DecimalPipe],
+  imports: [
+    DecimalPipe,
+    TitleCasePipe,
+    LucideAngularModule,
+    MatButtonModule,
+    MatCardModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatProgressBarModule,
+    MatSelectModule,
+  ],
   templateUrl: './harvest.html',
+  // The gutter, the panel stack and the two-up corpus grid all live here; the component
+  // tree is the same at every window size, so nothing on this page reads a size class.
+  styleUrl: './harvest.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class HarvestComponent implements OnInit {
   private readonly service = inject(HarvestService);

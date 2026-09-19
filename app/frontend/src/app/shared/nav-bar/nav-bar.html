@@ -1,0 +1,18 @@
+<!-- One navigation landmark per visible navigation, each with a distinct label.
+     The label is visible, so no aria-label repeats it (M3 accessibility/designing.md:446). -->
+<nav class="nav-bar" aria-label="Primary">
+  @for (item of items(); track item.route) {
+    <a
+      class="nav-bar-item"
+      [routerLink]="item.route"
+      routerLinkActive="is-active"
+      ariaCurrentWhenActive="page"
+      [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }"
+    >
+      <span class="indicator">
+        <lucide-icon [name]="item.icon" [size]="24" aria-hidden="true" />
+      </span>
+      <span class="label">{{ item.name }}</span>
+    </a>
+  }
+</nav>

@@ -8,6 +8,9 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { DbHealthService } from '../../core/api/db-health.service';
@@ -15,10 +18,16 @@ import { DbHealth } from '../../core/models/db-health';
 
 @Component({
   selector: 'app-system',
-  imports: [LucideAngularModule, DecimalPipe],
+  imports: [
+    LucideAngularModule,
+    DecimalPipe,
+    MatButtonModule,
+    MatCardModule,
+    MatProgressBarModule,
+  ],
   templateUrl: './system.html',
+  styleUrl: './system.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class SystemComponent implements OnInit {
   private readonly service = inject(DbHealthService);
@@ -44,7 +53,7 @@ export class SystemComponent implements OnInit {
           this.loading.set(false);
         },
         error: () => {
-          this.errorMsg.set('Could not reach the API.');
+          this.errorMsg.set("Couldn't reach the API.");
           this.loading.set(false);
         },
       });

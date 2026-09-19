@@ -1,0 +1,523 @@
+@use '@angular/material' as mat;
+
+/* Harvest — the collection console.
+ *
+ * Content shape: three heterogeneous *control* panels (seed/scan, loader, collector),
+ * each with a lede, its controls, one acting button, a standing caveat, an error slot
+ * and a streaming log; then the corpus, which is two peer per-format reports. That is a
+ * feed of peer items in one flexible pane (`layout/canonical_examples.md:289`), not
+ * list-detail: nothing here is a parent whose child fills a second pane.
+ *
+ * Per size class — the component tree is identical at every width, only the boxes move,
+ * so this file carries the whole adaptation and the component injects no
+ * `WindowSizeClassService` (`core/window-size-class.ts` says to prefer media queries
+ * for exactly this case):
+ *
+ *   compact   (<600)   16px gutter. Page header stacks (title block, then Refresh).
+ *                      One column throughout; each panel's controls stack full width.
+ *   medium    (600–839) 24px gutter. Header becomes one row with Refresh trailing;
+ *                      controls sit inline and wrap. Corpus stays ONE column — M3
+ *                      recommends a single pane at medium (`layout/breakpoints.md:9`)
+ *                      and these cards are dense numerics, not low-density content.
+ *   expanded+ (840+)   24px gutter. Corpus goes to the two recommended panes.
+ *                      From 1440px the pane stops widening so the numbers and the
+ *                      body copy keep a readable measure.
+ *
+ * Emphasis: ONE primary action on the view (`usability/overview.md:105`). It is
+ * **Start collector** — the irreplaceable act, since a frame that never reached disk is
+ * gone. Start loader steps down to tonal (idempotent, restartable), Scan to outlined,
+ * Refresh to text. Both stops are outlined inside `.danger-zone`, which remaps the
+ * primary roles onto the error ones globally, so no hex appears here.
+ *
+ * Every colour is a `--mat-sys-*` role. Contrast measured with the skill's script against
+ * the stock azure palette (light scheme, the only one this app has):
+ *   on-surface-variant / surface-container-low  8.42:1
+ *   on-surface-variant / surface-container-high 7.57:1
+ *   on-surface         / surface-container-low 15.57:1
+ *   on-error-container / error-container        7.24:1
+ *   error              / surface-container-low  5.84:1
+ */
+
+:host {
+  /* The one non-token family on the page: M3 has no monospace type role, and a log and a
+     filesystem path have to line up. Size and weight still come from the type tokens. */
+  --harvest-mono: ui-monospace, 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+
+  display: block;
+  max-inline-size: 1440px;
+  margin-inline: auto;
+  padding: 16px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    padding: 24px;
+  }
+}
+
+/* --- page header ------------------------------------------------------------------- */
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  margin-block-end: 16px;
+}
+
+@media (min-width: 600px) {
+  .page-header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-block-end: 24px;
+  }
+}
+
+.page-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-medium);
+  letter-spacing: var(--mat-sys-headline-medium-tracking);
+}
+
+.page-lede {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.page-progress {
+  margin-block-end: 16px;
+  overflow: hidden;
+  border-radius: var(--mat-sys-corner-full);
+}
+
+/* --- the three job panels ----------------------------------------------------------- */
+
+.jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-block-end: 24px;
+}
+
+@media (min-width: 600px) {
+  .jobs {
+    gap: 24px;
+  }
+}
+
+.job {
+  display: block;
+}
+
+.job-card,
+.corpus-card,
+.notice-card {
+  /* An outlined card defaults to `surface`, which is also the page background: the panels
+     would read as one sheet with hairlines on it. One step up separates them. */
+  @include mat.card-overrides(
+    (
+      outlined-container-color: var(--mat-sys-surface-container-low),
+    )
+  );
+}
+
+/* A card whose content is followed by actions gets no bottom padding from Material, which
+   leaves the last line of copy 8px from the button. */
+.job-card mat-card-content {
+  padding-block-end: 8px;
+}
+
+.job-lede {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* Controls: stacked at compact so every field gets the full width, inline from medium up. */
+.job-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block-start: 16px;
+}
+
+@media (min-width: 600px) {
+  .job-controls {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    /* 8px inside a group of controls, 16px between groups (`layout/grids_spacing.md:261`). */
+    gap: 16px;
+  }
+}
+
+.field-format,
+.field-pool {
+  inline-size: 100%;
+}
+
+@media (min-width: 600px) {
+  .field-format {
+    inline-size: 12rem;
+  }
+
+  .field-pool {
+    inline-size: 11rem;
+  }
+}
+
+/* The select's trigger renders the option's own text, so the format is title-cased in the
+   template rather than here: `mat-option` lives in the overlay panel, outside this file's
+   reach, and CSS applied only to the panel would leave the trigger lower-cased. */
+
+.job-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 8px 12px;
+}
+
+.job-progress {
+  border-radius: 0;
+}
+
+/* Always in the DOM so the announcement is made when the state arrives, and zero-height
+   until then. */
+.job-state {
+  display: block;
+}
+
+.job-state-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 16px 12px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+.job-state-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.job-state-line.is-failed {
+  color: var(--mat-sys-error);
+}
+
+/* The standing caveat: a full-bleed strip so it reads as a property of the panel rather
+   than as one more sentence of body copy. */
+.job-note {
+  padding: 12px 16px;
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container);
+}
+
+.job-note p {
+  margin: 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.job-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 16px;
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.job-error-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-block-start: 2px;
+}
+
+.job-error-text {
+  max-inline-size: 60ch;
+}
+
+/* The log scrolls on its own. It is focusable because a scroll region that only a mouse
+   wheel can move is unreachable from the keyboard (WCAG 2.1.1); `strong-focus-indicators`
+   only reaches Material components, so the ring is drawn here — outside, with a gap. */
+.job-log {
+  margin: 12px 16px 16px;
+  max-block-size: 18rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-surface-container-high);
+}
+
+.job-log:focus-visible {
+  outline: 3px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+}
+
+.job-log pre {
+  margin: 0;
+  padding: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-family: var(--harvest-mono);
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- the seed panel's own figures ---------------------------------------------------- */
+
+.seed-count {
+  margin: 16px 0 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-headline-large);
+  letter-spacing: var(--mat-sys-headline-large-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.seed-split {
+  margin: 4px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* Capitalised in CSS, never in the string: the format is also the API's own value and the
+   specs read it back off the rendered text. */
+.format-name {
+  text-transform: capitalize;
+}
+
+.seed-path,
+.seed-meta {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.seed-meta {
+  margin-block-start: 2px;
+}
+
+.seed-problem {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-error);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+/* A monospace face reads larger than the body face at the same nominal size, so it is
+   stepped down — but never below `label-small` (0.688rem ≈ 11px), the smallest size M3's
+   type scale has. A bare `0.9em` inside `body-small` (0.75rem) computes to 10.8px, and
+   these are the strings that have to stay readable: the seed's filesystem path and the
+   `fantabot harvest load` command. The floor is a rem token, so it still scales when the
+   reader resizes text alone (WCAG 1.4.4). */
+code {
+  font-family: var(--harvest-mono);
+  font-size: max(0.9em, var(--mat-sys-label-small-size));
+  overflow-wrap: anywhere;
+}
+
+/* --- the corpus ---------------------------------------------------------------------- */
+
+.section-heading {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+}
+
+.section-lede {
+  margin: 8px 0 16px;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.corpus-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 600px) {
+  .corpus-grid {
+    gap: 24px;
+  }
+}
+
+/* Two panes are the recommendation from 840px up (`layout/breakpoints.md:17`). */
+@media (min-width: 840px) {
+  .corpus-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.corpus-title {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+  text-transform: capitalize;
+}
+
+.corpus-metric {
+  margin: 16px 0 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-display-small);
+  letter-spacing: var(--mat-sys-display-small-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.corpus-metric-label {
+  margin: 4px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.corpus-filter {
+  margin: 4px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+/* "Reaches a plan" / "reaches nothing" was a one-pixel coloured strip. Selection and state
+   are never carried by colour alone (`interaction/selection.md:23`), so it is a line of
+   text with an icon now, and the colour only reinforces it. */
+.corpus-flag {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.corpus-flag-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-block-start: 1px;
+}
+
+.corpus-rows {
+  margin: 16px 0 0;
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+}
+
+.corpus-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 16px;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+.corpus-row:last-child {
+  border-block-end: 0;
+}
+
+.corpus-row dt {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.corpus-row dd {
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.corpus-foot {
+  margin: 16px 0 0;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.corpus-foot .emphasis {
+  color: var(--mat-sys-on-surface);
+  font-weight: 500;
+}
+
+/* --- notices ------------------------------------------------------------------------- */
+
+.notice-heading {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+.notice-text {
+  margin: 8px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.notice-card .notice-heading,
+.notice-card .notice-text {
+  color: var(--mat-sys-on-surface);
+}
+
+.notice-card .notice-text {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.notice-error {
+  @include mat.card-overrides(
+    (
+      outlined-container-color: var(--mat-sys-error-container),
+      outlined-outline-color: var(--mat-sys-error),
+    )
+  );
+}
+
+.notice-error .notice-heading,
+.notice-error .notice-text {
+  color: var(--mat-sys-on-error-container);
+}
+
+.notice-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notice-icon {
+  display: flex;
+  flex-shrink: 0;
+}

@@ -1,0 +1,300 @@
+@use '@angular/material' as mat;
+
+/* Dashboard — the landing pane.
+ *
+ * Canonical layout: **feed** (`layout/canonical_examples.md:289`) — a set of peer league
+ * cards, one flexible pane at every size class. The shell owns navigation; this file owns
+ * only the page gutter, the feed and the card internals.
+ *
+ * Every colour, type, shape and elevation value here is a `--mat-sys-*` role. The `font`
+ * shorthand resets `letter-spacing` and `font-variant-numeric`, so both are always
+ * declared after it.
+ */
+
+/* Page gutter: 16px at compact, 24px from 600 up (`layout/breakpoints.md:9`).
+ * `main` in the shell is the only scroll container — nothing here sets a viewport height. */
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+/* Past ~1200px the figure row and the roster table only spread, they do not read better. */
+.page-header,
+.progress-slot,
+.state-note,
+.state-card,
+.feed {
+  max-inline-size: 1200px;
+}
+
+@media (min-width: 600px) {
+  :host {
+    gap: 24px;
+    padding: 24px;
+  }
+}
+
+/* ---------------------------------------------------------------- page header */
+
+/* Compact stacks the title over the one primary action; from medium up they share a row. */
+.page-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+@media (min-width: 600px) {
+  .page-header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+}
+
+/* Lets the title block shrink instead of pushing Refresh off the row at medium. */
+.page-heading {
+  min-inline-size: 0;
+}
+
+.page-title {
+  margin: 0;
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+@media (min-width: 600px) {
+  .page-title {
+    font: var(--mat-sys-headline-medium);
+    letter-spacing: var(--mat-sys-headline-medium-tracking);
+  }
+}
+
+.page-subtitle {
+  max-inline-size: 60ch;
+  margin: 4px 0 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* Reserves the bar's own height whether or not a load is in flight. */
+.progress-slot {
+  block-size: 4px;
+}
+
+.state-note {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* ------------------------------------------------------------ status cards */
+
+.state-card .state-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.state-card .state-body {
+  max-inline-size: 60ch;
+  margin: 8px 0 0;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* Error pairing: `error-container` fill with `on-error-container` content, `error` for the
+ * boundary. Two-class selectors so these beat `.mat-mdc-card` whatever the sheet order. */
+.state-card.state-card-error {
+  background: var(--mat-sys-error-container);
+  border-color: var(--mat-sys-error);
+}
+
+.state-card-error .state-title,
+.state-card-error .state-body {
+  color: var(--mat-sys-on-error-container);
+}
+
+/* -------------------------------------------------------------------- feed */
+
+/* One column up to 1199px: each card carries a four-column roster table, so the two 50%
+ * panes medium allows for low-density content (`layout/breakpoints.md:215`) would crush it.
+ * From 1200px the window query opens multi-column and `auto-fit` narrows it again by
+ * itself — one lega, or an expanded rail eating the width, both fall back to one column. */
+.feed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+@media (min-width: 600px) {
+  .feed {
+    gap: 24px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .feed {
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  }
+}
+
+/* -------------------------------------------------------------- league card */
+
+/* Elevated (the default appearance): `surface-container-low` over the page's `surface`,
+ * so a card reads as its own plane. Clipping keeps the roster region inside the corners. */
+.lega-card {
+  overflow: hidden;
+}
+
+.lega-card .lega-title {
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.lega-card .lega-meta {
+  margin: 4px 0 0;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* Key figures: 2 columns at compact, 4 from medium up. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin: 16px 0 0;
+}
+
+@media (min-width: 600px) {
+  .figures {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* `column-reverse` shows the number first and leaves `dt` before `dd` in the DOM, so the
+ * label is still read before its value. Nothing here is focusable, so tab order is unaffected. */
+.figure {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.figure dt {
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.figure dd {
+  margin: 0;
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface);
+}
+
+/* The role band is a constraint, not a count: full width and a step down in size. */
+.figure-wide {
+  grid-column: 1 / -1;
+}
+
+.figure-wide dd {
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.lega-card .lega-actions {
+  padding: 8px 16px 16px;
+}
+
+.chevron {
+  transition: transform 150ms;
+}
+
+.chevron-open {
+  transform: rotate(180deg);
+}
+
+/* ------------------------------------------------------------ roster table */
+
+.teams {
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.teams-table {
+  inline-size: 100%;
+  background: transparent;
+
+  /* A team cell is two lines (name over owner), so the row cannot keep a fixed height. */
+  @include mat.table-overrides(
+    (
+      background-color: transparent,
+      row-item-container-height: auto,
+      row-item-outline-color: var(--mat-sys-outline-variant),
+    )
+  );
+}
+
+.teams-table .mat-mdc-cell {
+  padding-block: 10px;
+}
+
+/* Tighter gutters at compact keep four columns inside a 360px window. */
+@media (max-width: 599.98px) {
+  .teams-table .mat-mdc-cell,
+  .teams-table .mat-mdc-header-cell {
+    padding-inline: 8px;
+  }
+}
+
+.teams-table th.cell-number,
+.teams-table td.cell-number {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.team-name {
+  display: block;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface);
+  overflow-wrap: anywhere;
+}
+
+.team-owner {
+  display: block;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.teams-note {
+  margin: 0;
+  padding: 24px 16px;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}

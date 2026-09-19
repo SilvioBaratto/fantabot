@@ -8,6 +8,12 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, catchError, forkJoin, interval, switchMap, takeWhile } from 'rxjs';
 
@@ -25,10 +31,19 @@ const KIND = 'news-fetch';
 
 @Component({
   selector: 'app-news',
-  imports: [LucideAngularModule, DecimalPipe],
+  imports: [
+    LucideAngularModule,
+    DecimalPipe,
+    MatButtonModule,
+    MatCardModule,
+    MatChipsModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatProgressBarModule,
+  ],
   templateUrl: './news.html',
+  styleUrl: './news.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class NewsComponent implements OnInit {
   private readonly service = inject(NewsService);

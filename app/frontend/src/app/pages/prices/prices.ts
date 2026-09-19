@@ -7,6 +7,11 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatButton } from '@angular/material/button';
+import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
+import { MatCard } from '@angular/material/card';
+import { MatChip, MatChipSet } from '@angular/material/chips';
+import { MatProgressBar } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { PricingService } from '../../core/api/pricing.service';
@@ -16,10 +21,19 @@ type System = 'classic' | 'mantra';
 
 @Component({
   selector: 'app-prices',
-  imports: [LucideAngularModule],
+  imports: [
+    LucideAngularModule,
+    MatButton,
+    MatButtonToggle,
+    MatButtonToggleGroup,
+    MatCard,
+    MatChip,
+    MatChipSet,
+    MatProgressBar,
+  ],
   templateUrl: './prices.html',
+  styleUrl: './prices.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block p-6 md:p-8' },
 })
 export class PricesComponent implements OnInit {
   private readonly service = inject(PricingService);

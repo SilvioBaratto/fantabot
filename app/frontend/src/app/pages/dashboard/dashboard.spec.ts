@@ -58,7 +58,55 @@ describe('DashboardComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('4103937');
     expect(text).toContain('8 teams');
-    expect(text).toContain('roster size');
+    // Figure labels are sentence case now that they come from M3 content rules.
+    expect(text).toContain('Roster size');
+  });
+
+  it('shows a progress bar only while a load is in flight', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('mat-progress-bar')).toBeTruthy();
+
+    httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('mat-progress-bar')).toBeNull();
+  });
+
+  it('reports an unreachable API as an alert', async () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}lega`)
+      .error(new ProgressEvent('error'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toContain('API unreachable');
+  });
+
+  it('flips aria-expanded on the teams disclosure button', async () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+    httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const toggle = fixture.nativeElement.querySelector(
+      'button[aria-controls="teams-4103937"]',
+    ) as HTMLButtonElement;
+    expect(toggle).toBeTruthy();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    toggle.click();
+    httpMock.expectOne(`${environment.apiUrl}lega/4103937/rosters`).flush([]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.nativeElement.querySelector('#teams-4103937')).toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('No roster data');
   });
 
   it('loads rosters when teams are expanded', async () => {
@@ -84,6 +132,15 @@ describe('DashboardComponent', () => {
     await fixture.whenStable();
 
     expect(fixture.nativeElement.textContent).toContain('Squadra A');
+
+    // The roster is a mat-table; its numbers still come from the same fields.
+    const table = fixture.nativeElement.querySelector('table[mat-table]') as HTMLTableElement;
+    expect(table).toBeTruthy();
+    const cells = Array.from(table.querySelectorAll('tbody td')).map((c) =>
+      (c.textContent ?? '').trim(),
+    );
+    expect(cells).toContain('480');
+    expect(cells).toContain('20');
   });
 
   it('shows an empty state when there are no leagues', async () => {
