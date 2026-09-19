@@ -268,6 +268,27 @@ class TestRemovingOne:
 
         assert seen == {"player_id": 4344}
 
+    @pytest.mark.parametrize("player_id", [0, -1])
+    def test_an_id_no_write_could_produce_today_still_crosses_untouched(
+        self, monkeypatch: pytest.MonkeyPatch, db_answers: None, player_id: int
+    ) -> None:
+        """`clean_exclusion` refuses a non-positive id and `db exclude` validated
+        nothing at all before T24, so a `0` row is precisely what a removal is the
+        remedy for. A route that clamped or absolute-valued the path would leave the
+        one row nobody can act on removable from the terminal and not from the page."""
+        from fantabot.application import exclusions
+
+        seen: dict[str, Any] = {}
+
+        def spy(session: object, pid: int) -> Any:
+            seen["player_id"] = pid
+            return exclusions.ExclusionRemoved(row=LEAO, exclusions=())
+
+        monkeypatch.setattr(exclusions, "remove_exclusion", spy)
+        TestClient(app).delete(f"/api/v1/db/exclusions/{player_id}")
+
+        assert seen == {"player_id": player_id}
+
     def test_a_removal_that_matched_nothing_is_a_404_carrying_the_refusal(
         self, monkeypatch: pytest.MonkeyPatch, db_answers: None
     ) -> None:
