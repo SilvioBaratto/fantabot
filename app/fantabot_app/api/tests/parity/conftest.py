@@ -639,6 +639,12 @@ def _sweep(session: Session) -> None:
         ("DELETE FROM teams WHERE codice = ANY(:c)", {"c": list(PRICING_CLUBS)}),
         ("DELETE FROM league_team_snapshot WHERE league_id = :l", {"l": PARITY_LEAGUE}),
         ("DELETE FROM league_snapshot WHERE league_id = :l", {"l": PARITY_LEAGUE}),
+        # Before `players`, and by the same id range. `player_exclusion` carries no
+        # foreign key — deliberately, since an exclusion has to outlive a re-scrape —
+        # so nothing cascades and a row left here would go on removing a synthetic
+        # player from every plan the *next* run builds, in a database shared with the
+        # `db` tier. Added with T24, which is the first thing to write one.
+        ("DELETE FROM player_exclusion WHERE player_id >= :b", {"b": SYNTHETIC_BASE}),
         ("DELETE FROM players WHERE id >= :b", {"b": SYNTHETIC_BASE}),
     ):
         session.execute(text(statement), params)

@@ -12,6 +12,7 @@ from fantabot_app.api.v1.endpoints import (
     asta,
     auth,
     db,
+    exclusions,
     harvest,
     jobs,
     lega,
@@ -27,6 +28,7 @@ from fantabot_app.api.v1.endpoints import (
 api_router = APIRouter()
 api_router.include_router(jobs.router)
 api_router.include_router(db.router)
+api_router.include_router(exclusions.router)
 api_router.include_router(auth.router)
 api_router.include_router(news.router)
 api_router.include_router(lega.router)
