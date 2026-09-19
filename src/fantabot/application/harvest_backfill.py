@@ -49,11 +49,6 @@ from fantabot.domain.harvest.backfill import BuiltRows, build, read_jsonl
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-#: What `harvest load` writes beside a landing zone. Each is one position in the file it is
-#: named after, so each is meaningless alone — and each is named so that any glob wide
-#: enough to catch `live.jsonl` catches them too.
-SIDECAR_SUFFIXES = (".offset", ".state", ".lock", ".stop")
-
 #: The name the harvest home gives its live landing zone. A constant rather than a literal
 #: because two things read it — the flag on the candidate, and `harvest load` itself.
 LIVE_LANDING = "live.jsonl"
@@ -117,6 +112,10 @@ class Candidates:
     exists: bool
     logs: tuple[LogCandidate, ...] = ()
     seeds: tuple[SeedCandidate, ...] = ()
+    #: Why a home that *is* there yielded nothing — a permissions refusal, say. `None`
+    #: when the listing succeeded, and `None` when there is no home at all: that case is
+    #: `exists=False`, and it names a command rather than a dialog.
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,9 +175,15 @@ def _is_collector_log(path: Path) -> bool:
     """Whether `path`'s first line is a collector state.
 
     One line, not the file: the candidates include a 1.3 GB landing zone and a picker
-    that reads all of them to draw itself is a picker nobody waits for. The keys are the
-    two `event_rows` needs — `seen_at` for the timestamp and `state` for everything else.
-    `auction_id` is deliberately not among them: `assignments_2026-08-26.jsonl` has it.
+    that reads all of them to draw itself is a picker nobody waits for.
+
+    **Both keys are required, and each catches a different near-miss.** `seen_at` is what
+    `event_rows` times a record by, and the file without it is
+    `assignments_2026-08-26.jsonl` — same extension, same `auction_id`, a reconstruction
+    output rather than a recording. `state` is the record itself, and the file without
+    *it* is anything counted under `DroppedEvents.malformed_state`: a log of those loads,
+    builds nothing and reports success. `auction_id` is deliberately not among them,
+    because both near-misses have it.
     """
     try:
         with path.open(encoding="utf-8") as handle:
@@ -216,12 +221,17 @@ def candidates(home: Path) -> Candidates:
     seeds: list[SeedCandidate] = []
     try:
         entries = sorted(home.iterdir(), key=lambda path: path.name)
-    except OSError:
-        return Candidates(home=home, exists=False)
+    except OSError as exc:
+        return Candidates(home=home, exists=True, error=type(exc).__name__)
 
     for path in entries:
-        if not path.is_file() or path.name.endswith(SIDECAR_SUFFIXES):
+        if not path.is_file():
             continue
+        # The suffix is what excludes every sidecar, and it is the only thing that needs
+        # to. `harvest load` writes `live.jsonl.offset`, `.state` and two `.lock` files
+        # beside a landing zone; each ends in its own suffix, so none of the four is ever
+        # a `.jsonl` or a `.json`. A tuple of sidecar names alongside this read as a
+        # second guard and was a test that could not fail.
         if path.suffix == ".jsonl":
             if _is_collector_log(path):
                 logs.append(

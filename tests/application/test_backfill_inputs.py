@@ -139,12 +139,28 @@ def test_a_jsonl_that_is_not_a_collector_log_is_not_offered(tmp_path: Path) -> N
     assert [log.name for log in candidates(tmp_path).logs] == ["live.jsonl"]
 
 
+def test_a_jsonl_of_stateless_records_is_not_offered(tmp_path: Path) -> None:
+    """The other half of the sniff. A record with a timestamp and no `state` is what
+    `DroppedEvents.malformed_state` counts — a file of them reads as a collector log,
+    loads nothing, and reports success. `assignments_2026-08-26.jsonl` misses the other
+    key, so without this the `state` test is unexercised and can be deleted silently."""
+    _collector_log(tmp_path / "live.jsonl")
+    (tmp_path / "stateless.jsonl").write_text(
+        json.dumps({"seen_at": "2026-08-26T18:21:05+00:00", "auction_id": "a"}) + "\n"
+    )
+
+    assert [log.name for log in candidates(tmp_path).logs] == ["live.jsonl"]
+
+
 def test_the_sidecars_are_not_offered(tmp_path: Path) -> None:
-    """`live.jsonl.offset` and `live.jsonl.state` are a position in a file, not a file.
-    Both are named so that a `*.jsonl*` glob picks them up."""
+    """`live.jsonl.offset`, `.state` and the two `.lock` files are a position in a file
+    and a holder of it, not files a backfill can read. Each ends in its own suffix, so
+    the `.jsonl`/`.json` test is the only guard needed — a second list of sidecar names
+    beside it was a test that could not fail, and is gone."""
     _collector_log(tmp_path / "live.jsonl")
     (tmp_path / "live.jsonl.offset").write_text("123456")
     (tmp_path / "live.jsonl.state").write_text("{}")
+    (tmp_path / "live.jsonl.loader.lock").write_text("")
 
     assert [log.name for log in candidates(tmp_path).logs] == ["live.jsonl"]
 
@@ -177,3 +193,32 @@ def test_a_home_that_does_not_exist_is_an_empty_picker_not_a_crash(tmp_path: Pat
 
     assert found.logs == () and found.seeds == ()
     assert found.exists is False
+    assert found.error is None, "no home names a command; it is not a failure to report"
+
+
+def test_a_file_where_the_home_should_be_is_not_a_home(tmp_path: Path) -> None:
+    """`FANTABOT_HARVEST_DIR` is an exported variable a human types, and a path naming a
+    file is the typo it makes. `iterdir` on one raises `NotADirectoryError`."""
+    (tmp_path / "not_a_dir").write_text("")
+
+    assert candidates(tmp_path / "not_a_dir").exists is False
+
+
+def test_a_home_that_cannot_be_read_says_so_rather_than_reading_as_empty(
+    tmp_path: Path,
+) -> None:
+    """The distinction the `is_dir` guard exists to make. An unreadable home and an
+    absent one are both zero candidates, and they send the operator to two different
+    places — a permissions dialog against `harvest adopt` — so they are two answers."""
+    home = tmp_path / "home"
+    home.mkdir()
+    _collector_log(home / "live.jsonl")
+    home.chmod(0o000)
+    try:
+        found = candidates(home)
+    finally:
+        home.chmod(0o700)
+
+    assert found.exists is True, "the home is there; it is the listing that failed"
+    assert found.error == "PermissionError"
+    assert found.logs == ()
