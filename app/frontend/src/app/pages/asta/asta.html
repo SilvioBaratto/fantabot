@@ -373,8 +373,9 @@
      it is 1.6 MB, and this is single digits of rows whose whole problem is invisibility.
      A plan built without a player looks exactly like a plan built with one nobody
      wanted, so if this list is collapsed the exclusion is unfindable again.
-     There is no remove control: `fantabot` has no un-exclude command, and the app gets
-     no power the CLI lacks (SPEC.md §8 Never #4). -->
+     Each row carries a remove control, because `fantabot db unexclude` exists: the
+     command shipped first, since the app gets no power the CLI lacks (SPEC.md §8
+     Never #4). -->
 <section class="exclusions" aria-labelledby="exclusions-heading">
   <mat-card class="panel" appearance="outlined">
     <div class="panel-body panel-head">
@@ -387,7 +388,7 @@
           Kept out of every plan above. For a player the listone still carries but who cannot be
           bought &mdash; a transfer out of Serie A, most often. Nothing else in the engine can do
           this: the scraper reproduces the site, and news tilts a value without ever vetoing it.
-          Removing one is <code>psql</code> for now &mdash; the command has no un-exclude either.
+          Remove one and the player is buyable again, from the next plan on.
         </p>
       </div>
     </div>
@@ -418,6 +419,20 @@
                   <span class="exclusion-name is-unknown">Not scraped</span>
                 }
                 <span class="exclusion-id num">{{ e.player_id }}</span>
+                <!-- No confirmation step in front of it, which is `db unexclude`'s
+                     behaviour too: what makes the act reversible is the row coming back
+                     below, not a dialog. Disabled while any removal is in flight, so a
+                     second click cannot race the list the first one is about to replace. -->
+                <button
+                  mat-button
+                  type="button"
+                  class="exclusion-remove"
+                  [disabled]="withdrawing() !== null"
+                  [attr.aria-label]="'Remove the exclusion on ' + (e.nome ?? e.player_id)"
+                  (click)="unexclude(e.player_id)"
+                >
+                  Remove
+                </button>
               </div>
               <p class="state-body">{{ e.reason }}</p>
               @if (e.source) {
@@ -426,6 +441,21 @@
             </li>
           }
         </ul>
+      }
+
+      <!-- The removed row, kept. Its reason is held nowhere else in the database — the
+           id was typed and the name is on `players` — so this line is what makes the
+           removal undoable, and it is the same thing `db unexclude` prints. -->
+      @if (withdrawn(); as w) {
+        <p class="state-hint">
+          Removed {{ w.nome ?? w.player_id }} &mdash; &ldquo;{{ w.reason }}&rdquo;. Nothing else
+          holds that sentence; re-enter it below if the removal was a mistake.
+        </p>
+      }
+      @if (withdrawError(); as err) {
+        <!-- The server's words: a 404 says nothing was excluded under that id, and that
+             is an id to look up rather than a sentence to rewrite. -->
+        <p class="state-body is-error">{{ err }}</p>
       }
     </div>
 

@@ -47,3 +47,18 @@ export interface ExclusionWritten {
   exclusions: Exclusion[];
   total: number;
 }
+
+/**
+ * What a removal leaves behind: the row that is gone, and the list without it.
+ *
+ * `removed` comes back whole because its reason is the only part of the row nothing
+ * else in the database holds — the id was typed and the name is on `players` — so it is
+ * what makes the removal undoable by hand. `fantabot db unexclude` prints it for the
+ * same reason.
+ */
+export interface ExclusionWithdrawn {
+  removed: Exclusion;
+  /** The refreshed list, read back after the delete. */
+  exclusions: Exclusion[];
+  total: number;
+}

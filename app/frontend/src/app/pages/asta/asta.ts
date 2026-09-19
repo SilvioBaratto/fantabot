@@ -180,6 +180,23 @@ export class AstaComponent implements OnInit {
    */
   readonly excludeError = signal<string | null>(null);
 
+  /**
+   * Withdrawing one — `fantabot db unexclude`, which is why this control exists at all:
+   * §8 Never #4 gives the app no power the CLI lacks, and until the command shipped a
+   * typo'd id was removed with `psql` and in no other way.
+   *
+   * The id currently in flight, so the row that was clicked is the row that shows it.
+   */
+  readonly withdrawing = signal<number | null>(null);
+  /**
+   * The row that was removed, kept on screen afterwards. Its reason is the only part of
+   * it nothing else in the database holds, so dropping it from the page would make the
+   * removal unreversible — `db unexclude` prints the row for the same reason.
+   */
+  readonly withdrawn = signal<Exclusion | null>(null);
+  /** The server's refusal, verbatim — a 404's `detail`, not a sentence composed here. */
+  readonly withdrawError = signal<string | null>(null);
+
   readonly players = computed(() =>
     [...(this.plan()?.players ?? [])].sort((a, b) => b.price - a.price),
   );
@@ -282,6 +299,40 @@ export class AstaComponent implements OnInit {
         error: (err: unknown) => {
           this.excludeError.set(refusalOf(err));
           this.excluding.set(false);
+        },
+      });
+  }
+
+  /**
+   * Let a player back into every plan.
+   *
+   * One click and no confirmation, which is the command's behaviour and therefore this
+   * page's: what makes the act reversible is the row coming back on the response and
+   * staying on the screen, not a dialog in front of it.
+   *
+   * A 404 is the server saying nothing was excluded under that id. It is shown in the
+   * server's own words — the sentence `fantabot db unexclude` prints — so the page and
+   * the terminal agree about *why*, not merely that.
+   */
+  unexclude(playerId: number): void {
+    if (this.withdrawing() !== null) return;
+    this.withdrawing.set(playerId);
+    this.withdrawError.set(null);
+    this.exclusionsApi
+      .remove(playerId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (body) => {
+          // The server's list, as the write takes it: this page shows the table, never
+          // its own idea of the table with a row spliced out.
+          this.exclusions.set(body.exclusions);
+          this.exclusionsError.set(null);
+          this.withdrawn.set(body.removed);
+          this.withdrawing.set(null);
+        },
+        error: (err: unknown) => {
+          this.withdrawError.set(refusalOf(err));
+          this.withdrawing.set(null);
         },
       });
   }

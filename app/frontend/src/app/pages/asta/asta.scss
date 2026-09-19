@@ -723,6 +723,12 @@ code {
   gap: 8px;
 }
 
+/* Trailing edge of the row it belongs to, so two rows' controls cannot be mistaken for
+   each other. Everything else it needs is `mat-button`'s. */
+.exclusion-remove {
+  margin-inline-start: auto;
+}
+
 .exclusion-name {
   font: var(--mat-sys-title-small);
   letter-spacing: var(--mat-sys-title-small-tracking);

@@ -3,10 +3,15 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { ExcludeRequest, ExclusionWritten, Exclusions } from '../models/exclusion';
+import {
+  ExcludeRequest,
+  ExclusionWithdrawn,
+  ExclusionWritten,
+  Exclusions,
+} from '../models/exclusion';
 
 /**
- * `fantabot db exclusions` and `fantabot db exclude`, over the wire.
+ * `fantabot db exclusions`, `db exclude` and `db unexclude`, over the wire.
  *
  * The path follows the command (`db/exclusions`) while the screen sits on the Asta page,
  * because that is where the effect shows: an exclusion is invisible everywhere else —
@@ -28,5 +33,15 @@ export class ExclusionsService {
    */
   add(request: ExcludeRequest): Observable<ExclusionWritten> {
     return this.http.post<ExclusionWritten>(`${environment.apiUrl}db/exclusions`, request);
+  }
+
+  /**
+   * Withdraw one, by id — `fantabot db unexclude`. The server answers **404** when
+   * nothing was excluded under that id, carrying the command's own sentence: a delete
+   * that matched nothing and reported success is the defect the command was built to
+   * remove, and the operator's next act depends on which of the two happened.
+   */
+  remove(playerId: number): Observable<ExclusionWithdrawn> {
+    return this.http.delete<ExclusionWithdrawn>(`${environment.apiUrl}db/exclusions/${playerId}`);
   }
 }

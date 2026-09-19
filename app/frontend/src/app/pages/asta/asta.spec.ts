@@ -957,17 +957,97 @@ describe('AstaComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('Could not reach the API');
     });
 
-    it('offers no way to remove one, because the CLI has none', async () => {
-      // SPEC.md §8 Never #4: the app gets no power the CLI lacks. `fantabot` has no
-      // un-exclude command, so this panel adds and lists and does nothing else.
-      const fixture = await ready({ exclusions: [exclusion()] });
+    /**
+     * Removing one. The control exists because `fantabot db unexclude` does — SPEC.md
+     * §8 Never #4 is about the app holding a power the CLI lacks, and the command
+     * landed first. Until it did, a typo'd id was removed with `psql` and in no other
+     * way, on a row that goes on dropping a player from every plan the bot builds.
+     */
+    describe('removing one', () => {
+      it('the control on a row deletes that row and no other', async () => {
+        const fixture = await ready({
+          exclusions: [exclusion(), exclusion({ player_id: 999001, nome: null })],
+        });
 
-      const section: HTMLElement = fixture.nativeElement.querySelector('.exclusions');
-      const labels = [...section.querySelectorAll('button')].map((b) =>
-        (b.textContent ?? '').toLowerCase(),
-      );
-      expect(labels.some((l) => l.includes('remove') || l.includes('delete'))).toBe(false);
-      expect(labels.some((l) => l.includes('exclude'))).toBe(true);
+        const buttons: HTMLButtonElement[] = [
+          ...fixture.nativeElement.querySelectorAll('.exclusion-remove'),
+        ];
+        buttons[0].click();
+
+        const request = httpMock.expectOne(`${environment.apiUrl}db/exclusions/4344`);
+        expect(request.request.method).toBe('DELETE');
+        request.flush({ removed: exclusion(), exclusions: [], total: 0 });
+      });
+
+      it('renders the list the server sent back, not this one minus a row', async () => {
+        // The same argument the write takes: the table is what the page shows. A local
+        // splice would disagree with it the moment anything else wrote a row.
+        const fixture = await ready({ exclusions: [exclusion()] });
+
+        fixture.componentInstance.unexclude(4344);
+        httpMock.expectOne(`${environment.apiUrl}db/exclusions/4344`).flush({
+          removed: exclusion(),
+          exclusions: [exclusion({ player_id: 777, nome: 'Somebody Else', reason: 'retired' })],
+          total: 1,
+        });
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        const text = fixture.nativeElement.textContent as string;
+        expect(text).toContain('Somebody Else');
+        expect(text).toContain('retired');
+      });
+
+      it('keeps the removed row on screen, because its reason is unrecoverable', async () => {
+        // The id was typed and the name is on `players`; the sentence is held nowhere
+        // else. `db unexclude` prints it for the same reason — it is what makes the
+        // removal undoable by hand.
+        const fixture = await ready({ exclusions: [exclusion()] });
+
+        fixture.componentInstance.unexclude(4344);
+        httpMock
+          .expectOne(`${environment.apiUrl}db/exclusions/4344`)
+          .flush({ removed: exclusion(), exclusions: [], total: 0 });
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        const text = fixture.nativeElement.textContent as string;
+        expect(text).toContain('left Serie A 2026-08-30');
+        expect(text).toContain('every player on the listone is buyable');
+      });
+
+      it('shows the server sentence when the row was already gone', async () => {
+        const fixture = await ready({ exclusions: [exclusion()] });
+
+        fixture.componentInstance.unexclude(4344);
+        httpMock
+          .expectOne(`${environment.apiUrl}db/exclusions/4344`)
+          .flush(
+            { detail: 'no exclusion for id 4344 — nothing was removed.' },
+            { status: 404, statusText: 'Not Found' },
+          );
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.textContent).toContain('no exclusion for id 4344');
+      });
+
+      it('says the API is unreachable rather than calling it a refusal', async () => {
+        const fixture = await ready({ exclusions: [exclusion()] });
+
+        fixture.componentInstance.unexclude(4344);
+        httpMock
+          .expectOne(`${environment.apiUrl}db/exclusions/4344`)
+          .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.textContent).toContain('Could not reach the API');
+      });
     });
   });
 });
