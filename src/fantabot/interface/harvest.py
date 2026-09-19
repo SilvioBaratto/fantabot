@@ -31,6 +31,7 @@ from fantabot.interface.console import console
 
 if TYPE_CHECKING:  # annotations only
     from fantabot.adapters.persistence.repositories.aste import EventWrite
+    from fantabot.application.harvest_backfill import BackfillReport
     from fantabot.domain.harvest.backfill import DroppedEvents
 
 
@@ -727,73 +728,63 @@ def aste_backfill(
     The same code path the live loader uses. A backfill that grows its own way of
     building rows leaves one of the two untested, and the difference shows up on
     an evening that cannot be collected twice.
+
+    A printer over `application/harvest_backfill` since T22: the refusals and the
+    read-build-write sequence moved there so the app's picker refuses the same things
+    with the same sentences, rather than inventing a second idea of a loadable file.
     """
-    import json
-
-    # Aliased for the same reason `aste_load` aliases it: the `listone` parameter already
-    # holds this name here, and `entries_only` tolerates the versioned envelope a cache file
-    # now carries.
-    from fantabot.adapters.http.fantalab import listone as listone_module
-    from fantabot.adapters.persistence.models.aste import ASTA_TYPES
-    from fantabot.domain.harvest.backfill import build, read_jsonl
-
-    seed = seed or _home(SEED_NAME)
-    listone = listone or _home(LISTONE_NAME)
-    # Checked before any work: asta_type is NOT NULL and only two values exist,
-    # so a typo caught here beats a constraint violation after building 144,518
-    # rows.
-    if asta_type not in ASTA_TYPES:
-        console.print(f"[red]{asta_type!r} is not a format. Use one of: {', '.join(ASTA_TYPES)}")
-        raise typer.Exit(2)
-    for label, path in (("events", events), ("seed", seed)):
-        if not path.exists():
-            console.print(f"[red]{label} file not found: {path}[/red]")
-            raise typer.Exit(2)
-
-    states = read_jsonl(events)
-    seed_rows = json.loads(seed.read_text(encoding="utf-8"))
-    raw_bridge = json.loads(listone.read_text(encoding="utf-8")) if listone.exists() else {}
-    bridge = listone_module.entries_only(raw_bridge) if isinstance(raw_bridge, dict) else {}
-    if not bridge:
-        console.print(f"[yellow]no listone at {listone}; assignments will carry no player link")
-
-    known_players: frozenset[int] | None = None
-    if not dry_run:
-        from fantabot.adapters.persistence import database_manager
-        from fantabot.adapters.persistence.repositories.aste import AsteRepository
-
-        with database_manager.get_session() as session:
-            known_players = AsteRepository(session).known_player_ids()
-
-    built = build(states, seed_rows, bridge, asta_type, known_players)
-    console.print(
-        f"auctions {len(built.auctions)} · events {len(built.events)} from {len(states)} states"
-        f" · assignments {len(built.assignments)}"
+    from fantabot.application.harvest_backfill import (
+        InvalidBackfill,
+        clean_backfill,
+        run_backfill,
     )
-    _report_dropped(built.dropped_events)
-    unlinked = built.unlinked_players
-    if unlinked:
-        # A staleness signal, not a warning to scroll past: a few is a transfer
-        # window, a lot means the reference table no longer describes the listone.
+
+    try:
+        inputs = clean_backfill(
+            events=events,
+            seed=seed or _home(SEED_NAME),
+            listone=listone or _home(LISTONE_NAME),
+            asta_type=asta_type,
+        )
+    except InvalidBackfill as refused:
+        console.print(f"[red]{refused}[/red]")
+        raise typer.Exit(2) from None
+
+    if not inputs.listone_present:
         console.print(
-            f"[yellow]{unlinked} assignment(s) carry no player link — "
-            "`players` is behind the listone[/yellow]"
+            f"[yellow]no listone at {inputs.listone}; assignments will carry no player link"
         )
 
     if dry_run:
+        _report_backfill(run_backfill(inputs))
         console.print("[yellow]dry run — nothing written[/yellow]")
         return
 
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
     with database_manager.get_session() as session:
-        repo = AsteRepository(session)
-        repo.upsert_auctions(built.auctions)
-        repo.upsert_events(built.events)
-        repo.upsert_assignments(built.assignments)
+        report = run_backfill(inputs, session=session)
         session.commit()
-        console.print(f"[green]stored — {repo.count_assignments()} assignments in total")
+    _report_backfill(report)
+    console.print(f"[green]stored — {report.total_assignments} assignments in total")
+
+
+def _report_backfill(report: BackfillReport) -> None:
+    """The three counts, then what did not become a row.
+
+    `unlinked` is a staleness signal rather than a warning to scroll past: a few is a
+    transfer window, a lot means the reference table no longer describes the listone.
+    """
+    console.print(
+        f"auctions {report.auctions} · events {report.events} from {report.states} states"
+        f" · assignments {report.assignments}"
+    )
+    _report_dropped(report.dropped)
+    if report.unlinked_players:
+        console.print(
+            f"[yellow]{report.unlinked_players} assignment(s) carry no player link — "
+            "`players` is behind the listone[/yellow]"
+        )
 
 
 #: `(name, function)`, in declaration order — Typer lists commands in registration

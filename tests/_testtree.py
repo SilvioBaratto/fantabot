@@ -135,6 +135,9 @@ TREE: dict[str, str] = {
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",
+    # T22: what a backfill may be asked to load — the refusals, and the enumeration
+    # of the harvest home that the picker and `harvest backfill` must not each invent.
+    "test_backfill_inputs.py": "application",
     "test_aste_loader.py": "application",
     "test_aste_load_catchup.py": "application",
     "test_aste_load_windowing.py": "application",

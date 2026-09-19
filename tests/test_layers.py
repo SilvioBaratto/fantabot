@@ -50,6 +50,7 @@ LAYERS: dict[str, str] = {
     "fantabot.domain": "domain",
     # -- application: orchestration. May use adapters; may not be a user interface.
     "fantabot.application.asta_planner": "application",
+    "fantabot.application.harvest_backfill": "application",
     "fantabot.application.harvest_loader": "application",
     "fantabot.application.harvest_supervisor": "application",
     "fantabot.application.news_fetcher": "application",
