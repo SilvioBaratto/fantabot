@@ -13,7 +13,12 @@ from conftest import make_synthetic_players
 from sqlalchemy.orm import Session
 
 from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
-from fantabot.application.exclusions import InvalidExclusion, record_exclusion
+from fantabot.application.exclusions import (
+    ExclusionNotFound,
+    InvalidExclusion,
+    record_exclusion,
+    remove_exclusion,
+)
 
 pytestmark = pytest.mark.db
 
@@ -123,3 +128,61 @@ def test_an_exclusion_for_an_unscraped_id_still_lists_with_no_name(
 
     assert recorded.row.nome is None
     assert recorded.row.player_id == 999_006
+
+
+def test_removing_one_takes_it_out_of_both_reads(db_session: Session) -> None:
+    """The gate and the list are two reads over one table, so a removal that left
+    either behind would be a player still kept out of every plan by a row the list no
+    longer shows."""
+    repo = ReferenceRepository(db_session)
+    repo.exclude_player(999_007, reason="a typo", source="")
+
+    remove_exclusion(db_session, 999_007)
+
+    assert "999007" not in repo.excluded_player_ids()
+    assert 999_007 not in [pid for pid, _, _ in repo.exclusions()]
+
+
+def test_the_removed_row_comes_back_whole(db_session: Session) -> None:
+    """With its name and its reason: the reason is the only half of the row nothing
+    else holds, and printing it is what makes the removal undoable by hand."""
+    (seeded,) = make_synthetic_players(db_session, 1)
+    player_id = int(seeded)
+    record_exclusion(db_session, player_id, reason="left Serie A 2026-08-30", source="goal.com")
+
+    removed = remove_exclusion(db_session, player_id)
+
+    assert removed.row.player_id == player_id
+    assert removed.row.nome == f"synthetic-{seeded}"
+    assert removed.row.reason == "left Serie A 2026-08-30"
+    assert removed.row.source == "goal.com"
+    assert removed.row not in removed.exclusions
+    assert removed.total == len(removed.exclusions)
+
+
+def test_removing_what_is_not_there_raises_and_writes_nothing(db_session: Session) -> None:
+    """A delete matching no row is not a removal, and the operator's next act depends
+    on which of the two happened."""
+    before = ReferenceRepository(db_session).exclusions()
+
+    with pytest.raises(ExclusionNotFound) as caught:
+        remove_exclusion(db_session, 999_008)
+
+    assert "999008" in str(caught.value)
+    assert ReferenceRepository(db_session).exclusions() == before
+
+
+def test_an_id_that_could_never_be_recorded_today_can_still_be_removed(
+    db_session: Session,
+) -> None:
+    """`clean_exclusion` refuses a non-positive id, and `db exclude` had no validation
+    at all before T24 — so a `0` is exactly the row this command is the remedy for.
+    Validating the id here would make the unreachable row permanent."""
+    ReferenceRepository(db_session).exclude_player(0, reason="written before T24", source="")
+
+    with pytest.raises(InvalidExclusion):
+        record_exclusion(db_session, 0, reason="still refused", source="")
+    removed = remove_exclusion(db_session, 0)
+
+    assert removed.row.player_id == 0
+    assert 0 not in [pid for pid, _, _ in ReferenceRepository(db_session).exclusions()]

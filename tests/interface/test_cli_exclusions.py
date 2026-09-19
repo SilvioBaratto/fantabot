@@ -159,3 +159,53 @@ class TestRecordingOne:
         assert result.exit_code == 2, result.output
         assert "an exclusion needs a reason" in result.output
         assert session.commits == 0, "a refused exclusion must not commit anything"
+
+
+class TestRemovingOne:
+    """`db unexclude` is the remedy for a typo'd id, which until now was `psql`.
+
+    Left open by T24 and built here CLI-first, per `SPEC.md` §8 Never #4: the app gets
+    no power the CLI lacks, so the command has to exist before the button can.
+    """
+
+    def test_it_prints_the_row_it_removed_and_the_running_total(
+        self, monkeypatch: pytest.MonkeyPatch, session: FakeSession
+    ) -> None:
+        """The reason is the only unrecoverable half of the row — the id is what the
+        operator typed and the name is on `players`, but nothing anywhere else holds
+        the sentence. Printing it is what makes the removal undoable by hand."""
+        from fantabot.application import exclusions
+
+        monkeypatch.setattr(
+            exclusions,
+            "remove_exclusion",
+            lambda session, player_id: exclusions.ExclusionRemoved(
+                row=LEAO, exclusions=(NAMELESS,)
+            ),
+        )
+        result = runner.invoke(app, ["db", "unexclude", "--player", "4344"])
+
+        assert result.exit_code == 0, result.output
+        assert "Leao" in result.output
+        assert "left Serie A 2026-08-30" in result.output
+        assert "goal.com" in result.output
+        assert "1 exclusion" in result.output
+        assert session.commits == 1
+
+    def test_removing_what_is_not_there_exits_2_and_says_so(
+        self, monkeypatch: pytest.MonkeyPatch, session: FakeSession
+    ) -> None:
+        """A delete that matched nothing and said nothing is the defect this command
+        exists to remove, not one to reproduce: the operator's next act depends on
+        whether the row is gone or was never there."""
+        from fantabot.application import exclusions
+
+        def refuse(session: object, player_id: int) -> object:
+            raise exclusions.ExclusionNotFound(f"no exclusion for id {player_id}")
+
+        monkeypatch.setattr(exclusions, "remove_exclusion", refuse)
+        result = runner.invoke(app, ["db", "unexclude", "--player", "999002"])
+
+        assert result.exit_code == 2, result.output
+        assert "no exclusion for id 999002" in result.output
+        assert session.commits == 0, "a refused removal must not commit anything"

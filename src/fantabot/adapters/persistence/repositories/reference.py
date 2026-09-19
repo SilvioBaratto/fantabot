@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import select, union
+from sqlalchemy import delete, select, union
 from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.adapters.persistence.models.exclusions import PlayerExclusion
@@ -47,6 +47,22 @@ class ReferenceRepository(RepositoryBase):
                 index_elements=[PlayerExclusion.player_id],
                 set_={"reason": reason, "source": source},
             )
+        )
+
+    def unexclude_player(self, player_id: int) -> None:
+        """Remove one exclusion. The only write here that is not an upsert.
+
+        The `league_*` tables are append-only so that drift between captures stays
+        visible; this table is not a capture. It is a standing statement that a player
+        cannot be bought, and a statement that was wrong has to be withdrawable —
+        until this existed a typo'd id was removed with `psql` and in no other way.
+
+        Whether a row was there is the caller's to decide and it does so by reading
+        first: `application/exclusions.remove_exclusion` needs the row's own reason
+        anyway, which is the half of it nothing else holds.
+        """
+        self.session.execute(
+            delete(PlayerExclusion).where(PlayerExclusion.player_id == player_id)
         )
 
     def exclusions(self) -> list[tuple[int, str, str]]:

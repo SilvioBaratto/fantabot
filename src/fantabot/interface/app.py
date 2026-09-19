@@ -703,6 +703,38 @@ def db_exclusions() -> None:
             console.print(f"  {'':<7} {'':<20} [dim]{row.source}[/dim]")
 
 
+def db_unexclude(
+    player: int = typer.Option(..., help="Fantacalcio player id to let back into the plan."),
+) -> None:
+    """Withdraw an exclusion, putting the player back into every plan.
+
+    The remedy for a typo'd id, which until this existed was `psql` and nothing else.
+    A printer over `application/exclusions.remove_exclusion`, so the Asta page's remove
+    control refuses the same removals with the same sentence.
+
+    It prints the row it removed. The reason is the only half nothing else in the
+    database holds, so printing it is what makes the removal undoable by hand.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.application.exclusions import ExclusionNotFound, remove_exclusion
+
+    try:
+        with database_manager.get_session() as session:
+            removed = remove_exclusion(session, player)
+            session.commit()
+    except ExclusionNotFound as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from None
+
+    who = f"{removed.row.player_id} {removed.row.nome}" if removed.row.nome else (
+        str(removed.row.player_id)
+    )
+    console.print(f"[green]removed {who}[/green]: {removed.row.reason}")
+    if removed.row.source:
+        console.print(f"[dim]{removed.row.source}[/dim]")
+    console.print(f"[dim]{removed.total} exclusions in total[/dim]")
+
+
 def _pg_dump_argv(database_url: str) -> list[str]:
     """`pg_dump` addressing whatever the DSN addresses, in custom format.
 
@@ -1069,6 +1101,7 @@ db_app.command("scrape")(db_scrape)
 db_app.command("price")(db_price)
 db_app.command("exclude")(db_exclude)
 db_app.command("exclusions")(db_exclusions)
+db_app.command("unexclude")(db_unexclude)
 db_app.command("dump")(db_dump)
 auth_app.command("login")(login)
 auth_app.command("status")(token_status)

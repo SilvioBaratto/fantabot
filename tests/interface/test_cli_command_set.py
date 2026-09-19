@@ -40,6 +40,7 @@ EXPECTED: set[str] = {
     "db check",
     "db exclude",
     "db exclusions",
+    "db unexclude",
     "db dump",
     "db price",
     "db scrape",

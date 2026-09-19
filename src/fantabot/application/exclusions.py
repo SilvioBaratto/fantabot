@@ -1,4 +1,4 @@
-"""A player kept out of every plan — the list, and the act of adding to it.
+"""A player kept out of every plan — the list, and the acts of adding and removing.
 
 `adapters/persistence/models/exclusions.py` says what the table is for and why nothing
 else in the engine can do its job: the scraper faithfully reproduces a site that lags
@@ -30,8 +30,16 @@ commits on clean exit, and the command commits explicitly besides. A function th
 committed on its caller's behalf would take the transaction boundary away from the one
 place — the route, the command — that knows what else is in it.
 
+**A removal validates nothing, deliberately.** `clean_exclusion` refuses a non-positive
+id, and before T24 `db exclude` validated nothing at all — so a `0` row is exactly what
+`remove_exclusion` is the remedy for. Checking the id on the way out would make the one
+row nobody can act on permanent. What it does refuse is a removal that matched nothing:
+`ExclusionNotFound` rather than a silent success, because "the row is gone" and "the row
+was never there" send the operator to two different places.
+
 Split in two like `asta_planner`: `clean_exclusion` and `join_names` are pure and take
-rows; `read_exclusions` and `record_exclusion` are the shell over a `Session`.
+rows; `read_exclusions`, `record_exclusion` and `remove_exclusion` are the shell over a
+`Session`.
 """
 
 from __future__ import annotations
@@ -48,6 +56,13 @@ class InvalidExclusion(ValueError):
     """The exclusion as asked for cannot be recorded. Named so each surface says so
     its own way — a `typer.Exit(2)` with the line printed, a 422 with the line in the
     body — without either having to tell this apart from a database being down.
+    """
+
+
+class ExclusionNotFound(LookupError):
+    """Nothing is excluded under that id. Kept apart from `InvalidExclusion` because the
+    surfaces answer them differently — a 404 against a 422 — and because the remedies
+    differ: one is a sentence to rewrite, the other an id to look up on the list.
     """
 
 
@@ -148,3 +163,44 @@ def record_exclusion(
     exclusions = read_exclusions(session)
     recorded = next(row for row in exclusions if row.player_id == player_id)
     return ExclusionRecorded(row=recorded, exclusions=tuple(exclusions))
+
+
+@dataclass(frozen=True)
+class ExclusionRemoved:
+    """What a removal leaves behind: the row that is gone, and the list without it."""
+
+    #: The removed row, whole. The reason is the only part of it nothing else in the
+    #: database holds — the id was typed and the name is on `players` — so a surface
+    #: that drops it makes the removal unreversible.
+    row: ExclusionRow
+    #: Every exclusion that remains, in the table's own order.
+    exclusions: tuple[ExclusionRow, ...]
+
+    @property
+    def total(self) -> int:
+        """What the surfaces print as "N exclusions in total"."""
+        return len(self.exclusions)
+
+
+def remove_exclusion(session: Session, player_id: int) -> ExclusionRemoved:
+    """Withdraw one exclusion, or `ExclusionNotFound`. Does not commit.
+
+    Reads before it deletes because the row's own reason is what the caller has to show
+    — and because that read is how a removal that matched nothing is told from one that
+    did. See the module docstring for why the id itself is not validated.
+    """
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+
+    before = read_exclusions(session)
+    row = next((row for row in before if row.player_id == player_id), None)
+    if row is None:
+        raise ExclusionNotFound(
+            f"no exclusion for id {player_id} — nothing was removed. `db exclusions` "
+            "lists what is there."
+        )
+
+    ReferenceRepository(session).unexclude_player(player_id)
+    # Read back rather than filtered out of `before`, for `record_exclusion`'s reason:
+    # what the operator is shown is what the table now holds, not what this function
+    # believes it did.
+    return ExclusionRemoved(row=row, exclusions=tuple(read_exclusions(session)))
