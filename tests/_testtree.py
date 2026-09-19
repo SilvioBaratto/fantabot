@@ -126,6 +126,9 @@ TREE: dict[str, str] = {
     "test_asta_room_memo.py": "application",
     "test_asta_room_stall.py": "application",
     "test_arming.py": "application",
+    # T28: `safe_dsn` and the secret sets — the two decisions `config-check` and the
+    # app's System page must not each keep a copy of.
+    "test_config_report.py": "application",
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",

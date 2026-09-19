@@ -32,10 +32,10 @@ def test_dsn_host_and_database_are_still_shown() -> None:
     which is the failure this whole phase exists to close. What is checked now is the
     thing the operator came for: *which* database.
 
-    Only the database name is asserted, not the host: against the bundled server the host
-    is a filesystem path that Rich truncates to the terminal width, and `config-check`
-    renders through SQLAlchemy's `render_as_string`, which percent-encodes it. Both are
-    display artefacts — T28 (`tasks/BACKLOG.md`) — not something to pin here.
+    It used to assert only the database name, because against the bundled server the host
+    is a filesystem path that Rich broke across lines and that `render_as_string`
+    percent-encoded. Both were real — and both are fixed by T28 below, which is why this
+    no longer has to look away from the half of the line that matters.
     """
     result = runner.invoke(app, ["config-check"])
 
@@ -172,3 +172,105 @@ def test_the_agent_base_url_is_printed_in_full(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(config.settings, "fantabot_agent_base_url", "")
     assert "fantabot_agent_base_url: (subscription)" in runner.invoke(app, ["config-check"]).output
+
+
+# --- T28: the DSN line is the one an operator copies ----------------------------------
+#
+# `config-check` exists to answer "which database am I on?", and the answer is only
+# useful if it can be *used*: pasted into `alembic.ini`, into a `psql` line, into a
+# `FANTABOT_DATABASE_URL=` export. Three things stood between the printed line and that.
+
+_SOCKET_DSN = "postgresql+psycopg2://postgres:@/fantabot?host=/Users/me/.fantabot/pgdata"
+
+
+def test_the_dsn_is_not_percent_encoded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`%2F` is not a display detail — it makes the line unusable where it matters.
+
+    `config.bundled_database_url` is explicit that the derived DSN is *never*
+    percent-encoded, because alembic's config is a `ConfigParser`: it interpolates `%`
+    and rejects a `%2F`-encoded socket path with `ValueError: invalid interpolation
+    syntax`. `config-check` rendered through SQLAlchemy's `render_as_string`, which
+    encodes the query string — so the one screen that tells an operator which database
+    they are on printed a DSN that fails when they act on it.
+    """
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_database_url", _SOCKET_DSN)
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 0
+    assert "%2F" not in result.output
+    assert "host=/Users/me/.fantabot/pgdata" in result.output
+
+
+def test_the_dsn_is_not_broken_across_lines_by_a_narrow_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rich hard-wraps mid-token at the console width, so a copied DSN is a broken one.
+
+    Not cosmetic and not truncation: at 40 columns the line came back as three fragments
+    split at arbitrary character positions (`.../fant` / `abot?host=...`).
+
+    **The width is set on the `Console`, not through `COLUMNS`.** The first version of
+    this test used `monkeypatch.setenv("COLUMNS", "40")` and was a test that could not
+    fail: Rich reads `COLUMNS` in `Console.__init__` and caches it as `_width`, and
+    `interface/console.py` builds its one console at import — so the environment variable
+    arrived far too late and the console stayed at the suite's 200. It went red anyway,
+    for the *encoding* defect the test above already covers, and green again when that was
+    fixed. Caught by mutation: dropping `soft_wrap` left it passing.
+    """
+    from fantabot import config
+    from fantabot.interface.console import console
+
+    monkeypatch.setattr(config.settings, "fantabot_database_url", _SOCKET_DSN)
+    monkeypatch.setattr(console, "width", 40)
+    assert console.width == 40, "the console was not actually narrowed"
+
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 0
+    assert _SOCKET_DSN in result.output, (
+        "the DSN did not survive a 40-column terminal in one piece:\n" + result.output
+    )
+
+
+def test_an_unparseable_dsn_is_reported_by_name_and_exits_non_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The remedy is editing `.env`, and this is the command run to find that out.
+
+    Deferring it to the first connect reports a misconfiguration as a database being
+    down, which sends the operator to `fantabot-app db start`. The exit code matters
+    because this runs from cron, where the sentence is in a log nobody reads and the code
+    is the only signal — and because the rest of the screen still prints, one unparseable
+    field must not cost the operator every other setting.
+    """
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_database_url", "::not a dsn::")
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 1
+    assert "fantabot_database_url: INVALID" in result.output
+    assert "fantabot_encryption_key set:" in result.output, (
+        "the rest of the report was lost to one bad field"
+    )
+
+
+def test_an_absent_password_is_not_masked_as_if_it_existed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`postgres:***@` where there is no password is a lie in the safe direction.
+
+    The bundled server is trust-authenticated and its DSN carries an empty password, but
+    `render_as_string(hide_password=True)` masks `""` exactly like a real secret. An
+    operator reading `***` concludes a password is set and configured, and goes looking
+    for the wrong problem. Masking protects a credential; it must not invent one.
+    """
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_database_url", _SOCKET_DSN)
+    result = runner.invoke(app, ["config-check"])
+
+    assert "postgres:***@" not in result.output
+    assert "postgres:@" in result.output

@@ -184,8 +184,20 @@ def test_decrypt_is_confined_to_its_allowed_files() -> None:
     )
 
 
-#: The module holding `config-check`. Resolved through the import system, like the two
-#: below: W6 moved it from `fantabot/cli.py` to `interface/app.py`.
+#: The module holding `config-check`'s **secret set**, and the name it is bound to.
+#:
+#: Resolved through the import system, like the ones below, and it has now moved twice:
+#: W6 took it from `fantabot/cli.py` to `interface/app.py`, and 4.6 took the set itself
+#: out of the Typer body into `application/config_report.py`, because the app's System
+#: page renders the same report and a second copy of "which fields are secret" is a copy
+#: that drifts. **The guard failed red on that move rather than open** — which is the
+#: whole design of this file, and the opposite of what happened when `apileague.py` was
+#: addressed by path.
+CONFIG_REPORT = "fantabot.application.config_report"
+SECRET_SET_NAME = "SECRET_FIELDS"
+
+#: The module that still holds `config-check` itself — now a printer, and asserted to
+#: have stayed one.
 ROOT_APP = "fantabot.interface.app"
 
 #: Modules outside `tokens/` that hold a plaintext token at some point.
@@ -194,10 +206,15 @@ ROOT_APP = "fantabot.interface.app"
 #: storage once a second for up to ten minutes, so a single login puts a credential
 #: through it hundreds of times. Its heartbeat must therefore print constant strings and
 #: elapsed minutes only — never a length, a prefix, or a boolean derived from a value.
+#: `config_report` earns its place by breadth: it is the one module that reads *every*
+#: secret in `Settings` — the Fernet key, the lega password, the agent bearer token and
+#: the DSN's password — in order to report that they exist. A module that touches all of
+#: them is the one where a stray `print` costs the most.
 LOOSE_TOKEN_HANDLERS = (
     "fantabot.adapters.http.apileague",
     "fantabot.application.auth_login",
     "fantabot.application.login_wait",
+    "fantabot.application.config_report",
 )
 
 
@@ -297,26 +314,54 @@ def test_no_credential_reaches_a_print_a_log_or_a_raise() -> None:
 def test_config_check_excludes_the_encryption_key() -> None:
     """Assertion 6, read out of the source rather than the output.
 
-    An output-only assertion passes vacuously on a machine with no key set —
-    which is every CI machine, and the one place this would matter least to
-    catch. So the exclude-set literal itself is parsed out of `cli.py`.
+    An output-only assertion passes vacuously on a machine with no key set — which is
+    every CI machine, and the one place this would matter least to catch. So the
+    exclude-set literal itself is parsed, now out of `application/config_report.py`.
+
+    Every string constant in the assignment's subtree is collected rather than its direct
+    `elts`, because the set is a `frozenset({...})` — a `Call` wrapping the set, whose
+    `elts` is empty. Reading only the direct children would have found nothing and
+    reported the key as unexcluded, which fails closed but for the wrong reason and would
+    have been repaired by weakening the assertion.
     """
-    tree = ast.parse(module_file(ROOT_APP).read_text())
-    excluded: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "secrets" for t in node.targets
-        ):
-            excluded = {
-                elt.value
-                for elt in getattr(node.value, "elts", [])
-                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
-            }
+    tree = ast.parse(module_file(CONFIG_REPORT).read_text())
+    excluded = {
+        leaf.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == SECRET_SET_NAME for t in node.targets)
+        for leaf in ast.walk(node.value)
+        if isinstance(leaf, ast.Constant) and isinstance(leaf.value, str)
+    }
 
     assert "fantabot_encryption_key" in excluded, (
-        f"{ROOT_APP}'s config-check exclude set is {sorted(excluded)} — without the "
+        f"{CONFIG_REPORT}'s {SECRET_SET_NAME} is {sorted(excluded)} — without the "
         "key in it, `model_dump` prints the key into every cron log. "
         "`Field(repr=False)` does not suppress `model_dump`."
+    )
+
+
+def test_the_typer_body_keeps_no_exclude_set_of_its_own() -> None:
+    """The lift's own guarantee, and the only thing that keeps the test above honest.
+
+    Nothing stops `config-check` from growing a second exclude set beside the printer;
+    the assertion above would still pass, reading the one in `config_report`, while the
+    command printed from a stale copy. That is the shape the T-spine rule exists for —
+    "a decision the app cannot call is a decision the app reimplements".
+    """
+    tree = ast.parse(module_file(ROOT_APP).read_text())
+    rebound = [
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id in {"secrets", SECRET_SET_NAME}
+    ]
+
+    assert rebound == [], (
+        f"{ROOT_APP} binds {rebound} — `config-check` is a printer, and which fields are "
+        f"secret is {CONFIG_REPORT}'s to say. Two copies drift, and the one that drifts "
+        "is the one that prints a credential."
     )
 
 

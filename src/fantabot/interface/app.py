@@ -82,40 +82,35 @@ lega_app = typer.Typer(
 
 @app.command()
 def config_check() -> None:
-    """Print resolved settings (secrets masked) — sanity check before running anything."""
-    from sqlalchemy.engine import make_url
+    """Print resolved settings (secrets masked) — sanity check before running anything.
 
-    from fantabot.config import settings
+    A printer. Which fields are secret, and how the DSN renders, are
+    `application/config_report.py`'s — the app's System page shows the same report, and a
+    second copy of "which fields are secret" is a copy that drifts.
 
-    # Cron captures stdout, so anything printed here outlives the run in a log
-    # file. `lega_password` was being dumped verbatim before the DSN existed —
-    # `repr=False` does not suppress `model_dump`, which is why the exclude set
-    # is the only thing standing between a secret and the log.
-    secrets = {
-        "stats_source_api_key",
-        "lega_password",
-        "fantabot_database_url",
-        "fantabot_encryption_key",
-        # Harmless on Ollama, where the documented value is the placeholder
-        # "ollama". Not harmless behind a gateway, where it is a real bearer
-        # token — and config-check cannot tell the two apart, so neither prints.
-        "fantabot_agent_auth_token",
-    }
-    console.print(settings.model_dump(exclude=secrets))
-    console.print(f"stats_source_api_key set: {bool(settings.stats_source_api_key)}")
-    console.print(f"lega_password set: {bool(settings.lega_password)}")
-    console.print(f"fantabot_encryption_key set: {bool(settings.fantabot_encryption_key)}")
-    console.print(f"fantabot_agent_auth_token set: {bool(settings.fantabot_agent_auth_token)}")
-    # Printed in full, unlike the token: it is routing, not a credential, and an
+    Cron captures stdout, so every line here outlives the run in a log file.
+    """
+    from fantabot.application.config_report import build_report
+
+    report = build_report()
+    console.print(dict(report.settings))
+    for name, is_set in report.secrets_set.items():
+        console.print(f"{name} set: {is_set}")
+    # Printed in full, unlike the token beside it: routing, not a credential, and an
     # unexpected value here is the fastest explanation for a cron run that went
     # somewhere other than the subscription.
-    console.print(
-        f"fantabot_agent_base_url: {settings.fantabot_agent_base_url or '(subscription)'}"
-    )
+    agent_base_url = report.settings.get("fantabot_agent_base_url")
+    console.print(f"fantabot_agent_base_url: {agent_base_url or '(subscription)'}")
 
-    # An invalid DSN should fail loudly here rather than at the first connect.
-    dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
-    console.print(f"fantabot_database_url: {dsn}")
+    if report.database_url_error is not None:
+        # Loud, and non-zero, rather than deferred to the first connect — where it would
+        # read as a database being down instead of as a `.env` to edit.
+        console.print(f"fantabot_database_url: INVALID — {report.database_url_error}")
+        raise typer.Exit(1)
+    # `soft_wrap`: Rich hard-wraps at the console width, and at 40 columns this came back
+    # as three fragments split mid-token. This is the line an operator copies into
+    # `alembic.ini` or a `psql` invocation, so it has to survive in one piece.
+    console.print(f"fantabot_database_url: {report.database_url}", soft_wrap=True)
 
 
 def _report_stop(result: FetchResult) -> None:
