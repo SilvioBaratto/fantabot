@@ -279,3 +279,171 @@ def harvest_collect(pool: int = 0) -> JobStarted:
         landing=home / "live.jsonl",
     )
     return JobStarted(job_id=registry.start(job.run, kind="harvest-collect", stop=job.stop))
+
+
+class LogRow(BaseModel):
+    """One collector log the picker may offer. A **name**, never a path — see `backfill`."""
+
+    name: str
+    bytes: int
+    mtime: str | None = None
+    #: The active landing zone. Offered and flagged; never refused. A backfill only reads
+    #: it and all three writes are upserts, so the offset — which belongs to `harvest
+    #: load` — has nothing to fear. Hiding it would make the one file with 1.3 GB in it
+    #: the one file the app cannot reach.
+    live: bool = False
+
+
+class SeedRow(BaseModel):
+    """One scan seed the picker may offer, with how many auctions it describes."""
+
+    name: str
+    rows: int
+    mtime: str | None = None
+
+
+class BackfillCandidates(BaseModel):
+    """What a backfill may be pointed at, read from the harvest home.
+
+    Degrades open like `/harvest/seed` and for the same reason. `exists=False` is not two
+    empty lists: a home nobody has created names a command (`harvest adopt`), and a home
+    that cannot be read names a dialog — `error` carries the second.
+    """
+
+    home: str
+    exists: bool
+    logs: list[LogRow] = []
+    seeds: list[SeedRow] = []
+    error: str | None = None
+
+
+@router.get(
+    "/harvest/backfill/candidates", response_model=BackfillCandidates, tags=["harvest"]
+)
+def harvest_backfill_candidates() -> BackfillCandidates:
+    """The picker's contents. The one read that decides what a loadable file is.
+
+    `application/harvest_backfill.candidates` decides it, not this route: a picker whose
+    idea of loadable differs from the loader's offers a file the child then exits 2 on.
+    """
+    from fantabot.application.harvest_backfill import candidates
+    from fantabot.config import harvest_dir
+
+    found = candidates(harvest_dir())
+    return BackfillCandidates(
+        home=str(found.home),
+        exists=found.exists,
+        error=found.error,
+        logs=[
+            LogRow(name=log.name, bytes=log.bytes, mtime=log.mtime, live=log.live)
+            for log in found.logs
+        ],
+        seeds=[SeedRow(name=s.name, rows=s.rows, mtime=s.mtime) for s in found.seeds],
+    )
+
+
+class BackfillRequest(BaseModel):
+    """A chosen pair, by name. Both must already be on the candidate list.
+
+    Names rather than paths, and that one rule does two jobs. Naming a harvest path
+    explicitly *creates* what it cannot find — three stray files and two spare seeds sit
+    in the real home from exactly that — so a free-text field on this form is how the app
+    grows a second landing zone with its own checkpoint and its own fold state. It also
+    means `../../.ssh/id_rsa` is refused by the same check, rather than by a second one
+    somebody has to remember to write.
+    """
+
+    log: str
+    #: Defaulted to the home's own `seed.json`, which is what `harvest backfill` defaults
+    #: to. Chosen rather than fixed because the home holds three: a recorded evening needs
+    #: its own, and today's seed against last month's log drops every auction it no longer
+    #: describes and still reports success.
+    seed: str = "seed.json"
+    asta_type: str = "mantra"
+    #: The page offers the write only after a dry run of this exact triple has returned.
+    #: That sequencing is the page's and is deliberately not enforced here: `harvest
+    #: backfill` takes the flag in either order, and a route that refused otherwise would
+    #: give the app a restriction the CLI has not got.
+    dry_run: bool = True
+
+
+def backfill_flag(events: Path) -> Path:
+    """`<events>.backfill.stop` — one flag per input, derived from it.
+
+    A backfill takes no landing-zone role, so `ProcessJob` needs a flag of its own, and
+    `stop_path` refuses any role but `collector` and `loader` — rightly: its two are a
+    contract about who may hold a landing zone, and a third unrelated one would change
+    what that means. Derived from the events file for `stop_path`'s own reason, though: a
+    flag shared between two backfills would let a stop aimed at either stop the other.
+    """
+    return events.with_name(f"{events.name}.backfill.stop")
+
+
+@router.post("/harvest/backfill", response_model=JobStarted, tags=["harvest"])
+def harvest_backfill(request: BackfillRequest) -> JobStarted:
+    """Load a recorded collector log, supervised as a child process.
+
+    Safe in a way neither `load` nor `collect` is: every write is an upsert over a natural
+    key, so a run against the wrong seed costs time and nothing else. That is why it needs
+    no arming lock — and why the dry run exists anyway, because "the wrong seed" is
+    reported as a successful run with a large `unknown auction` count and no other sign.
+
+    Both names are resolved against the candidate list rather than against the home, so
+    the route refuses exactly what the picker does not offer. The format then goes through
+    `clean_backfill` — the command's own refusal, not a second copy of it.
+    """
+    from fantabot.application.harvest_backfill import (
+        InvalidBackfill,
+        candidates,
+        clean_backfill,
+    )
+    from fantabot.config import harvest_dir
+
+    home = harvest_dir()
+    found = candidates(home)
+    logs = {log.name for log in found.logs}
+    seeds = {seed.name for seed in found.seeds}
+    if request.log not in logs:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{request.log!r} is not a candidate. A backfill reads a recorded "
+                f"collector log from {home}, chosen from the list — a typed path creates "
+                f"what it cannot find. Available: {', '.join(sorted(logs)) or 'none'}"
+            ),
+        )
+    if request.seed not in seeds:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{request.seed!r} is not a candidate seed in {home}. "
+                f"Available: {', '.join(sorted(seeds)) or 'none'}"
+            ),
+        )
+
+    events, seed = home / request.log, home / request.seed
+    try:
+        # The format's refusal, and the last check that both files are still there — the
+        # picker was drawn at some earlier moment and a `harvest adopt` may have run since.
+        clean_backfill(
+            events=events,
+            seed=seed,
+            listone=home / "listone_map.json",
+            asta_type=request.asta_type,
+        )
+    except InvalidBackfill as refused:
+        raise HTTPException(status_code=400, detail=str(refused)) from None
+
+    args = [
+        "harvest",
+        "backfill",
+        str(events),
+        "--seed",
+        str(seed),
+        "--asta-type",
+        request.asta_type,
+    ]
+    if request.dry_run:
+        args.append("--dry-run")
+    job = processes.ProcessJob(processes.fantabot_command(*args), flag=backfill_flag(events))
+    return JobStarted(job_id=registry.start(job.run, kind="harvest-backfill", stop=job.stop))
