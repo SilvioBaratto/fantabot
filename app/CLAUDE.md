@@ -97,6 +97,13 @@ cd frontend && npx ng test --watch=false  # vitest
   not-connected state, like the CLI.
 - **No secret leaks.** The app never reads a plaintext token or calls decrypt — fantabot
   does, internally (A7 fitness test). No token in any response.
+  `GET /system/config` is the one route that goes near a credential and it does not cross
+  that line: `application/config_report.py` reports each secret as a **bare boolean**, never
+  a value and never a length, and the DSN's password is masked before it leaves that module.
+  What the route does put on the network is configuration — `lega_email`, absolute paths,
+  the database's name and host — which is the same material the CLI writes into every cron
+  log and less than `/lega` and `/auth/status` already serve. The app has no auth, so that
+  is written in the endpoint's docstring for whoever next widens the bind address.
 - **Thin adapter.** Endpoints call fantabot use cases/repos; no re-added domain/application
   hexagon here.
 - **The app mirrors the CLI, acting included.** Reversed 2026-09-07 at the operator's

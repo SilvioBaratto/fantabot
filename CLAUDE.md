@@ -181,6 +181,15 @@ src/fantabot/
   the live population per 15–20 minutes. `--pool` must exceed the live population — 649
   on 2026-08-27 against a default of 250. Both commands re-read the seed, and both had
   to learn it separately.
+* **`application/config_report.py`** — which settings are secret, and how the DSN renders.
+  One place because `config-check` is the screen an operator reads when the CLI and the app
+  disagree about which database they are on, and an answer assembled twice can disagree the
+  same way. Three defects lived in its DSN line and all were in the *rendering*, not the
+  value: `render_as_string` percent-encodes the query string, which alembic's `ConfigParser`
+  then rejects; it masks an **empty** password as `***`, inventing a credential the bundled
+  trust-auth server does not have; and Rich hard-wrapped the line mid-token, so what an
+  operator copied was three fragments. `safe_dsn` reassembles from the parsed components —
+  a `str.replace` of the password also blanks a database that happens to share its name.
 * **`application/lega_sync.py`** — the whole lega, read in one pass and written to six
   tables. Two things in it are decisions, not plumbing. **Failure is per-read**: the pool
   is megabytes and the calendar is the only place results appear, so a 400 on
