@@ -969,14 +969,19 @@ describe('AstaComponent', () => {
           exclusions: [exclusion(), exclusion({ player_id: 999001, nome: null })],
         });
 
+        // The second row, deliberately. A control wired to `exclusions()[0]` rather
+        // than to its own row passes every assertion made against the first one, and
+        // removes the wrong player for every operator who has more than one exclusion.
         const buttons: HTMLButtonElement[] = [
           ...fixture.nativeElement.querySelectorAll('.exclusion-remove'),
         ];
-        buttons[0].click();
+        expect(buttons.length).toBe(2);
+        buttons[1].click();
 
-        const request = httpMock.expectOne(`${environment.apiUrl}db/exclusions/4344`);
+        httpMock.expectNone(`${environment.apiUrl}db/exclusions/4344`);
+        const request = httpMock.expectOne(`${environment.apiUrl}db/exclusions/999001`);
         expect(request.request.method).toBe('DELETE');
-        request.flush({ removed: exclusion(), exclusions: [], total: 0 });
+        request.flush({ removed: exclusion({ player_id: 999001 }), exclusions: [], total: 0 });
       });
 
       it('renders the list the server sent back, not this one minus a row', async () => {
