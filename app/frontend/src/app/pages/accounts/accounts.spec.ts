@@ -289,6 +289,53 @@ describe('AccountsComponent', () => {
     expect(prompt).not.toContain('everything the last sync saved');
   });
 
+  it('names the six tables it purges, rather than only what they hold', async () => {
+    // 2.3(b). `LeagueRepository.purge` clears six tables. Prose about "rosters and
+    // calendar" is the *effect*; the operator who has to reason about what came back
+    // after a re-sync needs the extent, and the extent is the table list.
+    const fixture = await rendered();
+    click(fixture, '[data-disconnect-league="4103937"]');
+    fixture.detectChanges();
+
+    const prompt = dialogPanel()!.textContent as string;
+    for (const table of [
+      'league_snapshot',
+      'league_team_snapshot',
+      'league_player_pool',
+      'league_custom_role',
+      'league_competition',
+      'league_fixture',
+    ]) {
+      expect(prompt).toContain(table);
+    }
+  });
+
+  it('says the CLI command of the same name removes the token alone', async () => {
+    // 2.3(b), and the actual problem: two different acts with two similar names. Disconnect
+    // purges; `fantabot auth forget --league` takes the row out of `league_tokens` and
+    // leaves the six tables standing. Whichever one an operator reaches for, the other is
+    // the one they will be surprised by.
+    const fixture = await rendered();
+    click(fixture, '[data-disconnect-league="4103937"]');
+    fixture.detectChanges();
+
+    const prompt = dialogPanel()!.textContent as string;
+    expect(prompt).toContain('fantabot auth forget');
+    expect(prompt).toContain('token');
+  });
+
+  it('claims no purge in the FantaLab confirmation, which purges nothing', async () => {
+    // The negative control for the two above: a session is one row, and borrowing the
+    // lega wording here would be the same lie in the other direction.
+    const fixture = await rendered();
+    click(fixture, '[data-disconnect-fantalab="user9"]');
+    fixture.detectChanges();
+
+    const prompt = dialogPanel()!.textContent as string;
+    expect(prompt).not.toContain('league_snapshot');
+    expect(prompt).not.toContain('fantabot auth forget');
+  });
+
   it('deletes the league token and reloads from the server on confirm', async () => {
     const fixture = await rendered();
     click(fixture, '[data-disconnect-league="4103937"]');

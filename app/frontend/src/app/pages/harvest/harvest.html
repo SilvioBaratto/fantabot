@@ -346,11 +346,21 @@
       </div>
 
       <!-- The bound is ours and on a live evening it is permanent: a watcher does not finish,
-           so a queued auction never gets a permit and never connects. 145 of 395, 2026-08-27. -->
+           so a queued auction never gets a permit and never connects.
+
+           The second paragraph is 2.3(a): the app and the CLI deliberately disagree here, and
+           a deliberate divergence written down only in a docstring is one the operator meets
+           as a bug. It is on the screen, not in this comment. -->
       <div class="job-note">
         <p>
           A pool below the number registered is silent starvation — those auctions wait for a
           slot a live evening never frees. Starting is refused rather than trimmed.
+        </p>
+        <p>
+          <strong>The CLI warns here and keeps going; this page refuses.</strong> A warning at a
+          terminal reaches whoever typed the command. The same warning at 21:00, in a browser,
+          reaches nobody for the three hours that follow — which is how 145 of 395 auctions went
+          uncollected on 2026-08-27.
         </p>
       </div>
 

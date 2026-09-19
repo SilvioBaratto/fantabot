@@ -22,6 +22,24 @@ strong {
   font-weight: var(--mat-sys-title-medium-weight);
 }
 
+/* Table and command names are identifiers the operator will type or grep for, so they are
+ * set apart from the prose rather than folded into it. `body-small` keeps the six-name list
+ * from outweighing the sentence that says what is lost. */
+code {
+  font-family: var(--mat-sys-body-medium-font), monospace;
+  font-size: 0.9em;
+  color: var(--mat-sys-on-surface);
+  overflow-wrap: anywhere;
+}
+
+/* The CLI divergence is context, not a warning: it describes the command this dialog is
+ * NOT running. `body-small` places it below the three paragraphs that are about the act
+ * being confirmed, without another colour competing with the destructive button. */
+.divergence {
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
 /* The wrapper exists only to scope `.danger-zone` to the destructive button: `display:
  * contents` keeps the button itself a flex item of the actions row, and the remapped
  * custom properties still inherit through it. */

@@ -338,6 +338,18 @@ describe('HarvestComponent', () => {
     expect(fixture.componentInstance.collecting()).toBe(false);
   });
 
+  it('says on screen that the CLI warns where the app refuses, and why', async () => {
+    // 2.3(a). The divergence is deliberate, and a deliberate divergence that lives only in
+    // a docstring is one the operator discovers as a bug. A warning at a terminal reaches
+    // whoever typed the command; the same warning at 21:00 in a browser reaches nobody,
+    // and the run it precedes is three hours long. 145 of 395 auctions, 2026-08-27.
+    const text = (await render()).nativeElement.textContent as string;
+
+    expect(text).toContain('warns');
+    expect(text).toContain('145');
+    expect(text).toContain('395');
+  });
+
   it('offers no format selector on the collector', async () => {
     // `from_seed_row` reads each row's own format, so one seed carries both.
     const panel = (await render()).nativeElement.querySelector(
