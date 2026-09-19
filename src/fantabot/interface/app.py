@@ -648,42 +648,59 @@ def db_exclude(
     Serie A, most often. Nothing else in the engine can do this: the scraper reproduces
     the site, and the sentiment gate is floored so news tilts a value and never vetoes
     it. See `adapters/persistence/models/exclusions.py`.
+
+    A printer. What a valid exclusion is, and how a name is resolved, are
+    `application/exclusions.py`'s — the Asta page records them through the same
+    function, and a second copy of "a reason may not be blank" is a copy that drifts.
     """
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+    from fantabot.application.exclusions import InvalidExclusion, record_exclusion
 
-    with database_manager.get_session() as session:
-        repo = ReferenceRepository(session)
-        repo.exclude_player(player, reason=reason, source=source)
-        session.commit()
-        console.print(f"[green]excluded {player}[/green]: {reason}")
-        console.print(f"[dim]{len(repo.exclusions())} exclusions in total[/dim]")
+    try:
+        with database_manager.get_session() as session:
+            recorded = record_exclusion(session, player, reason=reason, source=source)
+            session.commit()
+    except InvalidExclusion as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from None
+
+    who = f"{recorded.row.player_id} {recorded.row.nome}" if recorded.row.nome else (
+        str(recorded.row.player_id)
+    )
+    console.print(f"[green]excluded {who}[/green]: {recorded.row.reason}")
+    if recorded.row.nome is None:
+        # The typo case, said out loud. An id that resolves to nothing is the one way
+        # this command silently does nothing at all, and the operator who typed it is
+        # the only person who will ever be in a position to notice.
+        console.print(
+            f"[yellow]no player with id {recorded.row.player_id} has been scraped[/yellow] — "
+            "check the id, or scrape the season it belongs to"
+        )
+    console.print(f"[dim]{recorded.total} exclusions in total[/dim]")
 
 
 def db_exclusions() -> None:
-    """List the players kept out of every plan, and why."""
-    from sqlalchemy import text
+    """List the players kept out of every plan, and why.
 
+    A printer over `application/exclusions.read_exclusions`. The name join used to be a
+    raw `SELECT ... WHERE id = ANY(:ids)` in this body, where the Asta page could not
+    reach it.
+    """
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+    from fantabot.application.exclusions import read_exclusions
 
     with database_manager.get_session() as session:
-        rows = ReferenceRepository(session).exclusions()
-        names = {
-            str(pid): nome
-            for pid, nome in session.execute(
-                text("SELECT id, nome FROM players WHERE id = ANY(:ids)"),
-                {"ids": [pid for pid, _, _ in rows]},
-            )
-        } if rows else {}
+        rows = read_exclusions(session)
 
     if not rows:
         console.print("[dim]no exclusions — every player on the listone is buyable[/dim]")
         return
-    for player_id, reason, source in rows:
-        console.print(f"  {player_id:<7} {names.get(str(player_id), '?'):<20} {reason}")
-        if source:
-            console.print(f"  {'':<7} {'':<20} [dim]{source}[/dim]")
+    for row in rows:
+        # `(not scraped)` rather than `?`, which this printed for both the unknown name
+        # and the absent id. They are different facts with different remedies.
+        console.print(f"  {row.player_id:<7} {row.nome or '(not scraped)':<20} {row.reason}")
+        if row.source:
+            console.print(f"  {'':<7} {'':<20} [dim]{row.source}[/dim]")
 
 
 def _pg_dump_argv(database_url: str) -> list[str]:

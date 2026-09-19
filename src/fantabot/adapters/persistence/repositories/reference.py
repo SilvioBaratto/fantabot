@@ -6,6 +6,7 @@ the scrapers, and move into this package as they are ported.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select, union
@@ -49,12 +50,29 @@ class ReferenceRepository(RepositoryBase):
         )
 
     def exclusions(self) -> list[tuple[int, str, str]]:
-        """`(player_id, reason, source)` for every exclusion, for the CLI to render."""
+        """`(player_id, reason, source)` for every exclusion, ordered by id."""
         rows = self.session.execute(
             select(PlayerExclusion.player_id, PlayerExclusion.reason, PlayerExclusion.source)
             .order_by(PlayerExclusion.player_id)
         ).all()
         return [(pid, reason, source) for pid, reason, source in rows]
+
+    def player_names(self, player_ids: Collection[int]) -> dict[int, str]:
+        """`id -> nome`, for the ids `players` carries. An absent id is simply missing.
+
+        Missing rather than a placeholder: whether an id is on `players` at all is a
+        fact the caller has to be able to tell — an exclusion keyed on an id nothing
+        resolves is either a typo or a season nobody scraped, and the remedies differ.
+        See `application/exclusions.py`, which is the one caller.
+
+        An empty input runs no query rather than an `IN ()`.
+        """
+        if not player_ids:
+            return {}
+        rows = self.session.execute(
+            select(Player.id, Player.nome).where(Player.id.in_(player_ids))
+        ).all()
+        return {player_id: nome for player_id, nome in rows}
 
     def quotazioni(self, stagione: str, listone: str) -> dict[str, QuotazioneRow]:
         """One season's valuations for one listone, keyed by player id as a string.

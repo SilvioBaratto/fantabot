@@ -129,6 +129,9 @@ TREE: dict[str, str] = {
     # T28: `safe_dsn` and the secret sets — the two decisions `config-check` and the
     # app's System page must not each keep a copy of.
     "test_config_report.py": "application",
+    # T24: what a valid exclusion is, and what a row with no name means — the two
+    # decisions `db exclude`/`db exclusions` and the Asta page share.
+    "test_player_exclusions.py": "application",
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",
@@ -198,6 +201,7 @@ TREE: dict[str, str] = {
     "test_cli_config_check.py": "interface",
     "test_cli_db_check.py": "interface",
     "test_cli_db_dump.py": "interface",
+    "test_cli_exclusions.py": "interface",
     "test_cli_db_price.py": "interface",
     "test_cli_entrypoints.py": "interface",
     "test_lineup_cli.py": "interface",
