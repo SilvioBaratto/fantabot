@@ -16,6 +16,7 @@ the only thing on stdout and a missing DSN exits 2 rather than printing an empty
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -35,6 +36,10 @@ db_app = typer.Typer(no_args_is_help=True, help="Start, stop and inspect the bun
 app.add_typer(db_app, name="db")
 harvest_app = typer.Typer(no_args_is_help=True, help="The harvest home under ~/.fantabot.")
 app.add_typer(harvest_app, name="harvest")
+schedule_app = typer.Typer(
+    no_args_is_help=True, help="The launchd job that fields the weekly lineup unattended."
+)
+app.add_typer(schedule_app, name="schedule")
 #: Where the artefacts were before the home existed. A module constant rather than a
 #: `Path(...)` in the option, which ruff reads as a call in a default (B008).
 LEGACY_HARVEST_DIR = Path("./data/aste_live")
@@ -356,6 +361,142 @@ def harvest_adopt(
         f"moved {report.moved} file(s) ({report.total_bytes} bytes) into {report.destination}"
         + (f", {report.skipped} already there" if report.skipped else "")
     )
+
+
+@schedule_app.command("install")
+def schedule_install(
+    league: Annotated[
+        int, typer.Option("--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID.")
+    ] = 0,
+    working_dir: Annotated[
+        Path | None,
+        typer.Option("--working-dir", help="Repository root, so .env resolves. Defaults to cwd."),
+    ] = None,
+    arm: Annotated[
+        bool,
+        typer.Option(
+            "--arm/--no-arm",
+            help="Write the job armed. --no-arm plans, records, and submits nothing.",
+        ),
+    ] = True,
+) -> None:
+    """Write the launchd job — and load nothing.
+
+    The plist lands in ``~/Library/LaunchAgents`` and does nothing at all until
+    ``launchctl bootstrap`` is run, which this command prints and does not execute. That
+    line is the third lock: ``FANTABOT_AUTO_ACT`` and ``--arm`` are already two, and a
+    command that bootstrapped itself would turn the last one on behalf of whoever typed it.
+    """
+    from fantabot_app import schedule
+
+    _require_darwin()
+    root = (working_dir or Path.cwd()).expanduser()
+    try:
+        job = schedule.build_job(
+            working_dir=root, league=league or _league_from_env(), arm=arm
+        )
+        written = schedule.install(job, launchctl=schedule.launchctl)
+    except schedule.ScheduleRefused as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Wrote {written}")
+    typer.echo(f"  lega {job.league}, every {job.interval_s // 60} min and at load")
+    typer.echo(f"  working directory {job.working_dir}")
+    typer.echo(f"  logs {job.stdout.parent}")
+    typer.echo("")
+    if job.arm:
+        typer.echo(
+            "The job is ARMED. Nothing is scheduled yet — running the line below makes "
+            "the bot submit a real lineup to this lega, unattended, from the next hour on."
+        )
+    else:
+        typer.echo(
+            "The job is NOT armed: it will plan and write a run record every hour and "
+            "submit nothing. Re-run with --arm once the records read right."
+        )
+    typer.echo(f"  {schedule.bootstrap_line(written)}")
+
+
+@schedule_app.command("status")
+def schedule_status() -> None:
+    """Report the job: written, loaded, which lega, armed, and whether its disk is there."""
+    from fantabot_app import schedule
+
+    _require_darwin()
+    state = schedule.status(launchctl=schedule.launchctl)
+    if not state.installed:
+        typer.echo(f"not installed — no job at {state.plist}")
+        return
+    typer.echo(f"installed at {state.plist}")
+    typer.echo(f"  loaded: {'yes' if state.loaded else 'no (run launchctl bootstrap)'}")
+    typer.echo(f"  lega {state.league}, {'ARMED' if state.armed else 'not armed'}")
+    # The external-SSD case, named. launchd refuses to start a job whose working directory
+    # is gone, and nothing else in the app would say why the records stopped.
+    readable = "readable" if state.working_dir_readable else "UNREADABLE (is the disk mounted?)"
+    typer.echo(f"  working directory {state.working_dir} — {readable}")
+
+
+@schedule_app.command("uninstall")
+def schedule_uninstall() -> None:
+    """Boot the job out of launchd and remove its plist."""
+    from fantabot_app import schedule
+
+    _require_darwin()
+    if schedule.uninstall(launchctl=schedule.launchctl) == "not_installed":
+        typer.echo(f"not installed — no job at {schedule.plist_path()}")
+        return
+    typer.echo("Job booted out and removed. Nothing is scheduled.")
+
+
+@schedule_app.command("run")
+def schedule_run(
+    league: Annotated[int, typer.Option("--league", help="Lega id.")] = 0,
+    arm: Annotated[bool, typer.Option("--arm", help="Pass --arm through to the submit.")] = False,
+) -> None:
+    """What launchd runs each hour: bring Postgres up, then submit the lineup.
+
+    The order is the whole job. The first run after a reboot is the one that decides a
+    matchday, and `fantabot lineup submit` against a stopped database is a failed run —
+    recorded as such by S3, but a lineup nobody fielded. `start` is idempotent, so the
+    other twenty-three runs pay nothing for it.
+
+    It exits with the submit's own status, because a launchd job's exit code is the only
+    thing launchd itself records. Swallowing it would report every matchday as fine.
+    """
+    from fantabot_app import schedule
+
+    _require_darwin()
+    _provisioner().start()
+    command = [sys.executable, "-m", "fantabot", "lineup", "submit"]
+    if league:
+        command += ["--league", str(league)]
+    if arm:
+        command.append("--arm")
+    # Always: this command *is* the unattended runner, and `--scheduled` is what makes a
+    # run past kickoff a no-op instead of a reshuffle of a lineup already in play.
+    command.append("--scheduled")
+    code = schedule.run_command(command, cwd=str(Path.cwd()))
+    if code:
+        raise typer.Exit(code=code)
+
+
+def _require_darwin() -> None:
+    """Refuse on a platform launchd does not exist on, naming it."""
+    from fantabot_app import schedule
+
+    try:
+        schedule.require_darwin()
+    except schedule.ScheduleRefused as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _league_from_env() -> int:
+    """`FANTABOT_LEAGUE_ID`, read the same way the CLI's own `--league` default reads it."""
+    from fantabot.config import Settings
+
+    return int(Settings().fantabot_league_id)
 
 
 def _down(state: dict[str, object]) -> str:

@@ -49,6 +49,13 @@ fantabot harvest load --follow             # landing zone -> Postgres
 fantabot harvest backfill events.jsonl     # a recorded evening
 fantabot-app harvest adopt --from ./data/aste_live   # one-time move into the home
 
+# The unattended weekly lineup (macOS launchd). `install` writes the plist and loads
+# NOTHING — it prints the `launchctl bootstrap` line, which stays the operator's keystroke.
+fantabot-app schedule install --league 4103937 --working-dir "$PWD"
+fantabot-app schedule status       # written? loaded? which lega? armed? is the SSD there?
+fantabot-app schedule uninstall    # bootout, then remove the plist — in that order
+fantabot-app schedule run --league 4103937 --arm   # what launchd runs each hour
+
 pytest                       # default tier: zero sockets, db tests deselected
 fantabot-app db create fantabot_test    # once; the db tier never writes to `fantabot`
 FANTABOT_DATABASE_URL="$(fantabot-app db url --database fantabot_test)" alembic upgrade head
@@ -468,6 +475,27 @@ src/fantabot/
 
 - Every importer and repository write is an **upsert**. A killed run is
   restarted, never repaired.
+
+- **The scheduled lineup is a `launchd` job, and installing it is not arming it.**
+  `fantabot-app schedule install` writes `~/Library/LaunchAgents/com.fantabot.lineup.plist`
+  and **never calls `launchctl`** — it takes the runner and deliberately does not use it, and
+  the test that matters asserts the injected spy stayed empty. Writing a plist is reversible;
+  loading one puts a bot on a live platform with real credits, so `launchctl bootstrap` is
+  printed for the operator to run. Same reasoning as the two arming locks: a command that
+  bootstrapped itself would be a third lock nobody turned.
+  **The program is `sys.executable`**, not `fantabot-app` and not a shell line — launchd
+  starts a job with no login shell and no useful `PATH`, so `conda activate` is unavailable
+  to it and the interpreter that ran the install is the one with both packages importable.
+  **`--arm` is present or absent, never a value**: `--arm=false` reads as armed at a glance.
+  **The logs go to `~/.fantabot/logs`, on the internal disk**, deliberately not beside the
+  repository — the repository is on the external SSD, and if it is unmounted launchd cannot
+  start the job at all, so the only possible evidence is what launchd itself writes.
+  `schedule status` reports that case by name. A working directory with no `.env` is refused
+  at install, because `fantabot.config` builds `Settings` relative to the cwd and a job
+  pointed elsewhere refuses once an hour.
+  **`uninstall` boots out before it unlinks**: `bootout` addresses the job by label and
+  launchd resolves that label through the file, so unlinking first leaves the job running
+  with nothing left to name it.
 
 ## Future: BAML upgrade path
 

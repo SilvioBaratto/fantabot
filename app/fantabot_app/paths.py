@@ -25,3 +25,13 @@ def pgdata() -> Path:
 def logs() -> Path:
     """Log directory: ``~/.fantabot/logs``."""
     return home() / "logs"
+
+
+def launch_agents() -> Path:
+    """macOS per-user launchd directory: ``~/Library/LaunchAgents``.
+
+    Outside ``~/.fantabot`` because launchd only reads jobs from here. It is the one
+    location in this module the app does not own, which is why nothing creates it
+    implicitly — ``schedule.install`` does, once, and says so.
+    """
+    return Path.home() / "Library" / "LaunchAgents"

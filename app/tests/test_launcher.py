@@ -78,6 +78,12 @@ def test_the_command_set_is_exactly_what_is_declared() -> None:
         "db url",
         "db create",
         "harvest adopt",
+        "schedule install",
+        "schedule status",
+        "schedule uninstall",
+        # The one launchd itself calls. Listed like any other because it is reachable by
+        # hand, and a ratchet that hid it would let the unattended entry point drift.
+        "schedule run",
     }
 
 
