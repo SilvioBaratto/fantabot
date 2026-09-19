@@ -36,6 +36,7 @@ Four decisions this file makes, each of which has a wrong version that looks fin
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
@@ -162,6 +163,20 @@ class SeededWorld:
     #: How many teams the **newest** capture holds. The earlier one holds two more, so a
     #: reader that ignores `captured_at` sees three.
     teams_in_latest_capture: int = 1
+    #: The macro roles the pricing corpus fits a fade for. `GK` is deliberately absent —
+    #: `training_pairs` drops keepers, so a seed cannot produce one.
+    pricing_roles: tuple[str, ...] = ()
+    #: Observations behind each of those fades. Carried because `fit_fades` drops a role
+    #: below `MIN_OBSERVATIONS` without saying so, and a test asserting on the seed's own
+    #: number catches the seed shrinking.
+    pricing_observations: int = 0
+    #: How many players the `TARGET_SEASON` universe holds, per listone. A floor on what
+    #: a `run()` must store: below it the seed has stopped pricing some branch.
+    pricing_universe: int = 0
+    #: The `price_universe` flags the seed deliberately produces — its four non-fade
+    #: branches. Declared here so a test compares the report to the seed's intent rather
+    #: than to a literal list that drifts away from it.
+    pricing_flags: tuple[str, ...] = ()
 
 
 #: Named once so the seed and the sweep cannot disagree about what to delete.
@@ -239,6 +254,215 @@ _POOL: tuple[tuple[str, str, str, int, str, str], ...] = (
 _ROSTER_SIZE = 12
 _MIN_ROLES = (1, 11)
 _MAX_ROLES = (2, 12)
+
+
+#: The pricing model's corpus — a second world beside the asta pool above, and separate
+#: from it on purpose.
+#:
+#: `application/pricing.py` pins **real** seasons: it trains on `TRAIN_SEASONS`
+#: (2023/24-2025/26, read through the `qi_bias` *view* over `quotazioni` rather than a
+#: table of its own) against `statistiche` for each of their prior seasons, and prices the
+#: `TARGET_SEASON` universe. None of that can be written under `PARITY_SEASON`, so this
+#: half of the seed cannot be swept by season the way the other half is.
+#:
+#: It is swept by **synthetic player id and synthetic club code** instead, neither of
+#: which a scrape can produce. The club codes are load-bearing, not decoration:
+#: `quotazioni` has a composite foreign key onto `teams (stagione, squadra)`, so the
+#: corpus needs `teams` rows under 2022/23-2026/27 — and deleting *those* by season would
+#: delete a real corpus's clubs on a machine that has one.
+#:
+#: **Without this corpus the property 1.16 names cannot be tested at all.**
+#: `upsert_target_price` returns at `scraping.py:193` before issuing any SQL when handed
+#: no rows, so on a corpus-less database the read-only transaction in
+#: `test_the_get_writes_nothing` has nothing to refuse and the test passes whatever the
+#: GET does. Four tests in `test_parity_pricing.py` opened with a skip for that reason;
+#: the skips are gone and this is what replaces them.
+
+#: Above `_POOL`'s block, so one sweep by id range covers both and the two cannot collide.
+PRICING_BASE = SYNTHETIC_BASE + 1_000
+
+#: Three characters, and deliberately not Serie A codes — see the note above. Also
+#: deliberately not `NAP` or `MIL`: those are `pricing.TEAM_DISCOUNT_ALLOWLIST`, and
+#: seeding them would mean a sweep that deletes real club rows under real season keys.
+#: The team discount is therefore *not* exercised here, and `team_factors` is empty.
+PRICING_CLUBS = ("ZZA", "ZZB", "ZZC")
+
+#: One of the three `statistiche.fonte` the check constraint allows. One rather than
+#: three: `load_prior_stats` averages across them, and a mean of one is the same number.
+PRICING_FONTE = "fantacalcio"
+
+#: Macro role -> the code each listone spells it with. `pricing.macro_role` lower-cases a
+#: Classic code and takes the first `;` component of a Mantra one, so these are two
+#: spellings of the same buckets. Stored upper-case, as the scrapers normalise them.
+_MACRO_CODES = {
+    "classic": {"DEF": "D", "MID": "C", "ATT": "A", "GK": "P"},
+    "mantra": {"DEF": "DC", "MID": "M", "ATT": "A", "GK": "POR"},
+}
+
+#: Seven players per outfield macro role x three training seasons = 21 observations,
+#: against `pricing.MIN_OBSERVATIONS = 20`. A role one observation short is dropped by
+#: `fit_fades` in silence, which is why the count is asserted and not just the roles.
+_PER_ROLE = 7
+
+#: `training_pairs` drops keepers — goalkeepers showed ~0 correlation — so a `GK` fade is
+#: not a thing the seed can produce, and a test expecting one would be wrong about the model.
+_TRAINED_ROLES = ("DEF", "MID", "ATT")
+
+
+def _prior_fantamedia(index: int, season_index: int) -> float:
+    """The x of the fade's regression. **Non-constant on purpose.**
+
+    `statistics.linear_regression` raises `StatisticsError: x is constant` on a cohort
+    that all scored the same, so a flat fixture would not fit a fade — it would fail
+    inside `fit_fades` with an error that reads like a model defect.
+    """
+    return round(5.0 + 0.25 * index + 0.1 * season_index, 2)
+
+
+def _appearances(index: int) -> int:
+    """Inside `pricing`'s validated 25-38 band.
+
+    Outside it an observation is refused by `training_pairs` and a target player is
+    flagged `thin_prior_sample_no_fade` instead of being faded — which is a real branch,
+    exercised by `_FLAG_PLAYERS` below rather than by accident here.
+    """
+    return 26 + index
+
+
+def _quote_pair(index: int, fantamedia: float) -> tuple[int, int]:
+    """`(qi, qa)` for one training row, shaped like the effect the model fits.
+
+    `qi` clears `MIN_QI` (strictly greater than 2 — below it the percentage drift is
+    dominated by the divisor rather than by the market), and `qa` falls as the prior
+    fantamedia rises, which is the regression-to-mean the fade exists to measure. `qa` is
+    never 0: `training_pairs` drops those, since `log(0)` is undefined and a player written
+    down to worthless is a data artefact rather than evidence about how quotazioni fade.
+    """
+    qi = 20 + 2 * index
+    return qi, max(1, round(qi * math.exp(0.90 - 0.15 * fantamedia)))
+
+
+#: The four `price_universe` branches that are not the fade, one player each, present in
+#: the target season only. They are here so the report carries every flag an operator can
+#: be shown, not to test the model: one player reaches exactly one branch, so this fixture
+#: says nothing about the chain's **precedence** — `tests/application/test_pricing.py:243`
+#: is what pins that ("a cheap keeper reads `floor_qi`, not `goalkeeper`"), and reordering
+#: the `elif`s leaves this tier green. What the tier does pin is that the four branches the
+#: seed declares are the four the model actually produces from it.
+#:
+#: `(suffix, macro role, qi, prior appearances or None for no prior at all, flag)`
+_FLAG_PLAYERS: tuple[tuple[int, str, int, int | None, str], ...] = (
+    (0, "DEF", 2, 30, "floor_qi"),
+    (1, "GK", 15, 30, "goalkeeper_no_fade"),
+    (2, "MID", 18, None, "no_prior_data"),
+    (3, "ATT", 25, 10, "thin_prior_sample_no_fade"),
+)
+
+
+def _seed_pricing_corpus(
+    session: Session,
+) -> tuple[tuple[str, ...], int, int, tuple[str, ...]]:
+    """Write the training corpus and the target universe, for both listoni.
+
+    Returns `(trained macro roles, observations per role, universe size, flags)` so
+    `SeededWorld` can carry them and a test can assert against the seed rather than
+    against a literal that drifts away from it.
+
+    The season names are read from `pricing` rather than restated: the model pins
+    2026/27 today and will pin 2027/28 one August, and a fixture holding its own copy
+    would go quietly empty on the day it moved — which is the corpus-less state this
+    whole exercise exists to make impossible.
+    """
+    from fantabot.application import pricing
+
+    seasons = {*pricing.TRAIN_SEASONS, *pricing.PREV_OF_TRAIN.values(),
+               pricing.TARGET_SEASON, pricing.PRIOR_SEASON_FOR_TARGET}
+    session.execute(
+        text(
+            "INSERT INTO teams (stagione, codice, nome_completo) VALUES (:s, :c, :n) "
+            "ON CONFLICT DO NOTHING"
+        ),
+        [{"s": s, "c": c, "n": f"Pricing {c}"}
+         for s in sorted(seasons) for c in PRICING_CLUBS],
+    )
+
+    cohort = [
+        (PRICING_BASE + role_index * _PER_ROLE + i, macro, i)
+        for role_index, macro in enumerate(_TRAINED_ROLES)
+        for i in range(_PER_ROLE)
+    ]
+    flagged = [
+        (PRICING_BASE + 100 + suffix, macro, qi, partite, flag)
+        for suffix, macro, qi, partite, flag in _FLAG_PLAYERS
+    ]
+
+    session.execute(
+        text("INSERT INTO players (id, nome) VALUES (:i, :n) ON CONFLICT (id) DO NOTHING"),
+        [{"i": pid, "n": f"Fit {macro} {i}"} for pid, macro, i in cohort]
+        + [{"i": pid, "n": f"Flag {flag}"} for pid, _m, _q, _p, flag in flagged],
+    )
+
+    quotes: list[dict[str, object]] = []
+    stats: list[dict[str, object]] = []
+    for listone, codes in _MACRO_CODES.items():
+        for pid, macro, i in cohort:
+            club = PRICING_CLUBS[i % len(PRICING_CLUBS)]
+            code = codes[macro]
+            # One training observation per season: a `quotazioni` row the `qi_bias` view
+            # turns into drift, and a `statistiche` row for that season's *prior*, which
+            # is the x the fade is fitted on.
+            for k, train_season in enumerate(pricing.TRAIN_SEASONS):
+                fantamedia = _prior_fantamedia(i, k)
+                qi, qa = _quote_pair(i, fantamedia)
+                quotes.append({"s": train_season, "i": pid, "l": listone, "sq": club,
+                               "rc": [code], "qi": qi, "qa": qa, "f": qa})
+                stats.append({"s": pricing.PREV_OF_TRAIN[train_season], "i": pid,
+                              "l": listone, "sq": club, "rc": [code],
+                              "pg": _appearances(i), "mf": fantamedia})
+            # The same players are the target universe, so every one of them reaches the
+            # fade branch rather than a flag — `PRIOR_SEASON_FOR_TARGET` is the prior the
+            # pricing half reads, and it is not any training season's prior.
+            target_fantamedia = _prior_fantamedia(i, len(pricing.TRAIN_SEASONS))
+            qi, _qa = _quote_pair(i, target_fantamedia)
+            quotes.append({"s": pricing.TARGET_SEASON, "i": pid, "l": listone, "sq": club,
+                           "rc": [code], "qi": qi, "qa": qi, "f": qi})
+            stats.append({"s": pricing.PRIOR_SEASON_FOR_TARGET, "i": pid, "l": listone,
+                          "sq": club, "rc": [code], "pg": _appearances(i),
+                          "mf": target_fantamedia})
+
+        for pid, macro, qi, partite, _flag in flagged:
+            club = PRICING_CLUBS[0]
+            code = codes[macro]
+            quotes.append({"s": pricing.TARGET_SEASON, "i": pid, "l": listone, "sq": club,
+                           "rc": [code], "qi": qi, "qa": qi, "f": qi})
+            if partite is not None:
+                stats.append({"s": pricing.PRIOR_SEASON_FOR_TARGET, "i": pid, "l": listone,
+                              "sq": club, "rc": [code], "pg": partite, "mf": 6.0})
+
+    session.execute(
+        text(
+            "INSERT INTO quotazioni "
+            "(stagione, player_id, listone, squadra, ruoli_codice, ruoli, qi, qa, fvm) "
+            "VALUES (:s, :i, :l, :sq, :rc, :rc, :qi, :qa, :f) ON CONFLICT DO NOTHING"
+        ),
+        quotes,
+    )
+    session.execute(
+        text(
+            "INSERT INTO statistiche (stagione, fonte, player_id, listone, squadra, "
+            "ruoli_codice, ruoli, partite_giocate, media_voto, media_fantavoto, gol, "
+            "gol_subiti, rigori_segnati, rigori_tirati, rigori_parati, assist, "
+            "ammonizioni, espulsioni) VALUES (:s, :fonte, :i, :l, :sq, :rc, :rc, :pg, "
+            ":mf, :mf, 0, 0, 0, 0, 0, 0, 0, 0) ON CONFLICT DO NOTHING"
+        ),
+        [{**row, "fonte": PRICING_FONTE} for row in stats],
+    )
+    return (
+        _TRAINED_ROLES,
+        _PER_ROLE * len(pricing.TRAIN_SEASONS),
+        len(cohort) + len(flagged),
+        tuple(flag for _s, _m, _q, _p, flag in _FLAG_PLAYERS),
+    )
 
 
 def _seed(session: Session) -> SeededWorld:
@@ -365,6 +589,12 @@ def _seed(session: Session) -> SeededWorld:
              "ids": [], "costs": []},
         )
 
+    # The pricing corpus, under the model's own real seasons. Separate from everything
+    # above and swept by id and club code rather than by season — see its own note.
+    pricing_roles, pricing_observations, pricing_universe, pricing_flags = (
+        _seed_pricing_corpus(session)
+    )
+
     session.commit()
     return SeededWorld(
         season=PARITY_SEASON,
@@ -375,6 +605,10 @@ def _seed(session: Session) -> SeededWorld:
         num_teams=8,
         roster_size=_ROSTER_SIZE,
         min_roles=_MIN_ROLES,
+        pricing_roles=pricing_roles,
+        pricing_observations=pricing_observations,
+        pricing_universe=pricing_universe,
+        pricing_flags=pricing_flags,
     )
 
 
@@ -385,10 +619,24 @@ def _sweep(session: Session) -> None:
     for statement, params in (
         ("DELETE FROM asta_assignment WHERE asta_id = :a", {"a": _AUCTION_ID}),
         ("DELETE FROM asta WHERE id = :a", {"a": _AUCTION_ID}),
-        ("DELETE FROM target_price WHERE stagione = :s", {"s": PARITY_SEASON}),
+        # By player id, not by season. The pricing corpus is written under the model's
+        # own real seasons, and `run()` upserts `target_price` under `TARGET_SEASON` —
+        # neither of which a `stagione = PARITY_SEASON` predicate reaches. The id range
+        # is exact in a way a season predicate cannot be here, and it leaves a real
+        # corpus's rows alone on a machine that has one.
+        #
+        # It also cannot reach the `db` tier's rows, which share this database: that
+        # tier's `SYNTHETIC_PLAYER_BASE` is 9_100_000_000 and this one's `SYNTHETIC_BASE`
+        # is 9_200_000_000, so the two blocks are disjoint and `>=` here stops above
+        # theirs. Widening this predicate to `>= 9_100_000_000` would delete them.
+        ("DELETE FROM target_price WHERE player_id >= :b", {"b": SYNTHETIC_BASE}),
         ("DELETE FROM player_sentiment WHERE player_id >= :b", {"b": SYNTHETIC_BASE}),
-        ("DELETE FROM quotazioni WHERE stagione = :s", {"s": PARITY_SEASON}),
+        ("DELETE FROM statistiche WHERE player_id >= :b", {"b": SYNTHETIC_BASE}),
+        ("DELETE FROM quotazioni WHERE player_id >= :b", {"b": SYNTHETIC_BASE}),
         ("DELETE FROM teams WHERE stagione = :s", {"s": PARITY_SEASON}),
+        # The pricing corpus's clubs, under five real seasons. Deleted by code rather
+        # than by season for exactly that reason — see `PRICING_CLUBS`.
+        ("DELETE FROM teams WHERE codice = ANY(:c)", {"c": list(PRICING_CLUBS)}),
         ("DELETE FROM league_team_snapshot WHERE league_id = :l", {"l": PARITY_LEAGUE}),
         ("DELETE FROM league_snapshot WHERE league_id = :l", {"l": PARITY_LEAGUE}),
         ("DELETE FROM players WHERE id >= :b", {"b": SYNTHETIC_BASE}),

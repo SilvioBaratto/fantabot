@@ -16,8 +16,16 @@ That is a side effect this tier owns, and one more reason it may not be pointed 
 else.
 
 The fit needs `TRAIN_SEASONS` of `statistiche` and a `TARGET_SEASON` universe — real
-seasons, and far more than a parity fixture should invent. So this skips cleanly when the
-tier's database has no corpus, and is a real comparison on a machine that has one.
+seasons, under names `PARITY_SEASON` cannot borrow. Every test here used to open by
+skipping when the tier's database had none, which made each of them a real comparison on a
+machine with a corpus and a green tick on one without.
+
+**The seed carries its own corpus now and the skips are gone** (1.16). That was not
+tidying: `upsert_target_price` returns before issuing any SQL when handed no rows, so
+`test_the_get_writes_nothing` ran its read-only transaction against nothing to refuse, and
+the Accept clause it was written for was unproven rather than proven. Removing the guards
+also ran four assertions for the first time — and one of them had never been able to pass:
+it read `player_id` off a response whose field is `id`.
 """
 
 from __future__ import annotations
@@ -42,26 +50,76 @@ def _direct(system: str, top_n: int) -> Any:
     return pricing.run(system=system, top_n=top_n)
 
 
-def _skip_without_a_corpus(report: Any) -> None:
-    """`pricing.run` does not raise on an empty corpus — it returns an empty report.
+@pytest.mark.parametrize("system", ["classic", "mantra"])
+def test_the_tier_seeds_a_corpus_both_halves_of_the_model_reach(
+    seeded_db: SeededWorld, system: str
+) -> None:
+    """The contract every other test in this file rests on, asserted once and first.
 
-    That is why 1.7 gave the endpoint a `no_data` outcome: an empty report used to render
-    as an empty table under a confident heading, which reads as "the model says nothing
-    moved". A parity test comparing two empty reports is the same failure one level up.
+    Each of them used to open with a skip, and a skip is what 1.16 is about:
+    `upsert_target_price` returns at `scraping.py:193` before issuing any SQL when there
+    are no rows, so on a corpus-less database `test_the_get_writes_nothing` runs a
+    read-only transaction with nothing to refuse — and passes. The skip kept that from
+    reading as a green, and left the property unproven rather than proving it.
+
+    The seed now carries its own corpus, so the guards are gone and this stands in their
+    place. It fails loudly, here, if the seed stops producing one — rather than four
+    tests quietly going green by not running.
+
+    Both halves are named separately because they fail for different reasons and are
+    repaired in different tables. The **universe** is `quotazioni` under
+    `TARGET_SEASON`; without it there is no write to refuse. The **fades** are
+    `quotazioni` under `TRAIN_SEASONS` — reached through the `qi_bias` view, not a table
+    of its own — joined to `statistiche` for each training season's prior; without them
+    the report still prices (at `qi`, flagged) and only the `fades` comparison goes
+    vacuous.
     """
-    if not (report.fades or report.biggest_bumps or report.biggest_cuts):
-        pytest.skip("no pricing corpus in the tier's database — the fit produced nothing")
+    from fantabot.application import pricing
+
+    report = pricing.fit(system=system, top_n=15)
+
+    assert report.biggest_bumps and report.biggest_cuts, (
+        f"no {system} universe under {pricing.TARGET_SEASON} — `upsert_target_price` "
+        "returns before issuing SQL when there are no rows, so a read-only transaction "
+        "has nothing to refuse and `test_the_get_writes_nothing` proves nothing"
+    )
+    assert {f.role for f in report.fades} == set(seeded_db.pricing_roles), (
+        f"the {system} fit produced {sorted(f.role for f in report.fades)}; the seed's "
+        "training cohort covers the three outfield macro roles, and `GK` is excluded by "
+        "`training_pairs` by design"
+    )
+    assert all(f.observations == seeded_db.pricing_observations for f in report.fades), (
+        "a role fitted on fewer observations than `MIN_OBSERVATIONS` is dropped by "
+        f"`fit_fades` in silence, so this is the seed shrinking: {report.fades}"
+    )
+    assert seeded_db.pricing_observations >= pricing.MIN_OBSERVATIONS, (
+        "the seed's own cohort is below the threshold `fit_fades` drops a role at, so "
+        "the assertion above is checking a number that cannot produce a fade"
+    )
+
+    # **A fitted fade nothing is priced through is not a corpus.** Non-emptiness alone is
+    # too weak to say so: the seed's four flag players keep the universe non-empty by
+    # themselves, so dropping the whole faded cohort left every assertion above green.
+    # `predicted_pct_delta` is set on exactly the rows that reached `fades[bucket]`.
+    priced = (*report.biggest_bumps, *report.biggest_cuts)
+    assert any(row.predicted_pct_delta is not None for row in priced), (
+        "no player in the universe reached the fade branch, so the fitted line is "
+        "applied to nobody and `price_universe`'s main path is never run"
+    )
+    # And the four branches that are not the fade, each of which is a different screen
+    # for the operator. `flag_counts` strips a flag's parenthesised argument, so these
+    # are bare names; `team_discount` is absent by design — see `PRICING_CLUBS`.
+    assert set(report.flag_counts) == set(seeded_db.pricing_flags), (
+        f"the {system} report's flags are {sorted(report.flag_counts)}, the seed intends "
+        f"{sorted(seeded_db.pricing_flags)}"
+    )
 
 
 @pytest.mark.parametrize("system", ["classic", "mantra"])
 def test_the_page_and_the_command_report_the_same_fit(
     seeded_db: SeededWorld, api: TestClient, system: str
 ) -> None:
-    try:
-        report = _direct(system, top_n=15)
-    except Exception as exc:  # noqa: BLE001 — a corpus, or the absence of one
-        pytest.skip(f"no pricing corpus in the tier's database ({type(exc).__name__}: {exc})")
-    _skip_without_a_corpus(report)
+    report = _direct(system, top_n=15)
 
     body = api.get("/api/v1/asta/target-prices", params={"system": system, "top_n": 15}).json()
 
@@ -70,12 +128,11 @@ def test_the_page_and_the_command_report_the_same_fit(
     assert body["system"] == report.system
     assert body["flag_counts"] == dict(report.flag_counts)
     assert [f["role"] for f in body["fades"]] == [f.role for f in report.fades]
-    assert [row["player_id"] for row in body["biggest_bumps"]] == [
-        r.id for r in report.biggest_bumps
-    ]
-    assert [row["player_id"] for row in body["biggest_cuts"]] == [
-        r.id for r in report.biggest_cuts
-    ]
+    # `id`, not `player_id`. The response model is `endpoints/pricing.TargetPrice` and it
+    # has never had a `player_id` field — this raised `KeyError` the first time the seed
+    # let it run, which is what four years of skipping buys.
+    assert [row["id"] for row in body["biggest_bumps"]] == [r.id for r in report.biggest_bumps]
+    assert [row["id"] for row in body["biggest_cuts"]] == [r.id for r in report.biggest_cuts]
 
 
 def test_top_n_reaches_the_fit_rather_than_being_dropped(
@@ -83,10 +140,7 @@ def test_top_n_reaches_the_fit_rather_than_being_dropped(
 ) -> None:
     """A parameter a caller ignores is this repository's recurring defect, not a
     hypothetical: five of `read_plan_inputs`' six callers ignored its shape."""
-    try:
-        _skip_without_a_corpus(_direct("classic", top_n=3))
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"no pricing corpus in the tier's database ({type(exc).__name__}: {exc})")
+    assert _direct("classic", top_n=3).biggest_bumps
 
     body = api.get("/api/v1/asta/target-prices", params={"system": "classic", "top_n": 3}).json()
 
@@ -136,17 +190,21 @@ def test_the_get_writes_nothing(seeded_db: SeededWorld, api: TestClient) -> None
         body = api.get("/api/v1/asta/target-prices", params={"system": "classic"}).json()
 
     assert opened, "the endpoint never opened a session — the patch did not take"
-    # **`no_data` is not proof and must not be accepted as it.** With no corpus,
-    # `upsert_target_price` returns at `scraping.py:193` before issuing any SQL, so the
-    # read-only transaction has nothing to refuse and this test would pass with the GET
-    # routed straight back through `pricing.run`. Skipping loudly is what its three
-    # siblings do, and what keeps this from reporting green on an empty database.
-    if body["outcome"] == "no_data":
-        pytest.skip(
-            "no pricing corpus in the tier's database — the write path has nothing to "
-            "write, so a read-only transaction cannot refuse it and this proves nothing"
-        )
-    assert body["outcome"] == "priced", body
+    # **`no_data` is not proof and is refused as a result rather than skipped past.**
+    # With no corpus `upsert_target_price` returns at `scraping.py:193` before issuing any
+    # SQL, so the read-only transaction has nothing to refuse and this test would pass with
+    # the GET routed straight back through `pricing.run`. This used to skip there; the seed
+    # now guarantees a corpus, so reaching that state means the seed broke — which is a
+    # failure, and `test_the_tier_seeds_a_corpus_both_halves_of_the_model_reach` says so
+    # first and in more detail.
+    assert body["outcome"] != "unreachable", (
+        "the GET wrote through the endpoint's own session and Postgres refused it — the "
+        f"defect 1.11 fixed, back: {body}"
+    )
+    assert body["outcome"] == "priced", (
+        "the fit found nothing to write, so the read-only transaction had nothing to "
+        f"refuse and this proves nothing about the GET: {body}"
+    )
     assert body["stored"] == 0, "the GET reported storing rows"
 
 
@@ -210,12 +268,12 @@ def test_the_read_only_wrapper_would_catch_a_write(
 def test_the_post_is_where_the_write_lives(seeded_db: SeededWorld, api: TestClient) -> None:
     """A POST beside the GET rather than a flag on it: the method is the contract a
     browser, a proxy and an operator all read."""
-    try:
-        _skip_without_a_corpus(_direct("classic", top_n=15))
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"no pricing corpus in the tier's database ({type(exc).__name__}: {exc})")
-
     body = api.post("/api/v1/asta/target-prices", params={"system": "classic"}).json()
 
     assert body["outcome"] == "priced"
-    assert body["stored"] > 0, "the POST stored nothing"
+    # A floor, not an equality: a tier database that also holds a real `TARGET_SEASON`
+    # corpus prices that too, and this tier is only forbidden the *canonical* database.
+    assert body["stored"] >= seeded_db.pricing_universe, (
+        f"the POST stored {body['stored']} rows against a seeded universe of "
+        f"{seeded_db.pricing_universe} — some branch of the seed is no longer priced"
+    )
