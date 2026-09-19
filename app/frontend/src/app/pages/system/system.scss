@@ -283,6 +283,117 @@
   letter-spacing: var(--mat-sys-body-medium-tracking);
 }
 
+/* --------------------------------------------------------- configuration */
+
+.config-pane {
+  margin-block-start: 24px;
+  display: grid;
+  gap: 12px;
+}
+
+.config-subtitle {
+  margin: 0 0 8px;
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* The DSN is meant to be copied into `alembic.ini` or a `psql` line, so one click takes
+   the whole of it — and it wraps at any character rather than pushing the card wide,
+   because a socket DSN is one long unbroken token. */
+.config-dsn {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--mat-sys-corner-extra-small);
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-family: var(--fantabot-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.config-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--mat-sys-error);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  overflow-wrap: anywhere;
+}
+
+.config-note {
+  margin: 8px 0 0;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.config-list {
+  margin: 0;
+}
+
+.config-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  min-block-size: 40px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--mat-sys-outline-variant);
+}
+
+.config-row:last-child {
+  border-block-end: 0;
+}
+
+/* Two columns once there is room for a long snake_case key and its value side by side;
+   stacked below that, which is why the key carries its own label styling either way. */
+@media (min-width: 600px) {
+  .config-row {
+    grid-template-columns: minmax(0, 22ch) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 16px;
+  }
+}
+
+.config-key {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.config-value {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+.config-value-mono {
+  font-family: var(--fantabot-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8125rem;
+  user-select: all;
+}
+
+/* `set` is the ordinary state and is not coloured as success — a green tick beside four
+   optional credentials reads as "four things are right", when three of them are simply
+   unused on this install. */
+.secret-state {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+
+.secret-state-unset {
+  color: var(--mat-sys-on-surface-variant);
+}
+
 /* ------------------------------------------------- large and extra-large */
 
 @media (min-width: 1200px) {

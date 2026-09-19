@@ -2,7 +2,7 @@
   <header class="page-header">
     <div class="page-heading">
       <h1 class="page-title">System</h1>
-      <p class="page-subtitle">Your local database and what it holds</p>
+      <p class="page-subtitle">Your local database, and the settings everything runs on</p>
     </div>
 
     <button matButton="tonal" type="button" (click)="load()">
@@ -94,7 +94,7 @@
                   <dt class="table-name" [class.table-name-missing]="!t.exists">{{ t.name }}</dt>
                   <dd class="table-count">
                     @if (t.exists) {
-                      {{ (t.row_count ?? 0) | number }}
+                      {{ t.row_count ?? 0 | number }}
                     } @else {
                       <span aria-hidden="true">—</span>
                       <span class="sr-only">Not created</span>
@@ -107,5 +107,73 @@
         </section>
       }
     </div>
+  }
+
+  @if (config(); as c) {
+    <section class="config-pane" aria-labelledby="config-heading">
+      <h2 id="config-heading" class="section-title">Configuration</h2>
+      <p class="page-note">
+        What <code>fantabot config-check</code> prints. Secrets are reported as set or not set,
+        never shown.
+      </p>
+
+      <mat-card appearance="outlined">
+        <div class="card-body">
+          <!-- The headline, and the reason this section exists: the CLI and the app
+               reading two different databases is what let a week of collection read as
+               lost. `user-select: all` so one click takes the whole DSN — it is meant to
+               be pasted into alembic.ini or a psql line. -->
+          <h3 class="config-subtitle">Database</h3>
+          @if (c.database_url_error; as dsnError) {
+            <p class="config-error" role="status">
+              <lucide-icon name="x" [size]="16" aria-hidden="true" />
+              <span>{{ dsnError }}</span>
+            </p>
+            <p class="config-note">
+              Every other setting below is still the resolved one. Fix
+              <code>FANTABOT_DATABASE_URL</code> and refresh.
+            </p>
+          } @else {
+            <p class="config-dsn">{{ c.database_url }}</p>
+          }
+        </div>
+      </mat-card>
+
+      @if (secretRows().length) {
+        <mat-card appearance="outlined">
+          <div class="card-body">
+            <h3 class="config-subtitle">Secrets</h3>
+            <dl class="config-list">
+              @for (s of secretRows(); track s.key) {
+                <div class="config-row">
+                  <dt class="config-key">{{ s.key }}</dt>
+                  <dd class="config-value">
+                    <span class="secret-state" [class.secret-state-unset]="!s.isSet">
+                      {{ s.isSet ? 'set' : 'not set' }}
+                    </span>
+                  </dd>
+                </div>
+              }
+            </dl>
+          </div>
+        </mat-card>
+      }
+
+      @if (settingRows().length) {
+        <mat-card appearance="outlined">
+          <div class="card-body">
+            <h3 class="config-subtitle">Settings</h3>
+            <dl class="config-list">
+              @for (row of settingRows(); track row.key) {
+                <div class="config-row">
+                  <dt class="config-key">{{ row.key }}</dt>
+                  <dd class="config-value config-value-mono">{{ row.value }}</dd>
+                </div>
+              }
+            </dl>
+          </div>
+        </mat-card>
+      }
+    </section>
   }
 </div>
