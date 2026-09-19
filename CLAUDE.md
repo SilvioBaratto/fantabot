@@ -493,6 +493,18 @@ src/fantabot/
   `schedule status` reports that case by name. A working directory with no `.env` is refused
   at install, because `fantabot.config` builds `Settings` relative to the cwd and a job
   pointed elsewhere refuses once an hour.
+  **The job needs macOS Full Disk Access, and the grant is on the binary.** launchd starts
+  a LaunchAgent in `gui/<uid>` with no inherited TCC rights, so it cannot read
+  `/Volumes/External SSD` — nor `~/Documents` or `~/Desktop`; a plain home folder is fine.
+  `/bin/sh` gets a clean `Operation not permitted`; **CPython hangs instead**, with zero
+  bytes on both logs and no traceback under `SIGINT`, so the symptom looks like a slow job
+  rather than a refused one. The grant must go to the **resolved** interpreter
+  (`~/.local/share/uv/python/cpython-.../bin/python3.11`), not the venv symlink the plist
+  names, and it cannot be scripted: SIP makes the system TCC database unreadable, `tccutil`
+  only resets, and `osascript` has no assistive access. Granting Full Disk Access to Terminal
+  or VS Code does **not** help — TCC attributes to the responsible process, and launchd is
+  the parent, not the terminal. ⚠ A `uv python` upgrade moves that path and the job silently
+  goes back to hanging.
   **`uninstall` boots out before it unlinks**: `bootout` addresses the job by label and
   launchd resolves that label through the file, so unlinking first leaves the job running
   with nothing left to name it.
