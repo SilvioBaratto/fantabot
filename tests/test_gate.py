@@ -4,16 +4,19 @@
 before a commit, and it is checked by nothing -- it is shell, so `ruff`, `mypy` and
 `pytest` all step over it. That is how it came to be red from the repository root while
 still being cited as the gate: its first line was a bare `python -m pytest -q`, the root
-`pyproject.toml` sets no `testpaths`, so a root run collects `app/fantabot_app/api/tests`
-and `app/tests/test_server.py`. Those import fastapi, which the conda `fanta` env does
-not have -- the app lives in its own uv venv at `app/.venv`. Collection errored before a
-single test ran and the gate could not be executed as written.
+`pyproject.toml` set no `testpaths` at the time, so a root run collected
+`app/fantabot_app/api/tests` and `app/tests/test_server.py`. Those import fastapi, which
+the conda `fanta` env does not have -- the app lives in its own uv venv at `app/.venv`.
+Collection errored before a single test ran and the gate could not be executed as written.
+`testpaths = ["tests"]` is set now and a bare root run is correct on its own; the scoping
+below is kept as the redundant half of a belt and braces, not as the only one.
 
 Two properties are pinned here, both of them the gate's own claims about itself.
 
-**Every pytest invocation names a path.** Not a style rule: an unscoped run from the root
-collects the app tree, which is a different interpreter's. `SPEC.md` 7.1 records this as
-expected behaviour of a root `pytest`; the gate has to be the thing that is scoped.
+**Every pytest invocation names a path.** It was the only defence when an unscoped root
+run collected the app tree, which is a different interpreter's. `testpaths` is the defence
+now, and this stays as the second one: it survives a merge that unsets `testpaths`, and it
+says at the point of use which of the two suites the gate is.
 
 **Nothing is piped.** The gate's docstring says so, and gives the reason: a pipeline's
 exit status is its *last* command's, so `pytest | tail -1` exits 0 with a failing suite.

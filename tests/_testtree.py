@@ -217,6 +217,7 @@ TREE: dict[str, str] = {
     "test_destinations.py": ".",
     "test_golden.py": ".",
     "test_integration_isolation.py": ".",
+    "test_suite_scope.py": ".",
     "test_scripts_resolve.py": ".",
     "test_testtree.py": ".",
     "test_docs.py": ".",

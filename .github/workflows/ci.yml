@@ -49,13 +49,11 @@ jobs:
         run: |
           KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
           echo "FANTABOT_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
-      # Scoped to `tests/`, and not decoration: the root pyproject sets no `testpaths`,
-      # so a bare `pytest` collects app/fantabot_app/api/tests and app/tests/test_server.py,
-      # which import fastapi. This environment does not have it — the app has its own venv,
-      # and `app-ci` is where the app's suite runs. Both tiers errored at collection with
-      # zero tests run for as long as the app has had tests. `testpaths` would fix it and
-      # would also silence the integration/e2e marker declarations that exist *because* a
-      # root run collects app/, so the scoping goes here. Same fix as scripts/gate.sh.
+      # Scoped to `tests/`. The root pyproject now sets `testpaths = ["tests"]`, so a bare
+      # `pytest` no longer collects app/fantabot_app/api/tests and app/tests/test_server.py
+      # — which import fastapi, absent here, and errored at collection with zero tests run
+      # for as long as the app has had tests. The path stays named anyway: it costs nothing
+      # and it says which suite this job is. `app-ci` is where the app's own suite runs.
       - name: pytest
         run: pytest -q tests/
 

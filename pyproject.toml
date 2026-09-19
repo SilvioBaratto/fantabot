@@ -54,6 +54,17 @@ files = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+# This repository holds two suites and they are not one run: `tests/` is the library's and
+# runs from here; the app's is `cd app && uv run pytest`, against its own venv at
+# `app/.venv`. Without `testpaths` a bare `pytest` from the root collected both, and that
+# failed two ways. In CI the conda/pip env has no fastapi, so collection errored before a
+# test ran. Locally it *worked*, and did something worse: neither tree is a package, so a
+# `conftest.py` is imported under its bare basename, `app` sorts before `tests`, and
+# `app/conftest.py` took the module name `conftest` — which is what
+# `tests/test_integration_isolation.py` then got when it imported `refuse_canonical` by
+# that name. Three tests of the canonical-database guard failed at collection in every
+# full run and passed when run alone. `tests/test_suite_scope.py` pins both halves.
+testpaths = ["tests"]
 # The default run must open zero sockets, so the integration tier is opt-in.
 # A command-line -m overrides this value, because the last -m wins.
 addopts = "-m 'not db and not integration'"
@@ -63,11 +74,11 @@ markers = [
     # needs only a schema; these read what has actually been scraped, harvested and
     # synced, so they run against the canonical database. See tests/conftest.py.
     "dbdata: a `db` test that reads the seeded corpus, not just the schema",
-    # Declared here because a root-level `pytest` collects `app/` too, and the launcher's
-    # integration test starts a real PostgreSQL. Deselecting it keeps the default run's
-    # "zero sockets" promise true from the repository root, not only from `app/`.
+    # Both are the app's and neither is used under `tests/`. They no longer keep the
+    # default run's "zero sockets" promise — `testpaths` does, by not collecting `app/` at
+    # all — but naming an app path explicitly from the root stays legal, and an undeclared
+    # mark is a warning on every item it is collected on.
     "integration: the app launcher against a real bundled Postgres (opens sockets)",
-    # Also the app's, and also collected from here. Declared so the root run is warning-free.
     "e2e: end-to-end, through a running fantabot-app",
 ]
 # An exception in a worker thread is a *warning*, not a failure: a test that starts a thread

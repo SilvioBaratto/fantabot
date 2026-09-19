@@ -6,15 +6,17 @@
 # exits 0 with a failing suite and the chain continues. That masked a real failure three
 # times, once past a commit. Nothing here is piped.
 #
-# Every pytest run below names `tests/`, and that is not decoration. The root
-# pyproject.toml sets no `testpaths` -- deliberately, because the `integration`/`e2e`
-# marker declarations there exist *because* a root run collects `app/` -- so a bare
-# `python -m pytest` from the repository root collects `app/fantabot_app/api/tests` and
-# `app/tests/test_server.py`. Those import fastapi, which the conda `fanta` env does not
-# have (the app has its own uv venv at `app/.venv`), so collection errors before a single
-# test runs and the gate cannot be executed as written. Scoping the gate rather than
-# setting `testpaths` keeps the root run's marker declarations doing their job.
-# The app's own suite is `cd app && uv run pytest`, and is not this gate's.
+# Every pytest run below names `tests/`. It used to be the only thing standing between
+# the gate and a root run that collected `app/fantabot_app/api/tests` and
+# `app/tests/test_server.py` -- a different interpreter's suite, importing fastapi, which
+# the conda `fanta` env does not have. The root `pyproject.toml` now sets
+# `testpaths = ["tests"]`, so a bare `python -m pytest` does the right thing on its own and
+# this scoping is belt to that braces. It stays because it is free and because it says, at
+# the point of use, which suite the gate is: the app's own is `cd app && uv run pytest`.
+# The objection that kept `testpaths` unset -- that it would silence the `integration`/
+# `e2e` marker declarations -- was real and is answered in `pyproject.toml`: those markers
+# are the app's, `tests/` never uses them, and they are declared for the runs that still
+# name an app path explicitly.
 #
 # Usage: scripts/gate.sh [--fast]   (--fast skips the db tier and alembic)
 set -uo pipefail

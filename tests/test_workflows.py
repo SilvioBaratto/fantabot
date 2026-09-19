@@ -100,16 +100,18 @@ def test_the_fantabot_workflow_scopes_every_pytest_to_tests() -> None:
     """The same defect `scripts/gate.sh` had, in its other home — and it was live.
 
     `ci.yml` ran `pytest -q` and `pytest -q -m db` with no path. The root
-    `pyproject.toml` sets no `testpaths` (deliberately: the `integration`/`e2e` marker
-    declarations there exist *because* a root run collects `app/`), so both tiers
-    collected `app/fantabot_app/api/tests` and `app/tests/test_server.py`, which import
-    fastapi. The `fantabot` environment does not have it — the app has its own venv — so
-    both jobs errored at collection with zero tests run, and had done for as long as the
-    app has had tests.
+    `pyproject.toml` set no `testpaths` at the time, so both tiers collected
+    `app/fantabot_app/api/tests` and `app/tests/test_server.py`, which import fastapi. The
+    `fantabot` environment does not have it — the app has its own venv — so both jobs
+    errored at collection with zero tests run, and had done for as long as the app has had
+    tests.
 
-    Scoped here rather than solved with `testpaths` for the same reason as in the gate:
-    `testpaths` would silence the marker declarations that make a root run warning-free.
-    The app's own suite is `cd app && uv run pytest`, and `app-ci` is where it runs.
+    `testpaths = ["tests"]` is set now, and the objection that had kept it unset — that it
+    would silence the `integration`/`e2e` marker declarations — did not survive being
+    checked: those markers are used only under `app/`, `tests/` has never carried one, and
+    they are still declared for the runs that name an app path explicitly. This assertion
+    stays as the second line of defence, and because `app-ci` is where the app's own suite
+    runs.
     """
     # Only `run:` lines execute. A step's `name:` is prose and routinely says "pytest" —
     # the same trap the gate's own guard fell into, where the label "unit tests" matched
