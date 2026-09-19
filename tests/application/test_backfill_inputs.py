@@ -111,6 +111,10 @@ def test_the_picker_offers_collector_logs_and_seeds_apart(tmp_path: Path) -> Non
         "live.jsonl",
     ], "logs are listed by name, so the same home renders the same order twice"
     assert [seed.name for seed in found.seeds] == ["seed.json", "seed_2026-08-26.json"]
+    assert [seed.rows for seed in found.seeds] == [1, 1], (
+        "a seed's row count is how the operator tells today's 1,705-auction seed from a "
+        "recorded evening's, and a mismatched pair is the silent failure mode"
+    )
 
 
 def test_the_live_landing_zone_is_offered_and_flagged(tmp_path: Path) -> None:
@@ -134,6 +138,20 @@ def test_a_jsonl_that_is_not_a_collector_log_is_not_offered(tmp_path: Path) -> N
     _collector_log(tmp_path / "live.jsonl")
     (tmp_path / "assignments_2026-08-26.jsonl").write_text(
         json.dumps({"auction_id": "a", "price": 903, "player_id": "x"}) + "\n"
+    )
+
+    assert [log.name for log in candidates(tmp_path).logs] == ["live.jsonl"]
+
+
+def test_a_jsonl_of_untimed_records_is_not_offered(tmp_path: Path) -> None:
+    """The `seen_at` half of the sniff. A record carrying a state and no timestamp is
+    what `DroppedEvents.bad_timestamp` counts — `_parse_seen_at` returns `None` for a
+    missing key — so a file of them is a collector log that loads nothing. Both
+    near-misses in the real home are missing *both* keys, which is why neither exercises
+    this half on its own."""
+    _collector_log(tmp_path / "live.jsonl")
+    (tmp_path / "untimed.jsonl").write_text(
+        json.dumps({"auction_id": "a", "state": {"asta_state": "closed"}}) + "\n"
     )
 
     assert [log.name for log in candidates(tmp_path).logs] == ["live.jsonl"]
