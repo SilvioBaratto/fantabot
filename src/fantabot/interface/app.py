@@ -983,13 +983,20 @@ def token_forget(
     league: int = typer.Option(0, "--league", help="The lega whose row to remove."),
     yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt."),
 ) -> None:
-    """Remove one lega's stored token. Deliberate, one at a time.
+    """Remove one lega's stored token: that row, and nothing else.
 
-    There is no `--all` and no wildcard, on purpose. Removal is manual because a
-    `leagues[]` that came back short — a partial load, an API blip — would
-    otherwise silently destroy a working token, and re-login is the only
-    recovery. Keeping a dead row costs a line of output; deleting a live one
-    costs a credential.
+    Deliberate, one at a time. There is no `--all` and no wildcard, on purpose.
+    Removal is manual because a `leagues[]` that came back short — a partial
+    load, an API blip — would otherwise silently destroy a working token, and
+    re-login is the only recovery. Keeping a dead row costs a line of output;
+    deleting a live one costs a credential.
+
+    The app's Disconnect button is not this command. It calls DELETE
+    /auth/league/{id}, which removes the token and then purges the lega across
+    six tables: league_snapshot, league_team_snapshot, league_player_pool,
+    league_custom_role, league_competition and league_fixture. Two similar names
+    for two different acts — this one leaves all six standing, and a re-login
+    undoes it.
     """
     from datetime import UTC, datetime
 

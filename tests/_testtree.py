@@ -191,6 +191,7 @@ TREE: dict[str, str] = {
     # About `config.harvest_dir`, but what it pins is the four *commands* that default to it.
     "test_cli_harvest_home.py": "interface",
     "test_cli_command_set.py": "interface",
+    "test_cli_forget_divergence.py": "interface",
     "test_cli_config_check.py": "interface",
     "test_cli_db_check.py": "interface",
     "test_cli_db_dump.py": "interface",
