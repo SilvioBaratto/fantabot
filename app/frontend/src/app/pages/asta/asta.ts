@@ -24,8 +24,10 @@ import { MatTableModule } from '@angular/material/table';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { AstaService } from '../../core/api/asta.service';
+import { ExclusionsService } from '../../core/api/exclusions.service';
 import { LegaService } from '../../core/api/lega.service';
 import { AstaPlan } from '../../core/models/asta-plan';
+import { Exclusion } from '../../core/models/exclusion';
 import { JournalPage } from '../../core/models/journal';
 import { LegaOverview } from '../../core/models/lega';
 import { RoomCheck } from '../../core/models/room';
@@ -33,6 +35,29 @@ import { WindowSizeClassService } from '../../core/window-size-class';
 
 /** One page of the journal. The server bounds it too; this is the client's request. */
 const JOURNAL_PAGE = 100;
+
+/**
+ * The server's refusal, or a sentence saying the server never answered.
+ *
+ * A 422 from `POST /db/exclusions` carries `detail` — the wording of
+ * `application/exclusions.clean_exclusion`'s own refusal, which is the sentence
+ * `fantabot db exclude` prints. Showing that rather than a locally composed message is
+ * what makes the page and the terminal agree about *why* something was refused, not
+ * merely that it was.
+ *
+ * `status === 0` is the API being unreachable, which is not a refusal at all and must
+ * not be reported as one.
+ */
+function refusalOf(err: unknown): string {
+  const response = err as { status?: number; error?: { detail?: unknown } };
+  if (response?.status === 0) {
+    return 'Could not reach the API. Make sure fantabot-app is running.';
+  }
+  const detail = response?.error?.detail;
+  return typeof detail === 'string' && detail
+    ? detail
+    : 'The exclusion was refused and the reason did not come back.';
+}
 
 @Component({
   selector: 'app-asta',
@@ -55,6 +80,7 @@ const JOURNAL_PAGE = 100;
 export class AstaComponent implements OnInit {
   private readonly lega = inject(LegaService);
   private readonly asta = inject(AstaService);
+  private readonly exclusionsApi = inject(ExclusionsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
@@ -128,6 +154,32 @@ export class AstaComponent implements OnInit {
   readonly journalOffset = signal(0);
   readonly journalError = signal<string | null>(null);
 
+  /**
+   * The players kept out of every plan.
+   *
+   * Fetched on arrival rather than behind a toggle, unlike the journal below. The
+   * journal is a 1.6 MB post-mortem and the cost is the argument for deferring it; this
+   * is single digits of rows, and deferring it would recreate the exact problem it
+   * exists to solve — an exclusion is invisible on every other screen, because a plan
+   * built without a player looks exactly like a plan built with one nobody wanted.
+   */
+  readonly exclusions = signal<Exclusion[]>([]);
+  /** Set only when the list could not be read. `[]` with no error is a real answer. */
+  readonly exclusionsError = signal<string | null>(null);
+  readonly exclusionsLoading = signal(true);
+
+  /** The form. Plain signals: three fields, no cross-field rule, no `FormGroup` earned. */
+  readonly excludePlayerId = signal('');
+  readonly excludeReason = signal('');
+  readonly excludeSource = signal('');
+  readonly excluding = signal(false);
+  /**
+   * The server's refusal, verbatim. Never composed here: `clean_exclusion` decides what
+   * a valid exclusion is and both surfaces carry its wording, so the sentence on this
+   * page is the sentence `fantabot db exclude` prints.
+   */
+  readonly excludeError = signal<string | null>(null);
+
   readonly players = computed(() =>
     [...(this.plan()?.players ?? [])].sort((a, b) => b.price - a.price),
   );
@@ -148,6 +200,90 @@ export class AstaComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadLeagues();
+    this.loadExclusions();
+  }
+
+  private loadExclusions(): void {
+    this.exclusionsLoading.set(true);
+    this.exclusionsApi
+      .list()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (body) => {
+          this.exclusions.set(body.exclusions);
+          // The endpoint's own `error`, which is null on a genuinely empty table. A
+          // page that inferred "could not read" from an empty list would say the
+          // database is down on every fresh install.
+          this.exclusionsError.set(body.error);
+          this.exclusionsLoading.set(false);
+        },
+        error: () => {
+          // The API itself did not answer — a sixth thing, outside the endpoint's own
+          // vocabulary, so it is said in the app's.
+          this.exclusionsError.set('Could not reach the API. Make sure fantabot-app is running.');
+          this.exclusionsLoading.set(false);
+        },
+      });
+  }
+
+  setExcludePlayerId(value: string): void {
+    this.excludePlayerId.set(value);
+  }
+
+  setExcludeReason(value: string): void {
+    this.excludeReason.set(value);
+  }
+
+  setExcludeSource(value: string): void {
+    this.excludeSource.set(value);
+  }
+
+  /**
+   * Record one exclusion.
+   *
+   * The fields cross untouched — not trimmed, not defaulted. What makes an exclusion
+   * valid is `application/exclusions.clean_exclusion`'s, and a check here would be a
+   * second copy of it: one that refuses different things from the command, on a screen
+   * whose whole purpose is that the two agree.
+   *
+   * An unparseable id is the one thing this does decide, and only because there is no
+   * number to send: `parseInt('')` is `NaN` and a `NaN` in a JSON body serialises as
+   * `null`, which the server would reject as a type error rather than as the refusal
+   * the operator needs to read.
+   */
+  exclude(): void {
+    if (this.excluding()) return;
+    const playerId = Number.parseInt(this.excludePlayerId().trim(), 10);
+    if (!Number.isInteger(playerId)) {
+      this.excludeError.set('Enter the fantacalcio player id — a whole number.');
+      return;
+    }
+    this.excluding.set(true);
+    this.excludeError.set(null);
+    this.exclusionsApi
+      .add({
+        player_id: playerId,
+        reason: this.excludeReason(),
+        source: this.excludeSource(),
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (written) => {
+          // The list the server sent back, not the one this page holds plus a row: an
+          // upsert over an existing id replaces the reason in place, so a local append
+          // would show the player twice with two different reasons.
+          this.exclusions.set(written.exclusions);
+          this.exclusionsError.set(null);
+          this.excludePlayerId.set('');
+          this.excludeReason.set('');
+          this.excludeSource.set('');
+          this.excluding.set(false);
+        },
+        error: (err: unknown) => {
+          this.excludeError.set(refusalOf(err));
+          this.excluding.set(false);
+        },
+      });
   }
 
   loadLeagues(): void {

@@ -367,6 +367,155 @@
   </section>
 }
 
+<!-- Exclusions. Full width and directly under the targets, because the targets are the
+     effect: these are the players the plan above was not allowed to consider. It sits
+     here rather than behind a toggle like the journal below — the journal defers because
+     it is 1.6 MB, and this is single digits of rows whose whole problem is invisibility.
+     A plan built without a player looks exactly like a plan built with one nobody
+     wanted, so if this list is collapsed the exclusion is unfindable again.
+     There is no remove control: `fantabot` has no un-exclude command, and the app gets
+     no power the CLI lacks (SPEC.md §8 Never #4). -->
+<section class="exclusions" aria-labelledby="exclusions-heading">
+  <mat-card class="panel" appearance="outlined">
+    <div class="panel-body panel-head">
+      <div class="panel-head-text">
+        <h2 id="exclusions-heading" class="panel-title">
+          <lucide-icon class="lucide-slot" [size]="18" name="circle-minus" aria-hidden="true" />
+          Excluded players
+        </h2>
+        <p class="panel-sub">
+          Kept out of every plan above. For a player the listone still carries but who cannot be
+          bought &mdash; a transfer out of Serie A, most often. Nothing else in the engine can do
+          this: the scraper reproduces the site, and news tilts a value without ever vetoing it.
+          Removing one is <code>psql</code> for now &mdash; the command has no un-exclude either.
+        </p>
+      </div>
+    </div>
+
+    <mat-divider />
+
+    <div class="panel-body" aria-live="polite">
+      @if (exclusionsLoading()) {
+        <mat-progress-bar mode="indeterminate" />
+      } @else if (exclusionsError(); as err) {
+        <!-- Not the same screen as an empty table, deliberately. An empty list with no
+             error means every player on the listone is buyable. -->
+        <h3 class="state-title is-error">Could not read the exclusions</h3>
+        <p class="state-body">{{ err }}</p>
+      } @else if (!exclusions().length) {
+        <p class="state-body">No exclusions &mdash; every player on the listone is buyable.</p>
+      } @else {
+        <ul class="exclusion-list">
+          @for (e of exclusions(); track e.player_id) {
+            <li class="exclusion">
+              <div class="exclusion-who">
+                @if (e.nome) {
+                  <span class="exclusion-name">{{ e.nome }}</span>
+                } @else {
+                  <!-- `null` is a fact, not a missing name: the id is on no roster this
+                       database has scraped, so it is either a typo or a season to scrape.
+                       Either way it is doing nothing, and only this row can say so. -->
+                  <span class="exclusion-name is-unknown">Not scraped</span>
+                }
+                <span class="exclusion-id num">{{ e.player_id }}</span>
+              </div>
+              <p class="state-body">{{ e.reason }}</p>
+              @if (e.source) {
+                <p class="state-hint">{{ e.source }}</p>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <mat-divider />
+
+    <div class="panel-body">
+      <h3 class="exclude-form-title">Exclude a player</h3>
+      <div class="exclude-form">
+        <mat-form-field
+          class="exclude-field exclude-id"
+          appearance="outline"
+          floatLabel="always"
+          subscriptSizing="dynamic"
+        >
+          <mat-label>Player id</mat-label>
+          <input
+            matInput
+            id="exclude-player"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="4344"
+            [value]="excludePlayerId()"
+            (input)="setExcludePlayerId($any($event.target).value)"
+          />
+        </mat-form-field>
+        <mat-form-field
+          class="exclude-field exclude-reason"
+          appearance="outline"
+          floatLabel="always"
+          subscriptSizing="dynamic"
+        >
+          <mat-label>Reason</mat-label>
+          <input
+            matInput
+            id="exclude-reason"
+            type="text"
+            autocomplete="off"
+            placeholder="left Serie A 2026-08-30"
+            [value]="excludeReason()"
+            (input)="setExcludeReason($any($event.target).value)"
+            (keyup.enter)="exclude()"
+          />
+        </mat-form-field>
+        <mat-form-field
+          class="exclude-field exclude-source"
+          appearance="outline"
+          floatLabel="always"
+          subscriptSizing="dynamic"
+        >
+          <mat-label>Source (optional)</mat-label>
+          <input
+            matInput
+            id="exclude-source"
+            type="text"
+            autocomplete="off"
+            placeholder="goal.com"
+            [value]="excludeSource()"
+            (input)="setExcludeSource($any($event.target).value)"
+            (keyup.enter)="exclude()"
+          />
+        </mat-form-field>
+        <button
+          matButton="filled"
+          type="button"
+          class="exclude-submit"
+          [disabled]="excluding()"
+          (click)="exclude()"
+        >
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [class.is-spinning]="excluding()"
+            [size]="18"
+            [name]="excluding() ? 'loader-2' : 'circle-minus'"
+            aria-hidden="true"
+          />
+          Exclude
+        </button>
+      </div>
+      @if (excludeError(); as err) {
+        <!-- The server's sentence, verbatim. The same one `fantabot db exclude` prints,
+             because both surfaces carry `clean_exclusion`'s refusal rather than composing
+             their own — the operator reading it here and in a terminal is one person. -->
+        <p class="state-body is-error" role="alert">{{ err }}</p>
+      }
+    </div>
+  </mat-card>
+</section>
+
 <!-- The room journal. The CLI's record of a live evening, read back — the app writes
      nothing here and bids nothing (app/CLAUDE.md). It is a section of this page rather
      than a tenth nav entry (§7 of the archived phase spec,

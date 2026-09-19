@@ -7,6 +7,7 @@ import { LucideIconConfig } from 'lucide-angular';
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
 import { AstaPlan } from '../../core/models/asta-plan';
+import { Exclusion, Exclusions } from '../../core/models/exclusion';
 import { JournalPage, JournalRow } from '../../core/models/journal';
 import { RoomCheck } from '../../core/models/room';
 import { WINDOW_SIZE_QUERIES, WindowSizeClass } from '../../core/window-size-class';
@@ -66,6 +67,21 @@ describe('AstaComponent', () => {
     httpMock.verify();
   });
 
+  /**
+   * The second request `ngOnInit` fires, flushed by every test that is not about
+   * exclusions.
+   *
+   * Not optional book-keeping: an outstanding request fails `httpMock.verify()` in
+   * `afterEach`, and a failing `afterEach` leaves the TestBed instantiated — one page's
+   * extra `ngOnInit` request once took down `prices`, `app` and `toast` with "Cannot
+   * configure the test module", 15 failures across 3 files and none of them the page.
+   */
+  function flushExclusions(body: Partial<Exclusions> = {}): void {
+    httpMock
+      .expectOne(`${environment.apiUrl}db/exclusions`)
+      .flush({ exclusions: [], error: null, ...body });
+  }
+
   function overview(id: number) {
     return {
       league_id: id,
@@ -116,6 +132,7 @@ describe('AstaComponent', () => {
   async function readyWithPlan(body: AstaPlan) {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
+    flushExclusions();
     httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
     fixture.detectChanges();
     await fixture.whenStable();
@@ -128,6 +145,7 @@ describe('AstaComponent', () => {
   it('auto-selects the first lega and renders its plan', async () => {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
+    flushExclusions();
 
     httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
     fixture.detectChanges();
@@ -212,6 +230,7 @@ describe('AstaComponent', () => {
     async function ready() {
       const fixture = TestBed.createComponent(AstaComponent);
       fixture.detectChanges();
+      flushExclusions();
       httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
       fixture.detectChanges();
       await fixture.whenStable();
@@ -322,6 +341,7 @@ describe('AstaComponent', () => {
     async function ready() {
       const fixture = TestBed.createComponent(AstaComponent);
       fixture.detectChanges();
+      flushExclusions();
       httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
       fixture.detectChanges();
       await fixture.whenStable();
@@ -670,6 +690,7 @@ describe('AstaComponent', () => {
   it('shows a no-plan state when the pool is empty', async () => {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
+    flushExclusions();
 
     httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
     fixture.detectChanges();
@@ -770,5 +791,183 @@ describe('AstaComponent', () => {
     );
 
     expect(fixture.nativeElement.textContent).toContain('assumed — nothing was declared');
+  });
+  /**
+   * Excluded players — T24.
+   *
+   * The panel exists because an exclusion is invisible on every other screen: a plan
+   * built without a player looks exactly like a plan built with one nobody wanted. So
+   * the tests below are mostly about telling apart pairs of states that a careless
+   * screen renders alike — an empty table from an unreadable one, a resolved name from
+   * an unresolved one, a refusal from an unreachable API.
+   */
+  describe('excluded players', () => {
+    function exclusion(over: Partial<Exclusion> = {}): Exclusion {
+      return {
+        player_id: 4344,
+        nome: 'Leao',
+        reason: 'left Serie A 2026-08-30',
+        source: 'goal.com',
+        ...over,
+      };
+    }
+
+    /** A component with the leagues flushed empty and `body` flushed as the list. */
+    async function ready(body: Partial<Exclusions> = {}) {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions(body);
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('shows each excluded player with the reason and the source', async () => {
+      const fixture = await ready({ exclusions: [exclusion()] });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Leao');
+      expect(text).toContain('4344');
+      expect(text).toContain('left Serie A 2026-08-30');
+      // Beside the claim, not behind a hover: an exclusion with no provenance is
+      // indistinguishable from a typo, and this one removes a player from every plan.
+      expect(text).toContain('goal.com');
+    });
+
+    it('says an unresolved id is not scraped rather than showing a blank name', async () => {
+      // `null` is a fact. The id is on no roster this database has scraped, so the row
+      // is either a typo or a season to scrape — and it is doing nothing either way.
+      const fixture = await ready({
+        exclusions: [exclusion({ player_id: 999001, nome: null })],
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Not scraped');
+      expect(text).toContain('999001');
+    });
+
+    it('an empty table reads as every player being buyable', async () => {
+      const fixture = await ready({ exclusions: [], error: null });
+
+      expect(fixture.nativeElement.textContent).toContain('every player on the listone is buyable');
+    });
+
+    it('an unreadable list is a different screen from an empty one', async () => {
+      // The `found=false` defect, restated. `[]` with no error and `[]` because Postgres
+      // would not open need different remedies, so they need different screens.
+      const fixture = await ready({
+        exclusions: [],
+        error: 'OperationalError: connection refused',
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Could not read the exclusions');
+      expect(text).toContain('OperationalError: connection refused');
+      expect(text).not.toContain('every player on the listone is buyable');
+    });
+
+    it('posts the fields untouched and renders the list the server sent back', async () => {
+      const fixture = await ready();
+      const component = fixture.componentInstance;
+      component.setExcludePlayerId(' 4344 ');
+      component.setExcludeReason('  left Serie A  ');
+      component.setExcludeSource(' goal.com ');
+      component.exclude();
+
+      const request = httpMock.expectOne(
+        (r) => r.method === 'POST' && r.url === `${environment.apiUrl}db/exclusions`,
+      );
+      // The id is parsed because there is no number to send otherwise; everything else
+      // crosses verbatim. What makes an exclusion valid is the server's decision, and a
+      // trim here would be a second copy of it that refuses different things.
+      expect(request.request.body).toEqual({
+        player_id: 4344,
+        reason: '  left Serie A  ',
+        source: ' goal.com ',
+      });
+
+      request.flush({
+        recorded: exclusion(),
+        exclusions: [exclusion(), exclusion({ player_id: 999001, nome: null, reason: 'a guess' })],
+        total: 2,
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Leao');
+      expect(text).toContain('a guess');
+      // Cleared, so the next exclusion starts from nothing rather than from the last one.
+      expect(component.excludePlayerId()).toBe('');
+      expect(component.excludeReason()).toBe('');
+    });
+
+    it("shows the server's own refusal rather than composing one", async () => {
+      // The sentence `fantabot db exclude` prints, because both surfaces carry
+      // `clean_exclusion`'s wording. A locally composed message would let the page and
+      // the terminal disagree about *why* something was refused.
+      const fixture = await ready();
+      fixture.componentInstance.setExcludePlayerId('4344');
+      fixture.componentInstance.setExcludeReason('');
+      fixture.componentInstance.exclude();
+
+      httpMock
+        .expectOne((r) => r.method === 'POST')
+        .flush(
+          { detail: 'an exclusion needs a reason. This removes the player from every plan.' },
+          { status: 422, statusText: 'Unprocessable Entity' },
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain('an exclusion needs a reason');
+      expect(fixture.componentInstance.excluding()).toBe(false);
+    });
+
+    it('does not send a request when the id is not a number', async () => {
+      // `parseInt('')` is `NaN`, and a `NaN` in a JSON body serialises as `null` — which
+      // the server rejects as a type error, not as the refusal the operator must read.
+      const fixture = await ready();
+      fixture.componentInstance.setExcludePlayerId('Leao');
+      fixture.componentInstance.setExcludeReason('left Serie A');
+      fixture.componentInstance.exclude();
+      fixture.detectChanges();
+
+      httpMock.expectNone((r) => r.method === 'POST');
+      expect(fixture.nativeElement.textContent).toContain('a whole number');
+    });
+
+    it('says the API is unreachable rather than calling it a refusal', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.setExcludePlayerId('4344');
+      fixture.componentInstance.setExcludeReason('left Serie A');
+      fixture.componentInstance.exclude();
+
+      httpMock
+        .expectOne((r) => r.method === 'POST')
+        .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain('Could not reach the API');
+    });
+
+    it('offers no way to remove one, because the CLI has none', async () => {
+      // SPEC.md §8 Never #4: the app gets no power the CLI lacks. `fantabot` has no
+      // un-exclude command, so this panel adds and lists and does nothing else.
+      const fixture = await ready({ exclusions: [exclusion()] });
+
+      const section: HTMLElement = fixture.nativeElement.querySelector('.exclusions');
+      const labels = [...section.querySelectorAll('button')].map((b) =>
+        (b.textContent ?? '').toLowerCase(),
+      );
+      expect(labels.some((l) => l.includes('remove') || l.includes('delete'))).toBe(false);
+      expect(labels.some((l) => l.includes('exclude'))).toBe(true);
+    });
   });
 });

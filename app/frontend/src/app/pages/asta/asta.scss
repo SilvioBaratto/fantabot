@@ -171,7 +171,8 @@
 }
 
 /* Full width and below both panes. */
-.targets {
+.targets,
+.exclusions {
   display: block;
   margin-block-start: 24px;
 }
@@ -185,7 +186,8 @@
 
 /* ------------------------------------------------------------ state blocks */
 
-.state-title {
+.state-title,
+.exclude-form-title {
   margin: 0;
   font: var(--mat-sys-title-medium);
   letter-spacing: var(--mat-sys-title-medium-tracking);
@@ -390,7 +392,8 @@ code {
 
 /* -------------------------------------------------------------- room check */
 
-.room-form {
+.room-form,
+.exclude-form {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -398,12 +401,14 @@ code {
   margin-block-start: 16px;
 }
 
-.room-field {
+.room-field,
+.exclude-field {
   inline-size: 100%;
   max-inline-size: 52ch;
 }
 
-.room-submit {
+.room-submit,
+.exclude-submit {
   align-self: flex-start;
   margin-block-start: 8px;
 }
@@ -690,4 +695,56 @@ code {
 
 .journal-fault {
   color: var(--mat-sys-error);
+}
+/* ------------------------------------------------------------ exclusions
+
+   Full width and directly under the targets: these are the players the plan above was
+   not allowed to consider, so the panel sits next to what it changed.
+
+   Most of what it needs is already on this page and is reached by grouping a selector
+   above (`.targets`, `.room-form`, `.room-field`, `.room-submit`, `.state-title`) or by
+   wearing an existing class in the template (`.state-body`, `.state-hint`, `.is-error`
+   for the reason, the source and the refusal). Two panels that want the same rules do
+   not want two copies of them — and this page carries a 10 kB `anyComponentStyle`
+   budget, so a cloned rule costs twice. Only what is genuinely new is written out. */
+
+.exclusion-list {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exclusion-who {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exclusion-name {
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+/* The id resolves to nothing on `players`. Set apart rather than coloured as an error:
+   the row may be a typo, or a season nobody has scraped, and only one of those is a
+   mistake this screen is entitled to call. */
+.exclusion-name.is-unknown {
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+}
+
+.exclusion-id {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* A number, a sentence and a URL. Side by side each would get a third of the pane, and
+   the sentence is the one that needs the room, so only the id narrows. */
+.exclude-id {
+  max-inline-size: 20ch;
 }
