@@ -228,3 +228,105 @@ def test_the_news_fetch_trigger_has_exactly_one_home() -> None:
     )
 
     assert callers == ["app/pages/news/news.ts"], f"news fetch is triggered from: {callers}"
+
+
+def _league_read_surface() -> tuple[frozenset[str], frozenset[str]]:
+    """The model classes and table names ``application/lega_reads.py`` owns.
+
+    Derived from ``SNAPSHOT_TABLES`` — the tuple the reader itself iterates — and not
+    re-listed here, on the same reasoning as :data:`ACTING_NAMES` being read as an object:
+    a sixth snapshot table is covered by the guard on the day it is added to the reader,
+    not on the day somebody remembers this file.
+    """
+    from fantabot.application.lega_reads import SNAPSHOT_TABLES
+
+    models = {model.__name__ for _, model in SNAPSHOT_TABLES}
+    tables = {name for name, _ in SNAPSHOT_TABLES}
+    # `league_fixture` is deliberately not in that tuple — it is not a snapshot: it upserts
+    # and has no `captured_at`, so `capture_inventory` counts it separately. It is still a
+    # league read, and its join is the piece most worth having in one place: a fixture has
+    # no `league_id` at all, and `_show` once counted it with no WHERE clause.
+    return frozenset(models | {"LeagueFixture"}), frozenset(tables | {"league_fixture"})
+
+
+def _docstring_nodes(tree: ast.Module) -> set[int]:
+    """The ``id()`` of every docstring constant in *tree*.
+
+    The table-name scan below has to skip them, and skipping them is what makes this guard
+    livable rather than a thing people delete. ``endpoints/lega.py`` names both
+    ``LeagueSnapshot`` and ``LeagueTeamSnapshot`` in prose, to say which rows its response
+    models map — that is the guard working (it reaches them through `lega_reads`), and a
+    substring grep would call it the offence.
+    """
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        first = node.body[0] if node.body else None
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            docstrings.add(id(first.value))
+    return docstrings
+
+
+def test_the_app_holds_no_second_hand_written_league_read() -> None:
+    """1.10's other half — the app reaches a lega's snapshots only through `lega_reads`.
+
+    `api/reads/league.py` hand-wrote SQLAlchemy over the same snapshot models `lega show`
+    hand-wrote it over, in two places, with no shared function, and the two could not be
+    checked against each other. It is deleted and both surfaces now call
+    `application/lega_reads.py` — but **`api/reads/` being gone was the only evidence**,
+    and a directory being absent is not a guard. Nothing failed when a second copy came
+    back.
+
+    Two routes back in, so two things are banned:
+
+    * **Naming a snapshot ORM model.** Read as syntax and not as text, because the only
+      current mentions are docstrings in `endpoints/lega.py` and a grep would ban the
+      compliant file. Importing one of these models *is* hand-writing the read: they carry
+      no behaviour, so there is nothing else to import them for.
+    * **Naming a snapshot table in a string.** `text("SELECT ... FROM league_snapshot")`
+      evades every model check, and is the shorter path for somebody in a hurry.
+
+    `LeagueRepository` is untouched and stays legal: it is write-only, which is the real
+    reason a read helper exists at all. This bans a second *read*, not a write.
+
+    **`tests/` is excluded** (`_source_files`' default) and that is load-bearing here: the
+    parity seed writes its two captures with raw `INSERT INTO league_team_snapshot`, which
+    is a fixture building the rows the guard exists to protect, not a surface reading them.
+    """
+    models, tables = _league_read_surface()
+    # The surface itself, pinned. A `SNAPSHOT_TABLES` that shrank to nothing — or a helper
+    # that quietly returned two empty sets — would leave every assertion below green while
+    # checking nothing, which is the exact failure this phase produced six times.
+    assert {"LeagueSnapshot", "LeagueTeamSnapshot", "LeagueFixture"} <= models, models
+    assert {"league_snapshot", "league_team_snapshot", "league_fixture"} <= tables, tables
+
+    root = _package_root()
+    offenders: list[str] = []
+    for py in _source_files(under=root):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        where = py.relative_to(root).as_posix()
+        docstrings = _docstring_nodes(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if (node.module or "").endswith("models.league"):
+                    offenders.append(f"{where}:{node.lineno}: imports from models.league")
+                for alias in node.names:
+                    if alias.name in models:
+                        offenders.append(f"{where}:{node.lineno}: imports {alias.name}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.endswith("models.league"):
+                        offenders.append(f"{where}:{node.lineno}: imports {alias.name}")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if id(node) in docstrings:
+                    continue
+                for table in sorted(tables):
+                    if table in node.value:
+                        offenders.append(f"{where}:{node.lineno}: SQL naming {table}")
+
+    assert offenders == [], f"a second hand-written league read is back: {offenders}"
