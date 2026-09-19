@@ -156,7 +156,11 @@ def build_report() -> ConfigReport:
         database_url, error = "", str(exc)
 
     return ConfigReport(
-        settings=settings.model_dump(exclude=set(SECRET_FIELDS)),
+        # `mode="json"` so a `Path` field comes back as its string. Two reasons, and
+        # neither is the API's serialiser: `PosixPath('data/storage_state.json')` is not
+        # a path an operator can copy, and a report both surfaces render may not carry a
+        # type only one of them can show.
+        settings=settings.model_dump(mode="json", exclude=set(SECRET_FIELDS)),
         secrets_set={name: bool(getattr(settings, name, "")) for name in REPORTED_SECRETS},
         database_url=database_url,
         database_url_error=error,
