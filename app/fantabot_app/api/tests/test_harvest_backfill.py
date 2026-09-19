@@ -238,6 +238,43 @@ def test_a_seed_that_is_not_a_candidate_is_refused_too(quick_child) -> None:
     assert "tomorrow.json" in response.json()["detail"]
 
 
+def test_a_json_that_is_not_a_seed_is_refused_although_it_exists(quick_child) -> None:
+    """What the candidate check catches and an existence check cannot.
+
+    `listone_map.json` is in every harvest home, has the right extension, and is a JSON
+    *object* — so `clean_backfill` finds it and is right to: the file is there. The seed
+    reader wants a list, and `auction_rows` over a dict iterates its keys and builds
+    nonsense from them. Without this the seed's candidate check is masked by the existence
+    check and can be deleted green.
+    """
+    (quick_child / "listone_map.json").write_text(json.dumps({"uuid": {"fantacalcio_id": 7}}))
+
+    response = TestClient(app).post(
+        "/api/v1/harvest/backfill",
+        json={"log": "live.jsonl", "seed": "listone_map.json"},
+    )
+
+    assert response.status_code == 400
+    assert "listone_map.json" in response.json()["detail"]
+
+
+def test_a_seed_path_that_escapes_the_home_is_refused_although_it_exists(
+    quick_child,
+) -> None:
+    """The other half. A traversal in the seed field names a file that really is there,
+    so an existence check passes it and only membership of the list refuses it."""
+    escaped = quick_child.parent / "outside.json"
+    escaped.write_text(json.dumps([["a", "15", 10, 500, 25, 25, "r", "f", 7, 7, "L"]]))
+
+    response = TestClient(app).post(
+        "/api/v1/harvest/backfill",
+        json={"log": "live.jsonl", "seed": f"../{escaped.name}"},
+    )
+
+    assert response.status_code == 400
+    assert "candidate seed" in response.json()["detail"]
+
+
 def test_an_unknown_format_is_refused_with_the_commands_own_sentence(quick_child) -> None:
     """The same refusal the command makes, from the same function — not a second copy
     that agrees today."""
