@@ -181,3 +181,84 @@ def test_a_refusal_writes_nothing_on_either_surface(
 
     with cli_session() as session:
         assert read_exclusions(session) == before
+
+
+def test_removing_from_the_page_takes_the_player_out_of_the_set_the_planner_reads(
+    seeded_db: SeededWorld, api: TestClient, cli: Callable[..., Result]
+) -> None:
+    """The effect of a removal, not just its record — the mirror of the write above.
+
+    `excluded_player_ids` is what `build_plan_inputs` drops before anything is derived,
+    so a removal that updated the list and not that set would leave the player out of
+    every plan while the only screen that shows exclusions says he is back in.
+    """
+    from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+
+    player_id = _first_seeded_player(seeded_db)
+    api.post(
+        "/api/v1/db/exclusions",
+        json={"player_id": player_id, "reason": REASON, "source": SOURCE},
+    )
+
+    response = api.delete(f"/api/v1/db/exclusions/{player_id}")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["removed"]["reason"] == REASON
+    with cli_session() as session:
+        assert str(player_id) not in ReferenceRepository(session).excluded_player_ids()
+    assert str(player_id) not in cli("db", "exclusions").output
+
+
+def test_removing_from_the_terminal_is_visible_to_the_page(
+    seeded_db: SeededWorld, api: TestClient, cli: Callable[..., Result]
+) -> None:
+    """The other direction, and the one an operator actually takes at 21:05: the row
+    was a typo, the terminal is already open, and the browser must not go on showing a
+    player as unbuyable."""
+    from fantabot.application.exclusions import record_exclusion
+
+    player_id = _first_seeded_player(seeded_db)
+    with cli_session() as session:
+        record_exclusion(session, player_id, reason=REASON, source=SOURCE)
+        session.commit()
+
+    cli("db", "unexclude", "--player", str(player_id))
+
+    body = api.get("/api/v1/db/exclusions").json()
+    assert body["error"] is None
+    assert player_id not in [row["player_id"] for row in body["exclusions"]]
+
+
+def test_a_removal_that_matched_nothing_is_refused_on_both_surfaces(
+    seeded_db: SeededWorld, api: TestClient, cli: Callable[..., Result]
+) -> None:
+    """Neither surface decides this either. The codes differ because the protocols do —
+    404 and exit 2 — but the sentence is one sentence, carried rather than restated."""
+    absent = SYNTHETIC_BASE + 7
+
+    response = api.delete(f"/api/v1/db/exclusions/{absent}")
+    result: Result = cli("db", "unexclude", "--player", str(absent), expect_exit=2)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"].split(".")[0] in result.output
+
+
+def test_a_refused_removal_removes_nothing_on_either_surface(
+    seeded_db: SeededWorld, api: TestClient, cli: Callable[..., Result]
+) -> None:
+    """Fail closed, and leave the table where it was — `get_session` commits on clean
+    exit, so a refusal that reached the delete would be committed on its way out."""
+    from fantabot.application.exclusions import read_exclusions, record_exclusion
+
+    player_id = _first_seeded_player(seeded_db)
+    with cli_session() as session:
+        record_exclusion(session, player_id, reason=REASON, source=SOURCE)
+        session.commit()
+    with cli_session() as session:
+        before = read_exclusions(session)
+
+    api.delete(f"/api/v1/db/exclusions/{SYNTHETIC_BASE + 8}")
+    cli("db", "unexclude", "--player", str(SYNTHETIC_BASE + 8), expect_exit=2)
+
+    with cli_session() as session:
+        assert read_exclusions(session) == before

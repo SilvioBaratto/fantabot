@@ -26,9 +26,12 @@ the opposite of the one the write below needs.
   i.e. *inside* any `try` wrapped around it, so a degrade-open handler would turn a
   rolled-back write into a 200 saying the row was recorded.
 
-**There is no delete, and its absence is deliberate.** `fantabot` has no un-exclude
-command, and `SPEC.md` §8 Never #4 is explicit that the app gets no power the CLI lacks —
-the CLI gets the command first. Recorded in `tasks/todo.md` rather than built here.
+**The delete exists because `fantabot db unexclude` does.** §8 Never #4 is about the
+app holding a power the CLI lacks, so the command came first and this is its printer.
+It fails closed like the write, and answers a **404** where the write answers 422: a
+removal that matched nothing is an id to look up on the list, not a sentence to rewrite.
+What it must never be is a 200 — a delete that matched nothing and reported success is
+the defect the command was built to remove.
 """
 
 from __future__ import annotations
@@ -86,6 +89,19 @@ class ExclusionWritten(BaseModel):
     #: it hopes it holds. An upsert over an existing id replaces the reason in place.
     exclusions: list[Exclusion]
     #: What `db exclude` prints as "N exclusions in total".
+    total: int
+
+
+class ExclusionWithdrawn(BaseModel):
+    """What a removal leaves behind: the row that is gone, and the list without it."""
+
+    #: The removed row, whole. Its reason is the only part of it nothing else in the
+    #: database holds — the id was typed and the name is on `players` — so a page that
+    #: drops it makes the removal unreversible.
+    removed: Exclusion
+    #: The refreshed list, read back after the delete, for `ExclusionWritten`'s reason.
+    exclusions: list[Exclusion]
+    #: What `db unexclude` prints as "N exclusions in total".
     total: int
 
 
@@ -147,4 +163,31 @@ def record(request: ExcludeRequest) -> ExclusionWritten:
         recorded=to_wire(recorded.row),
         exclusions=[to_wire(row) for row in recorded.exclusions],
         total=recorded.total,
+    )
+
+
+@router.delete(
+    "/db/exclusions/{player_id}", response_model=ExclusionWithdrawn, tags=["asta"]
+)
+def withdraw(player_id: int) -> ExclusionWithdrawn:
+    """Let a player back into every plan — `fantabot db unexclude`, from the browser.
+
+    The id crosses untouched and is not validated here: `remove_exclusion` deliberately
+    validates nothing, because a row an id rule would now refuse is exactly the row this
+    is the remedy for.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.application.exclusions import ExclusionNotFound, remove_exclusion
+
+    try:
+        with database_manager.get_session() as session:
+            removed = remove_exclusion(session, player_id)
+    except ExclusionNotFound as exc:
+        # The refusal's own wording, as the 422 above carries `InvalidExclusion`'s.
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    return ExclusionWithdrawn(
+        removed=to_wire(removed.row),
+        exclusions=[to_wire(row) for row in removed.exclusions],
+        total=removed.total,
     )

@@ -217,3 +217,80 @@ class TestRecordingOne:
             TestClient(app).post(
                 "/api/v1/db/exclusions", json={"player_id": 4344, "reason": "left Serie A"}
             )
+
+
+class TestRemovingOne:
+    """`DELETE /db/exclusions/{player_id}` — `fantabot db unexclude`, from the browser.
+
+    It exists now because the command does. §8 Never #4 is about the app having a power
+    the CLI lacks, and the CLI got this one first; the route is a printer over the same
+    `remove_exclusion` and so refuses exactly what the command refuses.
+    """
+
+    def test_it_returns_the_removed_row_and_the_list_without_it(
+        self, monkeypatch: pytest.MonkeyPatch, db_answers: None
+    ) -> None:
+        """The removed row whole, because its reason is the only half nothing else in
+        the database holds — a page that drops it makes the removal unreversible."""
+        from fantabot.application import exclusions
+
+        monkeypatch.setattr(
+            exclusions,
+            "remove_exclusion",
+            lambda session, player_id: exclusions.ExclusionRemoved(
+                row=LEAO, exclusions=(NAMELESS,)
+            ),
+        )
+        response = TestClient(app).delete("/api/v1/db/exclusions/4344")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["removed"]["nome"] == "Leao"
+        assert body["removed"]["reason"] == "left Serie A 2026-08-30"
+        assert [row["player_id"] for row in body["exclusions"]] == [999_001]
+        assert body["total"] == 1
+
+    def test_the_application_layer_gets_the_id_from_the_path(
+        self, monkeypatch: pytest.MonkeyPatch, db_answers: None
+    ) -> None:
+        """The route decides nothing, here least of all: the id it is handed is the id
+        whose row disappears."""
+        from fantabot.application import exclusions
+
+        seen: dict[str, Any] = {}
+
+        def spy(session: object, player_id: int) -> Any:
+            seen["player_id"] = player_id
+            return exclusions.ExclusionRemoved(row=LEAO, exclusions=())
+
+        monkeypatch.setattr(exclusions, "remove_exclusion", spy)
+        TestClient(app).delete("/api/v1/db/exclusions/4344")
+
+        assert seen == {"player_id": 4344}
+
+    def test_a_removal_that_matched_nothing_is_a_404_carrying_the_refusal(
+        self, monkeypatch: pytest.MonkeyPatch, db_answers: None
+    ) -> None:
+        """404 rather than the write route's 422, because the two say different things:
+        one is a sentence to rewrite, the other an id to look up on the list. Neither is
+        a 200 — a delete that matched nothing and reported success is the defect the
+        command exists to remove."""
+        from fantabot.application import exclusions
+
+        def refuse(session: object, player_id: int) -> Any:
+            raise exclusions.ExclusionNotFound(f"no exclusion for id {player_id}")
+
+        monkeypatch.setattr(exclusions, "remove_exclusion", refuse)
+        response = TestClient(app).delete("/api/v1/db/exclusions/999002")
+
+        assert response.status_code == 404
+        assert "no exclusion for id 999002" in response.json()["detail"]
+
+    def test_a_failed_removal_is_a_500_and_not_a_cheerful_200(
+        self, db_is_down: None
+    ) -> None:
+        """A decision, so it fails closed — the same reason the write does. `get_session`
+        commits on clean exit, i.e. inside any `try` wrapped around it, so a degrade-open
+        handler would report a rolled-back delete as a removed row."""
+        with pytest.raises(OperationalError):
+            TestClient(app).delete("/api/v1/db/exclusions/4344")
