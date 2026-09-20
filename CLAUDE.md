@@ -490,19 +490,26 @@ src/fantabot/
   deletes already applied inside the transaction, the predicate empties, and 144 fixtures
   become permanently unattributable. The CLI's `fantabot auth forget` is unchanged and
   still removes the token alone.
-- **2026/27 has no `statistiche` or `match_grain` rows, and that is a stale default, not
-  a decision.** `voti.py:57` and `statistiche.py:54` both stop their `DEFAULT_SEASONS` at
-  2025/26 — correct when written (the season was preseason, all zeros) and wrong now that
-  it is being played. Pass `--season 2026/27` explicitly, or fix the default.
-  **Since T23 the trap is visible on both surfaces rather than silent**, which is not the
-  same as fixed. `application/scrape.py` reads each scraper's own list *live* and compares
-  it against a **derived** current season: `db scrape voti` with no `--season` prints the
-  four it is about to take and warns that they stop before the season being played, and
-  the app's Scrape card defaults its field to that season rather than inheriting the list.
-  Reported rather than patched on purpose — a copy of the list in a second place is the
-  defect, not a report of it — so **fixing `voti.py:57` turns the warning off with nothing
-  else edited**, and a test in `tests/application/test_scrape_inputs.py` proves that by
-  moving the scraper's list and watching `default_is_stale` flip.
+- ~~**2026/27 has no `statistiche` or `match_grain` rows**~~ **Fixed 2026-09-20.** Two
+  claims, and both had moved. `voti.py` and `statistiche.py` stopped their
+  `DEFAULT_SEASONS` at 2025/26 — correct when written (the season was preseason, all
+  zeros) and wrong once it was being played. Both now carry 2026/27, matching
+  `quotazioni.py`, which already did; that disagreement *was* the defect. And the tables
+  were not empty: measured 2026-09-20, `statistiche` holds 3,570 rows for 2026/27 and
+  `match_grain` 1,017 — the latter about 8% of a full season, which a bare `db scrape voti`
+  could never top up.
+  **T23's report is kept, and it is what made the fix one line each.**
+  `application/scrape.py` reads each scraper's own list *live* and compares it against a
+  **derived** current season, so fixing the two lists turned the warning off with nothing
+  else edited — exactly as that design predicted. The report stays because next August
+  puts them behind again and nothing else would say so.
+  ⚠ **A report with nothing left to report goes vacuous, and three tests did.** With every
+  shipped default current, `default_is_stale` has no live input, and the test that proved
+  the flag follows the scraper worked by *appending* 2026/27 to a list that now already
+  has it — a no-op, passing whatever the detector computed. All three were inverted to
+  **shorten** a scraper's list instead: that direction cannot go vacuous, and it is what
+  still drives the CLI warning and the route's stale branch. The same trap is worth
+  expecting wherever a test pins a defect rather than a behaviour.
 - **Archive `SPEC.md`, `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
   `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:23`
   ignores it, which is how the token-store spec came to survive only in git history. Repoint that phase's spec

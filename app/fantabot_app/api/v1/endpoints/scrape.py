@@ -5,10 +5,11 @@ apart plus parsing, which is `infrastructure/processes.py`'s case rather than
 `endpoints/teams.py`'s: that module states the other side of the line — one small GET
 plus an insert answers in its own request — and named this as what it is not.
 
-**The picker exists because of a stale default, and the default is reported rather than
-patched.** `voti.DEFAULT_SEASONS` and `statistiche.DEFAULT_SEASONS` stop at 2025/26
-while 2026/27 is being played, so `fantabot db scrape voti` scrapes last season and
-reports success, with nothing on the terminal to say so. `GET /db/scrape/tables` carries
+**The picker exists because of a stale default.** `voti.DEFAULT_SEASONS` and
+`statistiche.DEFAULT_SEASONS` stopped at 2025/26 while 2026/27 was being played, so
+`fantabot db scrape voti` scraped last season and reported success, with nothing on the
+terminal to say so. Both reach 2026/27 now; the picker stays, because the comparison is
+what catches the next August rather than this one. `GET /db/scrape/tables` carries
 each scraper's own list, whether it reaches the season being played, and which season
 that comparison was made against — so the form can default to the season being played
 instead of inheriting a list that is a year behind.

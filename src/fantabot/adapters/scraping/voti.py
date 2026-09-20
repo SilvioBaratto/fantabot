@@ -54,7 +54,12 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
-DEFAULT_SEASONS = ["2022/23", "2023/24", "2024/25", "2025/26"]
+# Every season to scrape, not a pointer at the current one — `application/scrape.py:22-26`
+# argues a computed CURRENT_SEASON is "the same disease". Appended rather than derived, and
+# kept identical to `quotazioni.DEFAULT_SEASONS`: the defect was that the three disagreed.
+# `scrapables` reads this list live and warns when it stops before the season being played,
+# so the next August shows up as a warning rather than as a silent scrape of last season.
+DEFAULT_SEASONS = ["2022/23", "2023/24", "2024/25", "2025/26", "2026/27"]
 REQUEST_DELAY_SECONDS = 1.0
 MAX_RETRIES = 3
 

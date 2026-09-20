@@ -6,10 +6,11 @@ request. `endpoints/teams.py` states the other side of that line — a small GET
 insert answers in its own request — and this is the case it was contrasted with.
 
 **The picker exists because of a stale default.** `voti.DEFAULT_SEASONS` and
-`statistiche.DEFAULT_SEASONS` stop at 2025/26 while 2026/27 is being played, so a run
-that names no season scrapes last season and reports success. The route reports which
-defaults are stale and against which season, and the form defaults to the season being
-played rather than inheriting the scraper's list.
+`statistiche.DEFAULT_SEASONS` stopped at 2025/26 while 2026/27 was being played, so a
+run that named no season scraped last season and reported success. Both reach 2026/27
+now; the route is kept, because the next August puts them behind again, and one test
+below shortens a scraper's list to keep the stale branch exercised. The form still
+defaults to the season being played rather than inheriting the scraper's list.
 
 **Seasons are sent explicitly, always.** `clean_scrape` resolves an empty list to the
 scraper's own default before the child is spawned, so the argv in the job log is the
@@ -88,20 +89,47 @@ def test_the_picker_names_the_season_being_played(season_now) -> None:
     assert TestClient(app).get("/api/v1/db/scrape/tables").json()["current_season"] == "2026/27"
 
 
-def test_the_picker_flags_the_two_defaults_that_are_behind(season_now) -> None:
-    """The trap, carried onto the screen: those two would scrape last season silently."""
+def test_the_picker_flags_nothing_now_that_every_default_reaches_the_season(season_now) -> None:
+    """Was `test_the_picker_flags_the_two_defaults_that_are_behind`, asserting `True` twice.
+
+    The flags moved because the defaults did, not because the report went away: the route
+    still computes staleness per table against the season being played, and the test below
+    drives that path with a scraper put deliberately behind.
+    """
     tables = {t["table"]: t for t in TestClient(app).get("/api/v1/db/scrape/tables").json()["tables"]}
 
-    assert tables["voti"]["default_is_stale"] is True
-    assert tables["statistiche"]["default_is_stale"] is True
+    assert tables["voti"]["default_is_stale"] is False
+    assert tables["statistiche"]["default_is_stale"] is False
     assert tables["quotazioni"]["default_is_stale"] is False
 
 
-def test_the_picker_carries_the_stale_list_itself(season_now) -> None:
-    """Not only that it is behind — what it would have taken, so the operator can see it."""
+def test_the_picker_still_flags_a_default_that_falls_behind(season_now, monkeypatch) -> None:
+    """The report is for the *next* August, so it is driven rather than left unexercised.
+
+    With every shipped default current, the route's stale branch has no live input — and a
+    branch no test reaches is one that can be broken without anything saying so. The
+    scraper's own list is shortened here, which is also the assertion that the route reads
+    that list rather than a copy.
+    """
+    from fantabot.adapters.scraping import voti
+
+    monkeypatch.setattr(voti, "DEFAULT_SEASONS", list(voti.DEFAULT_SEASONS[:-1]))
+
     tables = {t["table"]: t for t in TestClient(app).get("/api/v1/db/scrape/tables").json()["tables"]}
 
-    assert "2026/27" not in tables["voti"]["default_seasons"]
+    assert tables["voti"]["default_is_stale"] is True
+    assert tables["statistiche"]["default_is_stale"] is False
+
+
+def test_the_picker_carries_the_list_itself(season_now) -> None:
+    """Not only whether it is behind — what it would take, so the operator can see it.
+
+    This asserted `"2026/27" not in ...` while the default was short; the question it asks
+    is unchanged and the answer moved.
+    """
+    tables = {t["table"]: t for t in TestClient(app).get("/api/v1/db/scrape/tables").json()["tables"]}
+
+    assert "2026/27" in tables["voti"]["default_seasons"]
     assert "2025/26" in tables["voti"]["default_seasons"]
 
 

@@ -11,13 +11,18 @@ three times with a 2 s and then 4 s backoff, and only then does the run fail —
 giornata, for 38 giornate. A typo in a season is not a slow failure worth measuring, so
 both surfaces refuse it here, in one sentence, before a socket is opened.
 
-**The stale default is the reason this task exists, and it is reported rather than
-patched.** `voti.DEFAULT_SEASONS` and `statistiche.DEFAULT_SEASONS` stop at 2025/26 —
-correct when they were written, and wrong now that 2026/27 is being played — so a run
-that omits `--season` scrapes last season and reports success. `scrapables` reads each
-scraper's **own** list rather than keeping a copy here: a copy would be a second default
-to keep in step, which is the defect and not a report of it. Fix a scraper's list and
-`default_is_stale` goes false with no edit to this module.
+**The stale default is the reason this task exists. It was reported rather than
+patched, and is now both.** `voti.DEFAULT_SEASONS` and `statistiche.DEFAULT_SEASONS`
+stopped at 2025/26 — correct when they were written, and wrong once 2026/27 was being
+played — so a run that omitted `--season` scraped last season and reported success. Both
+reach 2026/27 now, and `default_is_stale` reads False for all three.
+
+The report is **kept**, because next August puts them behind again and nothing else
+would say so. It is also still driven: with every shipped default current the stale
+branch has no live input, so a test shortens a scraper's own list and watches the flag
+flip. `scrapables` reads each scraper's **own** list rather than keeping a copy here — a
+copy would be a second default to keep in step, which is the defect and not a report of
+it, and it is also what makes that test possible without editing this module.
 
 **The season being played is derived, not pinned.** A `CURRENT_SEASON = "2026/27"`
 constant is the same disease as the default it is meant to detect — it is right until
