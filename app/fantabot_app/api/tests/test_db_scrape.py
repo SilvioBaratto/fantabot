@@ -147,6 +147,21 @@ def test_no_seasons_is_resolved_before_the_child_is_spawned(quick_child, season_
         assert f"--season {season}" in log
 
 
+def test_the_child_is_spawned_with_the_cleaned_table_not_the_one_asked_for(
+    quick_child, season_now
+) -> None:
+    """The mistake nothing downstream can detect: `clean_scrape` normalises the table, so
+    a route that spawns `request.table` sends a name the command then refuses."""
+    client = TestClient(app)
+
+    job_id = client.post(
+        "/api/v1/db/scrape", json={"table": " VOTI ", "seasons": ["2026/27"]}
+    ).json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "done")
+    assert "db scrape voti --season 2026/27" in " ".join(_job(client, job_id)["lines"])
+
+
 def test_the_job_says_what_kind_it_is(quick_child, season_now) -> None:
     client = TestClient(app)
     job_id = client.post(

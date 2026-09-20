@@ -75,6 +75,18 @@ def test_surrounding_whitespace_is_not_a_refusal() -> None:
     assert clean_scrape("voti", [" 2026/27 "]).seasons == ("2026/27",)
 
 
+def test_the_table_comes_back_normalised() -> None:
+    """Which is why a caller spawns `request.table` and never the string it was handed."""
+    assert clean_scrape(" VOTI ", ["2026/27"]).table == "voti"
+
+
+def test_an_unknown_table_is_quoted_back_as_it_was_typed() -> None:
+    """The operator is the only person who can match the message against what they typed."""
+    with pytest.raises(InvalidScrape) as refused:
+        clean_scrape(" Fixtures ", [])
+    assert "' Fixtures '" in str(refused.value)
+
+
 def test_a_repeated_season_is_asked_for_once_in_the_order_given() -> None:
     """A scrape is minutes per season and an upsert. Twice costs the time and changes nothing."""
     request = clean_scrape("voti", ["2026/27", "2025/26", "2026/27"])

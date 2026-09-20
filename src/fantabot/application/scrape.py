@@ -138,12 +138,22 @@ def scrapables(measured_against: str) -> tuple[Scrapable, ...]:
 
 
 def clean_scrape(table: str, seasons: Sequence[str]) -> ScrapeRequest:
-    """Refuse everything that can be refused without a socket, and resolve the default."""
+    """Refuse everything that can be refused without a socket, and resolve the default.
+
+    The table comes back normalised, which is why callers must spawn `ScrapeRequest.table`
+    and never the string they were handed. `Voti` and `" voti "` are the same table — the
+    seasons are stripped, so the table is too — and a caller that kept its own copy would
+    pass the raw one to a command that then refuses it.
+    """
+    asked_for = table.strip().lower()
     known = [name for name, _writes, _requires in _TABLES]
-    if table not in known:
+    if asked_for not in known:
+        # The operator's own spelling, not the normalised one: they are the only person
+        # who can match what the message quotes against what they typed.
         raise InvalidScrape(
             f"{table!r} is not scrapable. Pick one of {', '.join(known)}."
         )
+    table = asked_for
 
     asked = [clean_season(raw) for raw in seasons]
     # Ordered rather than a set: the operator's order is the order the site is walked, and
