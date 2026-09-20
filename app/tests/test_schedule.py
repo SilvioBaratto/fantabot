@@ -126,9 +126,12 @@ class TestInstall:
         spy = Spy()
         written = schedule.install(_job(repo), launchctl=spy)
 
-        assert written.exists()
-        assert written == paths.launch_agents() / "com.fantabot.lineup.plist"
-        assert spy.calls == []
+        assert written.path.exists()
+        assert written.path == paths.launch_agents() / "com.fantabot.lineup.plist"
+        # Not `spy.calls == []` any more: `install` reads launchd, so that assertion would
+        # forbid the read along with the load. The rule it was always about is the load —
+        # the same reads-stay-legal split `tests/test_layers.py` makes for `apileague`.
+        assert schedule.loading_calls(spy.calls) == []
 
     def test_it_creates_the_launch_agents_directory(self, home: Path, repo: Path) -> None:
         assert not paths.launch_agents().exists()
@@ -277,10 +280,17 @@ class TestTheTwoRunners:
 
 class TestTheCommand:
     def test_install_prints_the_bootstrap_line_and_says_it_will_submit(
-        self, home: Path, repo: Path
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The one thing the operator must not misread: running the printed line means the
-        bot submits a real lineup to a real lega."""
+        bot submits a real lineup to a real lega.
+
+        `launchctl` is injected now that `install` reads it. Left real, this test asked the
+        developer's own launchd about the real label — `home` redirects `~`, but the label
+        is global — so it passed on a machine with no job and failed on the operator's,
+        which is the definition of a test nobody can trust.
+        """
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=113))
         result = runner.invoke(
             app,
             ["schedule", "install", "--league", "4103937", "--working-dir", str(repo)],
@@ -289,6 +299,44 @@ class TestTheCommand:
         assert "launchctl bootstrap" in result.output
         assert "submit" in result.output.lower()
         assert schedule.plist_path().exists()
+
+    def test_install_over_a_loaded_job_does_not_print_a_line_that_would_fail(
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The defect, at the surface the operator actually reads.
+
+        Measured 2026-09-20 against the live job — loaded, ARMED, `runs = 11` — and
+        `install` printed *"Nothing is scheduled yet"* and a `bootstrap` line that fails
+        on an already-loaded label. It sent the operator to arm a bot that was armed.
+        """
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=0))
+        args = ["schedule", "install", "--league", "4103937", "--working-dir", str(repo)]
+        runner.invoke(app, args)
+
+        again = runner.invoke(app, args)
+
+        assert again.exit_code == 0, again.output
+        assert "already loaded" in again.output
+        assert "nothing to apply" in again.output
+        assert "Nothing is scheduled yet" not in again.output
+        assert "launchctl bootstrap" not in again.output
+
+    def test_install_of_a_changed_plist_over_a_loaded_job_says_to_reload_it(
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Loaded *and* changed is the state that is actually dangerous: launchd goes on
+        running the previous definition, so a plist that reads as applied is a bot doing
+        something other than what the screen says. `bootout` comes first — it addresses
+        the label, which launchd resolves through the file."""
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=0))
+        base = ["schedule", "install", "--working-dir", str(repo), "--league"]
+        runner.invoke(app, [*base, "4103937"])
+
+        changed = runner.invoke(app, [*base, "3584692"])
+
+        assert "PREVIOUS definition" in changed.output
+        assert "launchctl bootout" in changed.output
+        assert changed.output.index("bootout") < changed.output.index("bootstrap")
 
     def test_install_refuses_when_no_league_can_be_resolved(
         self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
@@ -523,3 +571,70 @@ class TestTheInterpreterGrant:
         assert str(new.resolve()) in result.output
         assert str(old.resolve()) in result.output
         assert "Full Disk Access" in result.output
+
+
+class TestInstallReportsWhatLaunchdAlreadyHas:
+    """`install` used to print "Nothing is scheduled yet" over a job that had run 11 times.
+
+    Measured against the operator's live job on 2026-09-20: loaded, ARMED, `runs = 11`,
+    `last exit code = 0` — and `install` said nothing was scheduled and printed a
+    `bootstrap` line that would have failed. That is the command whose output guards a
+    bot with real credits, so a sentence it cannot know is a sentence it must not say.
+
+    The fix reads launchd. The property the command is shaped around is unchanged and is
+    now stated more precisely: it may **read**, it may never **load**.
+    """
+
+    def test_loading_calls_catches_every_verb_that_puts_a_job_into_launchd(self) -> None:
+        caught = schedule.loading_calls(
+            [
+                ["launchctl", "bootstrap", "gui/501", "/x.plist"],
+                ["launchctl", "kickstart", "-p", "gui/501/com.fantabot.lineup"],
+                ["launchctl", "load", "/x.plist"],
+            ]
+        )
+        assert len(caught) == 3
+
+    def test_a_read_is_not_a_load(self) -> None:
+        """`print` asks; it does not arm anything. Forbidding it would forbid the fix."""
+        assert schedule.loading_calls([["launchctl", "print", "gui/501/x"]]) == []
+
+    def test_bootout_is_not_a_load(self) -> None:
+        """`uninstall` calls it, and removing a job is the opposite of starting one."""
+        assert schedule.loading_calls([["launchctl", "bootout", "gui/501/x"]]) == []
+
+    def test_a_path_that_merely_contains_a_verb_is_not_a_load(self) -> None:
+        """Whole words. `/Users/me/start/x.plist` is a path, not a `start`."""
+        assert schedule.loading_calls([["launchctl", "print", "/Users/me/start/x.plist"]]) == []
+
+    def test_it_reports_a_label_launchd_already_has(self, home: Path, repo: Path) -> None:
+        """`launchctl print` exits 0 for a loaded label — the same read `status` makes."""
+        written = schedule.install(_job(repo), launchctl=Spy(code=0))
+        assert written.loaded is True
+
+    def test_it_reports_a_label_launchd_does_not_have(self, home: Path, repo: Path) -> None:
+        """113 and "Could not find service" is the answer, not a failure."""
+        written = schedule.install(_job(repo), launchctl=Spy(code=113))
+        assert written.loaded is False
+
+    def test_the_read_addresses_this_label_in_this_uid(self, home: Path, repo: Path) -> None:
+        spy = Spy()
+        schedule.install(_job(repo), launchctl=spy, uid=501)
+        assert spy.calls == [["launchctl", "print", "gui/501/com.fantabot.lineup"]]
+
+    def test_the_first_install_counts_as_changed(self, home: Path, repo: Path) -> None:
+        assert schedule.install(_job(repo), launchctl=Spy()).changed is True
+
+    def test_re_installing_the_same_job_changes_nothing(self, home: Path, repo: Path) -> None:
+        """The operator's actual case: `install` re-run only to record the grant. Nothing
+        to bootstrap, and the plist launchd holds is still the right one."""
+        schedule.install(_job(repo), launchctl=Spy())
+
+        assert schedule.install(_job(repo), launchctl=Spy()).changed is False
+
+    def test_a_different_lega_is_a_changed_plist(self, home: Path, repo: Path) -> None:
+        """Loaded *and* changed is the one state that needs bootout then bootstrap:
+        launchd goes on running the previous definition until it is told otherwise."""
+        schedule.install(_job(repo, league=1), launchctl=Spy())
+
+        assert schedule.install(_job(repo, league=2), launchctl=Spy()).changed is True

@@ -38,7 +38,7 @@ import os
 import plistlib
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,6 +48,8 @@ from fantabot_app import paths
 __all__ = [
     "INTERVAL_S",
     "LABEL",
+    "LOADING_VERBS",
+    "Installed",
     "Job",
     "ScheduleRefused",
     "Status",
@@ -56,6 +58,7 @@ __all__ = [
     "install",
     "interpreter_record_path",
     "launchctl",
+    "loading_calls",
     "plist_path",
     "read_interpreter_record",
     "record_interpreter",
@@ -291,21 +294,76 @@ def render(job: Job) -> bytes:
     return plistlib.dumps(body)
 
 
-def install(job: Job, *, launchctl: Launchctl) -> Path:
-    """Write the plist. **Load nothing.**
+#: The ``launchctl`` verbs that put a job into launchd. ``install`` may call **none** of
+#: them; it may only read. Bootstrapping puts a bot on a live platform with real credits,
+#: and that stays a keystroke the operator types.
+#:
+#: Written as a set rather than as "install calls launchctl never", which is what the
+#: guard used to say. That was the right rule stated one notch too wide, and it cost a
+#: real defect: unable to ask launchd anything, ``install`` printed *"Nothing is scheduled
+#: yet"* over a job that was loaded, ARMED and 11 runs in. Same split
+#: ``tests/test_layers.py`` makes for ``apileague`` — reads stay legal, writes never.
+#:
+#: ``bootout`` is deliberately absent: ``uninstall`` calls it, and removing a job is the
+#: opposite of starting one.
+LOADING_VERBS = frozenset({"bootstrap", "kickstart", "load", "enable", "start", "submit"})
 
-    ``launchctl`` is taken and deliberately unused: the signature says this is the command
-    that could load the job and does not, and the test that matters asserts the injected
-    runner was never called. Bootstrapping puts a bot on a live platform with real credits,
-    and that stays a keystroke the operator types.
+
+def loading_calls(calls: Iterable[Sequence[str]]) -> list[list[str]]:
+    """Every recorded ``launchctl`` call that would put the job into launchd.
+
+    Pure, and matching whole words: ``/Users/me/start/x.plist`` is a path, not a ``start``.
     """
-    del launchctl  # the point of this function is that it is not called
+    return [list(call) for call in calls if any(word in LOADING_VERBS for word in call)]
+
+
+@dataclass(frozen=True)
+class Installed:
+    """What ``install`` did, and what launchd already had — two separate facts.
+
+    Conflating them is the defect this type exists for. A plist on disk and a job in
+    launchd are different things, which is the whole premise of ``install`` loading
+    nothing, so a command that reports only the first can claim nothing is scheduled while
+    a bidder runs hourly.
+    """
+
+    path: Path
+    #: Whether launchd already had this label when ``install`` ran.
+    loaded: bool
+    #: Whether the bytes on disk changed. ``False`` means the definition launchd was given
+    #: is the one now on disk, so there is nothing to apply. A claim about the **file** and
+    #: not about launchd's in-memory copy, which cannot be read back — an operator who
+    #: edited the plist by hand after bootstrapping is outside what this can know.
+    changed: bool
+
+
+def install(job: Job, *, launchctl: Launchctl, uid: int | None = None) -> Installed:
+    """Write the plist, then **ask** launchd what it already has. **Load nothing.**
+
+    The read is what makes the command able to say something true. Without it the three
+    states below are one message, and the wrong one was printed to a live armed job:
+
+    * **not loaded** — the state ``install`` is designed to leave behind; the operator's
+      ``launchctl bootstrap`` is what changes it.
+    * **loaded, unchanged** — nothing to do. The operator's own case on 2026-09-20, when
+      ``install`` was re-run only to record the Full Disk Access grant.
+    * **loaded, changed** — launchd goes on running the previous definition until it is
+      told otherwise, so this one needs ``bootout`` and then ``bootstrap``.
+    """
     paths.launch_agents().mkdir(parents=True, exist_ok=True)
     job.stdout.parent.mkdir(parents=True, exist_ok=True)
     target = plist_path(job.label)
-    target.write_bytes(render(job))
+    body = render(job)
+    before = target.read_bytes() if target.is_file() else None
+    target.write_bytes(body)
     record_interpreter(job)
-    return target
+    return Installed(
+        path=target,
+        # A read. `print` exits 0 for a loaded label and 113 with "Could not find service"
+        # otherwise, which is the answer and not a failure — `status` makes the same call.
+        loaded=launchctl(["launchctl", "print", domain_target(job.label, uid=uid)]) == 0,
+        changed=before != body,
+    )
 
 
 def domain_target(label: str = LABEL, *, uid: int | None = None) -> str:

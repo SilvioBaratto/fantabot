@@ -400,22 +400,42 @@ def schedule_install(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"Wrote {written}")
+    typer.echo(f"Wrote {written.path}")
     typer.echo(f"  lega {job.league}, every {job.interval_s // 60} min and at load")
     typer.echo(f"  working directory {job.working_dir}")
     typer.echo(f"  logs {job.stdout.parent}")
     typer.echo("")
-    if job.arm:
+    state = "ARMED" if job.arm else "NOT armed"
+    if not written.loaded:
+        # The state `install` is designed to leave behind. The bootstrap line is the third
+        # lock — `FANTABOT_AUTO_ACT` and `--arm` are the first two — so it is printed and
+        # never run, and this is the only branch it belongs in: on a loaded label
+        # `bootstrap` fails, and printing it is an instruction that does not work.
         typer.echo(
-            "The job is ARMED. Nothing is scheduled yet — running the line below makes "
+            f"The job is {state}. Nothing is scheduled yet — running the line below makes "
             "the bot submit a real lineup to this lega, unattended, from the next hour on."
-        )
-    else:
-        typer.echo(
-            "The job is NOT armed: it will plan and write a run record every hour and "
+            if job.arm
+            else f"The job is {state}: it will plan and write a run record every hour and "
             "submit nothing. Re-run with --arm once the records read right."
         )
-    typer.echo(f"  {schedule.bootstrap_line(written)}")
+        typer.echo(f"  {schedule.bootstrap_line(written.path)}")
+    elif not written.changed:
+        typer.echo(
+            f"The job is {state} and already loaded, and this plist is identical to the "
+            "one launchd was given — nothing to apply."
+        )
+        typer.echo("  fantabot-app schedule status")
+    else:
+        # The dangerous middle state, and the reason the two facts are reported apart:
+        # launchd goes on running the previous definition until it is told otherwise, so
+        # a changed plist that reads as applied is a bot doing something else than the
+        # screen says.
+        typer.echo(
+            f"The job is {state} and already loaded, but launchd is still running the "
+            "PREVIOUS definition. This plist does not take effect until it is reloaded:"
+        )
+        typer.echo(f"  launchctl bootout {schedule.domain_target(job.label)}")
+        typer.echo(f"  {schedule.bootstrap_line(written.path)}")
 
 
 @schedule_app.command("status")
