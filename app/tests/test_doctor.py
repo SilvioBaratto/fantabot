@@ -145,3 +145,27 @@ def test_no_source_tree_to_compare_against_is_not_a_failure(tmp_path) -> None:
 def test_the_check_is_in_the_report() -> None:
     names = [check.name for check in run_checks()]
     assert "fantabot-app" in names
+
+
+def test_two_directories_beside_each_other_are_not_a_source_tree(tmp_path) -> None:
+    """`src/` and `app/` side by side is a common enough shape to be a coincidence.
+
+    Without `pyproject.toml` the anchor is a guess, and a wrong guess here tells someone
+    with an unrelated layout to reinstall a tool that is fine. The guard said so in a
+    docstring and nothing checked it: the mutation that drops it left every other test
+    in this file green.
+    """
+    from fantabot_app.doctor import compare_app_source
+
+    (tmp_path / "src" / "fantabot").mkdir(parents=True)
+    (tmp_path / "src" / "fantabot" / "__init__.py").touch()
+    (tmp_path / "app" / "fantabot_app").mkdir(parents=True)
+    (tmp_path / "app" / "fantabot_app" / "__init__.py").touch()
+    # and deliberately no `app/pyproject.toml`
+    elsewhere = tmp_path / "site-packages" / "fantabot_app"
+    elsewhere.mkdir(parents=True)
+
+    check = compare_app_source(elsewhere, tmp_path / "src" / "fantabot" / "__init__.py")
+
+    assert check.ok is True
+    assert "source tree" in check.detail
