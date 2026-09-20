@@ -22,7 +22,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { LegaService } from '../../core/api/lega.service';
 import { LineupService } from '../../core/api/lineup.service';
 import { LegaOverview } from '../../core/models/lega';
-import { LineupPlan, LineupRuns, SubmitResult } from '../../core/models/lineup';
+import { CurrentLineup, LineupPlan, LineupRuns, SubmitResult } from '../../core/models/lineup';
 
 @Component({
   selector: 'app-lineup',
@@ -89,6 +89,45 @@ export class LineupComponent implements OnInit {
   readonly runs = signal<LineupRuns | null>(null);
   readonly runsError = signal<string | null>(null);
 
+  /**
+   * What the platform has saved right now — `fantabot lineup show`, on a screen.
+   *
+   * A different question from the plan beside it, and the difference is the point: the plan
+   * is what we *should* field, this is what is *saved*. On a matchday where a submit was
+   * refused — an unfieldable module, a deadline already past — the two answers differ, and
+   * the operator is looking at a page that would otherwise show only one of them.
+   *
+   * Fetched with the plan rather than behind a button: it is one small read, and a saved
+   * lineup that disagrees with the plan is exactly the thing nobody would think to ask for.
+   */
+  readonly current = signal<CurrentLineup | null>(null);
+  readonly currentError = signal<string | null>(null);
+
+  /**
+   * The saved lineup with names joined from the plan this page already holds.
+   *
+   * The server returns ids: naming them there would mean running the whole plan to annotate
+   * a read that has already answered, and failing for reasons that have nothing to do with
+   * the save. Here the join is free — and it falls back to the id, which is what a player
+   * outside the planned roster looks like and is worth seeing as such.
+   */
+  readonly currentNamed = computed(() => {
+    const saved = this.current();
+    if (!saved || saved.outcome !== 'read') return null;
+    const names = new Map(
+      [...(this.plan()?.starters ?? []), ...(this.plan()?.bench ?? [])].map((p) => [
+        p.player_id,
+        p.nome,
+      ]),
+    );
+    const name = (id: number) => names.get(id) ?? String(id);
+    return {
+      module: saved.module,
+      starters: saved.starters.map(name),
+      bench: saved.bench.map(name),
+    };
+  });
+
   ngOnInit(): void {
     this.loadLeagues();
     this.loadRuns();
@@ -131,6 +170,8 @@ export class LineupComponent implements OnInit {
     // they never saw — the whole property this gate exists for.
     this.dryRun.set(null);
     this.result.set(null);
+    this.current.set(null);
+    this.currentError.set(null);
     this.fetchPlan(leagueId);
   }
 
@@ -154,8 +195,42 @@ export class LineupComponent implements OnInit {
         next: (plan) => {
           this.plan.set(plan);
           this.planLoading.set(false);
+          // Only once the plan has named a competition. Asking for the saved lineup of a
+          // competition nobody resolved would be a second guess about which one, and the
+          // two screens would stop being comparable — which is the whole reason for both.
+          //
+          // `typeof === 'number'`, not `!== null`: a server that predates this field answers
+          // `undefined`, which is not null, and the page would fire a request for
+          // `competition=undefined`. That is the second-request hazard the standing list
+          // already records — an outstanding request fails `httpMock.verify()` and a failing
+          // `afterEach` leaves the TestBed up, which once took down three unrelated specs.
+          if (typeof plan.competition === 'number') {
+            this.fetchCurrent(leagueId, plan.competition);
+          }
         },
         error: () => this.planLoading.set(false),
+      });
+  }
+
+  /**
+   * Read what the platform has saved for the competition the plan named.
+   *
+   * A failed read is reported and nothing else: the plan beside it is still the answer to
+   * its own question, and blanking the page over the secondary read would lose it.
+   */
+  private fetchCurrent(leagueId: number, competition: number): void {
+    this.currentError.set(null);
+    this.lineup
+      .getCurrent(leagueId, competition)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (saved) => {
+          this.current.set(saved);
+          // The server's own sentence, never one composed here — five outcomes, and only
+          // one of them is fixed by reloading.
+          this.currentError.set(saved.outcome === 'read' ? null : saved.reason);
+        },
+        error: () => this.currentError.set('Could not reach the API for the saved lineup.'),
       });
   }
 

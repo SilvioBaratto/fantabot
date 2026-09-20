@@ -288,6 +288,37 @@
   }
 }
 
+<!-- What the platform has saved *right now* — `fantabot lineup show`.
+
+     A different question from the plan above, and the difference is the point: that is what
+     we should field, this is what is saved. On a matchday where a submit was refused — an
+     unfieldable module, a deadline already past — the two differ, and a page showing only
+     one of them is a page that cannot say so. -->
+<section class="saved" aria-labelledby="saved-heading" data-testid="saved-lineup">
+  <mat-card class="panel" appearance="outlined">
+    <div class="panel-body">
+      <h2 id="saved-heading" class="panel-title">Saved on the platform</h2>
+      <p class="panel-sub">
+        What the platform currently holds for this competition. Read-only — nothing here submits.
+      </p>
+    </div>
+
+    @if (currentError(); as refusal) {
+      <div class="panel-body" role="alert">
+        <p class="state-text">{{ refusal }}</p>
+      </div>
+    }
+
+    @if (currentNamed(); as saved) {
+      <div class="panel-body">
+        <p class="state-text">Module {{ saved.module }}</p>
+        <p class="state-text" data-testid="saved-starters">XI: {{ saved.starters.join(', ') }}</p>
+        <p class="state-text" data-testid="saved-bench">Bench: {{ saved.bench.join(', ') }}</p>
+      </div>
+    }
+  </mat-card>
+</section>
+
 <!-- The scheduled lineup's history: what the launchd job did, read back. Read-only on purpose —
      turning the job on and off lives in `.env` and the launchd plist, never on this page. -->
 <mat-card appearance="outlined" class="runs-card">

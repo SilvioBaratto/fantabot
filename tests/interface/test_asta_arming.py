@@ -160,10 +160,10 @@ def _wire_asta_bid(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """
     from fantabot import config
     from fantabot.adapters.files import room_journal
-    from fantabot.adapters.http.fantalab import listone, room
+    from fantabot.adapters.http.fantalab import listone
     from fantabot.adapters.http.fantalab.rtdb import BidOutcome
     from fantabot.adapters.persistence import database_manager, news_sentiment
-    from fantabot.application import asta_room
+    from fantabot.application import asta_room, asta_session
     from fantabot.domain.asta.state import RosterRules
     from fantabot.interface import asta
 
@@ -210,7 +210,11 @@ def _wire_asta_bid(monkeypatch: pytest.MonkeyPatch) -> list[int]:
                 price=payload["price"], node="auction", dry_run=False, sent=True, status=200
             )
 
-    monkeypatch.setattr(room, "LotRouter", _Router)
+    # Patched at the factory, not the class. Since 3.11 the router is built in
+    # `application/asta_session.lot_router` — binding `place_raise` to a shard is a
+    # write, and the T-spine rule kept it on the ratchet until it moved out of the
+    # Typer body. A patch on the adapter class is inert from here.
+    monkeypatch.setattr(asta_session, "lot_router", lambda _db, _league: _Router())
     return sent
 
 

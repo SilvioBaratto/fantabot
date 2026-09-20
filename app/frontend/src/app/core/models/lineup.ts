@@ -15,8 +15,36 @@ export interface LineupPlan {
   reason: string | null;
   module: string;
   matchday: number | null;
+  /**
+   * Which competition this plan is for, resolved by the server rather than asked for. It is
+   * what `GET /lineup/current` is keyed by — and "what we should field" and "what is saved"
+   * are only comparable when both name the same competition.
+   */
+  competition: number | null;
   starters: LineupPlayer[];
   bench: LineupPlayer[];
+}
+
+/**
+ * What the platform has saved **right now** — `fantabot lineup show`.
+ *
+ * A different question from `LineupPlan`: that one is what we should field, this is what is
+ * saved. On a matchday where a submit was refused the two differ, which is exactly when an
+ * operator needs both.
+ *
+ * Ids, not names: naming them server-side would mean running the whole plan to annotate a
+ * read that has already answered. The page joins the plan it already holds and falls back
+ * to the id.
+ */
+export type CurrentLineupOutcome =
+  'read' | 'no_lineup' | 'no_credential' | 'refused' | 'unreachable';
+
+export interface CurrentLineup {
+  outcome: CurrentLineupOutcome;
+  reason: string;
+  module: string;
+  starters: number[];
+  bench: number[];
 }
 
 /**

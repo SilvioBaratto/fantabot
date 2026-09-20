@@ -70,6 +70,34 @@ class TestTheFlagPathIsOneDerivation:
             room_stop_path(tmp_path / "room_journal.jsonl", "L1", "collect")
 
 
+class TestARoomWithNoShardIsRefusedByName:
+    """`ResolvedRoom.db` is optional because the platform's own field is.
+
+    Every read and every raise is keyed by the shard, so a room without one cannot be driven
+    at all. Refused here rather than five calls into the adapter, where it arrives as a
+    `TypeError` about `None` — a sentence about Python, not about the room.
+    """
+
+    def test_a_shard_builds_a_router(self) -> None:
+        from fantabot.application.asta_session import lot_router
+
+        assert lot_router(4, "L1").node == "auction"
+
+    def test_no_shard_is_a_refusal_naming_the_room(self) -> None:
+        from fantabot.application.asta_room import RoomRefused
+        from fantabot.application.asta_session import lot_router
+
+        with pytest.raises(RoomRefused, match="L1"):
+            lot_router(None, "L1")
+
+    def test_shard_zero_is_a_shard(self) -> None:
+        """The reason the guard is `is None` and not a truth test: FantaLab's shards are
+        0-indexed, and `if not db` would refuse the first one."""
+        from fantabot.application.asta_session import lot_router
+
+        assert lot_router(0, "L1") is not None
+
+
 class TestTheTwoStagesAreHonoured:
     """`stop_poll` is the rule, once, for both live commands. Pure — every effect injected."""
 

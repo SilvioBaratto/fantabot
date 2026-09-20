@@ -547,7 +547,7 @@ def asta_room(
         read_stop,
         room_stop_path,
     )
-    from fantabot.adapters.http.fantalab import feed, listone, rest, room, rtdb
+    from fantabot.adapters.http.fantalab import feed, listone, rest
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.tokens.fantalab_store import FantalabStore
@@ -559,6 +559,7 @@ def asta_room(
     )
     from fantabot.application.asta_session import (
         STALE_BRIDGE,
+        lot_router,
         room_arming,
         session_for,
         stop_poll,
@@ -679,12 +680,7 @@ def asta_room(
     ):
         raise typer.Abort
 
-    router = room.LotRouter(
-        read=lambda node: rtdb.read_snapshot(resolved.db, f"{node}/{resolved.fantaleague_id}"),
-        write=lambda payload, node: rtdb.place_raise(
-            resolved.db, resolved.fantaleague_id, payload, node=node
-        ),
-    )
+    router = lot_router(resolved.db, resolved.fantaleague_id)
     journal = RoomJournal(journal_path())
     # `cycle_ms` is measured here, not in `application/` — the clock stays out of that layer.
     #
@@ -994,11 +990,11 @@ def asta_bid(
     #
     # Before the plan, not after: it is now an *input* to the plan, not only a translation
     # for the ledger. The pool has to be narrowed to players the room can actually call.
-    from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
+    from fantabot.adapters.http.fantalab import feed, listone
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.application.asta_room import RoomFrame
-    from fantabot.application.asta_session import session_from, stop_poll
+    from fantabot.application.asta_session import lot_router, session_from, stop_poll
     from fantabot.config import journal_path, live_auto_act
     from fantabot.domain.asta.bid import Seat, max_bid
 
@@ -1124,10 +1120,10 @@ def asta_bid(
     # Both nodes, not just `auction/`. Under ASSEGNA random the lot lands on `assign/<fl>`
     # and a bidder watching only the first sees an empty room all evening (docs/fantalab/06
     # §10.6). The node travels with the lot so the raise goes back where it came from.
-    router = room.LotRouter(
-        read=lambda node: rtdb.read_snapshot(db, f"{node}/{league}"),
-        write=lambda payload, node: rtdb.place_raise(db, league, payload, node=node),
-    )
+    #
+    # Built in `application/`, like the session: binding `place_raise` to a shard is a write,
+    # and `tests/test_layers.py`'s T-spine rule kept it on the ratchet until it moved.
+    router = lot_router(db, league)
 
     # One composition, not two — `session_from` rather than `session_for`, because this
     # command is unauthenticated by design and has no `ResolvedRoom` to read a chair, an

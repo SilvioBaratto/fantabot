@@ -97,6 +97,21 @@ ASTA_ADVISORY_OUTCOMES = (
     "unreachable",
 )
 
+#: `GET /lineup/current` — the lineup the platform has saved right now.
+#:
+#: `LINEUP_PLAN_OUTCOMES`' five with `planned` becoming `read`, because the two routes ask
+#: different questions of the same credential: one asks what we *should* field, this asks
+#: what is *saved*. `no_lineup` means the competition has never had one set, which is the
+#: ordinary state before a matchday's first submit — not an empty XI, which would be a claim
+#: about the roster rather than about the save.
+LINEUP_CURRENT_OUTCOMES = (
+    "read",
+    "no_lineup",
+    "no_credential",
+    "refused",
+    "unreachable",
+)
+
 TARGET_PRICES_OUTCOMES = ("priced", "no_data", "unknown_system", "unreachable")
 
 

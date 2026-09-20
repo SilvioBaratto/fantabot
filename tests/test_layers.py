@@ -192,13 +192,15 @@ EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = set()
 #: the ratchet failed the moment the lift landed and demanded its line be deleted in the
 #: same commit, which is the direction that makes this a ratchet rather than an allowlist.
 #:
-#: `place_raise` remains at `asta.py:573`/`:1022`, both handed to a `room.LotRouter`, and
-#: goes in 3.9b. Recorded as `(module, name)` rather than per line so a reformat is not a
-#: false failure — the question is whether the command layer can act, not how often it says
-#: so.
-EXPECTED_WRITING_VIOLATIONS: set[tuple[str, str]] = {
-    ("fantabot.interface.asta", "place_raise"),
-}
+#: **Empty since 3.11, and that is the point of it.** It held two entries: `lineup.py`'s
+#: `teamLineup_submit`, emptied by T16, and `asta.py`'s `place_raise` — bound to a shard
+#: twice, once per live command, to build a `room.LotRouter`. `application/asta_session.
+#: lot_router` is the one construction now, so neither Typer body names a write.
+#:
+#: Recorded as `(module, name)` rather than per line so a reformat is not a false failure —
+#: the question is whether the command layer can act, not how often it says so. An entry
+#: whose fix has landed fails this test too: a ratchet that only ever loosens is a list.
+EXPECTED_WRITING_VIOLATIONS: set[tuple[str, str]] = set()
 
 
 

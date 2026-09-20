@@ -20,15 +20,35 @@ teamLineup_submit.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fantabot.adapters.http.apileague import teamLineup_read
 from fantabot.application.arming import ARM, AUTO_ACT
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+@contextmanager
+def _open_store() -> Any:
+    """A `TokenStore` on an open session, and the one door out of `GET /lineup/current`.
+
+    A seam rather than four lazy imports inside the route: it is what the route's own tests
+    replace, and a name imported inside a function body is one a `monkeypatch.setattr` on
+    this module cannot reach. No bearer enters this frame — `TokenStore` resolves it inside
+    the adapter, which is `test_app_never_handles_a_plaintext_token`'s whole subject.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.config import settings
+    from fantabot.domain.tokens.crypto import TokenCipher
+
+    with database_manager.get_session() as session:
+        yield TokenStore(session, TokenCipher(settings.fantabot_encryption_key))
 
 
 def _now() -> datetime:
@@ -55,17 +75,25 @@ class LineupPlan(BaseModel):
     reason: str | None = None
     module: str = ""
     matchday: int | None = None
+    #: Which competition this plan is for, resolved by `build_plans` rather than asked for.
+    #: Carried because `GET /lineup/current` needs one and the page has no other way to
+    #: learn it — and because "the plan" and "what is saved" are only comparable when both
+    #: name the same competition. `build_plans` already returned it and it was discarded.
+    competition: int | None = None
     starters: list[LineupPlayer] = []
     bench: list[LineupPlayer] = []
 
 
-def build_lineup_plan(planned: Any, names: dict[int, str]) -> LineupPlan:
+def build_lineup_plan(
+    planned: Any, names: dict[int, str], competition: int | None = None
+) -> LineupPlan:
     """Map a PlannedLineup + id->name dict to the response (pure)."""
     return LineupPlan(
         found=True,
         outcome="planned",
         module=planned.module,
         matchday=planned.mday,
+        competition=competition,
         starters=[LineupPlayer(player_id=pid, nome=names.get(pid, str(pid))) for pid in planned.starts],
         bench=[LineupPlayer(player_id=pid, nome=names.get(pid, str(pid))) for pid in planned.bench],
     )
@@ -113,7 +141,7 @@ def lineup_plan(league_id: int) -> LineupPlan:
             # seven reads — `my_team`, `competitions`, `teamLineup_read`, `lineup_settings`,
             # `roster_settings`, `inputs_from_lineup`, `plan_lineups` — which is how it came
             # to read the format from a different place than the command did.
-            plans, names, _comp = build_plans(TokenStore(session, cipher), league_id, 0)
+            plans, names, comp = build_plans(TokenStore(session, cipher), league_id, 0)
     except (TokenRejected, AppKeyRejected) as exc:
         # The platform answered, and said no. A different fact from being unable to ask —
         # a rejected token is not going to resolve by reloading the page.
@@ -136,7 +164,7 @@ def lineup_plan(league_id: int) -> LineupPlan:
             outcome="no_lineup",
             reason="No fieldable lineup for this lega yet — the rosa fills no allowed module.",
         )
-    return build_lineup_plan(plans[0], names)
+    return build_lineup_plan(plans[0], names, comp)
 
 
 #: Why a submit did not happen, as a screen. Same discipline as `api/outcomes.py`: a route
@@ -415,3 +443,68 @@ def lineup_runs(limit: int = DEFAULT_RUNS_LIMIT) -> LineupRuns:
     from fantabot.config import lineup_runs_path
 
     return read_lineup_runs(lineup_runs_path(), now=_now(), limit=limit)
+
+
+# -- what the platform has saved right now ------------------------------------------------
+
+
+class CurrentLineup(BaseModel):
+    """`fantabot lineup show`, as a value.
+
+    **Ids, not names.** The command prints ids and so does this: naming them would mean
+    running `build_plans` — seven live reads and a solve — to annotate a read that has
+    already answered, and it would fail for reasons that have nothing to do with the saved
+    lineup. The page holds the plan for the same lega and joins the names client-side,
+    falling back to the id, which costs nothing it was not already paying.
+    """
+
+    #: One of `api/outcomes.LINEUP_CURRENT_OUTCOMES`.
+    outcome: str
+    reason: str = ""
+    module: str = ""
+    starters: list[int] = []
+    bench: list[int] = []
+
+
+@router.get("/lineup/current", response_model=CurrentLineup, tags=["lineup"])
+def lineup_current(league_id: int, competition: int) -> CurrentLineup:
+    """The lineup the platform currently holds for one competition. **Read-only.**
+
+    A different question from `GET /lineup/plan`, and the difference is the point: that one
+    asks what we *should* field, this asks what is *saved*. On a matchday where a submit was
+    refused — an unfieldable module, a deadline already past — the two answers differ, and
+    that is exactly when an operator needs to see both.
+
+    `competition` is required rather than resolved. A lineup belongs to a competition, and
+    picking one would answer a question nobody asked; `lineup show` refuses without one for
+    the same reason.
+    """
+    from fantabot.domain.tokens.errors import ApiTimeout, ApiUnavailable, TokenError, TokenRejected
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot_app.api.outcomes import because
+
+    try:
+        with _open_store() as store:
+            body = teamLineup_read(league_id, competition, store=store)
+    except TokenRejected as exc:
+        return CurrentLineup(outcome="refused", reason=str(exc))
+    except (ApiTimeout, ApiUnavailable) as exc:
+        return CurrentLineup(outcome="unreachable", reason=str(exc))
+    except TokenError as exc:
+        return CurrentLineup(outcome="no_credential", reason=str(exc))
+    except (SQLAlchemyError, OSError) as exc:
+        return CurrentLineup(outcome="unreachable", reason=because(exc))
+
+    dto = body.get("teamLineupDto") or {}
+    if not dto:
+        return CurrentLineup(
+            outcome="no_lineup",
+            reason="no lineup has been saved for this competition yet.",
+        )
+    return CurrentLineup(
+        outcome="read",
+        module=str(dto.get("mdl", "")),
+        starters=[int(p) for p in dto.get("starts", [])],
+        bench=[int(p) for p in dto.get("bench", [])],
+    )

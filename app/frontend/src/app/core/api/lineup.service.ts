@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { LineupPlan, LineupRuns, SubmitResult } from '../models/lineup';
+import { CurrentLineup, LineupPlan, LineupRuns, SubmitResult } from '../models/lineup';
 
 @Injectable({ providedIn: 'root' })
 export class LineupService {
@@ -11,6 +11,19 @@ export class LineupService {
 
   getPlan(leagueId: number): Observable<LineupPlan> {
     return this.http.get<LineupPlan>(`${environment.apiUrl}lineup/plan?league_id=${leagueId}`);
+  }
+
+  /**
+   * What the platform has saved for one competition right now — `fantabot lineup show`.
+   *
+   * Read-only, and a different question from `getPlan`. `competition` is required rather
+   * than resolved: a lineup belongs to one, and picking one would answer a question nobody
+   * asked. The page takes it from the plan, which resolved it already.
+   */
+  getCurrent(leagueId: number, competition: number): Observable<CurrentLineup> {
+    return this.http.get<CurrentLineup>(
+      `${environment.apiUrl}lineup/current?league_id=${leagueId}&competition=${competition}`,
+    );
   }
 
   /**

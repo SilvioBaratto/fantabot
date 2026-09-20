@@ -118,7 +118,11 @@ def _wire(monkeypatch: pytest.MonkeyPatch, *, frame: Any) -> dict[str, Any]:
                 price=payload["price"], node="auction", dry_run=False, sent=True, status=200
             )
 
-    monkeypatch.setattr(room, "LotRouter", _Router)
+    # Patched at the factory, not the class. Since 3.11 the router is built in
+    # `application/asta_session.lot_router` — binding `place_raise` to a shard is a
+    # write, and the T-spine rule kept it on the ratchet until it moved out of the
+    # Typer body. A patch on the adapter class is inert from here.
+    monkeypatch.setattr(asta_session, "lot_router", lambda _db, _league: _Router())
 
     # The safety net, and it is load-bearing: a Typer body that still calls the adapter's
     # loop directly runs the *real* one, whose `keep_going` is `lambda _cycle: True` — so a

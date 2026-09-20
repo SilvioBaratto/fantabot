@@ -240,22 +240,34 @@ class TestAnArmedSubmit:
 
 def test_the_route_returns_only_what_it_pins() -> None:
     """The same discipline as `api/outcomes.py`: a route that returns an unlisted outcome
-    renders a screen the frontend has no branch for."""
+    renders a screen the frontend has no branch for.
+
+    **Scanned per function, not per module.** It used to read `lineup.py` whole and subtract
+    the *other* route's outcomes by name — which worked while the file held two routes and
+    stopped the day it held three: `lineup_current`'s `read` arrived as an unpinned outcome
+    of the submit route, which it is not. A module-wide scan cannot tell which route an
+    outcome belongs to, so it asks the function.
+    """
     import ast
     from pathlib import Path
 
     from fantabot_app.api.v1 import endpoints
 
     source = (Path(endpoints.__file__).parent / "lineup.py").read_text(encoding="utf-8")
+    [submit] = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "lineup_submit"
+    ]
     returned = {
         node.value.value
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(submit)
         if isinstance(node, ast.keyword)
         and node.arg == "outcome"
         and isinstance(node.value, ast.Constant)
     } | {
         value.value
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(submit)
         if isinstance(node, ast.Dict)
         for key, value in zip(node.keys, node.values, strict=True)
         if isinstance(key, ast.Constant)
@@ -263,7 +275,8 @@ def test_the_route_returns_only_what_it_pins() -> None:
         and isinstance(value, ast.Constant)
     }
 
-    assert set(SUBMIT_OUTCOMES) >= returned - {"planned", "no_lineup"}, (
+    assert returned, "the scan found no outcome at all: it is measuring nothing"
+    assert set(SUBMIT_OUTCOMES) >= returned, (
         f"the route returns {sorted(returned)} and pins {sorted(SUBMIT_OUTCOMES)}"
     )
 

@@ -46,6 +46,9 @@ describe('LineupComponent', () => {
     reason: 'x',
     module: '',
     matchday: null,
+    // `null`, so a refusal fires no second read. The saved lineup belongs to a competition
+    // and a refused plan has not resolved one.
+    competition: null,
     starters: [],
     bench: [],
   };
@@ -56,6 +59,7 @@ describe('LineupComponent', () => {
       league_name: 'Legamiallerotaie2',
       captured_at: null,
       matchday: null,
+      competition: null,
       budget: 500,
       roster_size: 30,
       min_roles: null,
@@ -82,6 +86,7 @@ describe('LineupComponent', () => {
         reason: null,
         module: '4-3-3',
         matchday: 3,
+        competition: null,
         starters: [{ player_id: 1, nome: 'Svilar' }],
         bench: [{ player_id: 2, nome: 'Reserve' }],
       });
@@ -149,6 +154,7 @@ describe('LineupComponent', () => {
         reason: 'No token stored for lega 4103937 — run `fantabot auth login`.',
         module: '',
         matchday: null,
+        competition: null,
         starters: [],
         bench: [],
       });
@@ -181,6 +187,7 @@ describe('LineupComponent', () => {
         reason: 'the platform rejected our token for lega 4103937',
         module: '',
         matchday: null,
+        competition: null,
         starters: [],
         bench: [],
       });
@@ -210,6 +217,7 @@ describe('LineupComponent', () => {
           reason: null,
           module: '4-3-3',
           matchday: 3,
+          competition: null,
           starters: [{ player_id: 1, nome: 'Svilar' }],
           bench: [],
         });
@@ -223,6 +231,7 @@ describe('LineupComponent', () => {
       reason: 'the request did not ask to arm',
       module: '4-3-3',
       matchday: 3,
+      competition: null,
       starters: [{ player_id: 1, nome: 'Svilar' }],
       bench: [],
       submitted: false,
@@ -300,6 +309,7 @@ describe('LineupComponent', () => {
           reason: 'x',
           module: '',
           matchday: null,
+          competition: null,
           starters: [],
           bench: [],
         });
@@ -411,6 +421,7 @@ describe('LineupComponent', () => {
           reason: 'x',
           module: '',
           matchday: null,
+          competition: null,
           starters: [],
           bench: [],
           bench_order: [],
@@ -439,6 +450,7 @@ describe('LineupComponent', () => {
           reason: 'x',
           module: '',
           matchday: null,
+          competition: null,
           starters: [],
           bench: [],
         });
@@ -572,6 +584,122 @@ describe('LineupComponent', () => {
       const text = fixture.nativeElement.textContent;
       expect(text).toContain('IsADirectoryError');
       expect(text).toContain('/Users/x/.fantabot/lineup_runs.jsonl');
+    });
+  });
+
+  // -- `fantabot lineup show`, on a screen ------------------------------------------------
+  describe('saved on the platform', () => {
+    function planned(competition: number | null) {
+      return {
+        found: true,
+        outcome: 'planned',
+        reason: null,
+        module: '343',
+        matchday: 3,
+        competition,
+        starters: [{ player_id: 1, nome: 'Mandas' }],
+        bench: [{ player_id: 9, nome: 'Rovella' }],
+      };
+    }
+
+    async function ready(competition: number | null = 12) {
+      const fixture = TestBed.createComponent(LineupComponent);
+      fixture.detectChanges();
+      httpMock.expectOne((r) => r.url.includes('lineup/runs')).flush({ runs: [] });
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      httpMock.expectOne((r) => r.url.includes('lineup/plan')).flush(planned(competition));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return fixture;
+    }
+
+    it('reads the competition the plan resolved, never one of its own', async () => {
+      // The two screens are only comparable when both name the same competition — and a
+      // page that picked one would be answering a question nobody asked.
+      const fixture = await ready(12);
+
+      const asked = httpMock.expectOne((r) => r.url.includes('lineup/current'));
+      expect(asked.request.urlWithParams).toContain('competition=12');
+      expect(asked.request.urlWithParams).toContain('league_id=4103937');
+      asked.flush({ outcome: 'read', reason: '', module: '343', starters: [1], bench: [9] });
+      fixture.detectChanges();
+      await fixture.whenStable();
+    });
+
+    it('asks for nothing when the plan resolved no competition', async () => {
+      // A refused plan has not resolved one, and `undefined !== null` — which is how an
+      // outstanding request for `competition=undefined` takes down three unrelated specs.
+      await ready(null);
+
+      httpMock.expectNone((r) => r.url.includes('lineup/current'));
+    });
+
+    it('names the saved ids from the plan it already holds', async () => {
+      // The server returns ids: naming them there would mean running the whole plan to
+      // annotate a read that has already answered. The join here is free.
+      const fixture = await ready();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/current'))
+        .flush({ outcome: 'read', reason: '', module: '343', starters: [1], bench: [9] });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const starters = fixture.nativeElement.querySelector('[data-testid="saved-starters"]');
+      expect(starters.textContent).toContain('Mandas');
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="saved-bench"]').textContent,
+      ).toContain('Rovella');
+    });
+
+    it('falls back to the id for a saved player the plan never named', async () => {
+      // Which is what a player outside the planned roster looks like, and is worth seeing
+      // as such: the platform is holding somebody the plan would not field.
+      const fixture = await ready();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/current'))
+        .flush({ outcome: 'read', reason: '', module: '343', starters: [4242], bench: [] });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="saved-starters"]').textContent,
+      ).toContain('4242');
+    });
+
+    it('shows the server’s reason and no lineup when nothing is saved', async () => {
+      // Not an error and not an empty XI: a competition whose lineup has never been set is
+      // the ordinary state before a matchday's first submit.
+      const fixture = await ready();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/current'))
+        .flush({
+          outcome: 'no_lineup',
+          reason: 'no lineup has been saved for this competition yet.',
+          module: '',
+          starters: [],
+          bench: [],
+        });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('has been saved');
+      expect(fixture.nativeElement.querySelector('[data-testid="saved-starters"]')).toBeNull();
+    });
+
+    it('keeps the plan when the saved read fails', async () => {
+      // The plan beside it is still the answer to its own question; blanking the page over
+      // a secondary read would lose it.
+      const fixture = await ready();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/current'))
+        .flush('nope', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.plan()?.module).toBe('343');
+      expect(fixture.componentInstance.currentError()).toContain('Could not reach the API');
     });
   });
 });

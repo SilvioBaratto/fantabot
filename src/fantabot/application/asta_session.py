@@ -39,12 +39,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from fantabot.adapters.files.stopflag import EXIT
+from fantabot.adapters.http.fantalab import rtdb
 from fantabot.adapters.http.fantalab.listone import is_stale
-from fantabot.adapters.http.fantalab.room import LoopReport, run_bid_loop
+from fantabot.adapters.http.fantalab.room import LoopReport, LotRouter, run_bid_loop
 from fantabot.application.arming import Arming, decide_arming
 from fantabot.application.asta_room import (
     ResolvedRoom,
     RoomFrame,
+    RoomRefused,
     RoomRules,
     RoomTracker,
     error_row,
@@ -218,6 +220,38 @@ class AstaSession:
             on_error=failed,
             poll_seconds=poll_seconds,
         )
+
+
+def lot_router(db: int | None, fantaleague_id: str) -> LotRouter:
+    """The room's two nodes, bound to one shard. The **only** place either surface builds one.
+
+    Both live commands assembled this from the same two fields, and it is the last thing
+    `interface/` did that could write: `tests/test_layers.py`'s T-spine rule — *"no module
+    under `interface/` may name a **writing** call from `apileague.py` or `rtdb.py`"* — kept
+    `place_raise` on its ratchet for exactly this, and the ratchet is empty now.
+
+    What the rule is really about is the *other* copy. Two bodies binding `rtdb.place_raise`
+    to a shard is two chances to bind it to the wrong one, and a raise sent to another room's
+    shard is a `200` that does nothing while the operator watches a lot they think they are
+    bidding on.
+
+    The write is bound unconditionally and the arming gate is **not** here: `bid_writer` stays
+    with the surface that owns the two locks, and the router is handed to it, never the other
+    way round. A router that knew about arming would be a second lock nobody turned.
+    """
+    if db is None:
+        # `ResolvedRoom.db` is optional because the platform's own field is, and a room with
+        # no shard cannot be addressed at all — every read and every raise is keyed by it.
+        # Refused by name here rather than left to a `TypeError` five calls into the adapter:
+        # this is a room that cannot be driven, which is a sentence an operator can act on.
+        raise RoomRefused(
+            f"room {fantaleague_id} declares no RTDB shard — it cannot be read or bid in."
+        )
+    shard = db
+    return LotRouter(
+        read=lambda node: rtdb.read_snapshot(shard, f"{node}/{fantaleague_id}"),
+        write=lambda payload, node: rtdb.place_raise(shard, fantaleague_id, payload, node=node),
+    )
 
 
 def stop_poll(

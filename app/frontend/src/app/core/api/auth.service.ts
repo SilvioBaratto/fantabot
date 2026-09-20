@@ -44,10 +44,7 @@ export class AuthService {
 
   /** Release a login job waiting on its confirm gate — "I have signed in". */
   confirmLogin(jobId: string): Observable<{ ok: boolean }> {
-    return this.http.post<{ ok: boolean }>(
-      `${environment.apiUrl}auth/login/${jobId}/confirm`,
-      {},
-    );
+    return this.http.post<{ ok: boolean }>(`${environment.apiUrl}auth/login/${jobId}/confirm`, {});
   }
 
   /** Remove one lega's stored token. `removed` is false when there was no row. */

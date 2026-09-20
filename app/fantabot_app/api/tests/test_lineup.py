@@ -3,12 +3,33 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import ClassVar
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.v1.endpoints.lineup import build_lineup_plan
+
+
+def test_the_plan_names_the_competition_it_was_built_for() -> None:
+    """`build_plans` resolves it and used to discard it — `_comp`, unused.
+
+    `GET /lineup/current` needs a competition and the page has no other way to learn one;
+    more to the point, "what we should field" and "what is saved" are only comparable when
+    both name the same competition, and on a matchday where a submit was refused they are
+    exactly what an operator wants side by side.
+    """
+    from fantabot_app.api.v1.endpoints.lineup import build_lineup_plan
+
+    class _Planned:
+        module = "343"
+        mday = 5
+        starts: ClassVar[list[int]] = []
+        bench: ClassVar[list[int]] = []
+
+    assert build_lineup_plan(_Planned(), {}, 77).competition == 77
+    assert build_lineup_plan(_Planned(), {}).competition is None
 
 
 def test_build_lineup_plan_maps_starters_and_bench() -> None:
