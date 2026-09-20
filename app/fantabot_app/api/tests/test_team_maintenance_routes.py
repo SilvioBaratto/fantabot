@@ -128,6 +128,25 @@ class TestSnapshotTeam:
         assert body["team_id"] == 1
         assert body["credits_remaining"] == 26
 
+    def test_the_lega_asked_for_is_the_lega_in_the_request(
+        self, monkeypatch: pytest.MonkeyPatch, db_answers: None, has_key: None
+    ) -> None:
+        """`teams/my` carries no league id of its own, so the one passed in is the only
+        thing that decides which lega the row lands under. Asking one and recording
+        another is a mistake nothing downstream can detect, in an append-only table."""
+        from fantabot_app.api.v1.endpoints import teams
+
+        seen: list[int] = []
+
+        def capture(_session: Any, league_id: int, **_k: Any) -> Any:
+            seen.append(league_id)
+            return MINE
+
+        monkeypatch.setattr(teams, "snapshot_team", capture)
+        TestClient(app).post("/api/v1/db/snapshot-team", json={"league_id": 3584692})
+
+        assert seen == [3584692]
+
     def test_no_key_is_answered_before_anything_is_asked(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -143,6 +162,10 @@ class TestSnapshotTeam:
 
         assert body["outcome"] == "no_credential"
         assert body["team_id"] is None
+        # The wording is the assertion. Falling through, `TokenCipher("")` also answers
+        # `no_credential` — with `KeyMalformed`'s sentence about a 44-character Fernet
+        # key, which is true and is not the operator's next move.
+        assert body["reason"] == "No encryption key set — connect an account first."
 
     def test_a_missing_token_is_no_credential_not_unreachable(
         self, monkeypatch: pytest.MonkeyPatch, db_answers: None, has_key: None
