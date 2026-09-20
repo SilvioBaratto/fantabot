@@ -36,15 +36,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import cast
 
 from fantabot.domain.asta.bid import Seat, decide_bid, max_bid
 from fantabot.domain.asta.legality import SchemaLegality, fieldable_schemi
 from fantabot.domain.asta.opponents import MIN_BID
-from fantabot.domain.asta.optimizer import InfeasibleRoster
+from fantabot.domain.asta.optimizer import CompositionRules, InfeasibleRoster
 from fantabot.domain.asta.reservation import lot_ceiling, lot_reference, reservations
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, RosterRules
 from fantabot.domain.asta.value import ValueModel
+from fantabot.domain.classic.roles import ClassicPlayer
 
 #: Our seat in a replay. The ids are arbitrary — nothing is sent — but they have to differ
 #: from the recorded buyer's, or `decide_bid`'s "don't bid against yourself" guard fires.
@@ -82,7 +84,12 @@ class CalibrationRow:
     spend: float
     unspent: float
     slots: float
-    schemi: float
+    #: Mantra schemi the rosa could field, averaged — or `None` for a Classic sweep, which
+    #: has no schemi to count. **Not `0.0`**: a literal zero in that column reads as a rosa
+    #: that can field nothing, which is precisely the finding this table exists to surface.
+    #: `RoomTracker`'s copilot brief passed a literal 0 here once and every brief opened by
+    #: telling the model something false about our rosa.
+    schemi: float | None
     won: int
     lost: int
     #: Plan members the recorded rooms actually put up for sale. The denominator that makes
@@ -97,7 +104,8 @@ class CalibrationRow:
     def line(self) -> str:
         return (
             f"{self.alpha:>5.2f} {self.spend:>8.0f} {self.unspent:>9.0f} "
-            f"{self.slots:>7.1f} {self.schemi:>8.1f} {self.won:>6} "
+            f"{self.slots:>7.1f} {'—' if self.schemi is None else f'{self.schemi:.1f}':>8} "
+            f"{self.won:>6} "
             f"{self.available:>10} {self.won_share:>8.0%}"
         )
 
@@ -108,7 +116,7 @@ HEADER = (
 )
 
 
-def admits(auction: RecordedAuction, rules: RosterRules) -> bool:
+def admits(auction: RecordedAuction, rules: CompositionRules) -> bool:
     """Could this auction have filled a roster at all? Pure.
 
     The test is the corpus's, not the bot's: an evening with fewer lots than the band needs
@@ -122,12 +130,12 @@ def _replay_one(
     auction: RecordedAuction,
     *,
     ceiling_alpha: float,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[MantraPlayer | ClassicPlayer],
     value: ValueModel,
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules,
+    rules: CompositionRules,
     budget: float,
     lam: float,
 ) -> tuple[AstaState, int, int, int]:
@@ -251,16 +259,33 @@ def sweep(
     auctions: Sequence[RecordedAuction],
     alphas: Sequence[float],
     *,
-    pool: Sequence[MantraPlayer],
+    pool: Sequence[MantraPlayer | ClassicPlayer],
     value: ValueModel,
     prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
-    rules: RosterRules = RosterRules(),
+    rules: CompositionRules = RosterRules(),
     budget: float = 500.0,
     lam: float = 0.3,
 ) -> list[CalibrationRow]:
-    """One row per ceiling-alpha, averaged over the admitted auctions. Pure, opens nothing."""
+    """One row per ceiling-alpha, averaged over the admitted auctions. Pure, opens nothing.
+
+    **Either format.** The replay itself always was format-agnostic — `reservations`,
+    `lot_reference` and `lot_ceiling` all take `CompositionRules`, the union — so what kept
+    this Mantra-only was the annotations and one column. That mattered: measured on the live
+    database at 8x500, the Classic corpus is **259 rooms and 32,101 sales against 48 and
+    6,466**, and `--ceiling-alpha`'s value rests on this sweep.
+    """
+    # The optimizer's own discriminator, not `legality == {}`: a Mantra run whose legality
+    # failed to load would then report "not applicable" instead of the zero it really is.
+    #
+    # **This is the only gate.** It used to be two — this one skipping the count, and a
+    # second `None if classic` at the row — and the second made the first unobservable:
+    # dropping the skip left the column reading `—` anyway, so a mutation of it survived all
+    # 2,218 tests. The row now derives the column from whether anything was counted, which
+    # is safe because `schemi` gets one entry per lot and a Mantra sweep always has lots
+    # (`admits` refuses an evening with fewer than `rules.size`).
+    classic = getattr(rules, "kind", "mantra") == "classic"
     admitted = [a for a in auctions if admits(a, rules)]
     dropped = len(auctions) - len(admitted)
 
@@ -278,8 +303,12 @@ def sweep(
             )
             spends.append(state.spent)
             slots.append(len(state.owned))
-            owned_players = [player for player in pool if player.id in set(state.owned)]
-            schemi.append(len(fieldable_schemi(owned_players, legality)))
+            if not classic:
+                owned = set(state.owned)
+                owned_players = [player for player in pool if player.id in owned]
+                schemi.append(
+                    len(fieldable_schemi(cast("list[MantraPlayer]", owned_players), legality))
+                )
             won += auction_won
             lost += auction_lost
             available += auction_available
@@ -294,7 +323,7 @@ def sweep(
                 spend=mean_spend,
                 unspent=budget - mean_spend,
                 slots=sum(slots) / n,
-                schemi=sum(schemi) / n,
+                schemi=sum(schemi) / len(schemi) if schemi else None,
                 won=won,
                 lost=lost,
                 available=available,

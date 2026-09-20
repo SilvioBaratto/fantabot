@@ -200,3 +200,78 @@ def test_the_roster_is_never_bought_past_its_own_size() -> None:
     three_offers = _auction(("gk1", 10), ("a1", 40), ("gk2", 1))
     for row in _sweep([0.6, 0.8, 1.0], auctions=[three_offers]):
         assert row.slots <= RULES.size, f"alpha={row.alpha}: {row.slots} players in a {RULES.size}-slot band"
+
+
+# -- the Classic corpus, which is the larger one ------------------------------------------
+
+
+class TestTheSweepRunsOnEitherFormat:
+    """`asta calibrate` could only ever grade the Mantra corpus, and it is the smaller one.
+
+    Measured on the live database, 8x500: **259 Classic rooms and 32,101 sales against 48
+    and 6,466 for Mantra** — five times the evidence, unreachable. `recorded_auctions`
+    already took an `asta_type` and defaulted it to `"mantra"`; the command never passed one,
+    and `read_plan_inputs` was left on its own Mantra default too. They agreed, which is why
+    nothing looked wrong — the corpus and the grader were both Mantra, and the other 259
+    rooms simply did not exist as far as `--ceiling-alpha`'s evidence was concerned.
+
+    `--ceiling-alpha` is `1.00` on the strength of that sweep, and it is the ceiling the live
+    bidder pays up to.
+    """
+
+    @staticmethod
+    def _classic():  # type: ignore[no-untyped-def]
+        from fantabot.domain.classic.roles import ClassicPlayer
+        from fantabot.domain.classic.state import ClassicRosterRules
+
+        pool = [
+            ClassicPlayer("gk1", "P"),
+            ClassicPlayer("gk2", "P"),
+            ClassicPlayer("a1", "A"),
+            ClassicPlayer("a2", "A"),
+        ]
+        rules = ClassicRosterRules(size=2, bands=(("P", 1, 1), ("A", 1, 1)))
+        return pool, rules
+
+    def test_a_classic_corpus_produces_rows(self) -> None:
+        """The replay machinery is format-agnostic — `reservations`, `lot_reference` and
+        `lot_ceiling` all take `CompositionRules`, the union — so only the annotations and
+        the schemi column were Mantra-only."""
+        pool, rules = self._classic()
+
+        table = sweep(
+            [_auction(("gk1", 10), ("a1", 40))],
+            [1.00],
+            pool=pool, value=VALUE, prices=PRICES, teams=TEAMS, legality={},
+            rules=rules, budget=100.0, lam=0.0,
+        )
+
+        assert len(table) == 1
+        assert table[0].auctions == 1, "the Classic corpus was dropped rather than replayed"
+
+    def test_the_schemi_column_is_absent_rather_than_zero_for_classic(self) -> None:
+        """There are no Mantra schemi to field, so the honest answer is "not this format",
+        not "none". A literal 0 in that column reads as a rosa that can field nothing, which
+        is the finding the whole table exists to surface — `RoomTracker`'s copilot brief once
+        passed a literal 0 there and every brief opened by telling the model something false.
+        """
+        pool, rules = self._classic()
+
+        [row] = sweep(
+            [_auction(("gk1", 10), ("a1", 40))],
+            [1.00],
+            pool=pool, value=VALUE, prices=PRICES, teams=TEAMS, legality={},
+            rules=rules, budget=100.0, lam=0.0,
+        )
+
+        assert row.schemi is None
+        assert "0.0" not in row.line().split()[4]
+        assert "—" in row.line()
+
+    def test_mantra_still_reports_a_number(self) -> None:
+        """The other half: a change that returned `None` for everything would pass above."""
+        [row] = _sweep([1.00])
+
+        assert row.schemi is not None
+        assert "—" not in row.line()
+

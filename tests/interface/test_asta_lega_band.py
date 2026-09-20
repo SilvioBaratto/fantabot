@@ -15,9 +15,12 @@ here: a per-lega flag the operator must remember is a footgun on a cron path.
 
 from __future__ import annotations
 
+import contextlib
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import typer
 
 from fantabot.domain.asta.state import ASSUMED_NOTHING, SNAPSHOT_DECLARED, RosterRules
 from fantabot.domain.classic.state import ClassicRosterRules
@@ -119,6 +122,32 @@ def test_an_override_that_agrees_with_the_lega_is_silent(
 
     assert (fmt, provenance) == ("classic", SNAPSHOT_DECLARED)
     assert said == []
+
+
+def test_the_grafted_band_is_the_format_that_was_asked_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other direction, and the one that was missing.
+
+    Its sibling below overrides a Classic lega to `mantra`, where the grafted band is
+    `RosterRules()` — so a branch that had forgotten the conditional entirely and always
+    built `RosterRules()` was indistinguishable from the correct one, and a mutation saying
+    exactly that survived all 2,218 tests. Overriding a *Mantra* lega to `classic` is where
+    the conditional is load-bearing: the wrong graft plans a 30-man Mantra band over a pool
+    that has P/D/C/A roles and no schemi.
+    """
+    reader = _Reader((RosterRules(size=32), SNAPSHOT_DECLARED, "mantra"))
+    _patch(monkeypatch, reader)
+    said: list[str] = []
+
+    rules, provenance, fmt = _lega_rules(
+        4103937, "classic", session=_fake_session, warn=said.append
+    )
+
+    assert fmt == "classic"
+    assert isinstance(rules, ClassicRosterRules), f"grafted a {type(rules).__name__}"
+    assert provenance == ASSUMED_NOTHING
+    assert said and "mantra" in said[0] and "--format" in said[0]
 
 
 def test_an_override_that_contradicts_the_lega_says_so_and_drops_the_band(
@@ -227,19 +256,21 @@ class TestNoLiveCommandDefaultsTheFormatAtTheRead:
 
         assert reads["asta_room"] is not None and reads["asta_bid"] is not None
 
-    def test_the_two_that_omit_it_are_the_mantra_only_replays(self) -> None:
-        """`asta calibrate` and `asta bench` declare no `--format` at all — they replay
-        recorded Mantra rooms — so taking the parameter's default is consistent rather than
-        forgetful. Named here so a *third* omission is not read as one of these.
+    def test_only_the_bench_omits_it(self) -> None:
+        """`asta bench` declares no `--format` and replays recorded Mantra rooms, so taking
+        the parameter's default is consistent rather than forgetful. Named here so a *second*
+        omission is not read as this one.
 
-        ⚠ Not a claim that their Mantra-only reading is right: `asta calibrate` prices off
-        the Mantra corpus while the recorded Classic corpus is the larger one. That is
-        developer machinery and a separate question; what this pins is that neither of them
-        is a live command quietly dropping a format it was given.
+        `asta calibrate` used to be the other name on this list, and the note here used to
+        say its Mantra-only reading was "a separate question". It was not: the recorded
+        Classic corpus is the **larger** one — 259 rooms and 32,101 sales at 8x500 against
+        48 and 6,466 — and `--ceiling-alpha`'s value rests entirely on that sweep. It now
+        states its format on both reads; see `TestTheCalibrationSweepsOneCorpus`.
         """
         reads = self._reads()
 
-        assert reads["asta_calibrate"] is None and reads["asta_bench"] is None
+        assert set(k for k, v in reads.items() if v is None) == {"asta_bench"}
+
 
     def test_none_of_them_falls_back_with_an_or(self) -> None:
         import ast
@@ -254,6 +285,155 @@ class TestNoLiveCommandDefaultsTheFormatAtTheRead:
             "before the read — an `or` here answers a question the room never did."
         )
 
+
+class TestTheCalibrationSweepsOneCorpus:
+    """`asta calibrate` grades a corpus against prices read from a corpus. Both must be the
+    **same** corpus, and the format is half of what identifies one.
+
+    The command already carried that rule for the room *shape*: `--teams`/`--credits` reach
+    `read_plan_inputs` and `recorded_auctions` alike, because a 10x1000 replay graded against
+    8x500 prices measures the mismatch rather than the alpha. The format is the same rule and
+    was missing from it — both reads took the Mantra default, which agreed, so nothing was
+    wrong about the sweep it ran. What was wrong is that no other sweep could be asked for,
+    and the unreachable one was the bigger corpus.
+
+    Read from the syntax tree because the defect is an *omitted keyword*: a behavioural test
+    passing `--format classic` sees a Classic sweep either way once one keyword is wired, and
+    a half-wired command is exactly the failure — a Classic replay priced off Mantra rooms.
+    """
+
+    @staticmethod
+    def _calls() -> dict[str, Any]:
+        import ast as _ast
+
+        from _paths import module_file
+
+        tree = _ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
+        fn = next(
+            n
+            for n in tree.body
+            if isinstance(n, _ast.FunctionDef) and n.name == "asta_calibrate"
+        )
+        found: dict[str, _ast.Call] = {}
+        for node in _ast.walk(fn):
+            name = getattr(getattr(node, "func", None), "id", None) or getattr(
+                getattr(node, "func", None), "attr", None
+            )
+            if isinstance(node, _ast.Call) and name in ("read_plan_inputs", "recorded_auctions"):
+                found[name] = node
+        return found
+
+    def test_both_reads_are_present(self) -> None:
+        """A scan over one call would pass by finding nothing to disagree with."""
+        assert set(self._calls()) == {"read_plan_inputs", "recorded_auctions"}
+
+    def test_the_two_reads_name_the_same_format_expression(self) -> None:
+        """Not "both mention a format" — the *same* expression, so one cannot be edited to a
+        literal while the other keeps reading the flag."""
+        import ast as _ast
+
+        calls = self._calls()
+        world = [k.value for k in calls["read_plan_inputs"].keywords if k.arg == "listone"]
+        corpus = [k.value for k in calls["recorded_auctions"].keywords if k.arg == "asta_type"]
+
+        assert world and corpus, (
+            "one of the two corpus reads takes its format from the default: "
+            f"world={bool(world)} corpus={bool(corpus)}"
+        )
+        assert _ast.unparse(world[0]) == _ast.unparse(corpus[0])
+
+    @pytest.mark.parametrize("bad", ["Classic", "mantar", "", "both"])
+    def test_a_format_that_is_neither_is_refused_before_anything_opens(
+        self, bad: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """And refused *first* — before the database, because the refusal is about the
+        argument and needs nothing read to decide it.
+
+        `asta room` and `asta bid` each learned this separately (`RoomRefused`, and the
+        `--format` guard); the sweep took a third path and validated nothing. A typo would
+        have reached `read_plan_inputs`, whose own guard raises `ValueError` — a traceback
+        where the other two print a line, and only after a multi-megabyte read.
+        """
+        import fantabot.adapters.persistence as persistence
+        import fantabot.interface.asta as asta_cli
+
+        def _never(*_a: Any, **_k: Any) -> Any:
+            raise AssertionError("a refused format opened the database")
+
+        monkeypatch.setattr(persistence.database_manager, "get_session", _never)
+
+        with pytest.raises(typer.Exit) as refused:
+            asta_cli.asta_calibrate(
+                alpha=[1.0], teams=8, credits=500, season="2025/26", lam=0.3, fmt=bad
+            )
+
+        assert refused.value.exit_code == 2
+
+    @pytest.mark.parametrize(
+        ("fmt", "kind", "size"), [("classic", "classic", 25), ("mantra", "mantra", 30)]
+    )
+    def test_the_band_the_replay_fills_follows_the_format(
+        self, fmt: str, kind: str, size: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The third read, and the one no AST scan above covers: `sweep`'s `rules`.
+
+        Its default is `RosterRules()` — Mantra, 30 — so a command that wired `listone` and
+        `asta_type` and stopped there would sweep the Classic corpus against a 30-man Mantra
+        band. `admits` drops any evening with fewer lots than `rules.size`, so that is not a
+        subtly-off number: it silently discards Classic rooms for failing to fill a roster
+        Classic does not have, and the two AST tests above would both still pass.
+        """
+        import fantabot.adapters.persistence as persistence
+        import fantabot.adapters.persistence.news_sentiment as news_sentiment
+        import fantabot.adapters.persistence.repositories.aste as aste
+        import fantabot.application.asta_calibrate as calibrate
+        import fantabot.interface.asta as asta_cli
+
+        seen: dict[str, Any] = {}
+
+        @contextlib.contextmanager
+        def _session() -> Any:
+            yield object()
+
+        class _Repo:
+            def __init__(self, _session: Any) -> None: ...
+
+            def recorded_auctions(self, **kwargs: Any) -> list[Any]:
+                seen["asta_type"] = kwargs.get("asta_type")
+                return []
+
+        def _world(_session: Any, **kwargs: Any) -> Any:
+            seen["listone"] = kwargs.get("listone")
+            return SimpleNamespace(pool=[], value=None, prices={}, teams={}, legality={})
+
+        def _sweep(_auctions: Any, _alphas: Any, **kwargs: Any) -> list[Any]:
+            seen["rules"] = kwargs["rules"]
+            return [SimpleNamespace(auctions=0, dropped=0, line=lambda: "")]
+
+        monkeypatch.setattr(persistence.database_manager, "get_session", _session)
+        monkeypatch.setattr(news_sentiment, "NewsSentimentSource", lambda _s: object())
+        monkeypatch.setattr(asta_cli, "sentiment_rows", lambda *_a, **_k: [])
+        monkeypatch.setattr(asta_cli, "read_plan_inputs", _world)
+        monkeypatch.setattr(aste, "AsteRepository", _Repo)
+        monkeypatch.setattr(calibrate, "sweep", _sweep)
+
+        asta_cli.asta_calibrate(
+            alpha=[1.0], teams=8, credits=500, season="2025/26", lam=0.3, fmt=fmt
+        )
+
+        assert seen["listone"] == fmt and seen["asta_type"] == fmt
+        assert getattr(seen["rules"], "kind", "mantra") == kind
+        assert seen["rules"].size == size
+
+    def test_the_format_is_a_name_the_command_declares(self) -> None:
+        """And it is the flag, not a literal — a literal would pin the sweep to one corpus
+        again, which is the whole defect."""
+        import ast as _ast
+
+        calls = self._calls()
+        stated = next(k.value for k in calls["read_plan_inputs"].keywords if k.arg == "listone")
+
+        assert isinstance(stated, _ast.Name), f"not a variable: {_ast.unparse(stated)}"
 
 class TestBothCommandsDeclareTheSameDefault:
     """`--format` means "detect it" on both, and the default is what says so.

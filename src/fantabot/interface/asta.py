@@ -930,6 +930,11 @@ def asta_calibrate(
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     season: Season = SEASON,
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
+    fmt: str = typer.Option(
+        "mantra", "--format",
+        help="Which recorded corpus to sweep: mantra or classic. There is no lega to detect "
+        "from — a replay is a corpus, not a league — so this is stated, not detected.",
+    ),
 ) -> None:
     """Replay recorded aste at several ceiling premiums. Read-only, no network.
 
@@ -938,13 +943,28 @@ def asta_calibrate(
     that really happened and prints what each value would have spent. Pick the alpha whose
     spend lands near the budget with a rosa that can still field a schema, and paste the table
     into `tasks/archive/parity-todo.md`.
+
+    **Either corpus.** Both reads took the Mantra default, which agreed — so the sweep it ran
+    was sound and no Classic sweep could be asked for at all. That mattered because the
+    unreachable corpus is the **larger** one: at 8x500 the database holds 259 Classic rooms
+    over 32,101 sales against 48 Mantra rooms over 6,466. `--ceiling-alpha` is one number
+    shared by both formats and it was calibrated on the smaller evidence.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.persistence.repositories.aste import AsteRepository
     from fantabot.application.asta_calibrate import HEADER, Lot, RecordedAuction, sweep
+    from fantabot.domain.classic.state import ClassicRosterRules
+
+    if fmt not in ("mantra", "classic"):
+        console.print(f"[red]--format {fmt}: not a format. Use mantra or classic.[/red]")
+        raise typer.Exit(code=2)
 
     alphas = list(alpha) or [0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15]
+    # The band the replay fills, and what `admits` measures a recorded evening against. A
+    # Classic corpus swept against `RosterRules()` would drop every room with fewer than 30
+    # lots for needing a roster Classic does not have.
+    rules = ClassicRosterRules() if fmt == "classic" else RosterRules()
 
     with database_manager.get_session() as session:
         rows = sentiment_rows(NewsSentimentSource(session), enabled=True, run="")
@@ -952,11 +972,11 @@ def asta_calibrate(
         # `--teams 10 --credits 1000` sweep graded a 10x1000 corpus against prices averaged
         # from 8x500 rooms — the grader and the thing being graded priced differently.
         world = read_plan_inputs(
-            session, season=season, sentiment=rows, as_of=_today(),
+            session, season=season, sentiment=rows, as_of=_today(), listone=fmt,
             tilt_k=SentimentWeights().k, num_teams=teams, num_credits=credits,
         )
         corpus = AsteRepository(session).recorded_auctions(
-            num_teams=teams, num_credits=credits
+            asta_type=fmt, num_teams=teams, num_credits=credits
         )
 
     auctions = [
@@ -969,8 +989,8 @@ def asta_calibrate(
 
     table = sweep(
         auctions, alphas,
-        pool=cast("Sequence[MantraPlayer]", world.pool), value=world.value, prices=world.prices, teams=world.teams,
-        legality=world.legality, budget=float(credits), lam=lam,
+        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
+        legality=world.legality, rules=rules, budget=float(credits), lam=lam,
     )
     if not table:
         console.print("[red]no alphas to sweep[/red]")
@@ -978,8 +998,9 @@ def asta_calibrate(
 
     first = table[0]
     console.print(
-        f"corpus: {first.auctions} of {first.auctions + first.dropped} auctions admitted "
-        f"({first.dropped} dropped: fewer lots than the roster band needs)"
+        f"corpus: {fmt}, {teams}x{credits} — {first.auctions} of "
+        f"{first.auctions + first.dropped} auctions admitted "
+        f"({first.dropped} dropped: fewer lots than the {rules.size}-man band needs)"
     )
     console.print(f"[dim]{HEADER}[/dim]")
     for row in table:
