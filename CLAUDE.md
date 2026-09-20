@@ -299,6 +299,17 @@ src/fantabot/
   `available` by construction; a real sweep against the live database now reads
   32–49% across every alpha, never near 100%, and a repaired acceptance threshold is
   once again possible, just not built.
+  **`asta calibrate` swept only the smaller corpus until 2026-09-20.** Both its reads —
+  `read_plan_inputs` and `recorded_auctions` — took the Mantra default. They *agreed*, so
+  the sweep it ran was sound; the defect was that no Classic sweep could be asked for, and
+  at 8×500 the database holds **259 Classic rooms over 32,101 sales against 48 Mantra rooms
+  over 6,466**. `--format` now reaches both reads *and* the band the replay fills — that
+  third site is the one no scan of the two reads covers, because `sweep`'s `rules` defaults
+  to `RosterRules()` and `admits` drops any evening with fewer lots than `rules.size`, which
+  silently discards Classic rooms for failing to fill a roster Classic does not have. The
+  schemi column is `float | None` and prints `—` rather than `0.0`: in that column a literal
+  zero reads as a rosa that can field nothing. First live Classic sweep: 235 of 259 admitted
+  at α 1.00, 897/2,295 won (39%) — inside the same 32–49% band.
 - **The MAX cap has no server backstop.** `docs/fantalab/01:142` calls it
   client-enforced and `06:389-412` shows the RTDB rules validating only that a
   raise exceeds the current price and names the right lot. `domain/asta/bid.py`'s
