@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  WritableSignal,
   computed,
   inject,
   signal,
@@ -12,17 +13,37 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
 import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'rxjs';
 
 import { ActionsService } from '../../core/api/actions.service';
 import { JobsService } from '../../core/api/jobs.service';
+import { ScrapeService } from '../../core/api/scrape.service';
 import { TeamsService } from '../../core/api/teams.service';
+import { ScrapeTable } from '../../core/models/scrape';
 import { BackfillResult, TeamSnapshotResult } from '../../core/models/teams';
 import { IconName } from '../../icons';
 
-/** The job kind this page owns. `GET /jobs` lists every kind; only one belongs here. */
+/** The job kinds this page owns. `GET /jobs` lists every kind; only these belong here. */
 const KIND = 'lega-sync';
+const SCRAPE_KIND = 'db-scrape';
+
+/**
+ * One job's worth of page state, so the poll is written once.
+ *
+ * The lega sync and the scrape are different shapes of work — eight reads on a daemon
+ * thread, and a supervised child fetching a live site for minutes — but a poll is a poll,
+ * and two copies of `?since=` bookkeeping is two places for a reattach to stop appending
+ * and start replacing. `pages/harvest/harvest.ts` names the same record `JobPanel`.
+ */
+interface JobPanel {
+  readonly running: WritableSignal<boolean>;
+  readonly lines: WritableSignal<string[]>;
+  readonly status: WritableSignal<string>;
+  readonly ok: WritableSignal<boolean | null>;
+  readonly jobId: WritableSignal<string | null>;
+}
 
 /**
  * How the run reads to a person, as opposed to how the job registry spells it.
@@ -83,6 +104,7 @@ const UNREACHABLE_BACKFILL: BackfillResult = {
     MatFormFieldModule,
     MatInputModule,
     MatProgressBarModule,
+    MatSelectModule,
   ],
   templateUrl: './synchronize.html',
   styleUrl: './synchronize.scss',
@@ -91,6 +113,7 @@ const UNREACHABLE_BACKFILL: BackfillResult = {
 export class SynchronizeComponent {
   private readonly actions = inject(ActionsService);
   private readonly jobs = inject(JobsService);
+  private readonly scrape = inject(ScrapeService);
   private readonly teams = inject(TeamsService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -118,6 +141,73 @@ export class SynchronizeComponent {
   readonly backfill = signal<BackfillResult | null>(null);
 
   /**
+   * The scrape card. A supervised child, so it has a job's worth of state rather than
+   * one result signal: `db scrape voti` is ~38 polite GETs per season and the operator
+   * watches it, which is the line `endpoints/teams.py` drew between the two.
+   */
+  readonly scrapeTables = signal<ScrapeTable[]>([]);
+  readonly currentSeason = signal('');
+  readonly scrapeTable = signal('');
+  readonly scrapeSeasons = signal<string[]>([]);
+  readonly scrapeRunning = signal(false);
+  readonly scrapeLines = signal<string[]>([]);
+  readonly scrapeStatus = signal('');
+  readonly scrapeOk = signal<boolean | null>(null);
+  readonly scrapeJobId = signal<string | null>(null);
+  readonly scrapeError = signal<string | null>(null);
+
+  private readonly legaPanel: JobPanel = {
+    running: this.running,
+    lines: this.lines,
+    status: this.jobStatus,
+    ok: this.jobOk,
+    jobId: signal<string | null>(null),
+  };
+
+  private readonly scrapePanel: JobPanel = {
+    running: this.scrapeRunning,
+    lines: this.scrapeLines,
+    status: this.scrapeStatus,
+    ok: this.scrapeOk,
+    jobId: this.scrapeJobId,
+  };
+
+  /** The chosen table's row from the picker, or null before one is chosen. */
+  readonly selectedScrapable = computed<ScrapeTable | null>(
+    () => this.scrapeTables().find((t) => t.table === this.scrapeTable()) ?? null,
+  );
+
+  /**
+   * Every season this table knows about, newest first, with the season being played
+   * folded in whether or not the scraper's list reaches it — which for two of the three
+   * it does not, and that is the point.
+   */
+  readonly seasonOptions = computed(() => {
+    const known = this.selectedScrapable()?.default_seasons ?? [];
+    const now = this.currentSeason();
+    return [...new Set(now ? [now, ...known] : known)].sort().reverse();
+  });
+
+  /**
+   * Whether a bare `fantabot db scrape <table>` in a terminal would miss the season being
+   * played. Rendered as a note about the *command*, not about this form: the form has
+   * already defaulted away from it, and the operator with a terminal open has not.
+   */
+  readonly scrapeDefaultIsStale = computed(
+    () => this.selectedScrapable()?.default_is_stale ?? false,
+  );
+
+  /** Whether what is about to run leaves out the season being played. */
+  readonly scrapeMissesCurrentSeason = computed(() => {
+    const now = this.currentSeason();
+    return now !== '' && this.scrapeSeasons().length > 0 && !this.scrapeSeasons().includes(now);
+  });
+
+  readonly canScrape = computed(
+    () => !this.scrapeRunning() && this.scrapeTable() !== '' && this.scrapeSeasons().length > 0,
+  );
+
+  /**
    * Presentation only — the registry's `status` and `ok` are unchanged, this just names
    * the four states a reader cares about. `ok === false` on a terminal job is the partial
    * one; `status === 'error'` is the job itself having failed.
@@ -135,6 +225,89 @@ export class SynchronizeComponent {
 
   constructor() {
     this.reattach();
+    this.readScrapeTables();
+  }
+
+  /**
+   * What may be scraped, and which season is being played.
+   *
+   * The season comes from the server rather than from a `new Date()` here: a browser in
+   * another timezone would disagree with the server about which season is current, and
+   * the disagreement would surface as a form default nobody chose.
+   *
+   * A picker that cannot be read leaves the card unusable and the rest of the page
+   * working, which is what it is — not an error banner about a request the operator
+   * did not make.
+   */
+  private readScrapeTables(): void {
+    this.scrape
+      .tables()
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((found) => {
+        this.scrapeTables.set(found.tables);
+        this.currentSeason.set(found.current_season);
+        if (this.scrapeSeasons().length === 0) this.scrapeSeasons.set([found.current_season]);
+      });
+  }
+
+  /**
+   * Choose a table. The seasons are **not** re-derived from its default list.
+   *
+   * That is the whole of T23 on this page: `voti` and `statistiche` default to a list
+   * that stops before the season being played, so a form that inherited it would
+   * reproduce the terminal's trap — a run that scrapes last season and reports success.
+   */
+  setScrapeTable(table: string): void {
+    this.scrapeTable.set(table);
+  }
+
+  setScrapeSeasons(seasons: string[]): void {
+    this.scrapeSeasons.set(seasons);
+  }
+
+  /** Start the supervised child — `fantabot db scrape <table> --season ...`. */
+  runScrape(): void {
+    if (!this.canScrape()) return;
+    this.scrapeError.set(null);
+    this.scrapeLines.set([]);
+    this.scrapeOk.set(null);
+    this.scrapeStatus.set('running');
+    this.scrape
+      .run({ table: this.scrapeTable(), seasons: this.scrapeSeasons() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (started) => {
+          this.scrapeRunning.set(true);
+          this.scrapeJobId.set(started.job_id);
+          this.poll(this.scrapePanel, started.job_id);
+        },
+        error: (failure: { error?: { detail?: string } }) => {
+          this.scrapeStatus.set('');
+          // The route's own sentence when it has one: a refused season is a line the
+          // operator has to rewrite, and the command prints exactly this.
+          this.scrapeError.set(failure.error?.detail ?? 'Could not start the scrape.');
+        },
+      });
+  }
+
+  /**
+   * Ask the child to stop. Safe in a way `harvest collect` is not: every write is an
+   * upsert, `voti` commits per giornata and the site is still there, so a stop costs
+   * fetch time and never a row.
+   */
+  stopScrape(): void {
+    const jobId = this.scrapeJobId();
+    if (!jobId) return;
+    this.jobs
+      .stop(jobId)
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe();
   }
 
   setLeagueId(value: string): void {
@@ -218,11 +391,19 @@ export class SynchronizeComponent {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((list) => {
-        const live = list.jobs.find((job) => job.kind === KIND && job.status === 'running');
-        if (!live) return;
-        this.running.set(true);
-        this.jobStatus.set('running');
-        this.poll(live.id);
+        const resume = (kind: string, panel: JobPanel) => {
+          const live = list.jobs.find((job) => job.kind === kind && job.status === 'running');
+          if (!live) return;
+          panel.running.set(true);
+          panel.status.set('running');
+          panel.jobId.set(live.id);
+          this.poll(panel, live.id);
+        };
+
+        resume(KIND, this.legaPanel);
+        // A scrape is a subprocess and outlives this page. Re-enabling the button would
+        // start a second child against the same live site, which is the opposite of polite.
+        resume(SCRAPE_KIND, this.scrapePanel);
       });
   }
 
@@ -234,7 +415,8 @@ export class SynchronizeComponent {
     request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (result) => {
         this.running.set(true);
-        this.poll(result.job_id);
+        this.legaPanel.jobId.set(result.job_id);
+        this.poll(this.legaPanel, result.job_id);
       },
       error: () => {
         this.jobStatus.set('');
@@ -249,19 +431,19 @@ export class SynchronizeComponent {
    * `since` starts wherever `lines` already is, so a reattach after a refresh does not
    * re-render the whole log, and a resumed poll appends rather than replaces.
    */
-  private poll(jobId: string): void {
+  private poll(panel: JobPanel, jobId: string): void {
     interval(1500)
       .pipe(
-        switchMap(() => this.jobs.get(jobId, this.lines().length)),
+        switchMap(() => this.jobs.get(jobId, panel.lines().length)),
         takeWhile((job) => job.status === 'running', true),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((job) => {
-        if (job.lines.length) this.lines.update((shown) => [...shown, ...job.lines]);
-        this.jobStatus.set(job.status);
+        if (job.lines.length) panel.lines.update((shown) => [...shown, ...job.lines]);
+        panel.status.set(job.status);
         if (job.status !== 'running') {
-          this.running.set(false);
-          this.jobOk.set(job.ok);
+          panel.running.set(false);
+          panel.ok.set(job.ok);
         }
       });
   }

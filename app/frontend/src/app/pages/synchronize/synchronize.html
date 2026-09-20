@@ -74,8 +74,8 @@
 
         <div class="one-shot" aria-live="polite">
           <p class="one-shot-lede">
-            <strong>Team snapshot.</strong> Capture our own credits and roster ids for the league
-            id above. Every run appends a new row, so an earlier capture is never overwritten.
+            <strong>Team snapshot.</strong> Capture our own credits and roster ids for the league id
+            above. Every run appends a new row, so an earlier capture is never overwritten.
           </p>
           <button
             matButton="tonal"
@@ -104,7 +104,11 @@
             } @else {
               <!-- The server's sentence, verbatim. It carries the remedy, and the person
                    reading it here is the person who would otherwise read it in a terminal. -->
-              <p class="one-shot-refusal" [attr.data-snapshot-outcome]="result.outcome" role="alert">
+              <p
+                class="one-shot-refusal"
+                [attr.data-snapshot-outcome]="result.outcome"
+                role="alert"
+              >
                 {{ result.reason }}
               </p>
             }
@@ -146,7 +150,11 @@
                 }
               </p>
             } @else {
-              <p class="one-shot-refusal" [attr.data-backfill-outcome]="result.outcome" role="alert">
+              <p
+                class="one-shot-refusal"
+                [attr.data-backfill-outcome]="result.outcome"
+                role="alert"
+              >
                 {{ result.reason }}
               </p>
             }
@@ -217,3 +225,173 @@
     </mat-card>
   </section>
 </div>
+
+<section class="scrape" aria-labelledby="scrape-heading">
+  <!-- T23 — `db scrape`. The longest write this app can start: three seasons of `voti`
+       is ~114 polite GETs a second apart, so it is a supervised child with its own log
+       rather than a request, and it has its own Stop.
+
+       It sits under Team maintenance because that card's one refusal sends the operator
+       here: a club code that resolves to no name means the names are not in
+       `match_grain` yet, and `db scrape voti` is what puts them there. -->
+  <mat-card appearance="outlined" class="control-card">
+    <mat-card-header>
+      <h2 mat-card-title id="scrape-heading">Scrape</h2>
+    </mat-card-header>
+
+    <mat-card-content>
+      <p class="control-lede">
+        Fetches from fantacalcio.it and upserts. Slow and polite — one request a second — and safe
+        to stop: every write is an upsert, so an interrupted run is re-run, not repaired.
+      </p>
+
+      @if (!scrapeTables().length) {
+        <p class="control-note">
+          The scrapable tables could not be read. The rest of this page still works.
+        </p>
+      } @else {
+        <div class="scrape-controls">
+          <mat-form-field appearance="outline" class="field-scrape-table">
+            <mat-label>Table</mat-label>
+            <mat-select
+              [value]="scrapeTable()"
+              [disabled]="scrapeRunning()"
+              (selectionChange)="setScrapeTable($event.value)"
+            >
+              @for (t of scrapeTables(); track t.table) {
+                <mat-option [value]="t.table" [attr.data-scrape-table]="t.table">
+                  {{ t.table }} &middot; writes {{ t.writes.join(', ') }}
+                </mat-option>
+              }
+            </mat-select>
+            <mat-hint>
+              Run <code>quotazioni</code> first on a fresh database: everything else points at the
+              rows it writes.
+            </mat-hint>
+          </mat-form-field>
+
+          <!-- Pre-selected to the season being played, and deliberately *not* re-derived
+               when the table changes. `voti` and `statistiche` default to a list that
+               stops before this season, so a form that inherited it would reproduce the
+               terminal's trap: a run that scrapes last season and reports success. -->
+          <mat-form-field appearance="outline" class="field-scrape-seasons">
+            <mat-label>Seasons</mat-label>
+            <mat-select
+              multiple
+              [value]="scrapeSeasons()"
+              [disabled]="scrapeRunning() || !scrapeTable()"
+              (selectionChange)="setScrapeSeasons($event.value)"
+            >
+              @for (season of seasonOptions(); track season) {
+                <mat-option [value]="season" [attr.data-scrape-season]="season">
+                  {{ season }}
+                </mat-option>
+              }
+            </mat-select>
+            <mat-hint>Every season is fetched in full. One request a second, each.</mat-hint>
+          </mat-form-field>
+        </div>
+
+        <!-- The trap, said out loud, and said about the *command* rather than this form.
+             The form has already defaulted away from it; the operator with a terminal
+             open has not. -->
+        @if (scrapeDefaultIsStale()) {
+          <p class="control-note" data-scrape-note="stale-default">
+            <lucide-icon
+              class="control-note-icon"
+              [size]="18"
+              name="triangle-alert"
+              aria-hidden="true"
+            />
+            <span>
+              <code>fantabot db scrape {{ scrapeTable() }}</code> with no
+              <code>--season</code> stops at {{ selectedScrapable()?.default_seasons?.at(-1) }} — it
+              would not touch {{ currentSeason() }}, and would report success anyway.
+            </span>
+          </p>
+        }
+
+        @if (scrapeMissesCurrentSeason()) {
+          <p class="control-note" data-scrape-note="misses-current" role="alert">
+            <lucide-icon
+              class="control-note-icon"
+              [size]="18"
+              name="triangle-alert"
+              aria-hidden="true"
+            />
+            <span>This run leaves out {{ currentSeason() }}, the season being played.</span>
+          </p>
+        }
+
+        <div class="scrape-actions">
+          <button
+            matButton="tonal"
+            type="button"
+            data-control="scrape-run"
+            (click)="runScrape()"
+            [disabled]="!canScrape()"
+          >
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [class.icon-spin]="scrapeRunning()"
+              [size]="18"
+              [name]="scrapeRunning() ? 'Loader2' : 'RefreshCw'"
+              aria-hidden="true"
+            />
+            {{ scrapeRunning() ? 'Scraping…' : 'Scrape' }}
+          </button>
+
+          @if (scrapeRunning()) {
+            <button
+              matButton="outlined"
+              type="button"
+              data-control="scrape-stop"
+              (click)="stopScrape()"
+            >
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [size]="18"
+                name="x"
+                aria-hidden="true"
+              />
+              Stop scrape
+            </button>
+          }
+        </div>
+      }
+
+      @if (scrapeRunning()) {
+        <mat-progress-bar
+          class="outcome-progress"
+          mode="indeterminate"
+          aria-label="Scrape running"
+        />
+      }
+
+      <div class="scrape-state" aria-live="polite">
+        @if (scrapeError(); as message) {
+          <!-- The route's own sentence. A refused season is a line to rewrite, and the
+               command prints exactly this. -->
+          <p class="one-shot-refusal" data-scrape-outcome="refused" role="alert">{{ message }}</p>
+        } @else if (!scrapeRunning() && scrapeOk() === true) {
+          <p class="one-shot-result" data-scrape-outcome="done">Scrape finished.</p>
+        } @else if (!scrapeRunning() && scrapeOk() === false) {
+          <p class="one-shot-refusal" data-scrape-outcome="failed" role="alert">
+            The scrape did not finish. Nothing partial was lost — every write is an upsert, so
+            re-running picks up where it stopped.
+          </p>
+        }
+      </div>
+
+      @if (scrapeLines().length) {
+        <ol class="run-log" role="list" aria-label="Scrape output">
+          @for (line of scrapeLines(); track $index) {
+            <li class="run-log-line">{{ line }}</li>
+          }
+        </ol>
+      }
+    </mat-card-content>
+  </mat-card>
+</section>

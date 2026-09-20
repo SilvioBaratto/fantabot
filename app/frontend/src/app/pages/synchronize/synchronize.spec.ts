@@ -3,9 +3,42 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { LucideIconConfig } from 'lucide-angular';
 
+import { ScrapeTables } from '../../core/models/scrape';
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
 import { SynchronizeComponent } from './synchronize';
+
+/**
+ * What `GET /db/scrape/tables` answers. `voti` and `statistiche` carry the trap: their
+ * own `DEFAULT_SEASONS` stop before the season being played, so a run that names no
+ * season scrapes last season and reports success.
+ */
+const TABLES: ScrapeTables = {
+  current_season: '2026/27',
+  tables: [
+    {
+      table: 'quotazioni',
+      writes: ['quotazioni', 'players', 'teams'],
+      requires: [],
+      default_seasons: ['2024/25', '2025/26', '2026/27'],
+      default_is_stale: false,
+    },
+    {
+      table: 'statistiche',
+      writes: ['statistiche'],
+      requires: ['quotazioni'],
+      default_seasons: ['2024/25', '2025/26'],
+      default_is_stale: true,
+    },
+    {
+      table: 'voti',
+      writes: ['voti', 'bonus_malus'],
+      requires: ['quotazioni'],
+      default_seasons: ['2024/25', '2025/26'],
+      default_is_stale: true,
+    },
+  ],
+};
 
 describe('SynchronizeComponent', () => {
   let httpMock: HttpTestingController;
@@ -30,7 +63,30 @@ describe('SynchronizeComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  /**
+   * The picker's own read, drained in teardown.
+   *
+   * Every test on this page now boots two requests — the jobs listing and the scrape
+   * picker — and the tests that predate the scrape card are not about the second. Draining
+   * it here keeps them about what they were about, instead of adding a flush to seven
+   * bodies that would then read as a step each test cares about. The scrape tests flush it
+   * themselves, so this matches nothing for them.
+   *
+   * `match` rather than `match().flush()`: it already takes the request off the open list,
+   * which is all `verify()` asks, and flushing one a `fixture.destroy()` has cancelled
+   * throws from inside `afterEach` — which then leaves the TestBed instantiated and takes
+   * down every later spec file with *"Cannot configure the test module"*.
+   */
+  const drainScrapeTables = () => httpMock.match((r) => r.url.includes('db/scrape/tables'));
+
+  afterEach(() => {
+    drainScrapeTables();
+    httpMock.verify();
+  });
+
+  /** The picker's read, flushed where a test is about what the card does with it. */
+  const bootScrape = (tables: ScrapeTables = TABLES) =>
+    httpMock.expectOne((r) => r.url.includes('db/scrape/tables')).flush(tables);
 
   it('starts a lega sync job for the entered league id', () => {
     const fixture = TestBed.createComponent(SynchronizeComponent);
@@ -276,11 +332,13 @@ describe('SynchronizeComponent', () => {
     fixture.componentInstance.setLeagueId('4103937');
 
     fixture.componentInstance.captureSnapshot();
-    httpMock.expectOne((r) => r.url.includes('db/snapshot-team')).flush({
-      outcome: 'no_credential',
-      reason: 'No encryption key set — connect an account first.',
-      league_id: 4103937,
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('db/snapshot-team'))
+      .flush({
+        outcome: 'no_credential',
+        reason: 'No encryption key set — connect an account first.',
+        league_id: 4103937,
+      });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.snapshot()?.outcome).toBe('no_credential');
@@ -343,11 +401,13 @@ describe('SynchronizeComponent', () => {
     const fixture = idlePage();
 
     fixture.componentInstance.resolveClubNames();
-    httpMock.expectOne((r) => r.url.includes('db/backfill-teams')).flush({
-      outcome: 'unresolved',
-      reason: "club names not resolved (no name for code 'PIS') — nothing was written.",
-      changed: 0,
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('db/backfill-teams'))
+      .flush({
+        outcome: 'unresolved',
+        reason: "club names not resolved (no name for code 'PIS') — nothing was written.",
+        changed: 0,
+      });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.backfill()?.outcome).toBe('unresolved');
@@ -361,20 +421,192 @@ describe('SynchronizeComponent', () => {
     fixture.componentInstance.setLeagueId('4103937');
 
     fixture.componentInstance.captureSnapshot();
-    httpMock.expectOne((r) => r.url.includes('db/snapshot-team')).flush({
-      outcome: 'saved',
-      reason: '',
-      league_id: 4103937,
-      team_id: 1,
-      nome: 'Legamiallerotaie',
-      owner: 'silvio',
-      credits_initial: 500,
-      credits_spent: 474,
-      credits_remaining: 26,
-    });
+    httpMock
+      .expectOne((r) => r.url.includes('db/snapshot-team'))
+      .flush({
+        outcome: 'saved',
+        reason: '',
+        league_id: 4103937,
+        team_id: 1,
+        nome: 'Legamiallerotaie',
+        owner: 'silvio',
+        credits_initial: 500,
+        credits_spent: 474,
+        credits_remaining: 26,
+      });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.lines()).toEqual([]);
     expect(fixture.componentInstance.outcome()).toBe('idle');
+  });
+
+  // -- the scrape card (T23) ------------------------------------------------------------
+
+  const bootPage = () => {
+    const fixture = TestBed.createComponent(SynchronizeComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.endsWith('jobs')).flush({ jobs: [] });
+    bootScrape();
+    fixture.detectChanges();
+    return fixture;
+  };
+
+  it('offers the three scrapable tables in the order a fresh database needs them', () => {
+    const page = bootPage().componentInstance;
+
+    expect(page.scrapeTables().map((t) => t.table)).toEqual(['quotazioni', 'statistiche', 'voti']);
+  });
+
+  it('defaults the season to the one being played, not to the scraper default', () => {
+    // The whole of T23. `voti`'s own DEFAULT_SEASONS stop at 2025/26, so a form that
+    // inherited them would reproduce the trap the terminal already has: a run that
+    // scrapes last season and reports success.
+    const page = bootPage().componentInstance;
+    page.setScrapeTable('voti');
+
+    expect(page.scrapeSeasons()).toEqual(['2026/27']);
+    expect(page.scrapeSeasons()).not.toContain('2025/26');
+  });
+
+  it('still offers every season the scraper knows about', () => {
+    const page = bootPage().componentInstance;
+    page.setScrapeTable('voti');
+
+    expect(page.seasonOptions()).toEqual(['2026/27', '2025/26', '2024/25']);
+  });
+
+  it('says when the chosen table would miss the season being played from a terminal', () => {
+    const page = bootPage().componentInstance;
+
+    page.setScrapeTable('voti');
+    expect(page.scrapeDefaultIsStale()).toBe(true);
+
+    page.setScrapeTable('quotazioni');
+    expect(page.scrapeDefaultIsStale()).toBe(false);
+  });
+
+  it('warns when the chosen seasons leave out the one being played', () => {
+    const page = bootPage().componentInstance;
+    page.setScrapeTable('voti');
+
+    page.setScrapeSeasons(['2025/26']);
+    expect(page.scrapeMissesCurrentSeason()).toBe(true);
+
+    page.setScrapeSeasons(['2025/26', '2026/27']);
+    expect(page.scrapeMissesCurrentSeason()).toBe(false);
+  });
+
+  it('posts the chosen table and every chosen season', () => {
+    const fixture = bootPage();
+    const page = fixture.componentInstance;
+    page.setScrapeTable('voti');
+    page.setScrapeSeasons(['2026/27', '2025/26']);
+
+    page.runScrape();
+
+    const posted = httpMock.expectOne(`${environment.apiUrl}db/scrape`);
+    expect(posted.request.body).toEqual({ table: 'voti', seasons: ['2026/27', '2025/26'] });
+    posted.flush({ job_id: 'S1' });
+    fixture.detectChanges();
+
+    expect(page.scrapeRunning()).toBe(true);
+    fixture.destroy();
+  });
+
+  it('does not start with no season chosen', () => {
+    // An empty list is the command's "use my default", which is the stale one. The route
+    // still accepts it — the CLI does — but the form never sends what it exists to avoid.
+    const page = bootPage().componentInstance;
+    page.setScrapeTable('voti');
+    page.setScrapeSeasons([]);
+
+    page.runScrape();
+
+    httpMock.expectNone((r) => r.url.endsWith('db/scrape'));
+    expect(page.scrapeRunning()).toBe(false);
+  });
+
+  it('does not start with no table chosen', () => {
+    const page = bootPage().componentInstance;
+
+    page.runScrape();
+
+    httpMock.expectNone((r) => r.url.endsWith('db/scrape'));
+  });
+
+  it('shows the refusal the command would have printed', () => {
+    const fixture = bootPage();
+    const page = fixture.componentInstance;
+    page.setScrapeTable('voti');
+
+    page.runScrape();
+
+    httpMock
+      .expectOne(`${environment.apiUrl}db/scrape`)
+      .flush(
+        { detail: "'2022/26' is not a season: it spans more than one year." },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    fixture.detectChanges();
+
+    expect(page.scrapeError()).toContain('2022/26');
+    expect(page.scrapeRunning()).toBe(false);
+  });
+
+  it('reattaches to a scrape that is still running after a refresh', () => {
+    // A scrape is a subprocess and outlives the page. Re-enabling the button would start
+    // a second child against the same live site, which is the opposite of polite.
+    const fixture = TestBed.createComponent(SynchronizeComponent);
+    fixture.detectChanges();
+    httpMock
+      .expectOne((r) => r.url.endsWith('jobs'))
+      .flush({
+        jobs: [
+          {
+            id: 'S9',
+            kind: 'db-scrape',
+            status: 'running',
+            started_at: '2026-09-20T18:00:00+00:00',
+            line_count: 2,
+            ok: null,
+            stoppable: true,
+          },
+        ],
+      });
+    bootScrape();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.scrapeRunning()).toBe(true);
+    expect(fixture.componentInstance.running()).toBe(false);
+    fixture.destroy();
+  });
+
+  it('asks the server to stop the child it started', () => {
+    const fixture = bootPage();
+    const page = fixture.componentInstance;
+    page.setScrapeTable('voti');
+    page.runScrape();
+    httpMock.expectOne(`${environment.apiUrl}db/scrape`).flush({ job_id: 'S2' });
+    fixture.detectChanges();
+
+    page.stopScrape();
+
+    httpMock.expectOne(`${environment.apiUrl}jobs/S2/stop`).flush({ ok: true });
+    fixture.destroy();
+  });
+
+  it('survives a picker that cannot be read', () => {
+    // The card is unusable without the list, and that is a different thing from the page
+    // being broken: the lega sync above it still works.
+    const fixture = TestBed.createComponent(SynchronizeComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.endsWith('jobs')).flush({ jobs: [] });
+    httpMock
+      .expectOne((r) => r.url.includes('db/scrape/tables'))
+      .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.scrapeTables()).toEqual([]);
+    expect(fixture.componentInstance.errorMsg()).toBeNull();
   });
 });

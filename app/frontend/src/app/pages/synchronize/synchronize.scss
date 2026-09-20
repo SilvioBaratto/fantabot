@@ -390,3 +390,71 @@
     transform: rotate(360deg);
   }
 }
+
+/* --- the scrape card (T23) --------------------------------------------------------------- */
+
+/* Full width, below the two panes, rather than a third card in `.pane-control`. That pane
+   is `position: sticky` at expanded+ and a sticky box taller than the viewport has an
+   unreachable bottom — with a job log inside it, this card would have made it one. It is
+   also not lega synchronisation: it fetches Serie A's reference data, which is the whole
+   database rather than one lega. `pages/harvest/harvest.html`'s corpus section is the
+   same shape for the same reason. */
+.scrape {
+  margin-block-start: 16px;
+}
+
+@media (min-width: 600px) {
+  .scrape {
+    margin-block-start: 24px;
+  }
+}
+
+/* The two fields sit side by side as soon as there is room. Stacked below that: a
+   multi-select of seasons squeezed into half a phone is a control nobody can read. */
+.scrape-controls {
+  display: grid;
+  gap: 16px;
+  margin-block-start: 8px;
+}
+
+@media (min-width: 600px) {
+  .scrape-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.scrape-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-start: 8px;
+}
+
+/* The note the whole task is about: it says what a *terminal* would do, not what this
+   form will, so it is `on-surface-variant` and not an error. `role="alert"` is on the
+   other one — the run that is about to leave the season out is the operator's own
+   choice, made now, and is the one worth interrupting for. */
+.control-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  max-inline-size: 72ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.control-note code {
+  font-family: var(--sync-mono);
+  overflow-wrap: anywhere;
+}
+
+.control-note-icon {
+  flex: none;
+  color: var(--mat-sys-tertiary);
+}
+
+.scrape-state:empty {
+  display: none;
+}
