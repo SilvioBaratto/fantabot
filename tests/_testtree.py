@@ -135,6 +135,9 @@ TREE: dict[str, str] = {
     # T25: the two one-shot team commands — which endpoint `snapshot-team` reads, and
     # what an untrustworthy club-name mapping means to the command that is its remedy.
     "test_team_maintenance.py": "application",
+    # T23: what `db scrape` may be asked for — the three tables, what a season is, and
+    # the stale `DEFAULT_SEASONS` that makes an omitted `--season` scrape last season.
+    "test_scrape_inputs.py": "application",
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",
@@ -209,6 +212,9 @@ TREE: dict[str, str] = {
     "test_cli_db_dump.py": "interface",
     "test_cli_exclusions.py": "interface",
     "test_cli_db_price.py": "interface",
+    # T23: the lift's proof — the command fetches nothing it was not asked for, and says
+    # which seasons it took before it takes minutes taking them.
+    "test_cli_db_scrape.py": "interface",
     "test_cli_entrypoints.py": "interface",
     "test_lineup_cli.py": "interface",
     "test_cli_fantalab_login.py": "interface",

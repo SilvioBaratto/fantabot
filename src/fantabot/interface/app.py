@@ -561,21 +561,44 @@ def db_scrape(
     match-grain tables. Run `quotazioni` first on a fresh database: `players` and
     `teams` have no outbound foreign keys and everything else points at them, so
     writing the facts first is a foreign-key violation rather than a slow run.
+
+    A printer over `application/scrape` since T23: which tables are scrapable, which
+    module each one is, and what an omitted `--season` resolves to moved there so the
+    app's form offers the same three and refuses the same seasons with the same
+    sentences, rather than inventing a second idea of a scrapable table.
     """
     # Imported inside the body, like every other command that touches the database:
     # `tests/test_db_boundary.py` asserts that importing the CLI loads neither
     # sqlalchemy nor playwright, and these modules pull in the whole persistence stack.
-    known = {"quotazioni", "statistiche", "voti"}
-    if table not in known:
-        raise typer.BadParameter(f"{table!r} is not scrapable. Pick one of {sorted(known)}.")
+    from fantabot.application.scrape import (
+        InvalidScrape,
+        clean_scrape,
+        current_season,
+        run_scrape,
+        scrapables,
+    )
 
-    from importlib import import_module
+    try:
+        request = clean_scrape(table, seasons)
+    except InvalidScrape as refused:
+        console.print(f"[red]{refused}[/red]")
+        raise typer.Exit(2) from None
 
-    module = import_module(f"fantabot.adapters.scraping.{table}")
-    if seasons:
-        module.run(seasons)
-    else:
-        module.run()
+    # Said before the first request, not after the last: a `voti` run is minutes per
+    # season, and "which seasons is this actually fetching" is not a question worth
+    # waiting out. It is also the whole of the stale-default trap made visible — the run
+    # below reports success either way.
+    console.print(f"scraping {request.table}: {', '.join(request.seasons)}")
+    if not seasons:
+        now = current_season(date.today())
+        asked = next(s for s in scrapables(now) if s.table == request.table)
+        if asked.default_is_stale:
+            console.print(
+                f"[yellow]{request.table}'s default stops before {now}[/yellow] — this run "
+                f"will not touch the season being played. Use `--season {now}`."
+            )
+
+    run_scrape(request)
 
 
 def db_price(
