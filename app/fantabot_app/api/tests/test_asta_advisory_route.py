@@ -29,20 +29,14 @@ ROOM = "8ca35cbf-0f7a-4b3a-9e2e-3f2a1b0c4d5e"
 
 def _advisory(**over: Any) -> Any:
     """A built `Advisory`, so these tests exercise the route and not the fold."""
-    from datetime import date
-
     from fantabot.application.asta_advisory import (
         Advisory,
         AdvisoryOpponent,
-        AdvisoryRequest,
         AdvisoryTarget,
     )
     from fantabot.application.plan_inputs import PlanInputs
 
     fields: dict[str, Any] = {
-        "request": AdvisoryRequest(
-            our_team_id="US", season="2026/27", as_of=date(2026, 9, 20), budget=650.0
-        ),
         "targets": (
             AdvisoryTarget(player_id="2", nome="Zaccagni", walk_away=44, chase=True),
             AdvisoryTarget(player_id="1", nome="Svilar", walk_away=0, chase=False),

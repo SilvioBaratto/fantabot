@@ -97,9 +97,13 @@ class AdvisoryOpponent:
 
 @dataclass(frozen=True, slots=True)
 class Advisory:
-    """The rolling advisory after the last sale, and the world it was computed against."""
+    """The rolling advisory after the last sale, and the world it was computed against.
 
-    request: AdvisoryRequest
+    No `request` field, deliberately: `PlannedRoster` carries one so a parity test can pin
+    the CLI's request against the endpoint's, and no such test exists here. A field nobody
+    reads is a field that stops being true without anything saying so.
+    """
+
     targets: tuple[AdvisoryTarget, ...]
     opponents: tuple[AdvisoryOpponent, ...]
     #: Sales actually folded — every one the listone could name.
@@ -211,7 +215,6 @@ def build_advisory(
     )
 
     return Advisory(
-        request=request,
         targets=targets,
         opponents=opponents,
         sales=len(sales),

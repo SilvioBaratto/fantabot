@@ -237,6 +237,27 @@ class TestTheChildIsToldTheRoomsOwnShape:
         assert bid_flag(ROOM) != watch_flag(ROOM)
 
 
+def test_the_pin_covers_everything_the_room_check_can_say() -> None:
+    """This route **forwards** `check_room`'s outcome rather than naming four of its own —
+    one resolution path, one set of reasons, which is why they do not drift.
+
+    The cost is that `test_outcomes.py`'s literal scan sees only `started` here, so the
+    invariant is asserted where the two tuples can be compared: whatever the room check can
+    answer, this route can forward, and `resolved` becomes `started` because by then
+    something has been started.
+
+    It fails the day `check_room` grows a sixth outcome — which would otherwise reach the
+    page as a name no branch handles.
+    """
+    from fantabot_app.api.outcomes import ROOM_BID_OUTCOMES
+    from fantabot_app.api.v1.endpoints.room import OUTCOMES
+
+    assert set(ROOM_BID_OUTCOMES) == {"started"} | (set(OUTCOMES) - {"resolved"})
+    assert "resolved" not in ROOM_BID_OUTCOMES, (
+        "a room that resolved is not an outcome of this route: something was started"
+    )
+
+
 class TestItRefusesBeforeItSpawns:
     @pytest.mark.parametrize(
         ("outcome", "reason"),

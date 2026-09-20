@@ -112,6 +112,22 @@ LINEUP_CURRENT_OUTCOMES = (
     "unreachable",
 )
 
+#: `POST /asta/room/bid` — the one route that can start a run which spends credits.
+#:
+#: Four of the five are `check_room`'s own, reached through the same call rather than
+#: re-derived: a second resolution path is a second set of reasons, and they drift.
+#: `started` covers both an armed run and a dry one, because a dry run is not a failure —
+#: it is the rehearsal an operator does before arming, and it still watches, decides and
+#: journals. Whether it may act is `armed`/`closed` on the body, not an outcome: a lock
+#: being shut is a fact about the run, not about whether it began.
+ROOM_BID_OUTCOMES = (
+    "started",
+    "refused",
+    "bad_link",
+    "no_credential",
+    "unreachable",
+)
+
 TARGET_PRICES_OUTCOMES = ("priced", "no_data", "unknown_system", "unreachable")
 
 
@@ -126,8 +142,11 @@ def because(exc: Exception) -> str:
 
 
 __all__ = [
+    "ASTA_ADVISORY_OUTCOMES",
     "ASTA_PLAN_OUTCOMES",
+    "LINEUP_CURRENT_OUTCOMES",
     "LINEUP_PLAN_OUTCOMES",
+    "ROOM_BID_OUTCOMES",
     "TARGET_PRICES_OUTCOMES",
     "because",
 ]

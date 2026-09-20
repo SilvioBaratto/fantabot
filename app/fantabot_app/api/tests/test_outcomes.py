@@ -33,7 +33,9 @@ from sqlalchemy.exc import OperationalError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.outcomes import (
+    ASTA_ADVISORY_OUTCOMES,
     ASTA_PLAN_OUTCOMES,
+    LINEUP_CURRENT_OUTCOMES,
     LINEUP_PLAN_OUTCOMES,
     TARGET_PRICES_OUTCOMES,
     because,
@@ -71,9 +73,19 @@ class TestTheRoutesReturnOnlyWhatTheyPin:
         ("filename", "model", "pinned"),
         [
             ("asta.py", "AstaPlan", ASTA_PLAN_OUTCOMES),
+            ("asta.py", "AstaAdvisory", ASTA_ADVISORY_OUTCOMES),
             ("lineup.py", "LineupPlan", LINEUP_PLAN_OUTCOMES),
+            ("lineup.py", "CurrentLineup", LINEUP_CURRENT_OUTCOMES),
             ("pricing.py", "TargetPricesReport", TARGET_PRICES_OUTCOMES),
+            # `room_bid.py` is deliberately absent, and the reason is the design rather than
+            # an exemption: it **forwards** `check_room`'s outcome instead of naming four of
+            # its own, so a scan for literals sees only `started`. Re-listing them in the
+            # route to satisfy this scan would be the second set of reasons that one
+            # resolution path exists to prevent. Its real invariant — that the pin covers
+            # everything `check_room` can say — is asserted in `test_room_bid.py`, where the
+            # two tuples can be compared directly.
         ],
+        ids=lambda value: value if isinstance(value, str) else "",
     )
     def test_the_outcomes_it_returns_are_exactly_the_ones_it_pins(
         self, filename: str, model: str, pinned: tuple[str, ...]
@@ -87,7 +99,9 @@ class TestTheRoutesReturnOnlyWhatTheyPin:
             "must delete its name"
         )
 
-    @pytest.mark.parametrize("filename", ["asta.py", "lineup.py", "pricing.py"])
+    @pytest.mark.parametrize(
+        "filename", ["asta.py", "lineup.py", "pricing.py", "room_bid.py"]
+    )
     def test_no_decision_route_catches_bare_exception(self, filename: str) -> None:
         """The criterion, literally: `except Exception` in none of the three.
 

@@ -39,13 +39,6 @@ from fantabot_app.api.v1.endpoints.room import check_room, stored_connect
 
 router = APIRouter()
 
-#: Five answers, five names — `outcomes.py`'s rule. Four of them are `check_room`'s own,
-#: reached through the same call rather than re-derived: a second resolution path is a second
-#: set of reasons, and they drift. `started` covers both an armed run and a dry one, because
-#: a dry run is not a failure — it is the rehearsal an operator does before arming, and it
-#: still watches, decides and journals.
-ROOM_BID_OUTCOMES = ("started", "refused", "bad_link", "no_credential", "unreachable")
-
 #: What this surface says when a lock is shut. The *fact* is shared with the CLI
 #: (`application.arming`); the wording is local, because there is no `--arm` flag in an HTTP
 #: request and a message naming one sends the reader to a terminal they are not using.
