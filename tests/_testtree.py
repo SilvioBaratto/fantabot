@@ -117,6 +117,9 @@ TREE: dict[str, str] = {
     "test_login_wait.py": "application",
     "test_lega_sync.py": "application",
     "test_asta_calibrate.py": "application",
+    # T19: which listone a room is priced against, and who said so. Pure — the rungs are
+    # decided here and fetched in `interface/asta.py`.
+    "test_asta_format.py": "application",
     "test_plan_inputs.py": "application",
     "test_plan_request.py": "application",
     "test_corpus_shape.py": "application",

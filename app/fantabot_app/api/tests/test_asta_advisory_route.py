@@ -85,8 +85,47 @@ def wired(monkeypatch):
 
 
 def _get(client: TestClient, **params: Any):
-    query = {"league": ROOM, "db": 3, "team": "TEAM-7", "credits": 650, "teams": 10, **params}
+    # `listone` is stated here because the route requires it — see
+    # `TestTheFormatIsRequired`. It used to default to "mantra" server-side and every test
+    # in this file was silently exercising that default.
+    query = {
+        "league": ROOM,
+        "db": 3,
+        "team": "TEAM-7",
+        "credits": 650,
+        "teams": 10,
+        "listone": "mantra",
+        **params,
+    }
     return client.get("/api/v1/asta/advisory", params=query)
+
+
+class TestTheFormatIsRequired:
+    """`listone` had `= "mantra"`, the same silent default `asta live --league` had.
+
+    It was safe only because `asta.ts` happens to guard it — the page will not request an
+    advisory until its room check produced an `asta_type`, on the stated grounds that "an
+    advisory priced against another lega's game is worse than none". Any other caller —
+    curl, a second client, an agent — got the guess, and nothing downstream can raise:
+    the pool, the prices and the listone bridge are all legal for the wrong game.
+    """
+
+    def test_a_request_that_names_no_format_is_refused(self, wired) -> None:
+        query = {"league": ROOM, "db": 3, "team": "TEAM-7", "credits": 650, "teams": 10}
+
+        answered = TestClient(app).get("/api/v1/asta/advisory", params=query)
+
+        assert answered.status_code == 422
+        assert "listone" in answered.text
+        assert "request" not in wired, "an advisory was built for a game nobody named"
+
+    def test_a_format_that_is_neither_is_refused(self, wired) -> None:
+        assert _get(TestClient(app), listone="mantar").status_code == 422
+
+    def test_a_stated_format_reaches_the_request(self, wired) -> None:
+        """The other half: a route that ignored the parameter would pass the two above."""
+        assert _get(TestClient(app), listone="classic").status_code == 200
+        assert wired["request"].listone == "classic"
 
 
 class TestTheAdvisoryIsRendered:

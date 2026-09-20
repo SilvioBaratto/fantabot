@@ -513,6 +513,27 @@ class AsteRepository(RepositoryBase):
 
         return frozenset(self.session.execute(select(Player.id)).scalars())
 
+    def asta_type_of(self, fantaleague_id: str) -> str | None:
+        """The recorded format of one room, or `None` if the corpus never saw it.
+
+        `asta.id` **is** the fantaleague id — `domain/harvest/registry.py` sets
+        `auction_id=str(card["fantaleague_id"])` and `domain/harvest/backfill.py` writes it
+        as `"id"` — so a room the operator names on the command line joins straight to its
+        harvested card with no lookup table.
+
+        This is the second rung under a room's own `asta_type`, and a weaker fact than it:
+        it answers "was a room with this id harvested, and what was it then", not "what is
+        this room now". Measured 2026-09-20 the corpus holds 4,866 rooms, 4,386 classic and
+        480 mantra — but **not** the operator's own league, which no public scan collects.
+        So this rung usually misses on the one room `asta live --league` is pointed at, and
+        exists for the case where the authenticated probe above it cannot run.
+        """
+        from sqlalchemy import select
+
+        return self.session.execute(
+            select(Asta.asta_type).where(Asta.id == fantaleague_id)
+        ).scalar_one_or_none()
+
     def count_assignments(self, asta_type: str | None = None) -> int:
         """How many sales are stored, optionally for one format.
 

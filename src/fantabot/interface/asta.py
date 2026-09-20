@@ -295,6 +295,71 @@ def _callable_ids(
     return None if ids is None else set(ids)
 
 
+def _declared_format(
+    fantaleague_id: str,
+    *,
+    warn: Callable[[str], None] = lambda _m: None,
+    _fetch: Callable[[str], Any] | None = None,
+) -> str | None:
+    """A room's own `asta_type`, or `None` if it could not be asked. **Never fatal.**
+
+    `asta live --league` reads the `purchases/<fl>` ledger over the *unauthenticated* RTDB
+    — `docs/fantalab/06` says so and the command's own docstring repeats it. This probe is
+    a different call: `POST /fantaleague/fetch`, which 401s without a bearer. So every way
+    it can fail degrades to `None` and the caller falls through to the recorded corpus and
+    then to `--format`. A probe that hard-failed would turn a tokenless command into one
+    that needs a login, which is a regression dressed as a fix.
+
+    **The cipher is built inside the guard, not outside it.** `TokenCipher.__init__` raises
+    `KeyMissing` before any fetch happens; `asta room` builds its cipher outside a try and
+    copying that shape here would crash a machine that simply has no encryption key.
+
+    `AttributeError` is deliberately **not** caught. It is what a fake session raises in a
+    test, and swallowing it would make "the probe degraded" indistinguishable from "the
+    test wired it wrong" — which is why the seam is `_fetch` rather than a patched session.
+    """
+    import httpx
+
+    from fantabot.domain.tokens.errors import TokenError
+
+    try:
+        if _fetch is None:  # pragma: no cover - the real path needs a session and a bearer
+            from fantabot.adapters.http.fantalab import rest
+            from fantabot.adapters.persistence import database_manager
+            from fantabot.adapters.tokens.fantalab_store import FantalabStore
+            from fantabot.config import settings
+            from fantabot.domain.tokens.crypto import TokenCipher
+
+            with database_manager.get_session() as session:
+                store = FantalabStore(session, TokenCipher(settings.fantabot_encryption_key))
+                _fetch = rest.fetcher_from(store)
+        room = _fetch(fantaleague_id)
+    except (TokenError, httpx.HTTPError, ValueError) as exc:
+        # Said out loud rather than swallowed: "no FantaLab session" and "FantaLab is
+        # unreachable" send an operator to different fixes, and the next rung down answers
+        # for a *different* room population, so which rung failed is worth a line.
+        warn(f"the room could not be asked its format ({str(exc) or type(exc).__name__})")
+        return None
+    asta_type: str | None = getattr(room, "asta_type", None)
+    return asta_type
+
+
+def _recorded_format(fantaleague_id: str) -> str | None:
+    """What the harvest corpus holds for this room id, or `None`. The second rung.
+
+    A weaker fact than the room's own word and it is printed as such: it answers "a room
+    with this id was harvested, and it was this then". Measured 2026-09-20 the corpus holds
+    4,866 rooms — and **not** the operator's own league, which no public scan collects — so
+    this rung usually misses on the very room `--league` names. It is the fallback for the
+    case where the authenticated probe above it could not run at all.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.aste import AsteRepository
+
+    with database_manager.get_session() as session:
+        return AsteRepository(session).asta_type_of(fantaleague_id)
+
+
 def _report_stopped(report: Any) -> None:
     """The exit summary both live commands print. One place, because they must not diverge.
 
@@ -448,10 +513,13 @@ def asta_live(
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
     fmt: str = typer.Option(
-        "mantra", "--format",
-        help="Roster format of THIS room: mantra or classic. It selects both the pool and "
-        "the corpus, so a Classic room read as Mantra is advised off players it cannot "
-        "call, priced off another game — and nothing raises.",
+        "", "--format",
+        help="Override the format: mantra or classic. Detected on --league from the room's "
+        "own asta_type, then from the recorded corpus; a run where neither answers is "
+        "refused rather than guessed. --replay carries no format at all, so it stays "
+        "mantra unless told. It selects both the pool and the corpus, so a Classic room "
+        "read as Mantra is advised off players it cannot call, priced off another game — "
+        "and nothing raises.",
     ),
     teams: CorpusTeams = DEFAULT_NUM_TEAMS,
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
@@ -464,7 +532,23 @@ def asta_live(
 
     The live path keys off the ``purchases/<fl>`` ledger (docs/fantalab/06 §10), not
     ``close_auction``, over the unauthenticated RTDB, and drives the exact same engine off
-    ``AssignmentEvent`` as a replay does. It needs no token — only the shard.
+    ``AssignmentEvent`` as a replay does. **The ledger still needs no token — only the
+    shard.**
+
+    What the format needs is a separate question, and the answer is "whatever it can get".
+    `--format` used to default to ``mantra`` here while this docstring's own option help
+    stated the harm: a Classic room read as Mantra is advised off players it cannot call and
+    priced off another game, and *nothing raises* — the pool, the prices and the listone
+    bridge are each legal for the wrong format, so the run exits 0 with a complete advisory
+    for a different sport. It is now detected: the room's own ``asta_type`` (one
+    authenticated ``POST /fantaleague/fetch``), else the harvested corpus for the same id,
+    else ``--format``. Every way the first rung can fail degrades to the second, so a
+    machine with no FantaLab session and no encryption key still runs exactly as before.
+    A ``--league`` run where **no** rung answers is refused rather than guessed.
+
+    ``--replay`` keeps the stated ``mantra`` default, because a landing row is
+    ``{seen_at, auction_id, state}`` and the ``auction/<fl>`` state carries no format —
+    there really is nothing to detect from there.
     """
     from pathlib import Path
 
@@ -472,7 +556,9 @@ def asta_live(
     from fantabot.application.asta_advisory import AdvisoryRequest, build_advisory
     from fantabot.application.plan_request import NoSentimentRows
 
-    if fmt not in ("mantra", "classic"):
+    # `""` only — never a falsy-tolerant check. `--format ""` reads as "not given", which
+    # on `--league` means "detect it"; anything else that is not a game is a typo.
+    if fmt not in ("", "mantra", "classic"):
         raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
     if bool(league) == bool(replay):
@@ -483,10 +569,36 @@ def asta_live(
         if db < 0:
             console.print("[red]--league needs --db (the room's RTDB shard).[/red]")
             raise typer.Exit(1)
+        from fantabot.application.asta_format import FormatUnknown, choose_listone
+
+        # Resolved **before** the ledger read, so a refusal costs no network. Three rungs,
+        # most specific first: `--format`, then the room's own `asta_type`, then the corpus.
+        # There is no fourth. `mantra` was the fourth and it is the defect: this command's
+        # own help text stated the harm and the default committed it, and nothing downstream
+        # can raise — the pool, the prices and the bridge are all legal for the wrong game.
+        try:
+            chosen = choose_listone(
+                fmt,
+                _declared_format(league, warn=lambda m: console.print(f"[dim]{m}[/dim]")),
+                _recorded_format(league),
+            )
+        except FormatUnknown as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=2) from exc
+        if chosen.warning:
+            console.print(f"[yellow]{chosen.warning}[/yellow]")
+        console.print(f"[dim]format: {chosen.listone} ({chosen.provenance})[/dim]")
+        fmt = chosen.listone
+
         from fantabot.adapters.http.fantalab import feed
 
         events = feed.ledger_events(db, league)
     else:
+        # A replay carries no format: `adapters/files/landing.py` writes
+        # `{seen_at, auction_id, state}` and the state is the `auction/<fl>` node, which has
+        # no such field. So there is nothing to detect and a stated default is the honest
+        # answer — the same argument `asta calibrate` makes about naming a corpus.
+        fmt = fmt or "mantra"
         rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
         events = normalize(row.get("state", row) for row in rows)
 

@@ -561,7 +561,14 @@ def asta_advisory(
     league: str,
     db: int,
     team: str,
-    listone: Literal["mantra", "classic"] = "mantra",
+    # **Required, not defaulted.** It carried `= "mantra"` and was safe only because
+    # `asta.ts` happens to guard it — the page refuses to ask for an advisory until its room
+    # check produced an `asta_type`, because "an advisory priced against another lega's game
+    # is worse than none". Any other caller got the guess, and nothing downstream can raise:
+    # the pool, the prices and the listone bridge are all legal for the wrong game, so the
+    # answer is exit 200 and a complete advisory for a different sport. `asta live --league`
+    # had the identical default and is fixed in the same commit.
+    listone: Literal["mantra", "classic"],
     season: str = "2026/27",
     budget: float = 500.0,
     lam: float = 0.0,
@@ -570,11 +577,18 @@ def asta_advisory(
 ) -> AstaAdvisory:
     """The target roster after every sale so far, with a walk-away each, and the rivals.
 
-    **Unauthenticated, as `asta live --league --db` is.** The `purchases/<fl>` ledger is on
-    the open RTDB (docs/fantalab/06 §10) and needs only the shard, so this route takes the
-    shard and our team id rather than resolving the room. A route that resolved would need a
-    FantaLab session for a read that does not, and would answer `no_credential` to a question
-    about a ledger.
+    **Unauthenticated, as `asta live --league --db`'s own ledger read is.** The
+    `purchases/<fl>` ledger is on the open RTDB (docs/fantalab/06 §10) and needs only the
+    shard, so this route takes the shard and our team id rather than resolving the room. A
+    route that resolved would need a FantaLab session for a read that does not, and would
+    answer `no_credential` to a question about a ledger.
+
+    ⚠ The CLI half of that sentence now has a caveat. `asta live --league` still reads the
+    ledger unauthenticated, but it *additionally* probes the room for its `asta_type` and
+    degrades to the recorded corpus, and then to `--format`, when it cannot. This route does
+    not probe — it takes `listone` as a required parameter instead, because the page already
+    holds the room check's answer and a route that re-fetched it would need the session this
+    paragraph exists to avoid.
 
     `teams`/`credits` name the recorded corpus cell to price against, exactly as
     `GET /asta/plan` does — a 10x650 room priced off our 8x500 corpus is somebody else's

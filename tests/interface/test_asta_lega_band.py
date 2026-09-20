@@ -479,22 +479,61 @@ class TestBothCommandsDeclareTheSameDefault:
 
     def test_the_helper_reads_the_option_it_names(self) -> None:
         """The meta-check. Index arithmetic over a parameter list is exactly the shape that
-        reports a neighbour's value and looks right; this asserts the three commands give
-        three answers that are not all the same, so a helper returning one constant fails."""
+        reports a neighbour's value and looks right; this asserts the commands give answers
+        that are not all the same, so a helper returning one constant fails.
+
+        **Re-anchored on `asta_calibrate`.** It used to pair `asta_bid` against
+        `asta_live`, which stopped distinguishing anything the moment `asta live` learned to
+        detect and moved to `""` — the assertion would have gone vacuous while still
+        passing. `asta calibrate` is the right partner and not a substitute of convenience:
+        it names a *corpus* to sweep rather than a room to read, so it has nothing to detect
+        from and states `mantra` on purpose.
+        """
         assert self._default("asta_bid") == ""
-        assert self._default("asta_live") == "mantra"
-        assert len({self._default(c) for c in ("asta_bid", "asta_live")}) == 2
+        assert self._default("asta_calibrate") == "mantra"
+        assert len({self._default(c) for c in ("asta_bid", "asta_calibrate")}) == 2
 
     def test_asta_bid_detects_like_asta_optimize(self) -> None:
         assert self._default("asta_bid") == self._default("asta_optimize") == "", (
             "one command treats its own default as an override the operator typed"
         )
 
-    def test_asta_live_states_a_format_because_it_can_detect_nothing(self) -> None:
-        """The deliberate difference, asserted so it reads as one. `asta live` takes no
-        `--lega` and never reaches `_lega_rules`: there is nothing to detect from, so a
-        stated default is the honest answer rather than an override in disguise."""
-        assert self._default("asta_live") == "mantra"
+    def test_asta_live_detects_too(self) -> None:
+        """This asserted `"mantra"`, under the title *"asta live states a format because it
+        can detect nothing"*. The premise was wrong and it was load-bearing.
+
+        `asta live` takes no `--lega` and never reaches `_lega_rules` — both true — but it
+        takes `--league`, which names a FantaLab room that declares its own `asta_type`,
+        and that id also joins the harvested corpus. Two things to detect from, not none.
+        So the default is `""` like the other detecting commands, and a `--league` run where
+        neither rung answers is **refused** rather than priced as Mantra.
+
+        `asta calibrate` keeps `"mantra"` and is now what pins the helper above: it names a
+        corpus, which really does have nothing to detect from.
+        """
+        assert self._default("asta_live") == ""
+
+    def test_the_replay_path_keeps_the_stated_default(self) -> None:
+        """The detection is about `--league`. A replay's landing row is `{seen_at,
+        auction_id, state}` and the `auction/<fl>` state carries no format, so `--replay`
+        resolves `fmt or "mantra"` in the body — asserted here as source, because an option
+        default of `""` would otherwise read as if replays were being refused too.
+        """
+        import ast as _ast
+
+        from _paths import module_file
+
+        tree = _ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
+        fn = next(
+            n for n in tree.body if isinstance(n, _ast.FunctionDef) and n.name == "asta_live"
+        )
+        fallbacks = [
+            _ast.unparse(node)
+            for node in _ast.walk(fn)
+            if isinstance(node, _ast.BoolOp) and "mantra" in _ast.unparse(node)
+        ]
+
+        assert fallbacks == ["fmt or 'mantra'"], f"the replay fallback moved: {fallbacks}"
 
 
 class TestTheSizeOverride:
