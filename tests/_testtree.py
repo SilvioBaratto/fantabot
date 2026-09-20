@@ -132,6 +132,9 @@ TREE: dict[str, str] = {
     # T24: what a valid exclusion is, and what a row with no name means — the two
     # decisions `db exclude`/`db exclusions` and the Asta page share.
     "test_player_exclusions.py": "application",
+    # T25: the two one-shot team commands — which endpoint `snapshot-team` reads, and
+    # what an untrustworthy club-name mapping means to the command that is its remedy.
+    "test_team_maintenance.py": "application",
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",

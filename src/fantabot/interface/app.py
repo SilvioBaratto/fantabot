@@ -473,15 +473,23 @@ def db_backfill_teams() -> None:
     printed remedy, which is the only reason anyone would ever have found it. The file
     moved into the package, so the instruction pointed at a path that no longer
     existed; an operator-facing remedy has to name a command that does.
+
+    A printer over `application/team_maintenance.backfill_teams`, so the Synchronize
+    page refuses the same backfill with the same sentence. This body used to catch
+    `SQLAlchemyError` alone, which left `TeamMappingError` — the one refusal a backfill
+    actually has — reaching the terminal as a traceback.
     """
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.scraping import backfill_team_names
+    from fantabot.application.team_maintenance import NamesUnresolved, backfill_teams
 
     try:
         with database_manager.get_session() as session:
-            changed = backfill_team_names(session)
+            changed = backfill_teams(session)
+    except NamesUnresolved as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from None
     except SQLAlchemyError as exc:
         console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
         raise typer.Exit(code=1) from exc
@@ -500,15 +508,17 @@ def db_snapshot_team(
     append-only, so a rescan never overwrites the last capture (`LeagueRepository`'s own
     docstring). The response's credits and roster ids are not secrets and are printed;
     the bearer token used to fetch them never is.
+
+    A printer over `application/team_maintenance.snapshot_team`. Which endpoint, which
+    parser and which repository method used to be chosen here, where the Synchronize
+    page could not reach them — three choices a second surface would have had to guess.
     """
     from sqlalchemy.exc import SQLAlchemyError
 
-    from fantabot.adapters.http import apileague
     from fantabot.adapters.persistence import database_manager
-    from fantabot.adapters.persistence.repositories.league import LeagueRepository
     from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.team_maintenance import snapshot_team
     from fantabot.config import settings
-    from fantabot.domain.shared.league import parse_team_snapshot
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
@@ -520,10 +530,7 @@ def db_snapshot_team(
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
-            store = TokenStore(session, cipher)
-            body = apileague.my_team(league_id, store=store)
-            snapshot = parse_team_snapshot(league_id, body)
-            LeagueRepository(session).record_team_snapshot(snapshot)
+            snapshot = snapshot_team(session, league_id, store=TokenStore(session, cipher))
     except TokenError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
