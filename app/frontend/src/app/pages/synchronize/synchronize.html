@@ -57,6 +57,103 @@
         </button>
       </mat-card-actions>
     </mat-card>
+
+    <!-- T25 — the two one-shot team commands. They sit under Lega sync because they are
+         maintenance on what a sync leaves behind, and their answers stay here rather
+         than in the run log: that log is a job's, and a request/response result
+         appended to it would read as a read that landed during a sync nobody started. -->
+    <mat-card appearance="outlined" class="control-card">
+      <mat-card-header>
+        <h2 mat-card-title id="team-maintenance-heading">Team maintenance</h2>
+      </mat-card-header>
+
+      <mat-card-content>
+        <p class="control-lede">
+          Two one-shot commands. Neither is a long run — each answers straight away.
+        </p>
+
+        <div class="one-shot" aria-live="polite">
+          <p class="one-shot-lede">
+            <strong>Team snapshot.</strong> Capture our own credits and roster ids for the league
+            id above. Every run appends a new row, so an earlier capture is never overwritten.
+          </p>
+          <button
+            matButton="tonal"
+            type="button"
+            (click)="captureSnapshot()"
+            [disabled]="!leagueId() || snapshotting()"
+          >
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [class.icon-spin]="snapshotting()"
+              [size]="18"
+              [name]="snapshotting() ? 'Loader2' : 'Camera'"
+              aria-hidden="true"
+            />
+            {{ snapshotting() ? 'Capturing…' : 'Capture team snapshot' }}
+          </button>
+
+          @if (snapshot(); as result) {
+            @if (result.outcome === 'saved') {
+              <p class="one-shot-result" data-snapshot-outcome="saved">
+                Saved <strong>{{ result.nome }}</strong> (team {{ result.team_id }}) —
+                {{ result.credits_spent }}/{{ result.credits_initial }} credits spent,
+                {{ result.credits_remaining }} left.
+              </p>
+            } @else {
+              <!-- The server's sentence, verbatim. It carries the remedy, and the person
+                   reading it here is the person who would otherwise read it in a terminal. -->
+              <p class="one-shot-refusal" [attr.data-snapshot-outcome]="result.outcome" role="alert">
+                {{ result.reason }}
+              </p>
+            }
+          }
+        </div>
+
+        <div class="one-shot" aria-live="polite">
+          <p class="one-shot-lede">
+            <strong>Club names.</strong> Resolve the three-letter codes a listone-first scrape
+            leaves in <code>teams</code> to full names. No league id — these are Serie A's clubs,
+            not a lega's.
+          </p>
+          <button
+            matButton="tonal"
+            type="button"
+            (click)="resolveClubNames()"
+            [disabled]="backfilling()"
+          >
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [class.icon-spin]="backfilling()"
+              [size]="18"
+              [name]="backfilling() ? 'Loader2' : 'Tags'"
+              aria-hidden="true"
+            />
+            {{ backfilling() ? 'Resolving…' : 'Resolve club names' }}
+          </button>
+
+          @if (backfill(); as result) {
+            @if (result.outcome === 'resolved') {
+              <p class="one-shot-result" data-backfill-outcome="resolved">
+                Resolved {{ result.changed }} club name(s).
+                @if (result.changed === 0) {
+                  <span class="one-shot-note">
+                    Nothing needed resolving — either every code already has its name, or no
+                    season's voti have been scraped for the names to come from.
+                  </span>
+                }
+              </p>
+            } @else {
+              <p class="one-shot-refusal" [attr.data-backfill-outcome]="result.outcome" role="alert">
+                {{ result.reason }}
+              </p>
+            }
+          }
+        </div>
+      </mat-card-content>
+    </mat-card>
   </section>
 
   <section class="pane-outcome" aria-labelledby="run-outcome-heading">

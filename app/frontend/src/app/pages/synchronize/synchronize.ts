@@ -17,6 +17,8 @@ import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'r
 
 import { ActionsService } from '../../core/api/actions.service';
 import { JobsService } from '../../core/api/jobs.service';
+import { TeamsService } from '../../core/api/teams.service';
+import { BackfillResult, TeamSnapshotResult } from '../../core/models/teams';
 import { IconName } from '../../icons';
 
 /** The job kind this page owns. `GET /jobs` lists every kind; only one belongs here. */
@@ -49,6 +51,29 @@ const OUTCOME_ICON: Record<SyncOutcome, IconName> = {
   failed: 'CircleX',
 };
 
+/**
+ * What a transport failure becomes. The server's own vocabulary, so the page renders one
+ * branch: a 500, a dropped connection and a named `unreachable` are the same fact to the
+ * operator — the app could not ask — and the same remedy.
+ */
+const UNREACHABLE_SNAPSHOT = (leagueId: number): TeamSnapshotResult => ({
+  outcome: 'unreachable',
+  reason: 'Could not reach the API. Make sure fantabot-app is running.',
+  league_id: leagueId,
+  team_id: null,
+  nome: '',
+  owner: '',
+  credits_initial: null,
+  credits_spent: null,
+  credits_remaining: null,
+});
+
+const UNREACHABLE_BACKFILL: BackfillResult = {
+  outcome: 'unreachable',
+  reason: 'Could not reach the API. Make sure fantabot-app is running.',
+  changed: 0,
+};
+
 @Component({
   selector: 'app-synchronize',
   imports: [
@@ -66,6 +91,7 @@ const OUTCOME_ICON: Record<SyncOutcome, IconName> = {
 export class SynchronizeComponent {
   private readonly actions = inject(ActionsService);
   private readonly jobs = inject(JobsService);
+  private readonly teams = inject(TeamsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly leagueId = signal<number | null>(null);
@@ -74,6 +100,22 @@ export class SynchronizeComponent {
   readonly jobStatus = signal<string>('');
   readonly jobOk = signal<boolean | null>(null);
   readonly errorMsg = signal<string | null>(null);
+
+  /**
+   * The two one-shot team commands. Each holds its **whole** answer — outcome, reason
+   * and figures — in one signal rather than a running flag beside an error string
+   * beside a result: a transport failure is turned into an `unreachable` outcome on the
+   * way in, so the template has one branch to render and no pair of signals that can
+   * disagree about what happened.
+   *
+   * They are deliberately not in `lines()`. That log belongs to a lega-sync job polled
+   * from `GET /jobs/{id}`, and a request/response result appended to it would read as a
+   * read that landed during a sync nobody started.
+   */
+  readonly snapshotting = signal(false);
+  readonly snapshot = signal<TeamSnapshotResult | null>(null);
+  readonly backfilling = signal(false);
+  readonly backfill = signal<BackfillResult | null>(null);
 
   /**
    * Presentation only — the registry's `status` and `ok` are unchanged, this just names
@@ -104,6 +146,58 @@ export class SynchronizeComponent {
     const id = this.leagueId();
     if (!id || this.running()) return;
     this.startJob(this.actions.runLegaSync(id));
+  }
+
+  /**
+   * Capture our own team's credits and roster ids — `fantabot db snapshot-team`.
+   *
+   * Gated on the league id the page already has. The server requires it too, but the
+   * button is the first place to refuse: `league_team_snapshot` is append-only, so a row
+   * written under a lega nobody picked stays there.
+   */
+  captureSnapshot(): void {
+    const id = this.leagueId();
+    if (!id || this.snapshotting()) return;
+    this.snapshotting.set(true);
+    this.snapshot.set(null);
+    this.teams
+      .snapshot({ league_id: id })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.snapshot.set(result);
+          this.snapshotting.set(false);
+        },
+        error: () => {
+          this.snapshot.set(UNREACHABLE_SNAPSHOT(id));
+          this.snapshotting.set(false);
+        },
+      });
+  }
+
+  /**
+   * Resolve club codes to full names — `fantabot db backfill-teams`.
+   *
+   * No league id, because the command takes none: `teams` is Serie A's clubs, not a
+   * lega's. Gating this on the field would invent a dependency the CLI does not have.
+   */
+  resolveClubNames(): void {
+    if (this.backfilling()) return;
+    this.backfilling.set(true);
+    this.backfill.set(null);
+    this.teams
+      .backfill()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.backfill.set(result);
+          this.backfilling.set(false);
+        },
+        error: () => {
+          this.backfill.set(UNREACHABLE_BACKFILL);
+          this.backfilling.set(false);
+        },
+      });
   }
 
   /**

@@ -1,5 +1,6 @@
 import { LUCIDE_ICONS, LucideIconProvider } from 'lucide-angular';
 import {
+  Camera,
   ChevronDown,
   ChevronRight,
   CircleCheckBig,
@@ -18,6 +19,7 @@ import {
   Search,
   SlidersVertical,
   SquareFunction,
+  Tags,
   TrendingDown,
   TrendingUp,
   TriangleAlert,
@@ -35,6 +37,7 @@ import {
 // either through `IconName` (type-checked) or through a kebab-case literal in a
 // template (not type-checked — grep `lucide-icon` before removing one).
 const icons = {
+  Camera,
   CheckCircle: CircleCheckBig,
   ChevronDown,
   ChevronRight,
@@ -53,6 +56,7 @@ const icons = {
   RefreshCw,
   Search,
   Sliders: SlidersVertical,
+  Tags,
   TrendingDown,
   TrendingUp,
   TriangleAlert,

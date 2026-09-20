@@ -60,6 +60,16 @@ describe('ICON_PROVIDER', () => {
     it('returns icon data for RefreshCw', () => {
       expect(ICON_PROVIDER.useValue.getIcon('RefreshCw')).toBeTruthy();
     });
+
+    it('returns icon data for Camera', () => {
+      // Synchronize's team snapshot (T25): one capture of our own credits, appended.
+      expect(ICON_PROVIDER.useValue.getIcon('Camera')).toBeTruthy();
+    });
+
+    it('returns icon data for Tags', () => {
+      // Synchronize's club-name backfill (T25): three-letter codes resolved to names.
+      expect(ICON_PROVIDER.useValue.getIcon('Tags')).toBeTruthy();
+    });
   });
 
   // These names reach the provider as kebab-case string literals in templates,

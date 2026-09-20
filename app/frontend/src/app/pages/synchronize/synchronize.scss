@@ -231,6 +231,68 @@
   }
 }
 
+/* --- one-shot team commands -------------------------------------------------------------- */
+
+/* Each of the two is its own block: lede, button, and the answer directly under the button
+   that produced it. They deliberately do not share the run log — that belongs to a lega-sync
+   job, and a request/response result in it would read as a read that landed during a sync. */
+.one-shot + .one-shot {
+  margin-block-start: 20px;
+  padding-block-start: 20px;
+  border-block-start: 1px solid var(--mat-sys-outline-variant);
+}
+
+.one-shot-lede {
+  margin: 0 0 12px;
+  max-inline-size: 60ch;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.one-shot-lede code {
+  font-family: var(--mat-sys-code-font, ui-monospace, monospace);
+  font-size: 0.9em;
+}
+
+/* Full-width at compact, matching `.control-actions button` — same thumb target, same
+   reason. These sit inside `mat-card-content`, so they need their own rule. */
+.one-shot button {
+  inline-size: 100%;
+}
+
+@media (min-width: 600px) {
+  .one-shot button {
+    inline-size: auto;
+  }
+}
+
+.one-shot-result,
+.one-shot-refusal {
+  margin: 12px 0 0;
+  max-inline-size: 60ch;
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.one-shot-result {
+  color: var(--mat-sys-on-surface);
+}
+
+/* The wording carries the state; the colour reinforces it and never carries it alone
+   (`interaction/selection.md:23`) — every refusal here is a sentence, not a badge. */
+.one-shot-refusal {
+  color: var(--mat-sys-error);
+}
+
+.one-shot-note {
+  display: block;
+  margin-block-start: 4px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
 /* --- run outcome ------------------------------------------------------------------------ */
 
 .outcome-body {
