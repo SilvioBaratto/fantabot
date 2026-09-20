@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
+import { DumpTarget } from '../../core/models/db-dump';
 import { SystemConfig } from '../../core/models/system-config';
 import { ICON_PROVIDER } from '../../icons';
 import { SystemComponent } from './system';
@@ -31,6 +32,25 @@ function flushConfig(mock: HttpTestingController, body: SystemConfig | 'error' =
   } else {
     req.flush(body);
   }
+}
+
+/** What `GET /db/dump/target` answers when `$HOME` can hold a dump and none is there yet. */
+const TARGET: DumpTarget = {
+  path: '/Users/me/fantabot-db-20260920.dump',
+  refused: '',
+  exists: false,
+  size_bytes: null,
+};
+
+/**
+ * The page's *third* request, answered in every test — `flushConfig`'s reason exactly.
+ *
+ * Every one of these is an `ngOnInit` side-request, and an unanswered one fails
+ * `httpMock.verify()` in an `afterEach`, which leaves the TestBed instantiated and takes
+ * unrelated spec files down with it.
+ */
+function flushDumpTarget(mock: HttpTestingController, body: DumpTarget = TARGET): void {
+  mock.expectOne(`${environment.apiUrl}db/dump/target`).flush(body);
 }
 
 describe('SystemComponent', () => {
@@ -70,6 +90,7 @@ describe('SystemComponent', () => {
       tables: [{ name: 'quotazioni', exists: true, row_count: 571, size_pretty: '128 kB' }],
     });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -94,6 +115,7 @@ describe('SystemComponent', () => {
       ],
     });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -121,6 +143,7 @@ describe('SystemComponent', () => {
       tables: [],
     });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -141,6 +164,7 @@ describe('SystemComponent', () => {
       tables: [{ name: 'quotazioni', exists: true, row_count: 571, size_pretty: '128 kB' }],
     });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -169,6 +193,7 @@ describe('SystemComponent', () => {
       .expectOne(`${environment.apiUrl}db/health`)
       .flush({ ok: true, latency_ms: 4, error: null, tables: [] });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -184,6 +209,7 @@ describe('SystemComponent', () => {
       .expectOne(`${environment.apiUrl}db/health`)
       .flush({ ok: true, latency_ms: 4, error: null, tables: [] });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -198,6 +224,7 @@ describe('SystemComponent', () => {
       .expectOne(`${environment.apiUrl}db/health`)
       .flush({ ok: true, latency_ms: 5, error: null, tables: [] });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -209,6 +236,7 @@ describe('SystemComponent', () => {
 
     httpMock.expectOne(`${environment.apiUrl}db/health`).error(new ProgressEvent('error'));
     flushConfig(httpMock, 'error');
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -229,6 +257,7 @@ describe('SystemComponent', () => {
       .expectOne(`${environment.apiUrl}db/health`)
       .flush({ ok: true, latency_ms: 4, error: null, tables: [] });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -247,6 +276,7 @@ describe('SystemComponent', () => {
       .expectOne(`${environment.apiUrl}db/health`)
       .flush({ ok: true, latency_ms: 4, error: null, tables: [] });
     flushConfig(httpMock);
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -281,6 +311,7 @@ describe('SystemComponent', () => {
       ...CONFIG,
       settings: { fantabot_auto_act: false, stats_source_base_url: '', api_port: 0 },
     });
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -309,6 +340,7 @@ describe('SystemComponent', () => {
       ...CONFIG,
       settings: { zeta: 1, alpha: 2, mid: 3 },
     });
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -337,6 +369,7 @@ describe('SystemComponent', () => {
       database_url: '',
       database_url_error: "Could not parse SQLAlchemy URL from string '::nope::'",
     });
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -356,6 +389,7 @@ describe('SystemComponent', () => {
       .expectOne(`${environment.apiUrl}db/health`)
       .flush({ ok: true, latency_ms: 4, error: null, tables: [] });
     flushConfig(httpMock, 'error');
+    flushDumpTarget(httpMock);
 
     fixture.detectChanges();
     await fixture.whenStable();
@@ -365,5 +399,135 @@ describe('SystemComponent', () => {
     // not open, so a config read that fails must not take it down with it.
     expect(host.textContent).toContain('Connected');
     expect(host.querySelector('[aria-labelledby="config-heading"]')).toBeNull();
+  });
+
+  // -- the dump card ---------------------------------------------------------------
+  //
+  // `SPEC.md` §8 Never #4: no browser download of a database dump. The card names the
+  // path and stops there, which is the whole of its job — the file carries the
+  // `league_tokens` rows, and a download puts it wherever the browser puts downloads.
+
+  /** Bring the page up with the health and config requests answered, for the dump tests. */
+  async function pageWith(target: DumpTarget) {
+    const fixture = TestBed.createComponent(SystemComponent);
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}db/health`)
+      .flush({ ok: true, latency_ms: 4, error: null, tables: [] });
+    flushConfig(httpMock);
+    flushDumpTarget(httpMock, target);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    return fixture;
+  }
+
+  it('names the path the dump would take, before anything is run', async () => {
+    const fixture = await pageWith(TARGET);
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.textContent).toContain('/Users/me/fantabot-db-20260920.dump');
+  });
+
+  it('says that no dump has been taken today', async () => {
+    const fixture = await pageWith(TARGET);
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.textContent).toContain('No backup yet today');
+  });
+
+  it('reports a dump already taken today, and how big it is', async () => {
+    // One file per day, so a second run overwrites the first. The screen has to say what
+    // is being replaced before the operator spends minutes replacing it.
+    const fixture = await pageWith({ ...TARGET, exists: true, size_bytes: 412_000_000 });
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.textContent).toContain('393 MB');
+  });
+
+  it('a home that cannot hold a dump names the reason and offers no button', async () => {
+    // Structural rather than transient: there is no path, so a greyed-out one beside a
+    // path would be a screen claiming a file it will never write.
+    const refusal = 'refusing to write the dump onto an external volume: /Volumes/x/f.dump';
+    const fixture = await pageWith({ path: '', refused: refusal, exists: false, size_bytes: null });
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.textContent).toContain('/Volumes/x/f.dump');
+    expect(pane.querySelector('.dump-button')).toBeNull();
+  });
+
+  it('starting a dump posts, and the button says it is running', async () => {
+    const fixture = await pageWith(TARGET);
+
+    (fixture.nativeElement.querySelector('.dump-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne(`${environment.apiUrl}db/dump`)
+      .flush({ outcome: 'started', path: TARGET.path, job_id: 'j1', detail: '' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.textContent).toContain('Backing up');
+    // The poll is in flight; answering it is what `httpMock.verify()` is owed.
+    httpMock
+      .expectOne(`${environment.apiUrl}jobs/j1`)
+      .flush({ id: 'j1', status: 'running', lines: [], ok: null, error: null });
+  });
+
+  it('a finished dump re-reads the target, so the file that landed is on the screen', async () => {
+    // The only evidence the dump worked that the page can show: `pg_dump` exits 0 against
+    // an empty database too, and a 0-byte dump is the one worth panicking about.
+    const fixture = await pageWith(TARGET);
+
+    (fixture.nativeElement.querySelector('.dump-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}db/dump`)
+      .flush({ outcome: 'started', path: TARGET.path, job_id: 'j1', detail: '' });
+    httpMock
+      .expectOne(`${environment.apiUrl}jobs/j1`)
+      .flush({ id: 'j1', status: 'done', lines: ['exited 0'], ok: true, error: null });
+    flushDumpTarget(httpMock, { ...TARGET, exists: true, size_bytes: 412_000_000 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.textContent).toContain('393 MB');
+  });
+
+  it('a dump that failed says so rather than leaving the button idle', async () => {
+    const fixture = await pageWith(TARGET);
+
+    (fixture.nativeElement.querySelector('.dump-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}db/dump`)
+      .flush({ outcome: 'started', path: TARGET.path, job_id: 'j1', detail: '' });
+    httpMock.expectOne(`${environment.apiUrl}jobs/j1`).flush({
+      id: 'j1',
+      status: 'done',
+      lines: ['pg_dump exited 1 — is the database running?'],
+      ok: false,
+      error: null,
+    });
+    flushDumpTarget(httpMock);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.querySelector('.dump-error')?.textContent).toContain('pg_dump exited 1');
+  });
+
+  it('never offers the bytes', async () => {
+    // `SPEC.md` §8 Never #4, on the surface that would have to break it. Asserted against
+    // the DOM rather than the component: what the rule forbids is a link on the screen.
+    const fixture = await pageWith({ ...TARGET, exists: true, size_bytes: 412_000_000 });
+
+    const pane = fixture.nativeElement.querySelector(
+      '[aria-labelledby="dump-heading"]',
+    ) as HTMLElement;
+    expect(pane.querySelector('a[download]')).toBeNull();
+    expect(pane.querySelector('a[href]')).toBeNull();
   });
 });

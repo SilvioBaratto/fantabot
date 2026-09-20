@@ -415,3 +415,52 @@
     }
   }
 }
+
+/* The dump card. Shares the Configuration pane's shapes on purpose: the path is read and
+   copied exactly like the DSN above it, and the refusal reads exactly like a bad DSN. */
+.dump-pane {
+  margin-block-start: 24px;
+  display: grid;
+  gap: 12px;
+}
+
+.dump-path {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--mat-sys-corner-extra-small);
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-family: var(--fantabot-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  /* One click takes the whole path: it is meant to be pasted into a shell. */
+  user-select: all;
+}
+
+.dump-exists {
+  margin: 8px 0 0;
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.dump-refused,
+.dump-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+  color: var(--mat-sys-error);
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+  overflow-wrap: anywhere;
+}
+
+.dump-refused {
+  margin-block-start: 0;
+}
+
+.dump-button {
+  margin-block-start: 12px;
+}

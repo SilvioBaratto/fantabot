@@ -109,6 +109,73 @@
     </div>
   }
 
+  <!-- The dump. `SPEC.md` §8 Never #4: the path is named and the bytes are not offered —
+       a download puts a file carrying the `league_tokens` rows wherever the browser puts
+       downloads, which is a directory neither of the command's two guards covers. -->
+  <section class="dump-pane" aria-labelledby="dump-heading">
+    <h2 id="dump-heading" class="section-title">Backup</h2>
+    <p class="page-note">
+      What <code>fantabot db dump</code> writes. The file is not offered for download — it carries
+      your league tokens. Go and get it from the path below.
+    </p>
+
+    @if (dumpTarget(); as d) {
+      <mat-card appearance="outlined">
+        <div class="card-body">
+          @if (d.refused) {
+            <p class="dump-refused" role="status">
+              <lucide-icon name="x" [size]="16" aria-hidden="true" />
+              <span>{{ d.refused }}</span>
+            </p>
+            <p class="config-note">
+              A dump must not land on the volume it exists to survive the loss of. Point
+              <code>HOME</code> at the internal disk and refresh.
+            </p>
+          } @else {
+            <h3 class="config-subtitle">Today's file</h3>
+            <!-- `user-select: all`, like the DSN above: this is meant to be pasted. -->
+            <p class="dump-path">{{ d.path }}</p>
+            @if (d.exists) {
+              <p class="dump-exists">
+                Already backed up today — {{ dumpSize() }}. Running again replaces it.
+              </p>
+            } @else {
+              <p class="dump-exists">No backup yet today.</p>
+            }
+
+            @if (dumpError(); as failure) {
+              <p class="dump-error" role="status">
+                <lucide-icon name="x" [size]="16" aria-hidden="true" />
+                <span>{{ failure }}</span>
+              </p>
+            }
+
+            @if (dumping()) {
+              <mat-progress-bar mode="indeterminate" aria-label="Backing up the database" />
+            }
+
+            <button
+              matButton="tonal"
+              type="button"
+              class="dump-button"
+              [disabled]="dumping()"
+              (click)="startDump()"
+            >
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [size]="18"
+                name="database"
+                aria-hidden="true"
+              />
+              {{ dumping() ? 'Backing up…' : 'Back up now' }}
+            </button>
+          }
+        </div>
+      </mat-card>
+    }
+  </section>
+
   @if (config(); as c) {
     <section class="config-pane" aria-labelledby="config-heading">
       <h2 id="config-heading" class="section-title">Configuration</h2>
