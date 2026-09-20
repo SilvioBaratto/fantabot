@@ -238,6 +238,44 @@ class TestTheSizeOverride:
         assert reader.asked == [], "a size that needs no lega must not open the database"
         assert fmt == "mantra"
 
+    def test_a_named_lega_keeps_its_floors_and_only_the_total_moves(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An operator who names a lega **and** a size meant both.
+
+        The branch keys on `lega`, the parameter, not on `resolved` — which folds in
+        `settings.fantabot_league_id`. `asta bid`'s `--format` always has a value, so a
+        condition reading `fmt` collapsed to "any stated size skips the read", and a
+        terminal `asta bid --lega 4103937 --size 25` silently threw away the floors of the
+        lega it had just been told to use.
+        """
+        from fantabot.domain.asta.state import OPERATOR_DECLARED
+
+        reader = _Reader((RosterRules(size=32, min_goalkeepers=2, min_movement=23), "x", "mantra"))
+        _patch(monkeypatch, reader, configured=4103937)
+
+        rules, provenance, _fmt = _lega_rules(
+            4103937, "mantra", session=_session, warn=_warn, size=25
+        )
+
+        assert reader.asked == [4103937], "a named lega must still be read"
+        assert (rules.size, rules.min_movement) == (25, 23)
+        assert provenance == OPERATOR_DECLARED
+
+    def test_an_unnamed_lega_is_not_read_just_because_env_has_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The app's path. It sends no `--lega` because a FantaLab room is not a lega, and
+        `settings.fantabot_league_id` is somebody's *leghe.fantacalcio* default — reading it
+        would hand the child another league's role floors under the room's own total."""
+        reader = _Reader((RosterRules(size=32, min_goalkeepers=2, min_movement=23), "x", "mantra"))
+        _patch(monkeypatch, reader, configured=4103937)
+
+        rules, _provenance, _fmt = _lega_rules(0, "mantra", session=_session, warn=_warn, size=25)
+
+        assert reader.asked == [], "an unnamed lega was read anyway"
+        assert (rules.size, rules.min_movement) == (25, 23)
+
     def test_a_refused_size_is_the_commands_to_report(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

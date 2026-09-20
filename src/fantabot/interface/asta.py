@@ -234,13 +234,19 @@ def _lega_rules(
     from fantabot.domain.asta.state import ASSUMED_NOTHING, OPERATOR_DECLARED, resize_band
 
     resolved = lega or settings.fantabot_league_id
-    # **A stated size is answered without opening the database.** Not an optimisation: the
-    # app's bid route passes no `--lega` — a FantaLab room is not a lega — so `resolved`
-    # falls back to `settings.fantabot_league_id`, and reading *that* lega's band only to
-    # overwrite its total would leave the child planning with another league's role floors.
-    # The size the room declared is the whole answer; the format is `--format`'s, which the
-    # route also sends.
-    if size and (not resolved or fmt):
+    # **A stated size with no lega named is answered without opening the database.** Not an
+    # optimisation: the app's bid route passes no `--lega` — a FantaLab room is not a lega —
+    # so `resolved` falls back to `settings.fantabot_league_id`, and reading *that* lega's
+    # band only to overwrite its total would leave the child planning with another league's
+    # role floors. The size the room declared is the whole answer; the format is
+    # `--format`'s, which the route also sends.
+    #
+    # Keyed on `lega`, the parameter, and not on `resolved`: an operator who names a lega
+    # *and* a size meant both, and the floors below are the named lega's. An earlier version
+    # read `fmt` here, which on `asta bid` is always set — so the condition collapsed to
+    # "any stated size skips the read" and a terminal `--lega X --size N` silently discarded
+    # X's floors.
+    if size and not lega:
         chosen = fmt or "mantra"
         base = ClassicRosterRules() if chosen == "classic" else RosterRules()
         return resize_band(base, size), OPERATOR_DECLARED, chosen
