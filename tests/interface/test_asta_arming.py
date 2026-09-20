@@ -106,6 +106,34 @@ class TestTheTwoStageInterrupt:
             with pytest.raises(KeyboardInterrupt):
                 handler(signal.SIGINT, None)
 
+    def test_the_flag_clearing_armed_does_not_spend_a_ctrl_c(self) -> None:
+        """**The sibling of `stop_poll`'s own defect, in the other direction.**
+
+        Two mechanisms clear one `armed` list, and on POSIX `ProcessJob.stop` writes the
+        flag *before* it signals. If the child's `keep_going` polls in that window it clears
+        `armed[0]`, and the `SIGINT` that follows then finds `False` — reads it as a
+        **second** Ctrl-C and ends an armed run on stage one.
+
+        So the handler counts its own interrupts instead of inferring the count from a list
+        somebody else writes to. The keyboard contract is unchanged and that is the point:
+        once disarms, twice exits.
+        """
+        from fantabot.interface.asta import _disarm_on_sigint
+
+        armed = [True]
+        with _disarm_on_sigint(armed):
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            # The flag half, honoured by the loop between the write and the signal.
+            armed[0] = False
+
+            handler(signal.SIGINT, None)  # the SIGINT half of that same one click
+
+            assert armed == [False]
+            # Still running: one request, one stage. The *next* interrupt is the second.
+            with pytest.raises(KeyboardInterrupt):
+                handler(signal.SIGINT, None)
+
     def test_a_run_that_was_never_armed_exits_on_the_first(self) -> None:
         """Nothing to disarm, so the first Ctrl-C means what it always meant."""
         from fantabot.interface.asta import _disarm_on_sigint

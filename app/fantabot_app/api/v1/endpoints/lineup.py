@@ -479,7 +479,13 @@ def lineup_current(league_id: int, competition: int) -> CurrentLineup:
     picking one would answer a question nobody asked; `lineup show` refuses without one for
     the same reason.
     """
-    from fantabot.domain.tokens.errors import ApiTimeout, ApiUnavailable, TokenError, TokenRejected
+    from fantabot.domain.tokens.errors import (
+        ApiTimeout,
+        ApiUnavailable,
+        AppKeyRejected,
+        TokenError,
+        TokenRejected,
+    )
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot_app.api.outcomes import because
@@ -487,7 +493,12 @@ def lineup_current(league_id: int, competition: int) -> CurrentLineup:
     try:
         with _open_store() as store:
             body = teamLineup_read(league_id, competition, store=store)
-    except TokenRejected as exc:
+    except (TokenRejected, AppKeyRejected) as exc:
+        # Both, and before the `TokenError` clause, because `AppKeyRejected` **is** a
+        # `TokenError`: caught only as one, the same platform rejection reads as
+        # `no_credential` here and `refused` on `GET /lineup/plan` — two routes, one
+        # credential, two different remedies on screen, which is the thing `outcomes.py`
+        # exists to prevent.
         return CurrentLineup(outcome="refused", reason=str(exc))
     except (ApiTimeout, ApiUnavailable) as exc:
         return CurrentLineup(outcome="unreachable", reason=str(exc))

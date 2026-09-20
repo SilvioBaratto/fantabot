@@ -48,6 +48,7 @@ def _request(**over: Any) -> Any:
         "sentiment_run": None,
         "num_teams": 10,
         "num_credits": 650,
+        "listone": "mantra",
     }
     fields.update(over)
     return AdvisoryRequest(**fields)
@@ -141,6 +142,36 @@ class TestTheWorldIsReadTheWayEveryOtherPlanReadsIt:
         build_advisory(object(), _request(), events=[], bridge={})
 
         assert seen["read"]["callable_ids"] is None
+
+    def test_the_format_reaches_the_read_and_is_not_assumed_to_be_mantra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`read_plan_inputs`' `listone` selects **both** the pool and the corpus.
+
+        Left at its `"mantra"` default, a Classic room is advised off the Mantra listone and
+        the Mantra corpus: the list is headed by players who are not in the Classic listone
+        at all, priced off another game. Nothing raises — `dropped_sales` goes up and that is
+        the only hint. It is the same defect `CLAUDE.md` records for 2026-09-05, where the
+        format was in a query's name *and* pinned in its filter and a Classic plan bought its
+        25-man roster for 25 credits of 500.
+        """
+        from fantabot.application.asta_advisory import build_advisory
+
+        seen = _patched(monkeypatch, pool=[object()], walkaways={})
+        build_advisory(object(), _request(listone="classic"), events=[], bridge={})
+
+        assert seen["read"]["listone"] == "classic"
+
+    def test_an_unknown_format_is_refused_rather_than_priced_as_mantra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A typo must not silently become the default. The two surfaces validate their own
+        option, and this is the layer both of them pass through."""
+        from fantabot.application.asta_advisory import build_advisory
+
+        _patched(monkeypatch, pool=[object()], walkaways={})
+        with pytest.raises(ValueError, match=r"mantra|classic"):
+            build_advisory(object(), _request(listone="Mantra "), events=[], bridge={})
 
     def test_the_corpus_shape_is_the_rooms_own_never_the_default(
         self, monkeypatch: pytest.MonkeyPatch

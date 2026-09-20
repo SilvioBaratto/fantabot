@@ -39,6 +39,11 @@ from fantabot_app.api.v1.endpoints.room import check_room, stored_connect
 
 router = APIRouter()
 
+#: The supervised child's kind, and the name the guard below counts. One spelling, because a
+#: second would never match and the refusal would silently stop refusing — which looks
+#: exactly like "nothing is running".
+BID_KIND = "asta-bid"
+
 #: What this surface says when a lock is shut. The *fact* is shared with the CLI
 #: (`application.arming`); the wording is local, because there is no `--arm` flag in an HTTP
 #: request and a message naming one sends the reader to a terminal they are not using.
@@ -110,9 +115,64 @@ def room_bid(request: BidRequest) -> BidStarted:
     """
     from fantabot.application.arming import decide_arming
 
+    # **One bidder at a time, and refused across rooms rather than within one.** A
+    # `ProcessJob` built with a flag and no landing zone takes no role lock — its own
+    # docstring says "one job per flag, which is the caller's to keep" — and `registry.start`
+    # de-duplicates nothing, so two clicks used to put two armed children on the same seat.
+    # Each reads `purchases/<fl>` independently and computes its own `credits_left`, so on a
+    # lot they both want they raise *each other* to their walk-away and the plan's budget
+    # goes twice over on one lot. The shared flag is worse: `ProcessJob.start` clears it
+    # before spawning, so the second child erases a stop the first has not read.
+    #
+    # Across rooms because `config.journal_path()` is a single file: two bidders interleave
+    # their rows in the record the room view tails and the 2026-09-01 audit was done against.
+    running = next(
+        (job for job in registry.list() if job.kind == BID_KIND and job.status == "running"),
+        None,
+    )
+    if running is not None:
+        return BidStarted(
+            outcome="refused",
+            reason=(
+                f"a bidding run is already going ({running.id}). Stop it before starting "
+                "another: two bidders on one seat raise each other, and they share one "
+                "journal and one stop flag."
+            ),
+        )
+
     room = check_room(request.url, connect=stored_connect)
     if room.outcome != "resolved":
         return BidStarted(outcome=room.outcome, reason=room.reason)
+
+    # Every field the child cannot read for itself, and every one of them optional on
+    # `RoomCheck` because the platform's own field is. `resolve_room` refuses an unknown
+    # `asta_type`, a non-free raise mode and a seat we do not hold, and nothing guarded the
+    # rest — so a room that declared no shard answered `started` over a child that died on
+    # `--db None`, with the reason visible only in the job log.
+    #
+    # `is None`, never a truth test: FantaLab's shards are 0-indexed and `if not shard`
+    # refuses the first one.
+    missing = [
+        name
+        for name, value in (
+            ("shard", room.shard),
+            ("asta_type", room.asta_type),
+            ("num_teams", room.num_teams),
+            ("num_credits", room.num_credits),
+            ("seat_team_id", room.seat_team_id),
+            ("seat_user_id", room.seat_user_id),
+        )
+        if value is None
+    ]
+    if missing:
+        return BidStarted(
+            outcome="refused",
+            reason=(
+                f"the room declares no {', '.join(missing)}. `asta bid` is unauthenticated "
+                "and cannot read any of these for itself, and every one of them has a "
+                "default that is a different lega's game."
+            ),
+        )
 
     # The two locks the app can see. The third — a stale listone bridge — needs a fetch, so
     # it stays the child's and is reported in the job log by name: `room_arming` refuses
@@ -141,7 +201,10 @@ def room_bid(request: BidRequest) -> BidStarted:
     )
     return BidStarted(
         outcome="started",
-        job_id=registry.start(job.run, kind="asta-bid", stop=job.stop),
+        # `armed` travels with the job so a reloaded tab can still tell a live bidder
+        # from a rehearsal. It is what the app decided, not what the child will do: the
+        # child re-reads the ambient lock on every write and can still refuse.
+        job_id=registry.start(job.run, kind=BID_KIND, stop=job.stop, armed=gate.armed),
         armed=gate.armed,
         closed=list(gate.closed),
         reason=gate.because(APP_SENTENCES),

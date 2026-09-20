@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -77,9 +78,9 @@ def wired(monkeypatch):
         seen["bridge"] = kwargs["bridge"]
         return _advisory()
 
-    monkeypatch.setattr(endpoint, "ledger_events", fake_ledger, raising=False)
-    monkeypatch.setattr(endpoint, "listone_fetch", fake_bridge, raising=False)
-    monkeypatch.setattr(endpoint, "build_advisory", fake_build, raising=False)
+    monkeypatch.setattr(endpoint, "ledger_events", fake_ledger)
+    monkeypatch.setattr(endpoint, "listone_fetch", fake_bridge)
+    monkeypatch.setattr(endpoint, "build_advisory", fake_build)
     return seen
 
 
@@ -157,27 +158,48 @@ class TestEachFailureIsItsOwnName:
         def boom(*_a: Any, **_k: Any) -> Any:
             raise raises
 
-        monkeypatch.setattr(endpoint, "build_advisory", boom, raising=False)
+        monkeypatch.setattr(endpoint, "build_advisory", boom)
         body = _get(TestClient(app)).json()
 
         assert body["outcome"] == outcome
         assert body["reason"], "a named outcome with no reason is a label, not an answer"
         assert body["targets"] == []
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            httpx.ConnectError("connection reset"),
+            httpx.ReadTimeout("timed out"),
+            httpx.HTTPStatusError("503", request=None, response=None),  # type: ignore[arg-type]
+            ValueError("Expecting value: line 1 column 1"),
+            OSError("connection reset"),
+        ],
+        ids=lambda e: type(e).__name__,
+    )
     def test_a_ledger_that_will_not_answer_is_unreachable_not_an_empty_advisory(
-        self, wired, monkeypatch
+        self, wired, monkeypatch, exc: Exception
     ) -> None:
         """An outage rendered as "no targets" is a false statement, not a missing one — and
-        it is the state in which an operator decides they have nothing to chase."""
+        it is the state in which an operator decides they have nothing to chase.
+
+        ⚠ **This raised only `OSError`, which is the one family production never raises.**
+        `rtdb.read_snapshot` is not `apileague._send`: it does not map httpx onto
+        `ApiTimeout`/`ApiUnavailable`, and `httpx.HTTPError` inherits from `Exception`
+        directly. So the test proved a handler existed while the real failure escaped as a
+        500 — and the page replaced the server's sentence with its own generic one. The
+        parametrisation is now the families the adapter actually raises, `OSError` last
+        rather than alone.
+        """
         from fantabot_app.api.v1.endpoints import asta as endpoint
 
         def boom(*_a: Any, **_k: Any) -> Any:
-            raise OSError("connection reset")
+            raise exc
 
-        monkeypatch.setattr(endpoint, "ledger_events", boom, raising=False)
+        monkeypatch.setattr(endpoint, "ledger_events", boom)
         body = _get(TestClient(app)).json()
 
-        assert body["outcome"] == "unreachable" and "OSError" in body["reason"]
+        assert body["outcome"] == "unreachable"
+        assert type(exc).__name__ in body["reason"], body["reason"]
 
     def test_the_outcomes_are_pinned(self) -> None:
         """Four different failures wearing one label is not fixed by a better message —

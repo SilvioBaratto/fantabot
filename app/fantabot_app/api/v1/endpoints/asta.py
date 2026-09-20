@@ -27,7 +27,9 @@ from __future__ import annotations
 import dataclasses
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
+import httpx
 from fantabot.adapters.files.room_journal import read_rows
 
 # Module-level, not lazy inside the route, and deliberately so: they are the three seams
@@ -559,6 +561,7 @@ def asta_advisory(
     league: str,
     db: int,
     team: str,
+    listone: Literal["mantra", "classic"] = "mantra",
     season: str = "2026/27",
     budget: float = 500.0,
     lam: float = 0.0,
@@ -599,6 +602,10 @@ def asta_advisory(
                 AdvisoryRequest(
                     our_team_id=team,
                     season=season,
+                    # The room's own `asta_type`, which the page takes from its room check.
+                    # It selects both the pool and the corpus: a Classic room advised as
+                    # Mantra is headed by players it cannot call, priced off another game.
+                    listone=listone,
                     as_of=_today(),
                     budget=budget,
                     lam=lam,
@@ -618,10 +625,18 @@ def asta_advisory(
         # The rosa cannot be seeded at all — a different screen from an empty pool: there
         # are players, and no legal eleven among them.
         return AstaAdvisory(outcome="infeasible", reason=str(exc))
-    except (SQLAlchemyError, OSError) as exc:
+    except (SQLAlchemyError, OSError, httpx.HTTPError, ValueError) as exc:
         # "We could not ask." Named rather than caught bare: anything outside these
         # families is a bug in this repository and reaches FastAPI as a 500, which is
         # louder than a tidy page.
+        #
+        # ⚠ **`httpx.HTTPError` is here because this is the first route in this module that
+        # reads the network, and `rtdb` is not `apileague`.** `apileague._send` maps httpx
+        # onto `ApiTimeout`/`ApiUnavailable`; `rtdb.read_snapshot` does not, and
+        # `httpx.HTTPError` inherits from `Exception` directly — not from `OSError`. So a
+        # ledger that would not answer escaped as a 500 on exactly the failure this route
+        # pins as `unreachable`, and the page replaced the server's sentence with its own
+        # generic one. `ValueError` covers the malformed body (`json.JSONDecodeError`).
         return AstaAdvisory(outcome="unreachable", reason=because(exc))
 
     return AstaAdvisory(

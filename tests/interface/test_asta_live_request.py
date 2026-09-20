@@ -88,6 +88,30 @@ def test_sentiment_is_on_by_default(
     assert _run(monkeypatch, tmp_path)["request"].sentiment is True
 
 
+def test_the_format_reaches_the_request_and_is_not_hardcoded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`--format` selects **both** the pool and the corpus, so a Classic replay read as
+    Mantra is advised off players it cannot call, priced off another game — and nothing
+    raises. The goldens cannot see it: they record one invocation, at the default.
+
+    Both ways round, because a body that hardcoded `"classic"` would pass the first
+    assertion alone — which is how `sentiment=True` shipped.
+    """
+    assert _run(monkeypatch, tmp_path, "--format", "classic")["request"].listone == "classic"
+    assert _run(monkeypatch, tmp_path)["request"].listone == "mantra"
+
+
+def test_an_unknown_format_is_refused_at_the_option(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A typo must not silently become the default. `asta bid` refuses the same way."""
+    result = _run(monkeypatch, tmp_path, "--format", "mantraa")
+
+    assert result["result"].exit_code != 0
+    assert "mantra" in result["result"].output
+
+
 def test_the_pinned_run_is_parsed_and_forwarded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

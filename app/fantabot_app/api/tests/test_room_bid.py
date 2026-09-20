@@ -54,6 +54,28 @@ def quick_child(monkeypatch, tmp_path):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def no_bid_left_running():
+    """Let each test start from "nothing is bidding".
+
+    `registry` is process-wide and outlives every test in this module, and since the
+    one-bidder guard landed that is not book-keeping: a child still running from the
+    previous test makes the next request a legitimate `refused`, and the failure reads as
+    the route being broken. The children here are a `print` and an exit, so this costs
+    milliseconds. `test_room_watch.py` records the same fact about the registry without
+    needing to act on it.
+    """
+    yield
+    client = TestClient(app)
+    _wait(
+        lambda: not [
+            job
+            for job in client.get("/api/v1/jobs").json()["jobs"]
+            if job["kind"] == "asta-bid" and job["status"] == "running"
+        ]
+    )
+
+
 @pytest.fixture
 def resolved_room(monkeypatch):
     """A room that resolves, with a shape deliberately unlike every default in sight.
@@ -235,6 +257,134 @@ class TestTheChildIsToldTheRoomsOwnShape:
 
         assert bid_flag(ROOM) == room_stop_path(journal_path(), ROOM, "bid")
         assert bid_flag(ROOM) != watch_flag(ROOM)
+
+
+class TestItWillNotStartASecond:
+    """**One bidder at a time, and the journal is the reason as much as the flag is.**
+
+    `ProcessJob` built with a `flag` and no landing zone takes no role lock — its own
+    docstring says *"one job per flag, which is the caller's to keep"* — and `registry.start`
+    de-duplicates nothing. So two POSTs used to start two armed `asta bid` children on the
+    same seat in the same room. Each reads `purchases/<fl>` independently and computes its
+    own `credits_left`, so on a lot they both want they raise **each other** to their
+    walk-away and the plan's budget goes twice over on one lot.
+
+    The shared flag is the sharper half: `ProcessJob.start` calls `clear_stop` on
+    `room-<id>.bid.stop` before spawning, so starting the second child **erases a stop
+    request the first has not read yet**, and either job's Stop then reaches both.
+
+    Refused across rooms, not only within one, and `config.journal_path()` is why: it is a
+    single file, so two bidders interleave their rows in the record the room view tails and
+    the 2026-09-01 audit was done against.
+    """
+
+    def test_a_second_bid_is_refused_while_one_is_running(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+
+        first = _bid(client, arm=True).json()
+        assert first["outcome"] == "started"
+
+        second = _bid(client, arm=True).json()
+
+        assert second["outcome"] == "refused"
+        assert first["job_id"] in second["reason"], (
+            "a refusal that does not name the run already going is one an operator cannot act on"
+        )
+        assert second["job_id"] == ""
+        assert second["armed"] is False, "a refused request did not arm anything"
+
+    def test_and_the_second_request_starts_no_child(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+        _bid(client, arm=True)
+        before = len(client.get("/api/v1/jobs").json()["jobs"])
+
+        _bid(client, arm=True)
+
+        assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
+
+    def test_a_finished_run_does_not_block_the_next_one(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        """The guard is about a *running* child. A refusal that outlived the run it named
+        would make the page unusable for the rest of the session."""
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+        first = _bid(client, arm=True).json()["job_id"]
+        assert _wait(lambda: _job(client, first)["status"] == "done")
+
+        assert _bid(client, arm=True).json()["outcome"] == "started"
+
+
+class TestItRefusesARoomItCannotDescribe:
+    """A field the room did not declare must not reach argv as the string `"None"`.
+
+    `RoomCheck` types every one of these as `X | None` and `resolve_room` refuses only on an
+    unknown `asta_type`, a non-free raise mode and a seat we do not hold. Nothing guarded the
+    rest, so the route answered `started` over a child that died instantly on a Typer parse
+    error — `--db None --teams None --credits None` — and the page drew "Bidding · <id>"
+    with the reason visible only in the job log.
+    """
+
+    @pytest.mark.parametrize(
+        "missing", ["shard", "asta_type", "num_teams", "num_credits", "seat_team_id",
+                    "seat_user_id"],
+    )
+    def test_a_missing_field_is_refused_by_name_before_anything_spawns(
+        self, quick_child, monkeypatch, missing: str
+    ) -> None:
+        from fantabot_app.api.v1.endpoints import room_bid
+        from fantabot_app.api.v1.endpoints.room import RoomCheck
+
+        def _check(url: str, *, connect: Any) -> RoomCheck:
+            fields: dict[str, Any] = {
+                "outcome": "resolved", "fantaleague_id": ROOM, "shard": 3,
+                "asta_type": "classic", "num_teams": 10, "num_credits": 650,
+                "seat_team_id": "TEAM-7", "seat_user_id": "USER-9",
+            }
+            fields[missing] = None
+            return RoomCheck(**fields)
+
+        monkeypatch.setattr(room_bid, "check_room", _check)
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+        before = len(client.get("/api/v1/jobs").json()["jobs"])
+
+        body = _bid(client, arm=True).json()
+
+        assert body["outcome"] == "refused"
+        assert missing in body["reason"], (
+            f"the refusal does not say which field was missing: {body['reason']!r}"
+        )
+        assert body["job_id"] == ""
+        assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
+
+    def test_shard_zero_is_a_shard_and_not_a_missing_field(
+        self, quick_child, monkeypatch
+    ) -> None:
+        """FantaLab's shards are 0-indexed, so a truth test refuses the first one."""
+        from fantabot_app.api.v1.endpoints import room_bid
+        from fantabot_app.api.v1.endpoints.room import RoomCheck
+
+        monkeypatch.setattr(
+            room_bid, "check_room",
+            lambda *_a, **_k: RoomCheck(
+                outcome="resolved", fantaleague_id=ROOM, shard=0, asta_type="mantra",
+                num_teams=8, num_credits=500, seat_team_id="T", seat_user_id="U",
+            ),
+        )
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+
+        body = _bid(client, arm=True).json()
+
+        assert body["outcome"] == "started"
+        assert "--db 0" in _argv(client, body["job_id"])
 
 
 def test_the_pin_covers_everything_the_room_check_can_say() -> None:

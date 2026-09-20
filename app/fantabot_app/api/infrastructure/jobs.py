@@ -71,6 +71,8 @@ class JobState:
     reporter: BufferingReporter | None = None
     #: What this job is, for the listing: "lega-sync", "news-fetch", "auth-login".
     kind: str = "job"
+    #: See `JobSummary.armed`. Carried on the state so a reattaching viewer can read it.
+    armed: bool | None = None
     #: Monotonic, and paired with a wall-clock stamp: the age bound must not move when the
     #: system clock does, and the UI cannot render a monotonic number.
     started_monotonic: float = 0.0
@@ -110,6 +112,16 @@ class JobSummary:
     line_count: int
     ok: bool | None
     stoppable: bool
+    #: Whether this job's child can act, or `None` for a job for which the question does not
+    #: arise. A field rather than something a viewer infers, because the one viewer that has
+    #: to know is a page that was **reloaded**: it finds the run through `GET /jobs` and has
+    #: no other way back to the arming decision the request made. Absent, it drew a live
+    #: armed bidder exactly as it draws a rehearsal — at the one moment the distinction is
+    #: worth anything.
+    #:
+    #: Not sniffed out of `lines`. The child does print `● ARMED`, and reading a log's text
+    #: for a fact is the mistake `run_bid_loop`'s error handling already paid for once.
+    armed: bool | None = None
 
 
 JobFn = Callable[[BufferingReporter], Any | Awaitable[Any]]
@@ -208,6 +220,7 @@ class JobRegistry:
         *,
         kind: str = "job",
         stop: Callable[[], None] | None = None,
+        armed: bool | None = None,
         id_factory: Callable[[], str] = lambda: uuid.uuid4().hex,
         thread_factory: ThreadFactory = _spawn_daemon,
     ) -> str:
@@ -219,6 +232,7 @@ class JobRegistry:
             lines=reporter.lines,
             reporter=reporter,
             kind=kind,
+            armed=armed,
             stop=stop,
             started_monotonic=self._clock(),
             started_at=_now_iso(),
@@ -266,6 +280,7 @@ class JobRegistry:
                     line_count=len(s.lines),
                     ok=s.ok,
                     stoppable=s.stop is not None,
+                    armed=s.armed,
                 )
                 for s in states
             ]

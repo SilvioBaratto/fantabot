@@ -82,8 +82,15 @@ def _wire(monkeypatch: pytest.MonkeyPatch, *, frame: Any) -> dict[str, Any]:
             pool=["p1"], value={}, prices={}, teams={}, legality=None, names={}
         ),
     )
+    # **A band unlike every default in sight**, and that is the point of the number: the
+    # first version injected `RosterRules()` and asserted `max_bid(500, RosterRules().size)`,
+    # so it recomputed its expectation from the very default it had injected. It could catch
+    # a *missing* cap and not a *wrong band* — which is the failure mode that matters, since
+    # the band sizes both the plan and every `max_cap` the tracker computes.
     monkeypatch.setattr(
-        asta, "_lega_rules", lambda _lega, fmt, **_k: (RosterRules(), "a test band", fmt)
+        asta,
+        "_lega_rules",
+        lambda _lega, fmt, **_k: (RosterRules(size=25), "a test band", fmt),
     )
 
     journalled: list[Mapping[str, Any]] = []
@@ -280,9 +287,14 @@ class TestTheGuardsBeforeTheFirstFrame:
         from fantabot.domain.asta.bid import max_bid
         from fantabot.domain.asta.state import RosterRules
 
-        assert self._read_the_guards(monkeypatch)["cap"] == max_bid(500, RosterRules().size)
-        assert max_bid(500, RosterRules().size) < 500, (
-            "the fixture's band reserves nothing, so this test could not tell a cap from a purse"
+        # The literal, not `max_bid(500, RosterRules().size)`: recomputing the expectation
+        # from the injected default is how the first version came to be unable to see a
+        # wrong band at all. 25 slots, 24 reserved beyond this lot, so 476.
+        assert self._read_the_guards(monkeypatch)["cap"] == 476
+        assert max_bid(500, 25) == 476, "the arithmetic this pins, stated once more"
+        assert RosterRules().size != 25, (
+            "the fixture's band is the production default again, so this test can no longer "
+            "tell a cap sized from the room from one sized from a fallback"
         )
 
     def test_the_purse_starts_at_the_declared_budget(

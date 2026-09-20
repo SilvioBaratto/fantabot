@@ -164,13 +164,25 @@ def _disarm_on_sigint(armed: list[bool]) -> Iterator[None]:
 
     Off the main thread Python refuses a signal handler. That costs the graceful disarm and
     nothing else; refusing to run the room over it would be the worse trade.
+
+    ⚠ **It counts its own interrupts rather than reading `armed[0]`, and that is the sibling
+    of the defect `stop_poll` carries a note about.** Two mechanisms clear one list, and on
+    POSIX `ProcessJob.stop` writes the flag *before* it signals — so if the loop's own poll
+    honours that flag in the window between the two, `armed[0]` is already `False` when the
+    `SIGINT` lands and the handler reads one click as two. An armed run ends on stage one.
+    The keyboard contract is unchanged, which is the point: once disarms, twice exits, and
+    `armed_at_start` keeps "a run that was never armed exits on the first".
     """
     import signal
 
     previous = signal.getsignal(signal.SIGINT)
+    armed_at_start = armed[0]
+    interrupts = 0
 
     def _disarm(_signum: int, _frame: Any) -> None:
-        if not armed[0]:
+        nonlocal interrupts
+        interrupts += 1
+        if not armed_at_start or interrupts > 1:
             signal.signal(signal.SIGINT, previous)
             raise KeyboardInterrupt
         armed[0] = False
@@ -407,6 +419,12 @@ def asta_live(
     budget: float = typer.Option(500.0, help="Our starting credits."),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
+    fmt: str = typer.Option(
+        "mantra", "--format",
+        help="Roster format of THIS room: mantra or classic. It selects both the pool and "
+        "the corpus, so a Classic room read as Mantra is advised off players it cannot "
+        "call, priced off another game — and nothing raises.",
+    ),
     teams: CorpusTeams = DEFAULT_NUM_TEAMS,
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
@@ -425,6 +443,9 @@ def asta_live(
     from fantabot.adapters.persistence import database_manager
     from fantabot.application.asta_advisory import AdvisoryRequest, build_advisory
     from fantabot.application.plan_request import NoSentimentRows
+
+    if fmt not in ("mantra", "classic"):
+        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
     if bool(league) == bool(replay):
         console.print("[red]Pass exactly one of --league or --replay.[/red]")
@@ -462,6 +483,7 @@ def asta_live(
                 AdvisoryRequest(
                     our_team_id=team,
                     season=season,
+                    listone=fmt,
                     as_of=_today(),
                     budget=budget,
                     lam=lam,
@@ -730,7 +752,16 @@ def asta_room(
     # supervised run on Windows gets no signal at all, so this file is the whole of how the
     # app asks a live command to stop; a terminal run has no supervisor and clears its own
     # leftovers, which is what `clear_unless_precleared` is deciding between.
-    stop_flag = room_stop_path(journal_path(), resolved.fantaleague_id, "watch")
+    #
+    # **The role describes what this run *does*, not which command started it.** `asta room
+    # --arm` is a bidder, and filing it under `watch` put it on the flag the app's read-only
+    # watch uses — so a Stop aimed at that watch reached an armed terminal run, and the
+    # watch's own `ProcessJob.start` cleared the flag the armed run was polling. That is the
+    # collision `ROOM_ROLES` exists to prevent, arrived at by naming the role after the verb
+    # in the command instead of after the act.
+    stop_flag = room_stop_path(
+        journal_path(), resolved.fantaleague_id, "bid" if armed[0] else "watch"
+    )
     clear_unless_precleared(stop_flag)
 
     #: The last painted screen, so `on_error` can redraw it under a banner. One slot, not a
@@ -1191,6 +1222,11 @@ def asta_bid(
                 auto_act=live_auto_act(),
                 arm=armed[0],
                 send=router.write_raise,
+                # The node the lot came from, as `asta room` has always passed. Without it a
+                # dry-run `BidOutcome` for an ASSEGNA lot is recorded as `auction` — forensic
+                # only, and the two live commands should not differ about what they would
+                # have done.
+                node=router.node,
             )(payload),
             now=lambda: int(time.time() * 1000),
             sleep=time.sleep,

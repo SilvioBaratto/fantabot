@@ -19,6 +19,15 @@ export interface JobSummary {
   line_count: number;
   ok: boolean | null;
   stoppable: boolean;
+  /**
+   * Whether this job's child can act. `null` where the question does not arise — every kind
+   * but the bidder.
+   *
+   * A reloaded tab finds its run through `GET /jobs` and has no other route back to the
+   * arming decision the request made. Without this it drew a live armed bidder exactly as it
+   * draws a rehearsal, at the one moment the distinction is worth anything.
+   */
+  armed?: boolean | null;
 }
 
 export interface JobList {

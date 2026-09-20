@@ -58,6 +58,13 @@ class AdvisoryRequest:
 
     our_team_id: str
     season: str
+    #: `"mantra"` or `"classic"`. **Not defaulted**, and that is the whole point of it:
+    #: `read_plan_inputs`' own `listone` defaults to Mantra and selects *both* the pool and
+    #: the corpus, so a Classic room advised without it is headed by players who are not in
+    #: the Classic listone at all, priced off another game — and nothing raises. It is the
+    #: 2026-09-05 defect, where the format was in a query's name *and* pinned in its filter
+    #: and a Classic plan bought its 25-man roster for 25 credits of 500.
+    listone: str
     #: The calendar, as a value. The asta feature reads the clock in exactly one place per
     #: surface, and it is not this layer.
     as_of: date
@@ -141,6 +148,14 @@ def build_advisory(
     from fantabot.application import asta_planner
     from fantabot.domain.asta import reservation
 
+    if request.listone not in ("mantra", "classic"):
+        # Refused here rather than defaulted, because the default is the defect. Both
+        # surfaces validate their own option — a Typer body raises `BadParameter`, a route
+        # answers an outcome — and this is the layer they both pass through.
+        raise ValueError(
+            f"{request.listone!r} is not a listone. Use 'mantra' or 'classic'."
+        )
+
     sales, unknown = resolve_ids(list(events), bridge)
 
     rows = resolve_sentiment(
@@ -157,11 +172,14 @@ def build_advisory(
         # 41 of 570 are absent from the listone (defect B3). `None`, never an empty set:
         # `read_plan_inputs` reads an empty collection as a real, total exclusion.
         callable_ids=frozenset(str(fid) for fid in bridge.values()) or None,
+        listone=request.listone,
         num_teams=request.num_teams,
         num_credits=request.num_credits,
     )
     if not world.pool:
-        raise EmptyPool(f"no players for season {request.season} — nothing to advise on.")
+        raise EmptyPool(
+            f"no {request.listone} players for season {request.season} — nothing to advise on."
+        )
 
     last = None
     for step in reservation.rolling_advisory(

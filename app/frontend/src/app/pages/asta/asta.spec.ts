@@ -65,6 +65,27 @@ describe('AstaComponent', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // The attached run's status heartbeat, drained rather than asserted.
+    //
+    // Since `attach` starts it, every live-room test has one of these pending on the tail's
+    // own cadence — a child that ends by itself has to be noticed, and asking is the only
+    // way to notice. No test below is *about* the heartbeat, so draining it here keeps
+    // `verify()` meaningful for the requests that are under test instead of making thirty
+    // tests flush a poll none of them asserts on. The two that **are** about it
+    // (`detaches only once the server says the job has ended`, `stops the watch and stops
+    // tailing once the job has actually ended`) match it with `expectOne` first, so they
+    // consume theirs before this runs and still fail if it stops being sent.
+    for (const open of httpMock.match((r) => /jobs\/[^/]+$/.test(r.url))) {
+      // `cancelled` first: `detach()` clears the job id, the tail's `takeWhile` completes,
+      // and RxJS unsubscribes the poll that was already in flight. `match()` still returns
+      // it and flushing it throws "Cannot flush a cancelled request" — which is an error in
+      // `afterEach`, and a failing `afterEach` leaves the TestBed instantiated, so the next
+      // three files die with "Cannot configure the test module". That is the standing
+      // hazard, reached from the cleanup written to avoid it.
+      if (!open.cancelled) {
+        open.flush({ id: 'drained', status: 'running', lines: [], ok: null, error: null });
+      }
+    }
     httpMock.verify();
   });
 
@@ -1860,6 +1881,9 @@ describe('AstaComponent', () => {
       expect(asked.request.params.get('league')).toBe('abc');
       expect(asked.request.params.get('db')).toBe('4');
       expect(asked.request.params.get('team')).toBe('TEAM-7');
+      // The format above all: it selects both the pool and the corpus, so a Classic room
+      // advised as Mantra is headed by players it cannot call, priced off another game.
+      expect(asked.request.params.get('listone')).toBe('mantra');
       expect(asked.request.params.get('teams')).toBe('10');
       expect(asked.request.params.get('credits')).toBe('650');
     });

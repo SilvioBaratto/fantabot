@@ -35,6 +35,10 @@ class JobSummaryOut(BaseModel):
     line_count: int
     ok: bool | None = None
     stoppable: bool = False
+    #: Whether this job's child can act. `None` where the question does not arise — every
+    #: kind but the bidder. A reloaded page finds its run here and has no other route back
+    #: to the arming decision the request made.
+    armed: bool | None = None
 
 
 class JobList(BaseModel):

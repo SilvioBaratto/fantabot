@@ -32,6 +32,7 @@ export class AstaService {
     league: string;
     db: number;
     team: string;
+    listone: string;
     teams: number;
     credits: number;
     budget: number;
@@ -40,6 +41,10 @@ export class AstaService {
       .set('league', params.league)
       .set('db', params.db)
       .set('team', params.team)
+      // The room's own `asta_type`. It selects **both** the pool and the corpus, so a
+      // Classic room advised as Mantra is headed by players it cannot call, priced off
+      // another game — and nothing raises.
+      .set('listone', params.listone)
       .set('teams', params.teams)
       .set('credits', params.credits)
       .set('budget', params.budget);

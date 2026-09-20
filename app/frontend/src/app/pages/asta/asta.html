@@ -425,7 +425,7 @@
                armed run disarms it and leaves it drawing; only the second ends it. A run
                with nothing to disarm leaves on the first, which is why the view waits for
                the job's own status rather than assuming either. -->
-          <button matButton="outlined" type="button" (click)="stopRun()">
+          <button matButton="outlined" type="button" [disabled]="stopping()" (click)="stopRun()">
             <lucide-icon
               matButtonIcon
               class="lucide-slot"
@@ -449,7 +449,7 @@
           <button
             matButton="filled"
             type="button"
-            [disabled]="watchStarting() || !roomUrl().trim()"
+            [disabled]="liveBusy() || !roomUrl().trim()"
             (click)="watchRoom()"
           >
             <lucide-icon
@@ -466,7 +466,7 @@
             matButton="outlined"
             type="button"
             data-testid="bid-button"
-            [disabled]="bidStarting() || !roomUrl().trim()"
+            [disabled]="liveBusy() || !roomUrl().trim()"
             (click)="bidRoom()"
           >
             <lucide-icon
@@ -495,7 +495,7 @@
     @if (watchJobId() && runArmed()) {
       <div class="panel-body" data-testid="armed-banner" role="alert">
         <p class="state-body is-error">
-          ● ARMED — this run places real bids. Stop once to disarm and keep watching; twice to end
+          <span aria-hidden="true">●</span> ARMED — this run places real bids. Stop once to disarm and keep watching; twice to end
           it.
         </p>
       </div>

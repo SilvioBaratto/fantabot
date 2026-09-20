@@ -32,8 +32,8 @@ def wired(monkeypatch):
         seen["args"] = (league_id, competition)
         return seen.get("body", {"teamLineupDto": {"mdl": "343", "starts": [1, 2], "bench": [9]}})
 
-    monkeypatch.setattr(endpoint, "teamLineup_read", fake_read, raising=False)
-    monkeypatch.setattr(endpoint, "_open_store", lambda: _NullStore(), raising=False)
+    monkeypatch.setattr(endpoint, "teamLineup_read", fake_read)
+    monkeypatch.setattr(endpoint, "_open_store", lambda: _NullStore())
     return seen
 
 
@@ -103,7 +103,7 @@ def test_each_failure_is_its_own_name(wired, monkeypatch, exc: str, outcome: str
     def boom(*_a: Any, **_k: Any) -> Any:
         raise raises
 
-    monkeypatch.setattr(endpoint, "teamLineup_read", boom, raising=False)
+    monkeypatch.setattr(endpoint, "teamLineup_read", boom)
     body = _get(TestClient(app)).json()
 
     assert body["outcome"] == outcome and body["reason"]

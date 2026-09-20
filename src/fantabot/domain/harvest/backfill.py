@@ -30,16 +30,6 @@ from fantabot.domain.harvest.registry import from_seed_row
 
 
 @dataclass(frozen=True, slots=True)
-class BackfillSummary:
-    """What a run wrote, per table."""
-
-    auctions: int
-    events: int
-    assignments: int
-    unlinked_players: int
-
-
-@dataclass(frozen=True, slots=True)
 class DroppedEvents:
     """Why records did not become event rows, one count per reason.
 

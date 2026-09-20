@@ -253,6 +253,31 @@ export class AstaComponent implements OnInit {
    */
   readonly armRequested = signal(false);
   readonly bidStarting = signal(false);
+
+  /**
+   * True while any live run is attached or being started, by either button.
+   *
+   * **Both buttons used to guard only themselves.** `watchJobId()` is still null while the
+   * first POST is in flight, so a click on *Bid in room* followed by one on *Watch room*
+   * inside that window started **both** children; whichever answered second overwrote
+   * `watchJobId`, and if that was the watch, the header read "Watching", Stop addressed the
+   * watch, and an armed bidder ran on invisible — unstoppable from this page. Two tails also
+   * shared `liveSince`, so each poll advanced the cursor for both and the Lot pane skipped
+   * cycles.
+   */
+  readonly liveBusy = computed(
+    () => this.watchStarting() || this.bidStarting() || this.watchJobId() !== null,
+  );
+
+  /**
+   * True while a stop request is in flight.
+   *
+   * The label only flips to "Stop run" once the first response lands, so two fast clicks
+   * both read "Stop" and both were sent. Escalation is per request and server-side, so
+   * stage one (disarm, keep drawing) and stage two (end it) fired together and the operator
+   * lost the live view in one gesture — the exact thing two stages exist to prevent.
+   */
+  readonly stopping = signal(false);
   /** What the server answered about the locks — never what this page asked for. */
   readonly runArmed = signal(false);
   /** Every shut lock, by name, in the order an operator would fix them. */
@@ -582,7 +607,7 @@ export class AstaComponent implements OnInit {
    */
   watchRoom(): void {
     const url = this.roomUrl().trim();
-    if (!url || this.watchStarting() || this.watchJobId() !== null) return;
+    if (!url || this.liveBusy()) return;
     this.watchStarting.set(true);
     this.watchError.set(null);
     this.asta
@@ -620,7 +645,12 @@ export class AstaComponent implements OnInit {
   loadAdvisory(): void {
     const room = this.room();
     if (!room || room.outcome !== 'resolved' || this.advisoryLoading()) return;
-    if (room.fantaleague_id === null || room.shard === null || room.seat_team_id === null) {
+    if (
+      room.fantaleague_id === null ||
+      room.shard === null ||
+      room.seat_team_id === null ||
+      room.asta_type === null
+    ) {
       return;
     }
     this.advisoryLoading.set(true);
@@ -631,6 +661,7 @@ export class AstaComponent implements OnInit {
         league: room.fantaleague_id,
         db: room.shard,
         team: room.seat_team_id,
+        listone: room.asta_type,
         teams: room.num_teams ?? 8,
         credits,
         budget: credits,
@@ -673,7 +704,7 @@ export class AstaComponent implements OnInit {
    */
   bidRoom(): void {
     const url = this.roomUrl().trim();
-    if (!url || this.bidStarting() || this.watchJobId() !== null) return;
+    if (!url || this.liveBusy()) return;
     this.bidStarting.set(true);
     this.watchError.set(null);
     this.asta
@@ -715,17 +746,23 @@ export class AstaComponent implements OnInit {
    */
   stopRun(): void {
     const jobId = this.watchJobId();
-    if (jobId === null) return;
+    if (jobId === null || this.stopping()) return;
+    this.stopping.set(true);
     this.jobs
       .stop(jobId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.stopsAsked.update((asked) => asked + 1);
-          this.watchStatus(jobId);
+          this.stopping.set(false);
+          // Clamped at 2: there is no third stage. `request_stop` stays at `exit`, so a
+          // counter past 2 only stops matching `stopsAsked() === 1` and silently takes the
+          // disarm note off the screen.
+          this.stopsAsked.update((asked) => Math.min(asked + 1, 2));
         },
-        error: (err: unknown) =>
-          this.watchError.set(refusalOf(err, 'The job would not stop and did not say why.')),
+        error: (err: unknown) => {
+          this.stopping.set(false);
+          this.watchError.set(refusalOf(err, 'The job would not stop and did not say why.'));
+        },
       });
   }
 
@@ -742,6 +779,11 @@ export class AstaComponent implements OnInit {
   private watchStatus(jobId: string): void {
     if (this.statusWatched) return;
     this.statusWatched = true;
+    // Started from `attach`, not from `stopRun`. A child that ends **by itself** — it
+    // crashes, the room closes, somebody stops it from a terminal — left the 2 s tail
+    // running for the life of the tab with the header still claiming "Bidding", and because
+    // both start methods return early on `watchJobId() !== null`, the operator could not
+    // start another run without reloading. The click did nothing and said nothing.
     interval(TAIL_MS)
       .pipe(
         takeWhile(() => this.watchJobId() === jobId),
@@ -783,7 +825,21 @@ export class AstaComponent implements OnInit {
         const live = list.jobs.find(
           (job) => LIVE_KINDS.includes(job.kind) && job.status === 'running',
         );
-        if (live) this.attach(live.id, live.kind === BID_KIND ? 'bid' : 'watch');
+        if (!live) return;
+        // `armed` off the job itself, not inferred and not sniffed out of the log. Without
+        // it a reloaded tab drew a live armed bidder exactly as it draws a rehearsal: the
+        // ARMED banner needs `runArmed()` and the dry-run note needs `runReason()`, so both
+        // were suppressed and the page said nothing at all at the one moment it matters.
+        this.runArmed.set(live.armed === true);
+        this.runClosed.set([]);
+        this.runReason.set(
+          live.armed === null || live.armed === undefined
+            ? ''
+            : live.armed
+              ? ''
+              : 'this run was started without arming.',
+        );
+        this.attach(live.id, live.kind === BID_KIND ? 'bid' : 'watch');
       });
   }
 
@@ -795,9 +851,22 @@ export class AstaComponent implements OnInit {
    * this view exists to prevent.
    */
   private attach(jobId: string, kind: 'watch' | 'bid'): void {
+    // Refused rather than overwritten. The `liveBusy` guard closes the window on the two
+    // buttons; this closes it on anything else that reaches here, including a reattach
+    // landing while a start is in flight.
+    if (this.watchJobId() !== null) return;
     this.watchJobId.set(jobId);
     this.runKind.set(kind);
     this.stopsAsked.set(0);
+    // A new run starts from a blank frame. Keeping the last one past *detach* is deliberate
+    // — the walk-away is what an operator bids by hand with — but carrying it into a new
+    // attachment drew the previous evening's lot under this one's header, with its quiet
+    // count intact: "No new row in 34 poll(s)" on a run one second old.
+    this.liveRow.set(null);
+    this.liveSince.set(0);
+    this.quietPolls.set(0);
+    this.tailError.set(null);
+    this.watchStatus(jobId);
     interval(TAIL_MS)
       .pipe(
         startWith(0),
@@ -900,12 +969,23 @@ export class AstaComponent implements OnInit {
   select(leagueId: number): void {
     this.selectedId.set(leagueId);
     this.plan.set(null);
+    // **An arming intent belongs to one game.** It survived a lega change, so the checkbox
+    // stayed ticked and the previous lega's room check stayed on screen, and the next
+    // "Bid in room" was armed by a decision somebody made about a different room.
+    // `lineup.ts::select` clears its dry run for exactly this reason.
+    this.armRequested.set(false);
+    this.room.set(null);
+    this.advisory.set(null);
+    this.advisoryError.set(null);
     this.planLoading.set(true);
     this.asta
       .getPlan(leagueId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (plan) => {
+          // The lega may have changed again while this was in flight; a late answer for the
+          // one the operator has left would draw another game's plan under this heading.
+          if (this.selectedId() !== leagueId) return;
           this.plan.set(plan);
           this.planLoading.set(false);
         },
