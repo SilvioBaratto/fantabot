@@ -331,6 +331,23 @@ src/fantabot/
   both opt-in, because the env var is process-wide `.env` state and the operator
   who edits it in the morning is not the one at the keyboard at 21:47. First
   Ctrl-C disarms and keeps drawing; second exits.
+- **The format is detected on every surface that can detect one, and refused where none
+  can (2026-09-20).** `asta room` reads the room's `asta_type` and refuses a room that
+  declares none; `asta optimize`/`asta bid` detect from the lega; `asta live --league` now
+  probes the room and falls back to the harvested corpus (`asta.id` **is** the fantaleague
+  id, so the join is free), and **refuses** when neither answers. `asta calibrate` and
+  `asta bench` state `mantra` on purpose — they name a *corpus*, not a room.
+  **The probe is optional by construction.** `POST /fantaleague/fetch` 401s without a
+  bearer while the ledger `asta live` reads does not, so a missing session, a missing
+  encryption key or an unreachable FantaLab each degrade to the next rung — a probe that
+  hard-failed would turn a tokenless command into one needing a login. Two traps on that
+  path, both now pinned by mutation: the `TokenCipher` must be built **inside** the guard
+  (`__init__` raises `KeyMissing` before any fetch, and `asta room` builds its cipher
+  outside one), and `AttributeError` must **not** be caught — it is what a faked session
+  raises, so catching it makes "the probe degraded" indistinguishable from "the test wired
+  it wrong". The probe takes a `_fetch` seam for exactly that reason, like `_callable_ids`.
+  ⚠ `GET /asta/advisory` carried the same `listone = "mantra"` default one layer down,
+  safe only because `asta.ts` happens to guard it; it is required now.
 - **Stats source**: still unchosen. News sentiment is covered by
   `fantabot news fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores. When one
