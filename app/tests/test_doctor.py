@@ -37,3 +37,111 @@ def test_doctor_command_prints_a_report() -> None:
     assert "python:" in result.output
     assert "fantabot:" in result.output
     assert "chromium:" in result.output
+
+
+# -- the frozen-copy check -----------------------------------------------------------
+#
+# The defect it exists for, measured 2026-09-20: `uv tool install ./app` installs
+# `fantabot_app` **by value** while `tool.uv.sources` makes `fantabot` editable, so the
+# tool on PATH ran a frozen app half against a live library half. It was missing
+# `schedule` and `harvest` entirely — every `fantabot-app schedule …` line in `CLAUDE.md`
+# failed as written — and nothing reported it, for weeks.
+
+
+def _tree(root) -> None:
+    """A source tree's two halves, as `doctor` has to recognise them."""
+    (root / "src" / "fantabot").mkdir(parents=True)
+    (root / "src" / "fantabot" / "__init__.py").touch()
+    (root / "app" / "fantabot_app").mkdir(parents=True)
+    (root / "app" / "fantabot_app" / "__init__.py").touch()
+    (root / "app" / "pyproject.toml").touch()
+
+
+def test_a_frozen_copy_beside_a_source_tree_is_a_failure(tmp_path) -> None:
+    from fantabot_app.doctor import compare_app_source
+
+    _tree(tmp_path)
+    frozen = tmp_path / "tools" / "fantabot-app" / "fantabot_app"
+    frozen.mkdir(parents=True)
+
+    check = compare_app_source(frozen, tmp_path / "src" / "fantabot" / "__init__.py")
+
+    assert check.ok is False
+
+
+def test_the_failure_names_both_paths_so_the_two_can_be_told_apart(tmp_path) -> None:
+    """`schedule status`'s MOVED rule: one path is half an answer, because the question
+    is which of two copies is running."""
+    from fantabot_app.doctor import compare_app_source
+
+    _tree(tmp_path)
+    frozen = tmp_path / "tools" / "fantabot-app" / "fantabot_app"
+    frozen.mkdir(parents=True)
+
+    check = compare_app_source(frozen, tmp_path / "src" / "fantabot" / "__init__.py")
+
+    assert str(frozen) in check.detail
+    assert str(tmp_path / "app" / "fantabot_app") in check.detail
+
+
+def test_the_failure_names_its_remedy(tmp_path) -> None:
+    from fantabot_app.doctor import compare_app_source
+
+    _tree(tmp_path)
+    frozen = tmp_path / "tools" / "fantabot_app"
+    frozen.mkdir(parents=True)
+
+    check = compare_app_source(frozen, tmp_path / "src" / "fantabot" / "__init__.py")
+
+    assert "uv tool install --force --editable ./app" in check.detail
+
+
+def test_the_trees_own_package_is_in_step(tmp_path) -> None:
+    from fantabot_app.doctor import compare_app_source
+
+    _tree(tmp_path)
+
+    check = compare_app_source(
+        tmp_path / "app" / "fantabot_app", tmp_path / "src" / "fantabot" / "__init__.py"
+    )
+
+    assert check.ok is True
+
+
+def test_a_symlinked_path_is_the_same_package(tmp_path) -> None:
+    """`samefile`, not `Path` equality — `CLAUDE.md` records that lesson from `harvest
+    adopt`, which deleted the landing zone it was asked to adopt by comparing paths."""
+    from fantabot_app.doctor import compare_app_source
+
+    _tree(tmp_path)
+    link = tmp_path / "alias"
+    link.symlink_to(tmp_path / "app" / "fantabot_app")
+
+    check = compare_app_source(link, tmp_path / "src" / "fantabot" / "__init__.py")
+
+    assert check.ok is True
+
+
+def test_no_source_tree_to_compare_against_is_not_a_failure(tmp_path) -> None:
+    """A plain wheel install of both halves is a legitimate install and nothing is wrong.
+
+    Reporting it would be a red mark every GitHub user sees on a correct setup, which is
+    the fastest way to teach someone to ignore the report.
+    """
+    from fantabot_app.doctor import compare_app_source
+
+    installed = tmp_path / "site-packages" / "fantabot_app"
+    installed.mkdir(parents=True)
+    library = tmp_path / "site-packages" / "fantabot" / "__init__.py"
+    library.parent.mkdir(parents=True)
+    library.touch()
+
+    check = compare_app_source(installed, library)
+
+    assert check.ok is True
+    assert "source tree" in check.detail
+
+
+def test_the_check_is_in_the_report() -> None:
+    names = [check.name for check in run_checks()]
+    assert "fantabot-app" in names
