@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 import _importgraph
+import pytest
 
 from fantabot.application.plan_inputs import build_plan_inputs
 from fantabot.domain.asta.optimizer import optimize_roster
@@ -217,3 +218,32 @@ class TestTheClassicCorpusReachesThePlanner:
         _, seen = self._read(monkeypatch, "classic")
 
         assert seen["shape"] == (500, 8)
+
+
+def test_an_unknown_listone_is_refused_rather_than_read_as_mantra() -> None:
+    """The dispatch was `if listone == "classic": ... else: <mantra>` — fail-open.
+
+    Nothing can reach it with a bad value today: every caller validates its own option, and
+    `clearing_sales` already raises on a shape it has no corpus for. But a pure function that
+    answers *Mantra* to a question it does not understand is the shape this repository has
+    paid for twice — `CLAUDE.md` records the format being pinned in a query's filter *and*
+    written into its name, and a Classic plan buying its 25-man roster for 25 credits of 500
+    because an empty result was legal. An unknown format is not a format.
+
+    Found by an adversarial review of the `--format` fix, as a latent edge rather than a
+    live defect; closed because it costs one line and the next caller is the risk.
+    """
+    from fantabot.application.plan_inputs import build_plan_inputs
+
+    for unknown in ("", "Mantra", "banana"):
+        with pytest.raises(ValueError, match=r"mantra|classic"):
+            build_plan_inputs({}, {}, None, as_of=None, tilt_k=0.25, listone=unknown)
+
+
+def test_both_real_listoni_are_still_accepted() -> None:
+    """The other half: a refusal that refuses everything is not a guard."""
+    from fantabot.application.plan_inputs import build_plan_inputs
+
+    for known in ("mantra", "classic"):
+        assert build_plan_inputs({}, {}, None, as_of=None, tilt_k=0.25, listone=known)
+

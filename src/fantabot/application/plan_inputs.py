@@ -98,6 +98,14 @@ def build_plan_inputs(
     # Mantra (sroles=2) is the bipartite match, so it carries the 11-schemi compat matrix.
     pool: Sequence[MantraPlayer | ClassicPlayer]
     legality: dict[str, SchemaLegality]
+    if listone not in ("mantra", "classic"):
+        # **Refused rather than dispatched.** This was `if listone == "classic": ... else:`,
+        # so anything unrecognised — a typo, an empty string, a value from a caller that had
+        # not validated — silently built a *Mantra* pool and a Mantra legality matrix. A
+        # pure function answering one format to a question about another is the shape
+        # `CLAUDE.md` records twice, most expensively as a Classic plan that bought its
+        # 25-man roster for 25 credits of 500 because an empty result was legal.
+        raise ValueError(f"{listone!r} is not a listone. Use 'mantra' or 'classic'.")
     if listone == "classic":
         pool = build_classic_pool(roles)
         legality = {}
