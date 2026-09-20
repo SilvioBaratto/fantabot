@@ -77,84 +77,272 @@ def test_app_never_handles_a_plaintext_token() -> None:
     assert offenders == [], f"app code handling plaintext tokens: {offenders}"
 
 
+#: The names that **act**: they decide a raise, PATCH one to the RTDB, drive the loop that
+#: does both, or POST a lineup. No app module may call one or import one.
+#:
+#: **Read as syntax, never as text** — that is what 3.11 replaced. The scan this succeeds was
+#: a substring search over the app's source, so a docstring explaining the rule tripped it and
+#: a Pydantic field that happened to share a name tripped it too. Both happened, within one
+#: commit of each other, on `max_cap`.
+#:
+#: **Ban the write path, not a module name.** The first version banned
+#: `application.asta_room`, which also holds the read-only `resolve_room` and `RoomFrame` —
+#: so a room *viewer* failed while `rtdb.place_raise` and `room.run_bid_loop`, the two
+#: functions that actually spend credits, were absent from the list and passed. It banned the
+#: viewer and permitted the bidder.
 ACTING_NAMES = (
-    "decide_bid(",  # chooses a raise
-    "place_raise(",  # PATCHes it to the RTDB — the one that spends credits
-    "run_bid_loop(",  # the loop that calls both, forever
-    "RoomTracker(",  # owns the loop and the per-cycle decision
-    "teamLineup_submit(",  # POSTs the weekly lineup
+    "decide_bid",  # chooses a raise
+    "place_raise",  # PATCHes it to the RTDB — the one that spends credits
+    "run_bid_loop",  # the loop that calls both, forever
+    "RoomTracker",  # owns the loop and the per-cycle decision
+    "teamLineup_submit",  # POSTs the weekly lineup
 )
-"""The names no app module may contain. A module-level tuple, not a local, so the guard
-below can read the **object** instead of grepping the file that defines it.
 
-`teamLineup_submit(` was taken off this list in `fbf39f1`, the commit that built
-`POST /lineup/submit`, on the reasoning that "never" had stopped being true. It had not:
-the route calls `application.lineup_submit.submit_lineup`, and never names the adapter
-write. Nothing in the app package matches this string outside its own tests, which
-`_source_files` excludes by default for exactly this reason.
+#: The arming decision, by name. `application/arming.decide_arming` is the only thing in this
+#: repository allowed to answer "may this act", and `submit_lineup` is the one use case that
+#: calls it for the caller.
+ARMING_NAMES = ("decide_arming", "submit_lineup")
 
-Restoring it is what makes the ban say the useful thing. A substring list cannot express
-"only behind two locks" — but it can express "only through `application/`", which is the
-property that matters: `submit_lineup` is where the arming contract lives, and an endpoint
-that reached `apileague.teamLineup_submit` directly would submit a real lineup with no
-locks at all. Between `fbf39f1` and now, nothing said so.
-"""
+#: The argv token that arms a supervised child. A literal, because it is one: `--arm` is
+#: present or absent and never a value — `--arm=false` reads as armed at a glance and is one
+#: edit from open.
+ARM_FLAG = "--arm"
 
 
-def test_no_bid_or_lineup_submit_wiring_exists() -> None:
-    """The app never names a function that acts. It reaches one only through `application/`.
-
-    **Re-cut to ban the write path rather than a module name.** The list used to hold
-    ``"application.asta_room"``, which is the module that also defines ``resolve_room``,
-    ``RoomRefused`` and ``RoomFrame`` — none of which can bid. So a read-only room view
-    failed this test, while ``rtdb.place_raise`` and ``room.run_bid_loop``, the two
-    functions that actually spend credits, were absent from the list and would have
-    passed. The guard banned the viewer and permitted the bidder.
-
-    ``RoomTracker`` is on the list because its ``cycle`` is what decides and places a
-    raise; reading a room's configuration is not the same act and is deliberately allowed.
-    """
+def _app_trees() -> list[tuple[str, ast.Module]]:
     root = _package_root()
+    return [
+        (str(py.relative_to(root)), ast.parse(py.read_text(encoding="utf-8")))
+        for py in _source_files(under=root)
+    ]
+
+
+def _called_name(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def test_the_app_reaches_an_act_only_through_application() -> None:
+    """No app module calls or imports a name that acts. **Replaced, not deleted.**
+
+    The property is unchanged and the instrument is not: this reads the syntax tree, so the
+    sentence in `room_bid.py` explaining the rule is a sentence, and `JournalRow.max_cap` is
+    a field. The textual version could tell neither from a call.
+
+    An import is banned alongside the call because a name bound but not yet used is the
+    commit before the one that uses it.
+    """
     offenders: list[tuple[str, str]] = []
-    for py in _source_files(under=root):
-        text = py.read_text(encoding="utf-8")
-        for term in ACTING_NAMES:
-            if term in text:
-                offenders.append((str(py.relative_to(root)), term))
+    for where, tree in _app_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _called_name(node) in ACTING_NAMES:
+                offenders.append((where, f"calls {_called_name(node)}()"))
+            elif isinstance(node, ast.ImportFrom):
+                offenders += [
+                    (where, f"imports {alias.name}")
+                    for alias in node.names
+                    if alias.name in ACTING_NAMES
+                ]
     assert offenders == [], f"the app wires an action it must not take: {offenders}"
+
+
+#: Where an arming *intent* may come from, spelled exactly. A name or attribute called
+#: anything else is not an intent, it is a coincidence.
+ARM_INTENT = ("arm", "armed")
+
+#: The package prefix where an arming intent arrives as an HTTP request rather than as a
+#: keystroke. `application/arming`'s own distinction: *"the per-invocation lock is a `--arm`
+#: flag in a terminal and a body field in a request"*. A terminal flag **is** the second lock
+#: — the operator typed it, now, for this run. A request field is not: a page can be
+#: reloaded, restored by the session manager, or left open overnight, so the field has to be
+#: combined with the ambient lock and the answer reported. That is what `decide_arming` is.
+REQUEST_SURFACE = "api/"
+
+
+def _arm_writes(fn: ast.FunctionDef) -> list[ast.Constant]:
+    """Every place this body *writes* `--arm` into an argv.
+
+    A `Compare` is a read — `schedule.status` asks `"--arm" in argv` to report whether the
+    installed job is armed, which is the opposite of arming one. Banning it would make the
+    only command that can *tell* an operator their job is armed the command that fails this
+    test, which is how the first acting guard came to ban the viewer and permit the bidder.
+    """
+    reads = {
+        node
+        for compare in ast.walk(fn)
+        if isinstance(compare, ast.Compare)
+        for node in ast.walk(compare)
+    }
+    return [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Constant) and node.value == ARM_FLAG and node not in reads
+    ]
+
+
+def _intent_names(test: ast.expr) -> set[str]:
+    """The names and attributes an `If` test reads, by their last component."""
+    found: set[str] = set()
+    for node in ast.walk(test):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return found
+
+
+def test_nothing_arms_a_child_outside_an_arming_intent() -> None:
+    """**The successor property, and the one worth having**: every path by which this app can
+    cause an act is reached only through an arming intent somebody stated.
+
+    That is stronger than "the app does not bid", and — unlike absence — it is still true
+    once the app does. A hand-written `argv.append("--arm")` fails here; so does one guarded
+    by a condition that reads anything other than an intent, which is what a refactor that
+    moved the flag under `if league:` would look like.
+
+    The intent may be a keystroke or a request, and the two are not held to the same bar:
+    see :data:`REQUEST_SURFACE` and the test below it.
+    """
+    offenders: list[str] = []
+    for where, tree in _app_trees():
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            writes = _arm_writes(fn)
+            if not writes:
+                continue
+            guarded = [
+                branch
+                for branch in ast.walk(fn)
+                if isinstance(branch, ast.If)
+                and _intent_names(branch.test) & set(ARM_INTENT)
+                and any(write in ast.walk(branch) for write in writes)
+            ]
+            if not guarded:
+                offenders.append(f"{where}:{fn.name} arms without reading an arming intent")
+    assert offenders == [], f"the arming contract is bypassed: {offenders}"
+
+
+def test_a_request_that_arms_asks_decide_arming_and_a_keystroke_does_not_have_to() -> None:
+    """The second tier, and the distinction is `application/arming`'s own.
+
+    A `--arm` an operator typed **is** the second lock: they are at the keyboard, now, for
+    this run. A request's `arm` field is not — the browser that sent it can be reloaded,
+    restored or left open overnight — so it has to be combined with the ambient lock, and the
+    answer has to name *every* shut lock rather than the first. Only `decide_arming` does
+    both, which is why it is required on one surface and not on the other.
+    """
+    offenders: list[str] = []
+    for where, tree in _app_trees():
+        if not where.startswith(REQUEST_SURFACE):
+            continue
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef) or not _arm_writes(fn):
+                continue
+            asked = any(
+                isinstance(node, ast.Call) and _called_name(node) == "decide_arming"
+                for node in ast.walk(fn)
+            )
+            if not asked:
+                offenders.append(
+                    f"{where}:{fn.name} arms from a request without asking `decide_arming`"
+                )
+    assert offenders == [], f"a request armed on its own word: {offenders}"
+
+
+def test_the_arming_decision_is_the_requests_and_never_a_constant() -> None:
+    """`arm` comes from the body of the request that could act, restated every time.
+
+    `application/arming`'s rule: a page can be reloaded, restored by the session manager, or
+    left open overnight, and none of those may carry an arming decision forward. A route
+    passing `arm=True` — or `arm=False` — would be making that decision for the operator, in
+    the direction its author happened to pick.
+    """
+    offenders: list[str] = []
+    for where, tree in _app_trees():
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and _called_name(node) in ARMING_NAMES):
+                continue
+            passed = [kw for kw in node.keywords if kw.arg == "arm"]
+            if not passed:
+                offenders.append(f"{where}: {_called_name(node)}() states no `arm`")
+                continue
+            for keyword in passed:
+                if isinstance(keyword.value, ast.Constant):
+                    offenders.append(
+                        f"{where}: {_called_name(node)}(arm={keyword.value.value!r}) is a "
+                        "decision made for the operator"
+                    )
+    assert offenders == [], f"an arming decision was hard-coded: {offenders}"
+
+
+def test_the_arming_contract_is_actually_exercised() -> None:
+    """A guard over a feature nobody wrote is worse than none: it reassures.
+
+    The two tests above pass vacuously over an app that arms nothing — which is exactly what
+    this app was until 3.9b. So the route that arms has to exist, and be found by the same
+    walk the guards use rather than by a path written down here.
+    """
+    arming = [
+        where
+        for where, tree in _app_trees()
+        for fn in ast.walk(tree)
+        if isinstance(fn, ast.FunctionDef) and _arm_writes(fn)
+    ]
+    from_a_request = [where for where in arming if where.startswith(REQUEST_SURFACE)]
+    deciding = [
+        where
+        for where, tree in _app_trees()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _called_name(node) in ARMING_NAMES
+    ]
+    assert arming, "no app module arms a child: the guard above is scanning nothing"
+    assert from_a_request, (
+        "no route arms a child, so the `decide_arming` tier is scanning nothing — which is "
+        "exactly what this app was until 3.9b, with both guards green"
+    )
+    assert deciding, "no app module asks `decide_arming`: the contract is unexercised"
 
 
 def test_the_boundary_names_the_functions_that_actually_act() -> None:
     """A guard that misses the write path is worse than none — it reassures.
 
-    This read the file's own *text* and so could not fail. ``for acting in ("place_raise(",
-    ...)`` puts those literals in the source it then searched, so the assertion found its
-    own loop header whatever the ban contained; deleting ``place_raise(`` and
-    ``run_bid_loop(`` from the list left every assertion green. The second assertion was
-    worse: ``source.split("forbidden = (")[1]`` split on **three** occurrences of that
-    string and landed on the plaintext-token ban, so the acting list was never inspected at
-    all.
+    This read the file's own *text* and so could not fail: `for acting in ("place_raise(",
+    ...)` put those literals in the source it then searched, so the assertion found its own
+    loop header whatever the ban contained. It reads :data:`ACTING_NAMES` — the object the
+    scan uses — and the literals here are the expectation, which is the point of a meta-guard.
 
-    It now reads :data:`ACTING_NAMES` — the object the scan actually uses. The literals here
-    are the expectation, which is the point of a meta-guard; what changed is that they are
-    checked against the list rather than against the file that contains them both.
+    The trailing `(` is gone with the textual scan: these are **names** now, matched against
+    a call's callee, so `place_raise(` would match nothing and the ban would be empty.
     """
     must_be_banned = (
-        "place_raise(",  # PATCHes a raise to the RTDB — the one that spends credits
-        "run_bid_loop(",  # the loop that calls both, forever
-        "decide_bid(",  # chooses a raise
-        "RoomTracker(",  # owns the loop and the per-cycle decision
-        "teamLineup_submit(",  # POSTs the weekly lineup
+        "place_raise",  # PATCHes a raise to the RTDB — the one that spends credits
+        "run_bid_loop",  # the loop that calls both, forever
+        "decide_bid",  # chooses a raise
+        "RoomTracker",  # owns the loop and the per-cycle decision
+        "teamLineup_submit",  # POSTs the weekly lineup
     )
     missing = [name for name in must_be_banned if name not in ACTING_NAMES]
 
     assert missing == [], f"dropped from the acting boundary: {missing}"
-    # Every banned name pinned, not a chosen few. `RoomTracker(` was on the ban and off
-    # this list, so it could be dropped silently — recorded under 3.11 and then carried
-    # past by the commit that rewrote this guard.
+    # Every banned name pinned, not a chosen few. `RoomTracker` was on the ban and off this
+    # list, so it could be dropped silently.
     assert set(must_be_banned) == set(ACTING_NAMES), (
         f"the ban and its pin disagree: {set(ACTING_NAMES) ^ set(must_be_banned)}"
     )
+    assert set(ARMING_NAMES) == {"decide_arming", "submit_lineup"}, (
+        f"the arming boundary moved: {set(ARMING_NAMES) ^ {'decide_arming', 'submit_lineup'}}"
+    )
+    # Each of the three below is a way to make the guards above pass over nothing: an empty
+    # intent set matches no `If` test, a `REQUEST_SURFACE` matching no file skips every
+    # route, and a flag spelled anything else is a literal nothing writes.
+    assert set(ARM_INTENT) == {"arm", "armed"}, f"the intent vocabulary moved: {ARM_INTENT}"
+    assert REQUEST_SURFACE == "api/", f"the request surface moved: {REQUEST_SURFACE!r}"
+    assert ARM_FLAG == "--arm", "a lock spelled any other way is one edit from open"
 
 
 CAP_NAMES = (
