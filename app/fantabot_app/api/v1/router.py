@@ -22,6 +22,7 @@ from fantabot_app.api.v1.endpoints import (
     pricing,
     room,
     system,
+    teams,
 )
 
 # Create the main API router
@@ -40,3 +41,4 @@ api_router.include_router(legality.router)
 api_router.include_router(lineup.router)
 api_router.include_router(actions.router)
 api_router.include_router(system.router)
+api_router.include_router(teams.router)
