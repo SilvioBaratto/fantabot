@@ -143,6 +143,11 @@ TREE: dict[str, str] = {
     "test_db_dump.py": "application",
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
+    # T18-lift part 1: the composition of a live room — the twenty keywords `asta room`
+    # and the app's room route must not each assemble, and the one poll both drive it
+    # through. Separate from `test_asta_room_tracker.py`, which is about what one cycle
+    # decides rather than about who wired the decider.
+    "test_asta_session.py": "application",
     "test_asta_copilot_worker.py": "application",
     # T22: what a backfill may be asked to load — the refusals, and the enumeration
     # of the harvest home that the picker and `harvest backfill` must not each invent.

@@ -560,11 +560,11 @@ def asta_room(
     from fantabot.application.asta_room import (
         RoomFrame,
         RoomRefused,
-        RoomTracker,
         error_row,
         resolve_room,
         waiting_row,
     )
+    from fantabot.application.asta_session import session_for
     from fantabot.config import journal_path, live_auto_act, settings
     from fantabot.domain.asta.bid import Seat, max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
@@ -702,29 +702,30 @@ def asta_room(
         cycle_started[0] = time.perf_counter()
         return router.read_lot()[0]
 
-    tracker = RoomTracker(
-        seat=Seat(
-            fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id
-        ),
+    # The composition is `application/`'s, not this body's: the app's room route drives the
+    # same twenty keywords off the same `ResolvedRoom` and the same `PlanInputs`, and none of
+    # them raises when it is dropped — a second copy diverges quietly, which is exactly how
+    # three commands came to hold three value models.
+    # Not `session`: that name is the SQLAlchemy one two blocks up, and a body this long
+    # with two meanings for it is one edit from reading the wrong thing.
+    room_session = session_for(
+        resolved=resolved,
+        user_id=stored.user_id,
         bridge=bridge,
-        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
-        legality=world.legality, names=world.names,
+        world=world,
         rules=rules,
         budget=credits,
         lam=lam,
         ceiling_alpha=ceiling_alpha,
         bargain_beta=bargain_beta,
         bargain_share=bargain_share,
-        admin_user_id=resolved.admin_id,
-        seat_by_user=resolved.seat_by_user,
         # A new signing the startup fetch above missed (or one added mid-evening) triggers
         # one rate-limited re-fetch instead of holding on it for the rest of the night —
         # `RoomTracker`'s own guard against a burst of new uuids or a shrunk response.
         bridge_refresh=lambda: listone.fetch(refresh=True),
         ledger=lambda: feed.ledger_events(resolved.db, resolved.fantaleague_id),
+        # `cycle_ms` is still measured out here — the clock stays out of `application/`.
         journal=_timed_journal,
-        counter_time=resolved.counter_time,
-        counter_time_first=resolved.counter_time_first,
     )
 
     # One slot, not a log: only `latest[-1]` is ever read, and a frame per poll for three
@@ -743,9 +744,10 @@ def asta_room(
         worker.start()
 
     def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        frame = tracker.cycle(
+        cycle = room_session.cycle(
             snapshot, now_ms=int(time.time() * 1000), node=router.node
         )
+        frame = cycle.frame
         latest[:] = [frame]
 
         advice = None
@@ -780,9 +782,7 @@ def asta_room(
         )
         screen[:] = [view]
         live.update(view)
-        if frame.target is None or frame.walk_away is None:
-            return None
-        return (frame.target, frame.walk_away)
+        return cycle.target
 
     def heartbeat(line: str) -> None:
         """The screen is the frame, so this discards every line but one. `run_bid_loop`
