@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { BackfillCandidates, BackfillRequest } from '../models/backfill';
 import { Corpus, SeedPanel } from '../models/corpus';
 
 @Injectable({ providedIn: 'root' })
@@ -29,6 +30,21 @@ export class HarvestService {
       `${environment.apiUrl}harvest/load?asta_type=${encodeURIComponent(astaType)}&follow=${follow}`,
       {},
     );
+  }
+
+  /** What a backfill may be pointed at: the recorded logs and the seeds, by name. */
+  getBackfillCandidates(): Observable<BackfillCandidates> {
+    return this.http.get<BackfillCandidates>(`${environment.apiUrl}harvest/backfill/candidates`);
+  }
+
+  /**
+   * Load a recorded collector log, supervised as a child process.
+   *
+   * A body of **names**, never paths, and the server refuses any name its own candidate
+   * list does not hold — so a second landing zone cannot be created from this screen.
+   */
+  startBackfill(request: BackfillRequest): Observable<{ job_id: string }> {
+    return this.http.post<{ job_id: string }>(`${environment.apiUrl}harvest/backfill`, request);
   }
 
   /**

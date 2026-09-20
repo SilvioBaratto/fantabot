@@ -23,6 +23,7 @@ import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'r
 import { ActionsService } from '../../core/api/actions.service';
 import { HarvestService } from '../../core/api/harvest.service';
 import { JobsService } from '../../core/api/jobs.service';
+import { BackfillCandidates } from '../../core/models/backfill';
 import { Corpus, SeedPanel } from '../../core/models/corpus';
 
 /** The job kind this page owns. `GET /jobs` lists every kind; only this one belongs here. */
@@ -31,6 +32,8 @@ const SCAN_KIND = 'harvest-scan';
 const LOAD_KIND = 'harvest-load';
 /** The other supervised child, and the irreplaceable one. */
 const COLLECT_KIND = 'harvest-collect';
+/** The fourth: a recorded evening, re-read. Idempotent, so the only one that is safe twice. */
+const BACKFILL_KIND = 'harvest-backfill';
 
 /**
  * The four signals every job on this page renders through.
@@ -124,6 +127,50 @@ export class HarvestComponent implements OnInit {
 
   readonly formats = ['mantra', 'classic'] as const;
 
+  // -- the backfill picker (T22) --------------------------------------------------------
+
+  readonly candidates = signal<BackfillCandidates | null>(null);
+  /** The chosen log, by **name**. A path would let this screen create a landing zone. */
+  readonly backfillLog = signal('');
+  /**
+   * The chosen seed, by name, defaulted to `seed.json` — which is what `harvest backfill`
+   * itself defaults to. Chosen rather than fixed because the home holds three, and a
+   * recorded evening needs its own: today's seed against last month's log drops every
+   * auction it no longer describes and reports a successful run.
+   */
+  readonly backfillSeed = signal('seed.json');
+  readonly backfillFormat = signal('mantra');
+  readonly backfillRunning = signal(false);
+  readonly backfillLines = signal<string[]>([]);
+  readonly backfillStatus = signal<string>('');
+  readonly backfillOk = signal<boolean | null>(null);
+  readonly backfillError = signal<string | null>(null);
+  readonly backfillJobId = signal<string | null>(null);
+  /**
+   * The exact triple a dry run has come back for, or `null`.
+   *
+   * The write is offered only against this, and the comparison is what makes the gate
+   * mean anything: a dry run proves *one* (log, seed, format), and the number it exists
+   * to show — how many auctions the chosen seed failed to describe — says nothing at all
+   * about a different one. Changing any of the three therefore withdraws the write.
+   *
+   * It is a page affordance and deliberately not a server rule. `harvest backfill` takes
+   * `--dry-run` in either order, and a route that refused a write without one would give
+   * the app a restriction the CLI has not got.
+   */
+  readonly backfillDryRunDone = signal<string | null>(null);
+
+  /** The triple, as the gate compares it. */
+  private readonly backfillChoice = computed(
+    () => `${this.backfillLog()}|${this.backfillSeed()}|${this.backfillFormat()}`,
+  );
+
+  readonly canBackfill = computed(() => !this.backfillRunning() && this.backfillLog() !== '');
+
+  readonly canWriteBackfill = computed(
+    () => this.canBackfill() && this.backfillDryRunDone() === this.backfillChoice(),
+  );
+
   private readonly scanPanel: JobPanel = {
     running: this.scanning,
     lines: this.scanLines,
@@ -142,6 +189,15 @@ export class HarvestComponent implements OnInit {
     jobId: this.loaderJobId,
   };
 
+  private readonly backfillPanel: JobPanel = {
+    running: this.backfillRunning,
+    lines: this.backfillLines,
+    status: this.backfillStatus,
+    ok: this.backfillOk,
+    error: this.backfillError,
+    jobId: this.backfillJobId,
+  };
+
   private readonly collectPanel: JobPanel = {
     running: this.collecting,
     lines: this.collectLines,
@@ -158,6 +214,7 @@ export class HarvestComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.readCandidates();
     this.reattach();
   }
 
@@ -178,6 +235,36 @@ export class HarvestComponent implements OnInit {
         },
       });
     this.readSeed();
+  }
+
+  /**
+   * Re-read the picker. Its own request and its own silence, like the seed panel.
+   *
+   * `exists` and `error` are kept apart by the template rather than folded into one empty
+   * state: a home nobody has created names a command, and a home that cannot be read
+   * names a permissions dialog.
+   */
+  private readCandidates(): void {
+    this.service
+      .getBackfillCandidates()
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((found) => {
+        this.candidates.set(found);
+        // Pre-select the newest recorded log rather than the live landing zone: the live
+        // one is what `harvest load --follow` is already carrying, so a backfill of it is
+        // legal and almost never what was meant. Falls back to whatever is there.
+        const recorded = found.logs.filter((log) => !log.live);
+        const chosen = (recorded.length ? recorded : found.logs).at(-1);
+        if (chosen && !found.logs.some((log) => log.name === this.backfillLog())) {
+          this.backfillLog.set(chosen.name);
+        }
+        if (!found.seeds.some((seed) => seed.name === this.backfillSeed())) {
+          this.backfillSeed.set(found.seeds.at(0)?.name ?? '');
+        }
+      });
   }
 
   /**
@@ -225,6 +312,63 @@ export class HarvestComponent implements OnInit {
       'Could not start the collector.',
       () => this.load(),
     );
+  }
+
+  /**
+   * Build the rows and report, writing nothing. What the write is gated on.
+   *
+   * The report is the point rather than a formality: a mismatched (log, seed) pair is not
+   * an error and comes back as a *successful* run with a large `unknown auction` count,
+   * so the counts in this log are the only place the wrong pair is visible before rows
+   * land.
+   */
+  runBackfillDryRun(): void {
+    const choice = this.backfillChoice();
+    this.backfillDryRunDone.set(null);
+    this.start(
+      this.backfillPanel,
+      this.service.startBackfill({
+        log: this.backfillLog(),
+        seed: this.backfillSeed(),
+        asta_type: this.backfillFormat(),
+        dry_run: true,
+      }),
+      'Could not start the backfill.',
+      () => {
+        // Recorded against the triple it ran for, and only when the child came back
+        // clean: a run that died holding an exception has reported nothing about the pair.
+        if (this.backfillOk()) this.backfillDryRunDone.set(choice);
+      },
+    );
+  }
+
+  /**
+   * Write the rows a dry run has already reported.
+   *
+   * The dry run is withdrawn on the way in, so the receipt cannot be spent twice: the
+   * corpus has moved by the time this finishes, and the next write is a different
+   * question. The corpus is re-read for the same reason — this is the one thing on this
+   * card that changes it.
+   */
+  runBackfillWrite(): void {
+    if (!this.canWriteBackfill()) return;
+    this.backfillDryRunDone.set(null);
+    this.start(
+      this.backfillPanel,
+      this.service.startBackfill({
+        log: this.backfillLog(),
+        seed: this.backfillSeed(),
+        asta_type: this.backfillFormat(),
+        dry_run: false,
+      }),
+      'Could not start the backfill.',
+      () => this.load(),
+    );
+  }
+
+  /** Ask the server to stop the supervised backfill. */
+  stopBackfill(): void {
+    this.stopJob(this.backfillPanel);
   }
 
   /** Ask the server to stop the supervised loader. */
@@ -338,6 +482,10 @@ export class HarvestComponent implements OnInit {
         resume(SCAN_KIND, this.scanPanel, () => this.readSeed());
         resume(LOAD_KIND, this.loadPanel, () => this.load());
         resume(COLLECT_KIND, this.collectPanel, () => this.load());
+        // No dry run is recorded on reattach, deliberately. `GET /jobs` does not say
+        // whether the running child carries `--dry-run`, and inferring one would offer
+        // the write on the strength of a run whose mode this page is guessing at.
+        resume(BACKFILL_KIND, this.backfillPanel, () => this.load());
       });
   }
 

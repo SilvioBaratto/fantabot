@@ -2,8 +2,8 @@
   <div class="page-heading">
     <h1 class="page-title">Harvest</h1>
     <p class="page-lede">
-      Scan the live auctions, follow them into the landing zone, and load what was recorded
-      into Postgres.
+      Scan the live auctions, follow them into the landing zone, and load what was recorded into
+      Postgres.
     </p>
   </div>
 
@@ -39,15 +39,24 @@
       <mat-card-content>
         @if (seed(); as s) {
           @if (!s.ok) {
-            <p class="seed-problem">The seed could not be read: <code>{{ s.error ?? 'unknown' }}</code>.</p>
+            <p class="seed-problem">
+              The seed could not be read: <code>{{ s.error ?? 'unknown' }}</code
+              >.
+            </p>
           } @else if (!s.exists) {
-            <p class="job-lede">No seed yet. Scan to write one at <code>{{ s.path }}</code>.</p>
+            <p class="job-lede">
+              No seed yet. Scan to write one at <code>{{ s.path }}</code
+              >.
+            </p>
           } @else {
             <p class="seed-count">{{ s.rows | number }}</p>
             <p class="seed-split">
               auctions registered &middot;
               @for (entry of seedFormats(); track entry[0]) {
-                <span class="format-name">{{ entry[0] }}</span> {{ entry[1] | number }}@if (!$last) {,&nbsp;}
+                <span class="format-name">{{ entry[0] }}</span> {{ entry[1] | number }}
+                @if (!$last) {
+                  ,&nbsp;
+                }
               }
             </p>
             <p class="seed-path">
@@ -109,8 +118,8 @@
            and says nothing at all about whether an evening was followed. -->
       <div class="job-note">
         <p>
-          A scan merges both formats into this file: it adds and updates, and never removes.
-          Counted after the merge.
+          A scan merges both formats into this file: it adds and updates, and never removes. Counted
+          after the merge.
         </p>
       </div>
 
@@ -187,7 +196,13 @@
         @if (loaderRunning()) {
           <span class="danger-zone">
             <button matButton="outlined" type="button" (click)="stopLoad()">
-              <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="x" aria-hidden="true" />
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [size]="18"
+                name="x"
+                aria-hidden="true"
+              />
               Stop loader
             </button>
           </span>
@@ -228,8 +243,8 @@
            the recovery that re-reads 1.31 GB stays a terminal act. -->
       <div class="job-note">
         <p>
-          Stopping asks the child politely first and says so if it has to escalate. The offset
-          only ever moves forward from here — resetting it is
+          Stopping asks the child politely first and says so if it has to escalate. The offset only
+          ever moves forward from here — resetting it is
           <code>fantabot harvest load</code>, at a terminal, deliberately.
         </p>
       </div>
@@ -304,7 +319,13 @@
         @if (collecting()) {
           <span class="danger-zone">
             <button matButton="outlined" type="button" (click)="stopCollect()">
-              <lucide-icon matButtonIcon class="lucide-slot" [size]="18" name="x" aria-hidden="true" />
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [size]="18"
+                name="x"
+                aria-hidden="true"
+              />
               Stop collector
             </button>
           </span>
@@ -353,8 +374,8 @@
            as a bug. It is on the screen, not in this comment. -->
       <div class="job-note">
         <p>
-          A pool below the number registered is silent starvation — those auctions wait for a
-          slot a live evening never frees. Starting is refused rather than trimmed.
+          A pool below the number registered is silent starvation — those auctions wait for a slot a
+          live evening never frees. Starting is refused rather than trimmed.
         </p>
         <p>
           <strong>The CLI warns here and keeps going; this page refuses.</strong> A warning at a
@@ -378,6 +399,236 @@
       @if (collectLines().length) {
         <div class="job-log" tabindex="0" role="region" aria-label="Collector log">
           <pre>@for (line of collectLines(); track $index) {{{ line }}
+}</pre>
+        </div>
+      }
+    </mat-card>
+  </section>
+
+  <!-- A recorded evening, re-read. The only one of the four that is safe twice: every write
+       is an upsert over a natural key, so a run against the wrong seed costs time and
+       nothing else. That is also why the dry run exists — the wrong seed is reported as a
+       *successful* run with a large `unknown auction` count and no other sign. -->
+  <section class="job" data-panel="backfill" aria-labelledby="backfill-heading">
+    <mat-card appearance="outlined" class="job-card">
+      <mat-card-header>
+        <h2 mat-card-title id="backfill-heading">Backfill</h2>
+      </mat-card-header>
+
+      <mat-card-content>
+        <p class="job-lede">
+          Loads a recorded collector log through the same code path the live loader uses.
+        </p>
+
+        @if (candidates(); as found) {
+          @if (found.error; as reason) {
+            <!-- The home is there and the listing failed. A different fact from no home at
+                 all, with a different remedy — a permissions dialog, not a command. -->
+            <p class="job-error">
+              <lucide-icon
+                class="job-error-icon"
+                [size]="18"
+                name="triangle-alert"
+                aria-hidden="true"
+              />
+              <span class="job-error-text">
+                The harvest home could not be read: <code>{{ reason }}</code
+                >. It is at <code>{{ found.home }}</code
+                >.
+              </span>
+            </p>
+          } @else if (!found.exists) {
+            <p class="job-note-text">
+              There is no harvest home at <code>{{ found.home }}</code> yet. Move the recordings
+              into it with <code>fantabot-app harvest adopt</code>, then refresh.
+            </p>
+          } @else if (!found.logs.length) {
+            <p class="job-note-text">
+              <code>{{ found.home }}</code> holds no recorded collector log. A log is what
+              <code>harvest collect</code> appends to; there is nothing to re-read yet.
+            </p>
+          } @else {
+            <div class="job-controls">
+              <!-- A picker over the home, never free text. Naming a harvest path explicitly
+                   *creates* what it cannot find, which is how the real home came to hold three
+                   stray landing zones, each with its own checkpoint and its own fold state. -->
+              <mat-form-field appearance="outline" class="field-log">
+                <mat-label>Recorded log</mat-label>
+                <mat-select
+                  [value]="backfillLog()"
+                  [disabled]="backfillRunning()"
+                  (selectionChange)="backfillLog.set($event.value)"
+                >
+                  @for (log of found.logs; track log.name) {
+                    <mat-option [value]="log.name" [attr.data-log]="log.name">
+                      {{ log.name }} &middot; {{ log.bytes / 1e6 | number: '1.0-0' }} MB
+                      @if (log.live) {
+                        &middot; live landing zone
+                      }
+                    </mat-option>
+                  }
+                </mat-select>
+                <mat-hint>
+                  The live landing zone is offered: a backfill only reads it, and every write is an
+                  upsert.
+                </mat-hint>
+              </mat-form-field>
+
+              <!-- Chosen, not fixed, because the home holds three. Today's seed against last
+                   month's log is not an error: every auction it no longer describes is counted
+                   `unknown auction`, dropped, and the run reports success. -->
+              <mat-form-field appearance="outline" class="field-seed">
+                <mat-label>Seed</mat-label>
+                <mat-select
+                  [value]="backfillSeed()"
+                  [disabled]="backfillRunning()"
+                  (selectionChange)="backfillSeed.set($event.value)"
+                >
+                  @for (seed of found.seeds; track seed.name) {
+                    <mat-option [value]="seed.name" [attr.data-seed]="seed.name">
+                      {{ seed.name }} &middot; {{ seed.rows | number }} auctions
+                    </mat-option>
+                  }
+                </mat-select>
+                <mat-hint>A recorded evening needs the seed that was scanned for it.</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="field-format">
+                <mat-label>Format</mat-label>
+                <mat-select
+                  [value]="backfillFormat()"
+                  [disabled]="backfillRunning()"
+                  (selectionChange)="backfillFormat.set($event.value)"
+                >
+                  @for (format of formats; track format) {
+                    <mat-option [value]="format">{{ format | titlecase }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            </div>
+          }
+        } @else {
+          <p class="job-note-text">Reading the harvest home&hellip;</p>
+        }
+      </mat-card-content>
+
+      <mat-card-actions class="job-actions">
+        <button
+          matButton="tonal"
+          type="button"
+          data-control="backfill-dry-run"
+          (click)="runBackfillDryRun()"
+          [disabled]="!canBackfill()"
+        >
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [size]="18"
+            name="search"
+            aria-hidden="true"
+          />
+          {{ backfillRunning() ? 'Working…' : 'Dry run' }}
+        </button>
+        <!-- Offered only against the triple a dry run has come back for. A dry run proves
+             *one* (log, seed, format) and says nothing about another, so changing any of the
+             three withdraws this. The page's affordance, not the route's rule: `harvest
+             backfill` takes the flag in either order and the app gets no restriction the CLI
+             has not got. -->
+        <button
+          matButton="filled"
+          type="button"
+          data-control="backfill-write"
+          (click)="runBackfillWrite()"
+          [disabled]="!canWriteBackfill()"
+        >
+          <lucide-icon
+            matButtonIcon
+            class="lucide-slot"
+            [size]="18"
+            name="database"
+            aria-hidden="true"
+          />
+          Write
+        </button>
+        @if (backfillRunning()) {
+          <span class="danger-zone">
+            <button matButton="outlined" type="button" (click)="stopBackfill()">
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [size]="18"
+                name="x"
+                aria-hidden="true"
+              />
+              Stop backfill
+            </button>
+          </span>
+        }
+      </mat-card-actions>
+
+      @if (backfillRunning()) {
+        <mat-progress-bar class="job-progress" mode="indeterminate" aria-label="Backfill running" />
+      }
+
+      <div class="job-state" aria-live="polite" aria-atomic="true">
+        @if (backfillRunning()) {
+          <p class="job-state-line">Building rows</p>
+        } @else if (backfillDryRunDone()) {
+          <p class="job-state-line">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="check-circle"
+              aria-hidden="true"
+            />
+            Dry run clean for this pair &mdash; Write is available
+          </p>
+        } @else if (backfillOk() === true) {
+          <p class="job-state-line">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="check-circle"
+              aria-hidden="true"
+            />
+            Backfill finished
+          </p>
+        } @else if (backfillOk() === false) {
+          <p class="job-state-line is-failed">
+            <lucide-icon
+              class="job-state-icon"
+              [size]="18"
+              name="triangle-alert"
+              aria-hidden="true"
+            />
+            Backfill failed
+          </p>
+        }
+      </div>
+
+      <div class="job-note">
+        <p>
+          Read the <span class="emphasis">unknown auction</span> count before writing. A seed that
+          does not describe the evening in the log is not an error &mdash; every auction it misses
+          is dropped and the run still reports success, so that number is the only place the wrong
+          pair is visible.
+        </p>
+      </div>
+
+      @if (backfillError(); as message) {
+        <p class="job-error">
+          <lucide-icon
+            class="job-error-icon"
+            [size]="18"
+            name="triangle-alert"
+            aria-hidden="true"
+          />
+          <span class="job-error-text">{{ message }}</span>
+        </p>
+      }
+      @if (backfillLines().length) {
+        <div class="job-log" tabindex="0" role="region" aria-label="Backfill log">
+          <pre>@for (line of backfillLines(); track $index) {{{ line }}
 }</pre>
         </div>
       }
@@ -416,8 +667,8 @@
             <h3 class="notice-heading">Corpus unreadable</h3>
           </div>
           <p class="notice-text">
-            The database refused the read: <code>{{ c.error ?? 'unknown' }}</code>. Start it
-            with <code>fantabot-app db start</code>, then refresh.
+            The database refused the read: <code>{{ c.error ?? 'unknown' }}</code
+            >. Start it with <code>fantabot-app db start</code>, then refresh.
           </p>
         </mat-card-content>
       </mat-card>
@@ -458,7 +709,7 @@
                     { label: 'event rows', value: f.events },
                     { label: 'assignments', value: f.assignments },
                     { label: 'with a buyer', value: f.assignments_with_buyer },
-                    { label: 'with a player link', value: f.assignments_with_player }
+                    { label: 'with a player link', value: f.assignments_with_player },
                   ];
                   track row.label
                 ) {
@@ -474,9 +725,9 @@
       </div>
 
       <p class="corpus-foot">
-        Registered is not collected: a seed grows on every scan whether or not a single frame
-        was received, so <span class="emphasis">rooms with events</span> is the one that says
-        an evening was followed.
+        Registered is not collected: a seed grows on every scan whether or not a single frame was
+        received, so <span class="emphasis">rooms with events</span> is the one that says an evening
+        was followed.
       </p>
     }
   }

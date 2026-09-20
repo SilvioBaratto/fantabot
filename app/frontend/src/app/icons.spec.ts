@@ -47,6 +47,12 @@ describe('ICON_PROVIDER', () => {
       expect(ICON_PROVIDER.useValue.getIcon('User')).toBeTruthy();
     });
 
+    it('returns icon data for Search', () => {
+      // The backfill card's dry run (T22): look at what a run would build before writing
+      // it, because a mismatched seed reports a *successful* run that loaded nothing.
+      expect(ICON_PROVIDER.useValue.getIcon('Search')).toBeTruthy();
+    });
+
     it('returns icon data for Monitor', () => {
       expect(ICON_PROVIDER.useValue.getIcon('Monitor')).toBeTruthy();
     });
