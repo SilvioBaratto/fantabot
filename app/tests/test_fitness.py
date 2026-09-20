@@ -157,6 +157,27 @@ def test_the_boundary_names_the_functions_that_actually_act() -> None:
     )
 
 
+CAP_NAMES = (
+    "max_cap",  # the guard inside `run_bid_loop`, between a walk-away and an unfieldable rosa
+    "max_bid",  # what computes it from the band: credits left, less one per slot still owed
+)
+"""The cap, by the names that compute and apply it. A module-level tuple, not a local, so
+the pin below can read the **object** the scan uses instead of the file that defines it —
+`ACTING_NAMES`'s own lesson, learned the same way: emptying the list left every assertion
+green, which is a guard reporting on nothing and reassuring while it does."""
+
+
+def test_the_cap_guard_names_what_actually_computes_a_ceiling() -> None:
+    """A guard over an empty list passes for ever. This is what makes the scan mean something.
+
+    Survivor 13 of this slice's battery: replacing `CAP_NAMES` with `set()` left the app free
+    to compute its own ceiling with the whole suite green.
+    """
+    assert set(CAP_NAMES) == {"max_cap", "max_bid"}, (
+        f"the cap boundary moved: {set(CAP_NAMES) ^ {'max_cap', 'max_bid'}}"
+    )
+
+
 def test_no_app_module_reaches_the_cap() -> None:
     """**The MAX cap stays the last line of defence, unweakened and unwrapped.**
 
@@ -178,7 +199,7 @@ def test_no_app_module_reaches_the_cap() -> None:
     from a field that happens to share its name. An import is banned alongside the call
     because a name bound but not yet used is the commit before the one that uses it.
     """
-    acting = {"max_cap", "max_bid"}
+    acting = set(CAP_NAMES)
     offenders: list[tuple[str, str]] = []
     for py in _source_files(under=_package_root()):
         tree = ast.parse(py.read_text(encoding="utf-8"))

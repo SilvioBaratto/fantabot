@@ -104,6 +104,25 @@ def test_a_room_we_hold_a_seat_in_resolves_with_every_field_the_cli_prints() -> 
     assert check.roster_provenance == "read from the room"
 
 
+def test_the_resolved_room_carries_the_uid_a_bid_would_be_signed_with() -> None:
+    """`POST /asta/room/bid` reads it from here rather than resolving the room again.
+
+    Survivor 12 of 3.9b's battery: dropping `seat_user_id` from this response left every
+    test green, because the bid route's own suite fakes `check_room` whole — so the field
+    that signs a raise was only ever asserted against a stand-in. A second resolution path
+    to learn one uid is a second set of outcomes, and they drift.
+
+    Asserted beside the seat on purpose: the pair is what a bid payload carries, and swapping
+    them is a `200` that drives somebody else's team all evening.
+    """
+    check = check_room(ROOM_URL, connect=_connect())
+
+    assert check.seat_user_id == OUR_UID
+    assert check.seat_team_id != check.seat_user_id, (
+        "the fixture's seat and uid are the same string, so this could not tell them apart"
+    )
+
+
 def test_a_room_that_declares_nothing_says_the_band_was_assumed() -> None:
     check = check_room(
         ROOM_URL,
