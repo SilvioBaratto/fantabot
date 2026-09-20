@@ -232,6 +232,61 @@ class TestTheAnswerCrossesTheSeam:
         )
 
 
+class TestTheGuardsBeforeTheFirstFrame:
+    """The two numbers the loop reads *before* a poll has ever landed.
+
+    Both were survivors of this slice's own mutation battery: raising either to a billion
+    left 2,108 tests green. They are not incidental — `max_cap` is the last line of defence
+    ("`docs/fantalab/01:142` calls it client-enforced, and `06:389-412` shows the RTDB rules
+    validating only that a raise exceeds the current price"), and the budget guard is the one
+    thing between a plan and an overdraft. From the first frame on both read the frame; the
+    window they cover is the one where nothing else can.
+
+    The hole predates the lift — `_cap()` and `_remaining()` had the same fallbacks and the
+    same absence of a test — which is why it is recorded here rather than in a defect note.
+    """
+
+    def _read_the_guards(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+        from fantabot.application import asta_session
+
+        _wire(monkeypatch, frame=_frame())
+        seen: dict[str, int] = {}
+
+        def loop(**kw: Any) -> Any:
+            from fantabot.adapters.http.fantalab.room import LoopReport
+
+            # Read before anything is polled: this is the pre-first-frame window.
+            seen["cap"] = kw["max_cap"]()
+            seen["budget"] = kw["remaining_budget"]()
+            return LoopReport(cycles=0, bids_sent=0, refused={})
+
+        monkeypatch.setattr(asta_session, "run_bid_loop", loop)
+        assert _invoke(["--arm", "--budget", "500"]).exit_code == 0
+        return seen
+
+    def test_the_cap_reserves_a_credit_for_every_slot_still_owed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`max_bid(500, 30)` — 29 slots reserved beyond this one, so 471 and not 500.
+
+        A cap that is simply the purse is no cap: `reservations` returns the whole remaining
+        budget for a target whose removal makes the roster infeasible, which reads as "pay
+        anything" with 28 slots still empty.
+        """
+        from fantabot.domain.asta.bid import max_bid
+        from fantabot.domain.asta.state import RosterRules
+
+        assert self._read_the_guards(monkeypatch)["cap"] == max_bid(500, RosterRules().size)
+        assert max_bid(500, RosterRules().size) < 500, (
+            "the fixture's band reserves nothing, so this test could not tell a cap from a purse"
+        )
+
+    def test_the_purse_starts_at_the_declared_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert self._read_the_guards(monkeypatch)["budget"] == 500
+
+
 class TestThePaintStaysInTheInterface:
     def test_the_heartbeat_is_still_printed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The room paints a Rich `Live`; `asta bid` prints lines, and the heartbeat is all
