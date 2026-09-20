@@ -193,6 +193,15 @@ export class LineupComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (plan) => {
+          // The lega may have changed again while this was in flight. A late answer for the
+          // one the operator has left would draw another lega's XI under this heading — and
+          // chain a saved read for a competition nobody is looking at. `asta.ts::select`
+          // carries the same guard for the same reason.
+          //
+          // Before `planLoading.set(false)`, deliberately: dropping the answer must not also
+          // clear the skeleton the *current* lega is still waiting behind, or the page shows
+          // neither a skeleton nor a plan until the new one lands.
+          if (this.selectedId() !== leagueId) return;
           this.plan.set(plan);
           this.planLoading.set(false);
           // Only once the plan has named a competition. Asking for the saved lineup of a
@@ -208,7 +217,10 @@ export class LineupComponent implements OnInit {
             this.fetchCurrent(leagueId, plan.competition);
           }
         },
-        error: () => this.planLoading.set(false),
+        error: () => {
+          if (this.selectedId() !== leagueId) return;
+          this.planLoading.set(false);
+        },
       });
   }
 
@@ -225,12 +237,21 @@ export class LineupComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (saved) => {
+          // Its own guard, not the plan's. This read is a second hop — it starts from inside
+          // the plan's `next`, so it was legitimate when it left and the switch happened
+          // after. Guarding the outer call cannot see it. `currentNamed` joins these ids
+          // against whatever plan is on screen, so a late answer here wears the new lega's
+          // names.
+          if (this.selectedId() !== leagueId) return;
           this.current.set(saved);
           // The server's own sentence, never one composed here — five outcomes, and only
           // one of them is fixed by reloading.
           this.currentError.set(saved.outcome === 'read' ? null : saved.reason);
         },
-        error: () => this.currentError.set('Could not reach the API for the saved lineup.'),
+        error: () => {
+          if (this.selectedId() !== leagueId) return;
+          this.currentError.set('Could not reach the API for the saved lineup.');
+        },
       });
   }
 
@@ -247,12 +268,23 @@ export class LineupComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (outcome) => {
-          this.dryRun.set(outcome);
+          // `submitting` is cleared **first, and unconditionally** — it is a page-wide
+          // in-flight flag, not a per-lega one, so returning before it would leave both
+          // controls disabled for ever: the page wedged rather than merely wrong.
           this.submitting.set(false);
+          // Then the guard. `select` nulls `dryRun` precisely so an operator cannot arm a
+          // lineup they never saw — but a dry run still in flight lands *after* that null
+          // and puts it back, now under the new lega's heading. `armVisible` and `canArm`
+          // go true, and `arm()` reads `selectedId()`, which is the new lega. That is a real
+          // armed submit for B authorised by a dry run computed for A: the other guards on
+          // this page are display, this one is the matchday.
+          if (this.selectedId() !== leagueId) return;
+          this.dryRun.set(outcome);
         },
         error: () => {
-          this.errorMsg.set('Could not reach the API.');
           this.submitting.set(false);
+          if (this.selectedId() !== leagueId) return;
+          this.errorMsg.set('Could not reach the API.');
         },
       });
   }
