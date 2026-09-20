@@ -108,3 +108,54 @@ def test_a_non_zero_exit_is_its_own_outcome(tmp_path: Path) -> None:
 
     with pytest.raises(PgDumpFailed):
         run_dump(tmp_path / "d.dump", SOCKET, run=fails)
+
+
+def test_a_failed_dump_leaves_no_file_claiming_to_be_one(tmp_path: Path) -> None:
+    """`pg_dump` exiting non-zero has already written a prefix, and it stays.
+
+    That is the failure worth removing rather than reporting: the file is at the path
+    both surfaces name, it is the right size to look real, and `pg_restore` refuses it
+    only at the moment it is needed. An absent dump is a fact an operator can see.
+    """
+    target = tmp_path / "fantabot-db-20260920.dump"
+
+    def half_a_dump(argv: list[str], stdout: IO[bytes]) -> int:
+        stdout.write(b"PGDMP" + b"x" * 400)
+        return 1
+
+    with pytest.raises(PgDumpFailed):
+        run_dump(target, SOCKET, run=half_a_dump)
+
+    assert not target.exists()
+
+
+def test_an_interrupted_dump_leaves_no_file_claiming_to_be_one(tmp_path: Path) -> None:
+    """The app's stop button is what makes this reachable; the CLI had no way to ask.
+
+    `ProcessJob.stop` sends `SIGINT`, which reaches the child as a `KeyboardInterrupt`
+    somewhere inside the stream — so a stopped dump is a truncated one. The interrupt
+    still propagates: the child must die, it must just not leave a lie behind.
+    """
+    target = tmp_path / "fantabot-db-20260920.dump"
+
+    def interrupted(argv: list[str], stdout: IO[bytes]) -> int:
+        stdout.write(b"PGDMP" + b"x" * 400)
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_dump(target, SOCKET, run=interrupted)
+
+    assert not target.exists()
+
+
+def test_a_missing_pg_dump_leaves_no_empty_file_behind(tmp_path: Path) -> None:
+    """Opening the target is what creates it, and that happens before `pg_dump` is found."""
+    target = tmp_path / "fantabot-db-20260920.dump"
+
+    def absent(argv: list[str], stdout: IO[bytes]) -> int:
+        raise FileNotFoundError(2, "No such file or directory", "pg_dump")
+
+    with pytest.raises(PgDumpMissing):
+        run_dump(target, SOCKET, run=absent)
+
+    assert not target.exists()

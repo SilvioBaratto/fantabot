@@ -135,16 +135,29 @@ def run_dump(
     somewhere other than where the screen said it would be.
     """
     try:
-        with target.open("wb") as handle:
-            code = run(pg_dump_argv(database_url), handle)
-    except FileNotFoundError:
-        raise PgDumpMissing(
-            "pg_dump is not on PATH. The bundled server ships one: it lives beside the "
-            "`postgres` binary in pixeltable_pgserver's `pginstall18/bin`."
-        ) from None
-    if code != 0:
-        raise PgDumpFailed(
-            f"pg_dump exited {code} — is the database running? "
-            "Start it with: fantabot-app db start"
-        )
+        try:
+            with target.open("wb") as handle:
+                code = run(pg_dump_argv(database_url), handle)
+        except FileNotFoundError:
+            raise PgDumpMissing(
+                "pg_dump is not on PATH. The bundled server ships one: it lives beside "
+                "the `postgres` binary in pixeltable_pgserver's `pginstall18/bin`."
+            ) from None
+        if code != 0:
+            raise PgDumpFailed(
+                f"pg_dump exited {code} — is the database running? "
+                "Start it with: fantabot-app db start"
+            )
+    except BaseException:
+        # One removal site for all three ways out, `KeyboardInterrupt` included: the
+        # app's stop button reaches the child as `SIGINT` somewhere inside the stream,
+        # and the CLI had no way to ask for that at all.
+        #
+        # Removed rather than reported. A half-written dump sits at the path both
+        # surfaces name, is the right size to look real, and is refused by `pg_restore`
+        # only at the moment it is needed — which is the moment the disk it was
+        # protecting against is already gone. An absent dump is a fact an operator can
+        # see today.
+        target.unlink(missing_ok=True)
+        raise
     return DumpWrote(path=target, size_bytes=target.stat().st_size)
