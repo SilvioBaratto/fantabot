@@ -165,7 +165,12 @@ jobs:
       - name: Frontend tests
         working-directory: app/frontend
         run: |
-          npm ci
+          # `--legacy-peer-deps`, the same flag `scripts/build_frontend.py` passes and the
+          # standing convention for every Angular app in this workspace. Plain `npm ci`
+          # fails here with "Missing: @emnapi/wasi-threads@... from lock file" — a
+          # transitive optional dependency of a platform-specific package, in step under
+          # the resolution `npm install` uses and out of step under the strict one.
+          npm ci --legacy-peer-deps
           npx ng test --watch=false
 
       # Build the SPA into fantabot_app/web, then confirm the wheel ships it (no Node for
