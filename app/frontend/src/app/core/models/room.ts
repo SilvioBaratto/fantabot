@@ -17,6 +17,14 @@ export interface RoomCheck {
   num_credits: number | null;
   seat_team_id: string | null;
   seat_team_name: string | null;
+  /**
+   * **Ours**, from the stored FantaLab session — the uid a bid payload is signed with.
+   * Carried on this response because `POST /asta/room/bid` needs it and resolving the room
+   * a second time to learn it would be a second resolution path with a second set of
+   * outcomes. Not a credential: the bearer is resolved inside the adapter and never leaves
+   * it.
+   */
+  seat_user_id: string | null;
   roster_size: number | null;
   /** `read from the room` / `assumed — nothing was declared`. Rendered beside the size. */
   roster_provenance: string;
@@ -45,4 +53,48 @@ export interface BidStarted {
    * same facts as one line.
    */
   closed: string[];
+}
+
+/**
+ * The six answers `GET /asta/advisory` can give.
+ *
+ * Four are `GET /asta/plan`'s, and for the same reasons: the advisory *is* a plan re-solved
+ * after every sale, so it fails where a plan fails. A ledger that will not answer is
+ * `unreachable` — rendering that as "no targets" would be a false statement rather than a
+ * missing one, at the moment an operator decides they have nothing to chase.
+ */
+export type AdvisoryOutcome =
+  'advised' | 'no_sentiment' | 'no_corpus' | 'empty_pool' | 'infeasible' | 'unreachable';
+
+export interface AdvisoryTarget {
+  player_id: string;
+  nome: string;
+  walk_away: number;
+  /**
+   * False when the walk-away is under one credit. `reservations` clamps a negative marginal
+   * to zero — which means only that he is freely replaceable — and the bidder refuses at
+   * every price, because its smallest raise is `current + step`. A row saying "chase,
+   * walk-away 0" names the one thing the system will not do. He stays on the list: he is in
+   * the target roster and the operator should see him.
+   */
+  chase: boolean;
+}
+
+export interface AdvisoryOpponent {
+  team_id: string;
+  players: number;
+  spent: number;
+  remaining: number;
+}
+
+export interface Advisory {
+  outcome: AdvisoryOutcome;
+  reason: string;
+  targets: AdvisoryTarget[];
+  opponents: AdvisoryOpponent[];
+  sales: number;
+  /** Sales the listone could not name. Each is a purchase nobody subtracted. */
+  dropped_sales: number;
+  total_cost: number;
+  objective: number;
 }

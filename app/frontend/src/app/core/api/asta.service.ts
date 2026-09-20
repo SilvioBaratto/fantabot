@@ -5,7 +5,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AstaPlan } from '../models/asta-plan';
 import { JournalPage } from '../models/journal';
-import { BidStarted, RoomCheck } from '../models/room';
+import { Advisory, BidStarted, RoomCheck } from '../models/room';
 
 @Injectable({ providedIn: 'root' })
 export class AstaService {
@@ -13,6 +13,37 @@ export class AstaService {
 
   getPlan(leagueId: number): Observable<AstaPlan> {
     return this.http.get<AstaPlan>(`${environment.apiUrl}asta/plan?league_id=${leagueId}`);
+  }
+
+  /**
+   * The rolling advisory over a live room's sale ledger: the target roster after every sale
+   * so far, a walk-away each, and what every rival has left.
+   *
+   * **Unauthenticated, as `asta live --league --db` is** — the `purchases/<fl>` ledger is on
+   * the open RTDB and needs only the shard. That is why the shard, the seat and the room's
+   * shape are arguments rather than something the route resolves: a read that needed a
+   * FantaLab session would answer `no_credential` to a question about a ledger.
+   *
+   * Every one of the five is a field `asta live` cannot read for itself, and each has a
+   * default that is a different lega's game. They come from the room check the operator has
+   * already run.
+   */
+  advisory(params: {
+    league: string;
+    db: number;
+    team: string;
+    teams: number;
+    credits: number;
+    budget: number;
+  }): Observable<Advisory> {
+    const query = new HttpParams()
+      .set('league', params.league)
+      .set('db', params.db)
+      .set('team', params.team)
+      .set('teams', params.teams)
+      .set('credits', params.credits)
+      .set('budget', params.budget);
+    return this.http.get<Advisory>(`${environment.apiUrl}asta/advisory`, { params: query });
   }
 
   /** Read a room's configuration. Never acts on it — see `app/CLAUDE.md`. */

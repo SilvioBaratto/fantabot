@@ -291,6 +291,112 @@
   </aside>
 </div>
 
+<!-- The rolling advisory. `asta live` on a screen: the target roster after every sale so
+     far, a walk-away each, and what every rival has left to spend with.
+
+     Read-only, and on demand rather than polled — it re-solves the plan once per sale,
+     which is the expensive half of `GET /asta/plan`. It is what an operator bidding by hand
+     reads when there is no bidder; the live room below shows the bidder's own decision. -->
+@if (room(); as checked) {
+  @if (checked.outcome === 'resolved') {
+    <section class="advisory" aria-labelledby="advisory-heading">
+      <mat-card class="panel" appearance="outlined">
+        <div class="panel-body live-head">
+          <div>
+            <h2 id="advisory-heading" class="panel-title">Advisory</h2>
+            <p class="panel-sub">
+              The target roster after every sale in this room's ledger, and what each rival has
+              left. It advises; nothing here bids.
+            </p>
+          </div>
+          <div class="live-actions">
+            <button
+              matButton="outlined"
+              type="button"
+              data-testid="advisory-button"
+              [disabled]="advisoryLoading()"
+              (click)="loadAdvisory()"
+            >
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [class.is-spinning]="advisoryLoading()"
+                [size]="18"
+                [name]="advisoryLoading() ? 'loader-2' : 'clipboard-list'"
+                aria-hidden="true"
+              />
+              Read the ledger
+            </button>
+          </div>
+        </div>
+
+        @if (advisoryError(); as refusal) {
+          <div class="panel-body" role="alert">
+            <p class="state-body is-error">{{ refusal }}</p>
+          </div>
+        }
+
+        @if (advisory(); as read) {
+          @if (read.outcome === 'advised') {
+            <mat-divider />
+            <div class="panel-body">
+              <p class="prov">
+                {{ read.sales }} sale(s) folded · target roster costs {{ read.total_cost }} ·
+                objective {{ read.objective | number: '1.0-1' }}
+              </p>
+              <!-- Each dropped sale is a purchase nobody subtracted, so a rival's budget and
+                   that player's availability are both wrong until it is explained. -->
+              @if (read.dropped_sales) {
+                <p class="prov is-error">
+                  {{ read.dropped_sales }} sale(s) dropped — the listone cannot name those players,
+                  so they are valued nowhere and subtracted from nobody.
+                </p>
+              }
+            </div>
+
+            <mat-divider />
+            <div class="panel-body live-panes">
+              <section class="live-pane" aria-labelledby="advisory-targets-heading">
+                <h3 id="advisory-targets-heading" class="live-pane-title">Targets</h3>
+                @for (target of read.targets; track target.player_id) {
+                  <p class="live-decision" data-testid="advisory-target">
+                    <span>{{ target.nome }}</span>
+                    <!-- A walk-away under one credit is not an instruction to bid: the
+                         bidder's smallest raise is `current + step`, so it refuses at every
+                         price. He stays on the list — he is in the target roster. -->
+                    @if (target.chase) {
+                      <span class="prov">Chase to {{ target.walk_away }}</span>
+                    } @else {
+                      <span class="prov is-absent">freely replaceable</span>
+                    }
+                  </p>
+                } @empty {
+                  <p class="state-body">No sales yet — nothing to re-solve against.</p>
+                }
+              </section>
+
+              <section class="live-pane" aria-labelledby="advisory-rivals-heading">
+                <h3 id="advisory-rivals-heading" class="live-pane-title">Rivals</h3>
+                @for (rival of read.opponents; track rival.team_id) {
+                  <p class="live-decision">
+                    <span>{{ rival.team_id }}</span>
+                    <span class="prov">
+                      {{ rival.players }} held · spent {{ rival.spent }} · left
+                      {{ rival.remaining }}
+                    </span>
+                  </p>
+                } @empty {
+                  <p class="state-body">Nobody else has bought anything yet.</p>
+                }
+              </section>
+            </div>
+          }
+        }
+      </mat-card>
+    </section>
+  }
+}
+
 <!-- The live room. The four panes the CLI draws, fed by the one channel a supervised
      child has: the journal it appends a row to per cycle. `asta room` paints a Rich
      `Live`, which on a pipe renders to nobody, so this is not a second copy of that

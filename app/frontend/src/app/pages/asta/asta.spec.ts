@@ -10,7 +10,7 @@ import { AstaPlan } from '../../core/models/asta-plan';
 import { Exclusion, Exclusions } from '../../core/models/exclusion';
 import { JobSummary } from '../../core/models/job';
 import { JournalPage, JournalRow } from '../../core/models/journal';
-import { BidStarted, RoomCheck } from '../../core/models/room';
+import { Advisory, BidStarted, RoomCheck } from '../../core/models/room';
 import { WINDOW_SIZE_QUERIES, WindowSizeClass } from '../../core/window-size-class';
 import { AstaComponent } from './asta';
 
@@ -273,6 +273,7 @@ describe('AstaComponent', () => {
         num_credits: 500,
         seat_team_id: 'team-ours',
         seat_team_name: 'Legamiallerotaie',
+        seat_user_id: 'USER-9',
         roster_size: 25,
         roster_provenance: 'read from the room',
       });
@@ -342,6 +343,7 @@ describe('AstaComponent', () => {
         num_credits: 500,
         seat_team_id: 'team-ours',
         seat_team_name: 'Legamiallerotaie',
+        seat_user_id: 'USER-9',
         roster_size: 25,
         roster_provenance: 'read from the room',
       });
@@ -1786,6 +1788,177 @@ describe('AstaComponent', () => {
 
       expect(fixture.componentInstance.watchJobId()).toBe('B9');
       expect(fixture.componentInstance.runKind()).toBe('bid');
+    });
+  });
+
+  // -- 3.10: the rolling advisory over a live room's ledger -------------------------------
+  describe('advisory', () => {
+    async function ready() {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions();
+      flushJobs();
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    function resolved(over: Partial<RoomCheck> = {}): RoomCheck {
+      return {
+        outcome: 'resolved',
+        reason: '',
+        fantaleague_id: 'abc',
+        shard: 4,
+        asta_type: 'mantra',
+        asta_mode: 'chiamata',
+        raise_mode: 'free',
+        num_teams: 10,
+        num_credits: 650,
+        seat_team_id: 'TEAM-7',
+        seat_team_name: 'Legamiallerotaie',
+        seat_user_id: 'USER-9',
+        roster_size: 25,
+        roster_provenance: 'read from the room',
+        ...over,
+      };
+    }
+
+    /** Check a room, then ask for its advisory. Returns the captured request. */
+    async function advise(fixture: any, body: Record<string, unknown>) {
+      fixture.componentInstance.setRoomUrl('abc');
+      fixture.componentInstance.checkRoom();
+      httpMock.expectOne((r) => r.url.includes('asta/room')).flush(resolved());
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      fixture.componentInstance.loadAdvisory();
+      const asked = httpMock.expectOne((r) => r.url.includes('asta/advisory'));
+      asked.flush(body);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return asked;
+    }
+
+    it('asks with the shard, the seat and the room’s own shape', async () => {
+      // Every one of these is a field `asta live` cannot read for itself, and each has a
+      // default that is a different lega's game. They come from the room check the
+      // operator has already run, not from anything this page decided.
+      const fixture = await ready();
+      const asked = await advise(fixture, {
+        outcome: 'advised',
+        reason: '',
+        targets: [],
+        opponents: [],
+        sales: 0,
+        dropped_sales: 0,
+        total_cost: 0,
+        objective: 0,
+      });
+
+      expect(asked.request.params.get('league')).toBe('abc');
+      expect(asked.request.params.get('db')).toBe('4');
+      expect(asked.request.params.get('team')).toBe('TEAM-7');
+      expect(asked.request.params.get('teams')).toBe('10');
+      expect(asked.request.params.get('credits')).toBe('650');
+    });
+
+    it('renders a chase and a freely-replaceable target differently', async () => {
+      // `reservations` clamps a negative marginal to zero — he is freely replaceable — and
+      // the bidder refuses at every price, because its smallest raise is `current + step`.
+      // A row saying "chase, walk-away 0" reads as an instruction to do the one thing the
+      // system will not do. He stays on the list: he is in the target roster.
+      const fixture = await ready();
+      await advise(fixture, {
+        outcome: 'advised',
+        reason: '',
+        targets: [
+          { player_id: '2', nome: 'Zaccagni', walk_away: 44, chase: true },
+          { player_id: '1', nome: 'Svilar', walk_away: 0, chase: false },
+        ],
+        opponents: [],
+        sales: 3,
+        dropped_sales: 0,
+        total_cost: 412,
+        objective: 1897,
+      });
+
+      const rows = Array.from(
+        fixture.nativeElement.querySelectorAll('[data-testid="advisory-target"]'),
+      ) as HTMLElement[];
+      expect(rows.length).toBe(2);
+      expect(rows[0].textContent).toContain('Zaccagni');
+      expect(rows[0].textContent).toContain('44');
+      expect(rows[1].textContent).toContain('freely replaceable');
+      expect(rows[1].textContent).not.toContain('Chase');
+    });
+
+    it('shows every rival and what it has left', async () => {
+      const fixture = await ready();
+      await advise(fixture, {
+        outcome: 'advised',
+        reason: '',
+        targets: [],
+        opponents: [{ team_id: 'THEM', players: 3, spent: 120, remaining: 530 }],
+        sales: 3,
+        dropped_sales: 0,
+        total_cost: 0,
+        objective: 0,
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('THEM');
+      expect(text).toContain('530');
+    });
+
+    it('says when a sale could not be named rather than quietly losing it', async () => {
+      // Each dropped sale is a purchase nobody subtracted, so a rival's budget and that
+      // player's availability are both wrong until it is explained.
+      const fixture = await ready();
+      await advise(fixture, {
+        outcome: 'advised',
+        reason: '',
+        targets: [],
+        opponents: [],
+        sales: 9,
+        dropped_sales: 2,
+        total_cost: 0,
+        objective: 0,
+      });
+
+      expect(fixture.nativeElement.textContent).toContain('2 sale');
+    });
+
+    it('names the refusal instead of drawing an empty advisory', async () => {
+      // An outage rendered as "no targets" is a false statement, not a missing one — and it
+      // is the state in which an operator decides they have nothing to chase.
+      const fixture = await ready();
+      await advise(fixture, {
+        outcome: 'unreachable',
+        reason: 'OSError: connection reset',
+        targets: [],
+        opponents: [],
+        sales: 0,
+        dropped_sales: 0,
+        total_cost: 0,
+        objective: 0,
+      });
+
+      expect(fixture.nativeElement.textContent).toContain('connection reset');
+      expect(fixture.nativeElement.querySelectorAll('[data-testid="advisory-target"]').length).toBe(
+        0,
+      );
+    });
+
+    it('cannot be asked for before a room has resolved', async () => {
+      // The shard and the seat come from the check. Without them the request would carry
+      // the defaults, and an advisory priced against another lega's game is worse than none.
+      const fixture = await ready();
+
+      fixture.componentInstance.loadAdvisory();
+
+      httpMock.expectNone((r) => r.url.includes('asta/advisory'));
     });
   });
 });

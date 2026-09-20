@@ -33,7 +33,7 @@ import { AstaPlan } from '../../core/models/asta-plan';
 import { Exclusion } from '../../core/models/exclusion';
 import { JournalPage, JournalRow } from '../../core/models/journal';
 import { LegaOverview } from '../../core/models/lega';
-import { RoomCheck } from '../../core/models/room';
+import { Advisory, RoomCheck } from '../../core/models/room';
 import { WindowSizeClassService } from '../../core/window-size-class';
 
 /** One page of the journal. The server bounds it too; this is the client's request. */
@@ -229,6 +229,19 @@ export class AstaComponent implements OnInit {
    * second set of signals would be a second answer to "what is on screen".
    */
   readonly runKind = signal<'watch' | 'bid' | null>(null);
+
+  /**
+   * The rolling advisory over the checked room's sale ledger.
+   *
+   * Read-only and on demand rather than polled: it re-solves the plan once per sale, which
+   * is the expensive half of `GET /asta/plan` — and the room view beside it is already
+   * showing the *bidder's* per-cycle decision. This is what an operator bidding by hand
+   * reads when there is no bidder.
+   */
+  readonly advisory = signal<Advisory | null>(null);
+  readonly advisoryLoading = signal(false);
+  /** The server's refusal, verbatim. Never composed here. */
+  readonly advisoryError = signal<string | null>(null);
 
   /**
    * The arming intent, restated on every request that could act.
@@ -546,6 +559,7 @@ export class AstaComponent implements OnInit {
             num_credits: null,
             seat_team_id: null,
             seat_team_name: null,
+            seat_user_id: null,
             roster_size: null,
             roster_provenance: '',
           });
@@ -592,6 +606,50 @@ export class AstaComponent implements OnInit {
             refusalOf(err, 'The watch was refused and the reason did not come back.'),
           );
           this.watchStarting.set(false);
+        },
+      });
+  }
+
+  /**
+   * Ask for the advisory over the room that has already resolved.
+   *
+   * **Refuses before a check**, and that is not politeness: the shard, the seat and the
+   * room's shape all come from the check, and a request without them would carry the
+   * defaults — an advisory priced against another lega's game, which is worse than none.
+   */
+  loadAdvisory(): void {
+    const room = this.room();
+    if (!room || room.outcome !== 'resolved' || this.advisoryLoading()) return;
+    if (room.fantaleague_id === null || room.shard === null || room.seat_team_id === null) {
+      return;
+    }
+    this.advisoryLoading.set(true);
+    this.advisoryError.set(null);
+    const credits = room.num_credits ?? 500;
+    this.asta
+      .advisory({
+        league: room.fantaleague_id,
+        db: room.shard,
+        team: room.seat_team_id,
+        teams: room.num_teams ?? 8,
+        credits,
+        budget: credits,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (body) => {
+          this.advisoryLoading.set(false);
+          this.advisory.set(body);
+          // The refusal is the server's own sentence. An outage rendered as "no targets"
+          // is a false statement, not a missing one — and it is the state in which an
+          // operator decides they have nothing to chase.
+          this.advisoryError.set(body.outcome === 'advised' ? null : body.reason);
+        },
+        error: (err: unknown) => {
+          this.advisoryLoading.set(false);
+          this.advisoryError.set(
+            refusalOf(err, 'The advisory was refused and the reason did not come back.'),
+          );
         },
       });
   }

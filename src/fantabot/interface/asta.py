@@ -25,8 +25,8 @@ from pathlib import Path
 from fantabot.application.asta_planner import read_plan_inputs
 from fantabot.application.plan_request import DEFAULT_NUM_CREDITS, DEFAULT_NUM_TEAMS
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
-from fantabot.domain.asta.live import normalize, resolve_ids
-from fantabot.domain.asta.opponents import format_advisory, format_opponents, track_opponents
+from fantabot.domain.asta.live import normalize
+from fantabot.domain.asta.opponents import format_advisory, format_opponents
 from fantabot.domain.asta.optimizer import InfeasibleRoster
 from fantabot.domain.asta.report import (
     build_pool,
@@ -35,7 +35,6 @@ from fantabot.domain.asta.report import (
     parse_ids,
     parse_replay_lines,
 )
-from fantabot.domain.asta.reservation import rolling_advisory
 from fantabot.domain.asta.sentiment import SentimentWeights
 from fantabot.domain.asta.state import AstaState, RosterRules, rules_for_room
 from fantabot.domain.classic.state import ClassicRosterRules
@@ -424,6 +423,8 @@ def asta_live(
     from pathlib import Path
 
     from fantabot.adapters.persistence import database_manager
+    from fantabot.application.asta_advisory import AdvisoryRequest, build_advisory
+    from fantabot.application.plan_request import NoSentimentRows
 
     if bool(league) == bool(replay):
         console.print("[red]Pass exactly one of --league or --replay.[/red]")
@@ -440,66 +441,54 @@ def asta_live(
         rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
         events = normalize(row.get("state", row) for row in rows)
 
-    # FantaLab identifies players by UUID; everything downstream is keyed by
-    # fantacalcio id. Without this the first lot we own puts a UUID into
-    # `AstaState.owned` and `optimize_roster` raises for an id absent from the pool.
+    # FantaLab identifies players by UUID; everything downstream is keyed by fantacalcio id.
+    # Fetched here because the two event sources differ and the bridge does not: `--replay`
+    # is developer machinery and stays CLI-only (`SPEC.md` T20), which is exactly why
+    # `build_advisory` takes `events` rather than reading them — one fold over two sources
+    # instead of two folds.
     from fantabot.adapters.http.fantalab import listone
 
     bridge = listone.fetch()
-    events, unknown = resolve_ids(events, bridge)
-    if unknown:
+
+    # The fold, the world read and the id resolution are `application/asta_advisory`'s since
+    # 3.10 — the app drives the same three and this body was the only copy of them.
+    # `NoSentimentRows` is caught here and nowhere else: turning a refusal into the exception
+    # a Typer body may raise is the translation `sentiment_rows` exists for, and it is the
+    # half that stays in `interface/`.
+    with database_manager.get_session() as session:
+        try:
+            advisory = build_advisory(
+                session,
+                AdvisoryRequest(
+                    our_team_id=team,
+                    season=season,
+                    as_of=_today(),
+                    budget=budget,
+                    lam=lam,
+                    tilt_k=tilt_k,
+                    sentiment=sentiment,
+                    sentiment_run=parse_run_date(sentiment_run),
+                    num_teams=teams,
+                    num_credits=credits,
+                ),
+                events=events,
+                bridge=bridge,
+            )
+        except NoSentimentRows as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    if advisory.dropped_sales:
         console.print(
-            f"[yellow]{len(unknown)} sale(s) dropped — the listone does not know "
+            f"[yellow]{advisory.dropped_sales} sale(s) dropped — the listone does not know "
             f"those players, so they cannot be valued[/yellow]"
         )
 
-    from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
-
-    # One reading per invocation, on both paths.
-    #
-    # The live path used to re-read per event, which bought nothing and cost a session and a
-    # 548-row query each time (~11 ms). `feed.ledger_events` does a single HTTP GET and
-    # returns a fully materialized list *before* the loop starts, so every event is already
-    # known at t=0 — there is no "later" during which a fresher reading could arrive. The
-    # replay path values on one reading for a different reason: a recording drifting as the
-    # live table changes underneath it would mix two clocks.
-    #
-    # `rolling_advisory` still takes a factory rather than a model, and that is deliberate:
-    # it is the seam a genuinely live `asta live` needs — which is why `PlanInputs` exposes
-    # `value_of` rather than collapsing it. Re-reading only becomes meaningful once this
-    # command polls the ledger each cycle the way `asta bid` already does, and at that point
-    # the per-cycle read belongs there.
-    with database_manager.get_session() as session:
-        # `readings`, not `rows`: the replay branch above already binds `rows` to the
-        # decoded JSONL lines, and shadowing it here would hand `read_plan_inputs` a
-        # list of raw states. mypy caught that; nothing else would have.
-        readings = sentiment_rows(
-            NewsSentimentSource(session), enabled=sentiment, run=sentiment_run
-        )
-        world = read_plan_inputs(
-            session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k,
-            # The bridge is already in hand for `resolve_ids`; the same narrowing the bidder
-            # applies. This is the advisory an operator bids by hand from when the room view
-            # is gone, so it must not head its list with a player who cannot be called.
-            callable_ids={str(fid) for fid in bridge.values()} if bridge else None,
-            num_teams=teams, num_credits=credits,
-        )
-
-    last = None
-    for step in rolling_advisory(
-        AstaState(total_budget=budget), cast("Sequence[MantraPlayer]", world.pool), events,
-        our_team_id=team, value_of=world.value_of, prices=world.prices, teams=world.teams,
-        legality=world.legality, lam=lam,
-    ):
-        last = step
-    if last is None:
+    if advisory.result is None:
         console.print("[dim]no sales in the replay[/dim]")
         return
 
-    _, _, result, walkaways = last
-    console.print(format_advisory(result, walkaways, world.names))
-    opponents = track_opponents(events, our_team_id=team, roles_by_id=world.roles)
-    console.print(format_opponents(opponents, names={}, total_budget=int(budget)))
+    console.print(format_advisory(advisory.result, advisory.walkaways, advisory.world.names))
+    console.print(format_opponents(advisory.rivals, names={}, total_budget=int(budget)))
 
 
 def asta_room(

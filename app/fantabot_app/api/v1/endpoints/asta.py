@@ -29,6 +29,14 @@ from datetime import date
 from pathlib import Path
 
 from fantabot.adapters.files.room_journal import read_rows
+
+# Module-level, not lazy inside the route, and deliberately so: they are the three seams
+# `test_asta_advisory_route.py` replaces, and a name imported inside the function body is one
+# a `monkeypatch.setattr` on this module cannot reach. The fold itself is
+# `application/asta_advisory`'s; these are the doors to it and to the ledger.
+from fantabot.adapters.http.fantalab.feed import ledger_events
+from fantabot.adapters.http.fantalab.listone import fetch as listone_fetch
+from fantabot.application.asta_advisory import build_advisory
 from fantabot.application.plan_request import (
     DEFAULT_NUM_CREDITS,
     DEFAULT_NUM_TEAMS,
@@ -506,4 +514,132 @@ def asta_journal(
 
     return read_journal(
         journal_path(), offset=offset, limit=limit, follow=follow, since=since
+    )
+
+
+# -- the rolling advisory, over a live room's sale ledger ---------------------------------
+
+
+class AdvisoryTargetOut(BaseModel):
+    player_id: str
+    nome: str
+    walk_away: int
+    #: False when the walk-away is under one credit. `reservations` clamps a negative
+    #: marginal to zero — which means only that he is freely replaceable — and the bidder
+    #: refuses at every price, because its smallest raise is `current + step`. A screen
+    #: saying "chase, walk-away 0" names the one thing the system will not do. He stays on
+    #: the list: he is in the target roster and the operator should see him.
+    chase: bool
+
+
+class AdvisoryOpponentOut(BaseModel):
+    team_id: str
+    players: int
+    spent: int
+    remaining: int
+
+
+class AstaAdvisory(BaseModel):
+    outcome: str
+    reason: str = ""
+    targets: list[AdvisoryTargetOut] = []
+    opponents: list[AdvisoryOpponentOut] = []
+    #: Sales folded — every one the listone could name.
+    sales: int = 0
+    #: Sales it could not. Each is a purchase nobody subtracted, so a rival's budget and
+    #: that player's availability are both wrong until it is explained. On the response
+    #: rather than in a log, because only the screen can explain it.
+    dropped_sales: int = 0
+    total_cost: int = 0
+    objective: float = 0.0
+
+
+@router.get("/asta/advisory", response_model=AstaAdvisory, tags=["asta"])
+def asta_advisory(
+    league: str,
+    db: int,
+    team: str,
+    season: str = "2026/27",
+    budget: float = 500.0,
+    lam: float = 0.0,
+    teams: int = DEFAULT_NUM_TEAMS,
+    credits: int = DEFAULT_NUM_CREDITS,
+) -> AstaAdvisory:
+    """The target roster after every sale so far, with a walk-away each, and the rivals.
+
+    **Unauthenticated, as `asta live --league --db` is.** The `purchases/<fl>` ledger is on
+    the open RTDB (docs/fantalab/06 §10) and needs only the shard, so this route takes the
+    shard and our team id rather than resolving the room. A route that resolved would need a
+    FantaLab session for a read that does not, and would answer `no_credential` to a question
+    about a ledger.
+
+    `teams`/`credits` name the recorded corpus cell to price against, exactly as
+    `GET /asta/plan` does — a 10x650 room priced off our 8x500 corpus is somebody else's
+    game, and with no corpus at all the budget constraint is vacuous.
+
+    The fold, the id resolution and the world read are `application/asta_advisory`'s; this
+    is a serialiser and a choice of screen per outcome. `--replay` is deliberately absent:
+    `SPEC.md` T20 keeps it as developer machinery, and it is the one input this surface has
+    no way to hand over.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.application.asta_advisory import AdvisoryRequest
+    from fantabot.application.plan_request import EmptyPool, NoSentimentRows
+    from fantabot.domain.asta.optimizer import InfeasibleRoster
+    from fantabot.domain.asta.prices import NoCorpus
+
+    from fantabot_app.api.outcomes import because
+
+    try:
+        events = ledger_events(db, league)
+        bridge = listone_fetch()
+        with database_manager.get_session() as session:
+            advisory = build_advisory(
+                session,
+                AdvisoryRequest(
+                    our_team_id=team,
+                    season=season,
+                    as_of=_today(),
+                    budget=budget,
+                    lam=lam,
+                    num_teams=teams,
+                    num_credits=credits,
+                ),
+                events=events,
+                bridge=bridge,
+            )
+    except NoSentimentRows as exc:
+        return AstaAdvisory(outcome="no_sentiment", reason=str(exc))
+    except NoCorpus as exc:
+        return AstaAdvisory(outcome="no_corpus", reason=str(exc))
+    except EmptyPool as exc:
+        return AstaAdvisory(outcome="empty_pool", reason=str(exc))
+    except InfeasibleRoster as exc:
+        # The rosa cannot be seeded at all — a different screen from an empty pool: there
+        # are players, and no legal eleven among them.
+        return AstaAdvisory(outcome="infeasible", reason=str(exc))
+    except (SQLAlchemyError, OSError) as exc:
+        # "We could not ask." Named rather than caught bare: anything outside these
+        # families is a bug in this repository and reaches FastAPI as a 500, which is
+        # louder than a tidy page.
+        return AstaAdvisory(outcome="unreachable", reason=because(exc))
+
+    return AstaAdvisory(
+        outcome="advised",
+        targets=[
+            AdvisoryTargetOut(
+                player_id=t.player_id, nome=t.nome, walk_away=t.walk_away, chase=t.chase
+            )
+            for t in advisory.targets
+        ],
+        opponents=[
+            AdvisoryOpponentOut(
+                team_id=o.team_id, players=o.players, spent=o.spent, remaining=o.remaining
+            )
+            for o in advisory.opponents
+        ],
+        sales=advisory.sales,
+        dropped_sales=advisory.dropped_sales,
+        total_cost=advisory.total_cost,
+        objective=advisory.objective,
     )

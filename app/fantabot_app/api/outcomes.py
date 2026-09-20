@@ -80,6 +80,23 @@ LINEUP_PLAN_OUTCOMES = (
 #: separate from it because the remedies differ — fix the spelling, or scrape a season — and
 #: one screen over two remedies is the defect this module exists for. `system` reaches a
 #: `WHERE listone = :system`, so an unrecognised value selected no rows and read as "no data".
+#: `GET /asta/advisory` — the rolling advisory over a live room's sale ledger.
+#:
+#: Four of the six are `ASTA_PLAN_OUTCOMES`', and for the same reasons: the advisory is a
+#: plan re-solved after every sale, so it fails where a plan fails. `no_lega` is absent
+#: because this route is given the room rather than a lega, and a ledger that will not answer
+#: is `unreachable` — which a route rendering it as "no targets" would turn into a false
+#: statement rather than a missing one, at the moment an operator decides they have nothing
+#: to chase.
+ASTA_ADVISORY_OUTCOMES = (
+    "advised",
+    "no_sentiment",
+    "no_corpus",
+    "empty_pool",
+    "infeasible",
+    "unreachable",
+)
+
 TARGET_PRICES_OUTCOMES = ("priced", "no_data", "unknown_system", "unreachable")
 
 
