@@ -172,3 +172,87 @@ def _boom() -> object:
 
 def _ignore(_note: str) -> None:
     return None
+
+
+# -- `--size`: the room's own total, which `asta bid` cannot read for itself ---------------
+
+
+class TestTheSizeOverride:
+    """`asta bid` is unauthenticated. `--size` is how the room's own band reaches it.
+
+    Without it the child plans and caps on whatever `--lega` says — and `--lega` defaults to
+    `settings.fantabot_league_id`, a *leghe.fantacalcio* id with no relation to the FantaLab
+    room. Measured on this machine: that lega's last sync declares **32** players, so a room
+    declaring 25 was planned as a 32-man roster (unbuyable — the `1.14` failure, *"cannot
+    complete the roster"*), and a room declaring 32 while the lega said 25 would have capped
+    **7 credits too loose**.
+    """
+
+    def test_no_size_leaves_the_lega_band_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        reader = _Reader((RosterRules(size=32, min_goalkeepers=2, min_movement=23), "x", "mantra"))
+        _patch(monkeypatch, reader, configured=4103937)
+
+        rules, provenance, _fmt = _lega_rules(0, "", session=_session, warn=_warn, size=0)
+
+        assert rules.size == 32 and provenance == "x"
+
+    def test_a_size_overrides_the_total_and_says_where_it_came_from(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fourth provenance, not a reuse of `ROOM_DECLARED`: an operator's flag and a
+        room's own statement are different facts, and 1.8's column would lie about the
+        source. The repo already keeps three apart for exactly this reason."""
+        from fantabot.domain.asta.state import OPERATOR_DECLARED
+
+        reader = _Reader((RosterRules(size=32, min_goalkeepers=2, min_movement=23), "x", "mantra"))
+        _patch(monkeypatch, reader, configured=4103937)
+
+        rules, provenance, _fmt = _lega_rules(0, "", session=_session, warn=_warn, size=25)
+
+        assert rules.size == 25
+        assert provenance == OPERATOR_DECLARED
+
+    def test_the_band_it_produces_is_coherent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The whole reason it goes through `resize_band`: a bare `size=` would give -3
+        keepers over the built-in band."""
+        reader = _Reader((RosterRules(), "x", "mantra"))
+        _patch(monkeypatch, reader, configured=4103937)
+
+        rules, _provenance, _fmt = _lega_rules(0, "", session=_session, warn=_warn, size=25)
+
+        assert rules.max_goalkeepers() >= rules.min_goalkeepers
+        assert (rules.size, rules.min_movement) == (25, 23)
+
+    def test_it_applies_to_the_built_in_band_when_there_is_no_lega(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The app's own path: it passes no `--lega` at all, because the FantaLab room is
+        not a lega. The size must still land."""
+        reader = _Reader((RosterRules(), "unused", "mantra"))
+        _patch(monkeypatch, reader, configured=0)
+
+        rules, provenance, fmt = _lega_rules(0, "mantra", session=_session, warn=_warn, size=25)
+
+        assert rules.size == 25
+        assert provenance == "given with --size"
+        assert reader.asked == [], "a size that needs no lega must not open the database"
+        assert fmt == "mantra"
+
+    def test_a_refused_size_is_the_commands_to_report(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`resize_band` raises `ValueError`; turning that into an exit code is the Typer
+        body's half, and `_lega_rules` stays a function anything can call."""
+        reader = _Reader((RosterRules(), "x", "mantra"))
+        _patch(monkeypatch, reader, configured=0)
+
+        with pytest.raises(ValueError):
+            _lega_rules(0, "mantra", session=_session, warn=_warn, size=1)
+
+
+def _session() -> object:
+    return object()
+
+
+def _warn(_note: str) -> None:
+    return None

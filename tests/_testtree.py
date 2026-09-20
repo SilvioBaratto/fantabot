@@ -37,6 +37,7 @@ TREE: dict[str, str] = {
     "test_asta_prices.py": "domain/asta",
     "test_asta_report.py": "domain/asta",
     "test_asta_reservation.py": "domain/asta",
+    "test_asta_resize_band.py": "domain/asta",
     "test_asta_sentiment.py": "domain/asta",
     "test_asta_stateentry.py": "domain/asta",
     "test_asta_rules_for_room.py": "domain/asta",

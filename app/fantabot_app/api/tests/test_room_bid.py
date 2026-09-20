@@ -333,7 +333,7 @@ class TestItRefusesARoomItCannotDescribe:
 
     @pytest.mark.parametrize(
         "missing", ["shard", "asta_type", "num_teams", "num_credits", "seat_team_id",
-                    "seat_user_id"],
+                    "seat_user_id", "roster_size"],
     )
     def test_a_missing_field_is_refused_by_name_before_anything_spawns(
         self, quick_child, monkeypatch, missing: str
@@ -345,7 +345,7 @@ class TestItRefusesARoomItCannotDescribe:
             fields: dict[str, Any] = {
                 "outcome": "resolved", "fantaleague_id": ROOM, "shard": 3,
                 "asta_type": "classic", "num_teams": 10, "num_credits": 650,
-                "seat_team_id": "TEAM-7", "seat_user_id": "USER-9",
+                "seat_team_id": "TEAM-7", "seat_user_id": "USER-9", "roster_size": 25,
             }
             fields[missing] = None
             return RoomCheck(**fields)
@@ -376,6 +376,7 @@ class TestItRefusesARoomItCannotDescribe:
             lambda *_a, **_k: RoomCheck(
                 outcome="resolved", fantaleague_id=ROOM, shard=0, asta_type="mantra",
                 num_teams=8, num_credits=500, seat_team_id="T", seat_user_id="U",
+                roster_size=30,
             ),
         )
         _armed(monkeypatch, auto_act=True)
@@ -385,6 +386,106 @@ class TestItRefusesARoomItCannotDescribe:
 
         assert body["outcome"] == "started"
         assert "--db 0" in _argv(client, body["job_id"])
+
+
+class TestTheRoomsOwnBandReachesTheChild:
+    """The band the room check already resolved, sent instead of thrown away.
+
+    `check_room` calls `rules_for_room` and returns `roster_size` + `roster_provenance`, and
+    the room check card on the Asta page **renders both** — so the operator reads "25 read
+    from the room" and then clicks Bid on a child that plans and caps against something else.
+    Without `--size` that something else is `--lega` → `settings.fantabot_league_id`, a
+    *leghe.fantacalcio* league with no relation to the FantaLab room.
+
+    Measured on this machine: that lega's last sync declares **32**. So a room declaring 25
+    was planned as a 32-man roster — unbuyable, the `1.14` failure — and a room declaring 32
+    while the lega said 25 would have capped **7 credits too loose**, which is the direction
+    that costs money.
+    """
+
+    def test_the_argv_carries_the_size_the_room_declared(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+
+        argv = _argv(client, _bid(client, arm=True).json()["job_id"])
+
+        assert "--size 25" in argv, argv
+
+    def test_it_sends_no_lega_so_the_band_cannot_come_from_one(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        """A FantaLab room is not a lega. Passing one would give the child a second, older
+        opinion about the band to fall back on — which is the defect, not the fix."""
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+
+        argv = _argv(client, _bid(client, arm=True).json()["job_id"])
+
+        assert "--lega" not in argv
+
+    def test_a_band_nobody_declared_is_still_sent_and_said_out_loud(
+        self, quick_child, monkeypatch
+    ) -> None:
+        """`ASSUMED_NOTHING` is the common case — the `rules_for_room` docstring measures
+        153 of 247 rooms declaring nothing — so refusing it would refuse most rooms. The
+        assumed size is still strictly better than another league's real one, and the
+        response says which it is rather than leaving the operator to assume."""
+        from fantabot_app.api.v1.endpoints import room_bid
+        from fantabot_app.api.v1.endpoints.room import RoomCheck
+
+        monkeypatch.setattr(
+            room_bid, "check_room",
+            lambda *_a, **_k: RoomCheck(
+                outcome="resolved", fantaleague_id=ROOM, shard=3, asta_type="mantra",
+                num_teams=8, num_credits=500, seat_team_id="T", seat_user_id="U",
+                roster_size=30, roster_provenance="assumed — nothing was declared",
+            ),
+        )
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+
+        body = _bid(client, arm=True).json()
+
+        assert body["outcome"] == "started"
+        assert "--size 30" in _argv(client, body["job_id"])
+        assert "assumed" in body["roster_provenance"]
+
+    def test_a_declared_band_says_so_too(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        _armed(monkeypatch, auto_act=True)
+
+        body = _bid(TestClient(app), arm=True).json()
+
+        assert body["roster_size"] == 25
+        assert body["roster_provenance"] == "read from the room"
+
+    def test_a_room_with_no_size_at_all_is_refused_by_name(
+        self, quick_child, monkeypatch
+    ) -> None:
+        """`roster_size` is `int | None` on `RoomCheck`. `"--size None"` would reach the
+        child as a Click usage error, which the page draws as "Bidding · <id>"."""
+        from fantabot_app.api.v1.endpoints import room_bid
+        from fantabot_app.api.v1.endpoints.room import RoomCheck
+
+        monkeypatch.setattr(
+            room_bid, "check_room",
+            lambda *_a, **_k: RoomCheck(
+                outcome="resolved", fantaleague_id=ROOM, shard=3, asta_type="mantra",
+                num_teams=8, num_credits=500, seat_team_id="T", seat_user_id="U",
+                roster_size=None,
+            ),
+        )
+        _armed(monkeypatch, auto_act=True)
+        client = TestClient(app)
+        before = len(client.get("/api/v1/jobs").json()["jobs"])
+
+        body = _bid(client, arm=True).json()
+
+        assert body["outcome"] == "refused" and "roster_size" in body["reason"]
+        assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
 
 
 def test_the_pin_covers_everything_the_room_check_can_say() -> None:

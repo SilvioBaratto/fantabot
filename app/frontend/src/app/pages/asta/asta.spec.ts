@@ -1619,6 +1619,8 @@ describe('AstaComponent', () => {
         job_id: 'B1',
         armed: arm,
         closed: arm ? [] : ['arm'],
+        roster_size: 25,
+        roster_provenance: 'read from the room',
         ...body,
       });
       fixture.detectChanges();
@@ -1706,6 +1708,70 @@ describe('AstaComponent', () => {
       // No tail: nothing was started. An outstanding request would fail `httpMock.verify`.
       expect(fixture.componentInstance.watchJobId()).toBeNull();
       expect(fixture.nativeElement.textContent).toContain('app.fantalab.it/asta?asta=');
+    });
+
+    it('says which band the run was started with', async () => {
+      // The room check card shows what the *check* found; this is what the *child* was
+      // told. They are the same number only because the route sends it — until it did, the
+      // bidder planned and capped against `--lega`'s band, a different league entirely.
+      const fixture = await bidding();
+
+      const band = fixture.nativeElement.querySelector('[data-testid="run-band"]');
+      expect(band).not.toBeNull();
+      expect(band.textContent).toContain('25');
+      expect(band.textContent).toContain('read from the room');
+    });
+
+    it('says when the band was assumed rather than declared', async () => {
+      // The common case — `rules_for_room`'s own measurement is 153 of 247 rooms declaring
+      // nothing. An assumed band is still better than another league's real one, and the
+      // operator should be able to tell which they are looking at.
+      const fixture = await bidding({
+        roster_size: 30,
+        roster_provenance: 'assumed — nothing was declared',
+      });
+
+      expect(fixture.nativeElement.querySelector('[data-testid="run-band"]').textContent).toContain(
+        'assumed',
+      );
+    });
+
+    it('shows no band over a watch, which plans nothing', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.setRoomUrl('abc');
+      fixture.componentInstance.watchRoom();
+      httpMock.expectOne(`${environment.apiUrl}asta/room/watch`).flush({ job_id: 'W1' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.querySelector('[data-testid="run-band"]')).toBeNull();
+    });
+
+    it('claims no band for a run it reattached to', async () => {
+      // `GET /jobs` does not carry it. Filling it in from the current room check would
+      // claim the run used a number nobody has checked it did — and the room in the link
+      // field may not even be the room that run is in.
+      const fixture = await ready([
+        {
+          id: 'B9',
+          kind: 'asta-bid',
+          status: 'running',
+          started_at: '2026-09-20T19:31:00Z',
+          line_count: 3,
+          ok: null,
+          stoppable: true,
+          armed: true,
+        },
+      ]);
+      httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.watchJobId()).toBe('B9');
+      expect(fixture.nativeElement.querySelector('[data-testid="run-band"]')).toBeNull();
     });
 
     it('the first stop disarms and the view keeps drawing', async () => {

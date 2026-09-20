@@ -509,6 +509,16 @@
       </div>
     }
 
+    <!-- The band the run was started with. The room check above shows what the *check*
+         found; this is what the *child* was told, and they are the same number only because
+         the route sends it. A run planning against another league's band is unbuyable at
+         best and 7 credits too loose at worst. -->
+    @if (watchJobId() && runBand(); as band) {
+      <div class="panel-body" data-testid="run-band">
+        <p class="prov">Roster band {{ band.size }} players · {{ band.provenance }}</p>
+      </div>
+    }
+
     @if (stopsAsked() === 1) {
       <div class="panel-body" data-testid="disarm-note" role="status">
         <p class="state-body">

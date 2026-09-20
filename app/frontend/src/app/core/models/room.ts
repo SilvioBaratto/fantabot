@@ -53,6 +53,16 @@ export interface BidStarted {
    * same facts as one line.
    */
   closed: string[];
+  /**
+   * The roster band this run was started with, and where the number came from.
+   *
+   * The room check card above already shows both — and until the route sent them to the
+   * child, the number on screen and the number the bidder planned and capped against agreed
+   * only by coincidence. Echoing it here is what makes the panel a statement about the run
+   * rather than about the room.
+   */
+  roster_size: number | null;
+  roster_provenance: string;
 }
 
 /**

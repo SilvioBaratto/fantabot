@@ -82,6 +82,11 @@ ASSUMED_NOTHING = "assumed — nothing was declared"
 #: room runs a different band from the lega's season settings. Naming both "read from the
 #: room" would make 1.8's provenance column lie about where the number came from.
 SNAPSHOT_DECLARED = "read from the lega's last sync"
+#: The fourth, and it is not any of the other three: an operator passed `--size`. Kept apart
+#: for the reason the first three are — a room declares a band tonight, a lega declares one
+#: at its last sync, and a person types one. Folding this into `ROOM_DECLARED` would make
+#: 1.8's provenance column say the room stated a number the room was never asked.
+OPERATOR_DECLARED = "given with --size"
 
 
 def rules_for_lega(
@@ -185,6 +190,57 @@ def rules_for_room(
             ROOM_DECLARED,
         )
     return RosterRules(), ASSUMED_NOTHING
+
+
+def resize_band(
+    rules: RosterRules | ClassicRosterRules, size: int
+) -> RosterRules | ClassicRosterRules:
+    """The same band, resized to `size`, kept coherent. Pure.
+
+    **`asta bid` is unauthenticated**, so the band it plans and caps against comes from
+    `--lega` — which defaults to `settings.fantabot_league_id`, a *leghe.fantacalcio* league
+    id with no relation to the FantaLab room being bid in. `--size` is how the room's own
+    total reaches it, and this is the rule that applies it. `RoomTracker` computes
+    `max_bid(credits_left, rules.size - len(owned))`, so the size is the divisor of the MAX
+    cap, and the band also sizes the plan.
+
+    **A bare `replace(rules, size=...)` is the trap.** `max_goalkeepers()` is
+    `size - min_movement`, so a 25 over the built-in `30/2/28` yields **-3 keepers**.
+
+    **And the floors cannot be re-derived from the size**, which is the second trap. The
+    obvious invariant — `size == min_goalkeepers + min_movement`, which `rules_for_room`
+    really does hold to — is not general: measured on the live database, lega 4103937's last
+    sync reads `size=32, min_goalkeepers=2, min_movement=23`, because `rules_for_lega` takes
+    the size from `roster_size` and the floors from `minrl`, and those are a maximum and two
+    minimums. Deriving `min_movement = size - min_goalkeepers` there would invent a floor
+    seven players above what the lega declared.
+
+    So: **keep the floors, and clamp only as far as the new size forces.** On a shrink that
+    reproduces `drop_unvaluable` exactly — 30 → 25 gives `min_movement=23`, which is its
+    `28 - 5` — and on a growth it leaves the declared floor alone. Classic goes through
+    `ClassicRosterRules.shrunk`, which already trims floors largest-first to keep
+    `sum(min) <= size`; a second copy of that arithmetic would be a second answer.
+
+    Refusals rather than nonsense, because the alternative surfaces much later and from
+    inside a live loop: `optimize_roster` raising once per two-second cycle for an evening.
+    """
+    if size < 1:
+        raise ValueError(f"--size {size} is not a roster")
+    if isinstance(rules, ClassicRosterRules):
+        # Under the `static` selection every band is pinned (`min == max`), so the roles can
+        # supply exactly `sum(max)` players and no more. A size above that is a roster the
+        # room can never fill, and the optimizer would hunt for a player no role may add.
+        ceiling = sum(rules.max_of(role) for role in rules.roles())
+        if size > ceiling:
+            raise ValueError(
+                f"--size {size} cannot be filled: this band allows at most {ceiling} players"
+            )
+        return rules.shrunk(rules.size - size)
+    if size < rules.min_goalkeepers:
+        raise ValueError(
+            f"--size {size} is below the {rules.min_goalkeepers} goalkeepers this band requires"
+        )
+    return replace(rules, size=size, min_movement=min(rules.min_movement, size - rules.min_goalkeepers))
 
 
 def drop_unvaluable(

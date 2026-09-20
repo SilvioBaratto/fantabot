@@ -31,6 +31,9 @@ import pytest
 from _paths import module_file
 from typer.testing import CliRunner
 
+from fantabot.config import settings
+from fantabot.interface.asta import _lega_rules as REAL_LEGA_RULES
+
 ASTA = "fantabot.interface.asta"
 
 
@@ -301,6 +304,91 @@ class TestTheGuardsBeforeTheFirstFrame:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         assert self._read_the_guards(monkeypatch)["budget"] == 500
+
+
+class TestTheBandTheOperatorStates:
+    """`--size`, end to end through the real command body.
+
+    `_lega_rules` has its own tests and they could not see the Typer body forgetting to
+    *pass* the flag: replacing `size=size` with `size=0` at the one call site left all 2,188
+    tests green. So these drive the command, and they restore the **real** `_lega_rules` —
+    `_wire` replaces it with a fixed 25-man band, which would have made the first assertion
+    below pass without the flag doing anything at all.
+
+    No database is opened: `--format` always has a value on this command, so a stated size
+    takes the branch that answers from the built-in band without reading a lega. That is the
+    app's own path — it sends `--size` and `--format` and deliberately no `--lega`.
+    """
+
+    def test_the_flag_reaches_the_band_the_cap_divides(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`max_bid(500, 25) == 476`, against the built-in 30's `471`. The number printed on
+        the screen is the number the cap is computed from."""
+        from fantabot.application import asta_session
+
+        _wire(monkeypatch, frame=_frame())
+        from fantabot.interface import asta
+
+        monkeypatch.setattr(asta, "_lega_rules", REAL_LEGA_RULES)
+        seen: dict[str, Any] = {}
+
+        def loop(**kw: Any) -> Any:
+            from fantabot.adapters.http.fantalab.room import LoopReport
+
+            seen["cap"] = kw["max_cap"]()
+            return LoopReport(cycles=0, bids_sent=0, refused={})
+
+        monkeypatch.setattr(asta_session, "run_bid_loop", loop)
+        result = _invoke(["--arm", "--budget", "500", "--size", "25"])
+
+        assert result.exit_code == 0, result.output
+        assert seen["cap"] == 476, "the stated band did not reach the cap"
+        assert "roster band: 25" in result.output
+        assert "given with --size" in result.output
+
+    def test_the_built_in_band_is_what_it_overrides(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other half: a body hard-coding 25 would pass the test above alone. Without
+        the flag the same path answers on the built-in 30, and `max_bid(500, 30)` is 471."""
+        from fantabot.application import asta_session
+
+        _wire(monkeypatch, frame=_frame())
+        from fantabot.interface import asta
+
+        monkeypatch.setattr(asta, "_lega_rules", REAL_LEGA_RULES)
+        monkeypatch.setattr(settings, "fantabot_league_id", 0, raising=False)
+        seen: dict[str, Any] = {}
+
+        def loop(**kw: Any) -> Any:
+            from fantabot.adapters.http.fantalab.room import LoopReport
+
+            seen["cap"] = kw["max_cap"]()
+            return LoopReport(cycles=0, bids_sent=0, refused={})
+
+        monkeypatch.setattr(asta_session, "run_bid_loop", loop)
+        result = _invoke(["--arm", "--budget", "500"])
+
+        assert seen["cap"] == 471
+        assert "given with --size" not in result.output
+
+    def test_an_impossible_size_is_an_exit_code_and_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`resize_band` raises `ValueError`; the Typer body turns it into a refusal. The
+        alternative is `optimize_roster` raising once per two-second cycle, from inside a
+        live loop, for an evening."""
+        _wire(monkeypatch, frame=_frame())
+        from fantabot.interface import asta
+
+        monkeypatch.setattr(asta, "_lega_rules", REAL_LEGA_RULES)
+
+        result = _invoke(["--arm", "--size", "1"])
+
+        assert result.exit_code != 0
+        assert "goalkeepers" in result.output
+        assert "Traceback" not in result.output
 
 
 class TestThePaintStaysInTheInterface:

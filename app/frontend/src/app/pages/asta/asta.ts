@@ -284,6 +284,14 @@ export class AstaComponent implements OnInit {
   readonly runClosed = signal<string[]>([]);
   /** The same facts as one line, for the reader with no controls to mark. */
   readonly runReason = signal('');
+  /**
+   * The band the run was started with, as the server echoed it back.
+   *
+   * Not read off `room()`: that is what the *check* found, and the two are only the same
+   * number because the route now sends it. Showing the run's own copy is what would catch
+   * them diverging again.
+   */
+  readonly runBand = signal<{ size: number | null; provenance: string } | null>(null);
 
   /**
    * How many stops this page has sent for the attached run. 0, 1 or 2.
@@ -621,6 +629,8 @@ export class AstaComponent implements OnInit {
           this.runArmed.set(false);
           this.runClosed.set([]);
           this.runReason.set('');
+          // A watch plans nothing, so it has no band to report.
+          this.runBand.set(null);
           this.attach(started.job_id, 'watch');
         },
         error: (err: unknown) => {
@@ -716,6 +726,10 @@ export class AstaComponent implements OnInit {
           this.runArmed.set(started.armed);
           this.runClosed.set(started.closed);
           this.runReason.set(started.reason);
+          this.runBand.set({
+            size: started.roster_size,
+            provenance: started.roster_provenance,
+          });
           if (started.outcome !== 'started') {
             this.watchError.set(started.reason || 'The room would not resolve.');
             return;
@@ -832,6 +846,9 @@ export class AstaComponent implements OnInit {
         // were suppressed and the page said nothing at all at the one moment it matters.
         this.runArmed.set(live.armed === true);
         this.runClosed.set([]);
+        // `GET /jobs` does not carry the band, and inventing one from the current room
+        // check would claim the run used a number nobody has checked it did.
+        this.runBand.set(null);
         this.runReason.set(
           live.armed === null || live.armed === undefined
             ? ''

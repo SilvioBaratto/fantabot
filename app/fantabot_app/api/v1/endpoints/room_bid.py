@@ -81,6 +81,12 @@ class BidStarted(BaseModel):
     #: armed. A list and not a sentence so the page can mark each control; `reason` is the
     #: same facts as one line, for a reader that has no controls to mark.
     closed: list[str] = []
+    #: The roster band this run was started with, and where the number came from. Echoed
+    #: rather than left implicit: the room check card already shows both, and until this
+    #: route sent them the child planned against something else entirely — so the screen and
+    #: the run agreed about the band only by coincidence.
+    roster_size: int | None = None
+    roster_provenance: str = ""
 
 
 def bid_flag(fantaleague_id: str) -> Path:
@@ -161,6 +167,10 @@ def room_bid(request: BidRequest) -> BidStarted:
             ("num_credits", room.num_credits),
             ("seat_team_id", room.seat_team_id),
             ("seat_user_id", room.seat_user_id),
+            # The band sizes the plan and divides the MAX cap. `asta bid` cannot read it —
+            # that is what `--size` is for — and `"--size None"` would reach the child as a
+            # Click usage error, which the page draws as a healthy "Bidding · <id>".
+            ("roster_size", room.roster_size),
         )
         if value is None
     ]
@@ -192,6 +202,11 @@ def room_bid(request: BidRequest) -> BidStarted:
         "--teams", str(room.num_teams),
         "--credits", str(room.num_credits),
         "--budget", str(room.num_credits),
+        # **And no `--lega`.** A FantaLab room is not a lega, and passing one would hand the
+        # child a second, older opinion about the band to fall back on — which is the defect
+        # this flag closes, not the fix. `--size` is the whole answer; `--format` is the
+        # other half `_lega_rules` would have supplied.
+        "--size", str(room.roster_size),
     ]
     if gate.armed:
         argv.append("--arm")
@@ -208,4 +223,6 @@ def room_bid(request: BidRequest) -> BidStarted:
         armed=gate.armed,
         closed=list(gate.closed),
         reason=gate.because(APP_SENTENCES),
+        roster_size=room.roster_size,
+        roster_provenance=room.roster_provenance,
     )

@@ -207,6 +207,7 @@ def _lega_rules(
     *,
     session: Callable[[], Any],
     warn: Callable[[str], None],
+    size: int = 0,
 ) -> tuple[Any, str, str]:
     """`(rules, provenance, format)` — the lega's band, or the built-in one, said out loud.
 
@@ -230,9 +231,19 @@ def _lega_rules(
     """
     from fantabot.application.lega_reads import rules_for_league
     from fantabot.config import settings
-    from fantabot.domain.asta.state import ASSUMED_NOTHING
+    from fantabot.domain.asta.state import ASSUMED_NOTHING, OPERATOR_DECLARED, resize_band
 
     resolved = lega or settings.fantabot_league_id
+    # **A stated size is answered without opening the database.** Not an optimisation: the
+    # app's bid route passes no `--lega` — a FantaLab room is not a lega — so `resolved`
+    # falls back to `settings.fantabot_league_id`, and reading *that* lega's band only to
+    # overwrite its total would leave the child planning with another league's role floors.
+    # The size the room declared is the whole answer; the format is `--format`'s, which the
+    # route also sends.
+    if size and (not resolved or fmt):
+        chosen = fmt or "mantra"
+        base = ClassicRosterRules() if chosen == "classic" else RosterRules()
+        return resize_band(base, size), OPERATOR_DECLARED, chosen
     if not resolved:
         # No lega to detect from. `mantra` is the standing default and the one the goldens
         # pin; an explicit `--format classic` still wins.
@@ -247,6 +258,10 @@ def _lega_rules(
         )
         rules = ClassicRosterRules() if fmt == "classic" else RosterRules()
         return rules, ASSUMED_NOTHING, fmt
+    if size:
+        # The lega's own band, resized to what the operator states. The *floors* stay the
+        # lega's — `resize_band`'s note is why they cannot be re-derived from the total.
+        return resize_band(rules, size), OPERATOR_DECLARED, detected
     return rules, provenance, detected
 
 
@@ -973,6 +988,14 @@ def asta_bid(
     ),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
     lega: Lega = 0,
+    size: int = typer.Option(
+        0,
+        "--size",
+        help="Roster size THIS room plays: the total number of players a rosa holds. "
+        "asta bid is unauthenticated and cannot read it, so without this the band comes "
+        "from --lega — a leghe.fantacalcio league with no relation to the FantaLab room. "
+        "It sizes the plan and divides the MAX cap.",
+    ),
     teams: CorpusTeams = DEFAULT_NUM_TEAMS,
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     sentiment: Sentiment = True,
@@ -1096,12 +1119,19 @@ def asta_bid(
     from contextlib import ExitStack as _ExitStack
 
     with _ExitStack() as _stack:
-        room_rules, roster_provenance, fmt = _lega_rules(
-            lega,
-            fmt,
-            session=lambda: _stack.enter_context(database_manager.get_session()),
-            warn=lambda note: console.print(f"[yellow]{note}[/yellow]"),
-        )
+        try:
+            room_rules, roster_provenance, fmt = _lega_rules(
+                lega,
+                fmt,
+                session=lambda: _stack.enter_context(database_manager.get_session()),
+                warn=lambda note: console.print(f"[yellow]{note}[/yellow]"),
+                size=size,
+            )
+        except ValueError as exc:
+            # `resize_band`'s refusal. Turning it into an exit code is this body's half —
+            # the alternative is `optimize_roster` raising once per two-second cycle, from
+            # inside a live loop, for an evening.
+            raise typer.BadParameter(str(exc)) from None
     console.print(
         f"[dim]roster band: {getattr(room_rules, 'size', '?')} players ({roster_provenance})[/dim]"
     )
