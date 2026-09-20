@@ -485,6 +485,58 @@ describe('SynchronizeComponent', () => {
     expect(page.scrapeDefaultIsStale()).toBe(false);
   });
 
+  it('does not warn about a run that has nothing to run', () => {
+    // The guard the mutation battery found unobservable: with no season chosen there is
+    // no run to leave anything out of, and the button is disabled anyway.
+    const page = bootPage().componentInstance;
+    page.setScrapeTable('voti');
+    page.setScrapeSeasons([]);
+
+    expect(page.scrapeMissesCurrentSeason()).toBe(false);
+  });
+
+  it('puts the stale-default warning on the screen, naming the command', () => {
+    // The signal being true is not the deliverable — the note being *rendered* is. Three
+    // mutations survived this file until the assertion moved to the DOM, one of them
+    // "the note is never rendered", which is the whole of T23 on this page.
+    const fixture = bootPage();
+    fixture.componentInstance.setScrapeTable('voti');
+    fixture.detectChanges();
+
+    const note: HTMLElement | null = fixture.nativeElement.querySelector(
+      '[data-scrape-note="stale-default"]',
+    );
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain('db scrape voti');
+    expect(note!.textContent).toContain('2026/27');
+  });
+
+  it('does not put it there for a table whose default is current', () => {
+    const fixture = bootPage();
+    fixture.componentInstance.setScrapeTable('quotazioni');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-scrape-note="stale-default"]')).toBeNull();
+  });
+
+  it('puts the misses-current warning on the screen when the run would skip it', () => {
+    const fixture = bootPage();
+    fixture.componentInstance.setScrapeTable('voti');
+    fixture.componentInstance.setScrapeSeasons(['2025/26']);
+    fixture.detectChanges();
+
+    const note: HTMLElement | null = fixture.nativeElement.querySelector(
+      '[data-scrape-note="misses-current"]',
+    );
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain('2026/27');
+
+    fixture.componentInstance.setScrapeSeasons(['2026/27']);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-scrape-note="misses-current"]')).toBeNull();
+  });
+
   it('warns when the chosen seasons leave out the one being played', () => {
     const page = bootPage().componentInstance;
     page.setScrapeTable('voti');
