@@ -100,3 +100,42 @@ def test_lineup_plan_degrades_open_without_a_platform_call(monkeypatch) -> None:
     assert body["found"] is False
     assert body["starters"] == []
     assert body["reason"]
+
+
+def test_the_route_forwards_the_competition_build_plans_resolved(monkeypatch) -> None:
+    """The wiring, not the mapper. Survivor 5 of this slice's battery: dropping `comp` at
+    the one call site left `build_lineup_plan`'s own test green, because that test calls the
+    mapper directly and the mapper still accepted one.
+
+    A plan that reports no competition is a `Saved on the platform` panel that never asks —
+    and a panel that never asks is indistinguishable, on screen, from a competition with
+    nothing saved.
+    """
+    import contextlib
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens import store as token_store
+    from fantabot.application import lineup_submit
+    from fantabot.config import settings
+    from fantabot.domain.tokens import crypto
+
+    # Patched where the route looks each name up, which for a lazily-imported name is the
+    # defining module. `build_plans` in particular: the route imports it inside its own body,
+    # so a patch on the endpoint module is inert — and inert is how a harness passes while
+    # measuring the real code path it meant to replace.
+    planned = SimpleNamespace(module="343", mday=3, starts=[1], bench=[9])
+    monkeypatch.setattr(settings, "fantabot_encryption_key", "k" * 44, raising=False)
+    monkeypatch.setattr(crypto, "TokenCipher", lambda _k: object())
+    monkeypatch.setattr(
+        database_manager, "get_session", lambda: contextlib.nullcontext(object())
+    )
+    monkeypatch.setattr(token_store, "TokenStore", lambda *_a: object())
+    monkeypatch.setattr(
+        lineup_submit, "build_plans", lambda *_a: ([planned], {1: "Mandas", 9: "Rovella"}, 77)
+    )
+
+    body = TestClient(app).get("/api/v1/lineup/plan?league_id=4103937").json()
+
+    assert body["outcome"] == "planned"
+    assert body["competition"] == 77
+
