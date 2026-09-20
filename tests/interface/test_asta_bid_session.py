@@ -78,13 +78,15 @@ def _wire(monkeypatch: pytest.MonkeyPatch, *, frame: Any) -> dict[str, Any]:
     )
     monkeypatch.setattr(news_sentiment, "NewsSentimentSource", lambda _s: None)
     monkeypatch.setattr(asta, "sentiment_rows", lambda *_a, **_k: [])
-    monkeypatch.setattr(
-        asta,
-        "read_plan_inputs",
-        lambda *_a, **_k: _Namespace(
+    world_read: dict[str, Any] = {}
+
+    def _read_plan_inputs(*_a: Any, **kw: Any) -> Any:
+        world_read.update(kw)
+        return _Namespace(
             pool=["p1"], value={}, prices={}, teams={}, legality=None, names={}
-        ),
-    )
+        )
+
+    monkeypatch.setattr(asta, "read_plan_inputs", _read_plan_inputs)
     # **A band unlike every default in sight**, and that is the point of the number: the
     # first version injected `RosterRules()` and asserted `max_bid(500, RosterRules().size)`,
     # so it recomputed its expectation from the very default it had injected. It could catch
@@ -144,7 +146,7 @@ def _wire(monkeypatch: pytest.MonkeyPatch, *, frame: Any) -> dict[str, Any]:
         )
 
     monkeypatch.setattr(room, "run_bid_loop", _direct)
-    return {"sent": sent, "journalled": journalled, "built": built}
+    return {"sent": sent, "journalled": journalled, "built": built, "world": world_read}
 
 
 class _Namespace:
@@ -389,6 +391,75 @@ class TestTheBandTheOperatorStates:
         assert result.exit_code != 0
         assert "goalkeepers" in result.output
         assert "Traceback" not in result.output
+
+
+class TestTheFormatIsDetectedRatherThanAssumed:
+    """`--format` defaults to "detect", as it does on `asta optimize`.
+
+    It defaulted to `"mantra"`, which is indistinguishable from an operator typing it — so
+    `_lega_rules`' override branch fired on *any* Classic lega, printed *"lega 3584692 is
+    classic; planning mantra because --format says so"* about a flag nobody passed, and
+    threw away the band the lega had declared.
+
+    **Fixing the default forces the ordering fix**, which is why they are one change: `""`
+    cannot be handed to `read_plan_inputs(listone=...)`, and that call came *before* the
+    detection. The pool and the corpus were selected with the pre-detection value while the
+    band used the post-detection one, so the two could describe different formats in the
+    same run.
+    """
+
+    def test_the_detected_format_selects_the_pool_and_the_corpus(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ordering, as a value: `listone` is what `read_plan_inputs` was actually
+        given, and with a Classic lega and no `--format` it has to be `classic`."""
+        from fantabot.application import asta_session
+        from fantabot.domain.classic.state import ClassicRosterRules
+        from fantabot.interface import asta
+
+        wired = _wire(monkeypatch, frame=_frame())
+        monkeypatch.setattr(
+            asta,
+            "_lega_rules",
+            lambda _lega, _fmt, **_k: (ClassicRosterRules(), "a test band", "classic"),
+        )
+        monkeypatch.setattr(
+            asta_session,
+            "run_bid_loop",
+            lambda **_kw: __import__(
+                "fantabot.adapters.http.fantalab.room", fromlist=["LoopReport"]
+            ).LoopReport(cycles=0, bids_sent=0, refused={}),
+        )
+        assert _invoke(["--arm"]).exit_code == 0
+
+        assert wired["world"]["listone"] == "classic", (
+            "the pool and the corpus were chosen before the format was detected"
+        )
+
+    def test_an_explicit_format_still_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`--format` survives as an override — that is what the warning is for. What
+        changed is that the default is no longer indistinguishable from one."""
+        from fantabot.application import asta_session
+
+        wired = _wire(monkeypatch, frame=_frame())
+        monkeypatch.setattr(
+            asta_session,
+            "run_bid_loop",
+            lambda **_kw: __import__(
+                "fantabot.adapters.http.fantalab.room", fromlist=["LoopReport"]
+            ).LoopReport(cycles=0, bids_sent=0, refused={}),
+        )
+        assert _invoke(["--arm", "--format", "classic"]).exit_code == 0
+
+        assert wired["world"]["listone"] == "classic"
+
+    def test_an_unknown_format_is_still_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _wire(monkeypatch, frame=_frame())
+
+        result = _invoke(["--arm", "--format", "mantraa"])
+
+        assert result.exit_code != 0
+        assert "mantra" in result.output
 
 
 class TestThePaintStaysInTheInterface:

@@ -263,6 +263,13 @@ def _lega_rules(
             f"lega {resolved} is {detected}; planning {fmt} because --format says so"
         )
         rules = ClassicRosterRules() if fmt == "classic" else RosterRules()
+        # The override discards the *lega's* band — it describes a different game and cannot
+        # be planned on. It does not discard the operator's own `--size`, which is a separate
+        # statement about this room, and returning before applying it left
+        # `--lega X --size 25 --format <mismatch>` planning and capping on 30. Silently: the
+        # warning above is about the format and says nothing about a size being dropped.
+        if size:
+            return resize_band(rules, size), OPERATOR_DECLARED, fmt
         return rules, ASSUMED_NOTHING, fmt
     if size:
         # The lega's own band, resized to what the operator states. The *floors* stay the
@@ -987,10 +994,11 @@ def asta_bid(
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
     fmt: str = typer.Option(
-        "mantra", "--format",
-        help="Roster format of THIS room: mantra or classic. asta bid is unauthenticated and "
-        "cannot read the room's asta_type, so a Classic room must be told — a wrong format "
-        "prices and caps against the wrong band.",
+        "", "--format",
+        help="Override the format: mantra or classic. Detected from --lega by default, as "
+        "asta optimize does. asta bid is unauthenticated and cannot read the room's own "
+        "asta_type, so a Classic room with no lega to detect from must be told — a wrong "
+        "format prices and caps against the wrong band.",
     ),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
     lega: Lega = 0,
@@ -1049,7 +1057,7 @@ def asta_bid(
         room_stop_path,
     )
 
-    if fmt not in ("mantra", "classic"):
+    if fmt not in ("", "mantra", "classic"):
         raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
     # Fetched once for the run, not per poll: the mapping changes only when the
@@ -1085,6 +1093,33 @@ def asta_bid(
     else:
         console.print(f"[yellow]listone bridge: refresh failed, using a {bridge_age / 3600:.1f}h old cache[/yellow]")
 
+    # **The band and the format first, then the world it selects.** These two blocks used to
+    # run the other way round: `read_plan_inputs(listone=fmt)` chose the pool *and* the
+    # corpus from the pre-detection value, and `_lega_rules` rebound `fmt` afterwards — so a
+    # Classic lega detected here was already being priced off the Mantra listone. One run,
+    # two formats, and nothing raised.
+    #
+    # `max_cap` and the plan both size off the band, so a wrong band caps against the wrong
+    # rosa — and this is the command that spends credits. Read from the lega since 2.1,
+    # where it was a bare `RosterRules()` (size 30) whatever the lega declared; on
+    # 2026-09-02 that lega declared 25/32.
+    from contextlib import ExitStack as _ExitStack
+
+    with _ExitStack() as _stack:
+        try:
+            room_rules, roster_provenance, fmt = _lega_rules(
+                lega,
+                fmt,
+                session=lambda: _stack.enter_context(database_manager.get_session()),
+                warn=lambda note: console.print(f"[yellow]{note}[/yellow]"),
+                size=size,
+            )
+        except ValueError as exc:
+            # `resize_band`'s refusal. Turning it into an exit code is this body's half —
+            # the alternative is `optimize_roster` raising once per two-second cycle, from
+            # inside a live loop, for an evening.
+            raise typer.BadParameter(str(exc)) from None
+
     # The same value model asta optimize planned with, by construction now rather than by
     # maintenance: a walk-away is "what is he worth to us", and this is the one command
     # where that number becomes money. On plain fvm this loop would chase Yildiz to 62
@@ -1105,6 +1140,7 @@ def asta_bid(
             as_of=_today(),
             tilt_k=tilt_k,
             callable_ids={str(fid) for fid in bridge.values()},
+            # The **detected** format, which is the whole point of the reordering above.
             listone=fmt,
             # `asta bid` is unauthenticated and cannot read the room's own shape any more
             # than it can read its `asta_type` — which is why `--format` exists. A wrong
@@ -1117,27 +1153,6 @@ def asta_bid(
         console.print(f"[red]no {fmt} players for season {season} — cannot bid.[/red]")
         raise typer.Exit(code=1)
 
-    # The band this room is played under. `max_cap` and the plan both size off it, so a
-    # wrong band caps against the wrong rosa — and this is the command that spends credits.
-    #
-    # Read from the lega since 2.1, where it was a bare `RosterRules()` (size 30) whatever
-    # the lega declared. On 2026-09-02 that lega declared 25/32.
-    from contextlib import ExitStack as _ExitStack
-
-    with _ExitStack() as _stack:
-        try:
-            room_rules, roster_provenance, fmt = _lega_rules(
-                lega,
-                fmt,
-                session=lambda: _stack.enter_context(database_manager.get_session()),
-                warn=lambda note: console.print(f"[yellow]{note}[/yellow]"),
-                size=size,
-            )
-        except ValueError as exc:
-            # `resize_band`'s refusal. Turning it into an exit code is this body's half —
-            # the alternative is `optimize_roster` raising once per two-second cycle, from
-            # inside a live loop, for an evening.
-            raise typer.BadParameter(str(exc)) from None
     console.print(
         f"[dim]roster band: {getattr(room_rules, 'size', '?')} players ({roster_provenance})[/dim]"
     )

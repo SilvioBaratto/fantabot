@@ -177,6 +177,44 @@ def _ignore(_note: str) -> None:
 # -- `--size`: the room's own total, which `asta bid` cannot read for itself ---------------
 
 
+class TestBothCommandsDeclareTheSameDefault:
+    """`--format` means "detect it" on both, and the default is what says so.
+
+    `asta optimize` declared `""` and `asta bid` declared `"mantra"`, which reaches
+    `_lega_rules` indistinguishable from an operator typing it. So the override branch fired
+    on any Classic lega, warned *"planning mantra because --format says so"* about a flag
+    nobody passed, and discarded the declared band. Read from the syntax tree, because the
+    defect was a *default* — a behavioural test on one command cannot see the other drift.
+    """
+
+    @staticmethod
+    def _default(command: str) -> object:
+        import ast
+
+        from _paths import module_file
+
+        tree = ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
+        fn = next(
+            n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == command
+        )
+        names = [a.arg for a in fn.args.args]
+        index = names.index("fmt") - (len(names) - len(fn.args.defaults))
+        call = fn.args.defaults[index]
+        # `typer.Option(<default>, "--format", ...)`
+        return ast.literal_eval(call.args[0])
+
+    def test_asta_bid_detects_like_asta_optimize(self) -> None:
+        assert self._default("asta_bid") == self._default("asta_optimize") == "", (
+            "one command treats its own default as an override the operator typed"
+        )
+
+    def test_asta_live_states_a_format_because_it_can_detect_nothing(self) -> None:
+        """The deliberate difference, asserted so it reads as one. `asta live` takes no
+        `--lega` and never reaches `_lega_rules`: there is nothing to detect from, so a
+        stated default is the honest answer rather than an override in disguise."""
+        assert self._default("asta_live") == "mantra"
+
+
 class TestTheSizeOverride:
     """`asta bid` is unauthenticated. `--size` is how the room's own band reaches it.
 
@@ -275,6 +313,31 @@ class TestTheSizeOverride:
 
         assert reader.asked == [], "an unnamed lega was read anyway"
         assert (rules.size, rules.min_movement) == (25, 23)
+
+    def test_a_size_survives_an_override_that_drops_the_band(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The override discards the *lega's* band, not the operator's own number.
+
+        `--format` disagreeing with the lega means the declared band describes a different
+        game and cannot be planned on — so it falls back to the built-in one. `--size` is a
+        separate statement about this room, and returning before applying it left
+        `--lega X --size 25 --format <mismatch>` planning and capping on 30. Silently: the
+        warning is about the format, and says nothing about the size being dropped.
+        """
+        from fantabot.domain.asta.state import OPERATOR_DECLARED
+
+        reader = _Reader((ClassicRosterRules(), "x", "classic"))
+        said = _patch(monkeypatch, reader, configured=3584692)
+
+        rules, provenance, fmt = _lega_rules(
+            3584692, "mantra", session=_session, warn=said.append, size=25
+        )
+
+        assert rules.size == 25, "the stated size was dropped with the lega's band"
+        assert provenance == OPERATOR_DECLARED
+        assert fmt == "mantra"
+        assert said and "because --format says so" in said[0]
 
     def test_a_refused_size_is_the_commands_to_report(
         self, monkeypatch: pytest.MonkeyPatch
