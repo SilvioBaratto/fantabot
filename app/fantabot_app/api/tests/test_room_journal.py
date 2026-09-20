@@ -230,3 +230,94 @@ def test_the_endpoint_answers_without_a_journal_on_disk() -> None:
     assert body["ok"] is True
     # Absolute, because a relative path is the whole ambiguity this field exists to end.
     assert Path(body["path"]).is_absolute()
+
+
+# ---------------------------------------------------------------------------------------
+# ?follow=1 — the tail. A live room appends every two seconds and a viewer polls it.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_follow_poll_returns_only_the_rows_written_since_the_last_one(tmp_path: Path) -> None:
+    """The whole contract. A viewer that re-read the evening every two seconds would grow
+    a 1.6 MB response into a 3-hour poll loop, and render every row it had already drawn."""
+    journal = write(tmp_path / "j.jsonl", row(name="A"), row(name="B"), row(name="C"))
+
+    first = read_journal(journal, follow=True, since=0)
+    write(journal, row(name="A"), row(name="B"), row(name="C"), row(name="D"), row(name="E"))
+    second = read_journal(journal, follow=True, since=first.next_index)
+
+    assert [r.name for r in first.rows] == ["A", "B", "C"]
+    assert first.next_index == 3
+    assert [r.name for r in second.rows] == ["D", "E"]
+    assert second.next_index == 5
+
+
+def test_the_tail_arrives_oldest_first_which_is_the_opposite_of_the_page(tmp_path: Path) -> None:
+    """A page is read from the end of an evening; a tail is appended to a list on a screen."""
+    journal = write(tmp_path / "j.jsonl", row(name="Oldest"), row(name="Middle"), row(name="Newest"))
+
+    assert [r.name for r in read_journal(journal).rows] == ["Newest", "Middle", "Oldest"]
+    assert [r.name for r in read_journal(journal, follow=True).rows] == [
+        "Oldest",
+        "Middle",
+        "Newest",
+    ]
+
+
+def test_a_tail_far_behind_catches_up_in_order_rather_than_skipping(tmp_path: Path) -> None:
+    """Bounded like the page, and truncated at the *new* end — a viewer that attached late
+    must not lose the rows between its position and the limit."""
+    journal = write(tmp_path / "j.jsonl", *(row(name=f"P{n}") for n in range(250)))
+
+    first = read_journal(journal, follow=True, since=0, limit=100)
+    second = read_journal(journal, follow=True, since=first.next_index, limit=100)
+
+    assert [r.name for r in first.rows][:2] == ["P0", "P1"]
+    assert len(first.rows) == 100
+    assert first.next_index == 100
+    assert second.rows[0].name == "P100"
+
+
+def test_a_position_past_the_end_is_clamped_rather_than_stranded(tmp_path: Path) -> None:
+    """`lines_since`'s rule, for the same reason: a position the file cannot reach is a
+    client that never sees another row, and it is silent."""
+    journal = write(tmp_path / "j.jsonl", row(name="A"), row(name="B"), row(name="C"))
+
+    page = read_journal(journal, follow=True, since=1000)
+
+    assert page.rows == []
+    assert page.next_index == 3
+
+
+def test_a_torn_tail_is_re_read_rather_than_stepped_over(tmp_path: Path) -> None:
+    """The position is the last row *parsed*, never the file's line count. A line caught
+    mid-flush parses on the next poll; a position past it would drop that cycle for good."""
+    journal = tmp_path / "j.jsonl"
+    journal.write_text(row(name="A") + "\n" + '{"name": "To', encoding="utf-8")
+
+    first = read_journal(journal, follow=True, since=0)
+    write(journal, row(name="A"), row(name="B"))
+    second = read_journal(journal, follow=True, since=first.next_index)
+
+    assert [r.name for r in first.rows] == ["A"]
+    assert (first.next_index, first.skipped) == (1, 1)
+    assert [r.name for r in second.rows] == ["B"]
+
+
+def test_a_page_reports_no_tail_position_because_a_page_does_not_tail(tmp_path: Path) -> None:
+    """One field, one meaning. `next_index` is where to resume a *follow* from, and a
+    paging client that sent it back as `since` would be told a different thing each call."""
+    journal = write(tmp_path / "j.jsonl", *(row(name=f"P{n}") for n in range(10)))
+
+    assert read_journal(journal, offset=0, limit=3).next_index == 0
+
+
+def test_the_endpoint_tails_when_follow_is_set(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FANTABOT_DATA_DIR", str(tmp_path))
+    write(tmp_path / "room_journal.jsonl", row(name="A"), row(name="B"))
+
+    with TestClient(app) as client:
+        body = client.get("/api/v1/asta/journal", params={"follow": 1, "since": 1}).json()
+
+    assert [r["name"] for r in body["rows"]] == ["B"]
+    assert body["next_index"] == 2

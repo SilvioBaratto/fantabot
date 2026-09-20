@@ -385,22 +385,54 @@ class JournalPage(BaseModel):
     skipped: int = 0
     offset: int = 0
     limit: int = 0
+    #: Where to resume a **follow** from — sent straight back as `?since=`, the idiom
+    #: `GET /jobs/{id}`'s `next_index` already uses in this app. Zero in page mode, and
+    #: deliberately so: a page does not tail, and one field with two meanings is how a
+    #: paging client comes to send back a position that means something else.
+    #:
+    #: It is the last row **parsed**, never the file's line count. The journal flushes
+    #: per line, so a line caught mid-flush is skipped and counted this poll and parses
+    #: the next one — a position past it would drop that cycle from the evening's only
+    #: record, silently.
+    next_index: int = 0
     rows: list[JournalRow] = []
     error: str | None = None
 
 
 def read_journal(
-    path: Path, *, offset: int = 0, limit: int = DEFAULT_JOURNAL_LIMIT
+    path: Path,
+    *,
+    offset: int = 0,
+    limit: int = DEFAULT_JOURNAL_LIMIT,
+    follow: bool = False,
+    since: int = 0,
 ) -> JournalPage:
-    """One page of the journal at `path`, newest first.
+    """One page of the journal at `path`, newest first — or, with `follow`, its tail.
 
     The parsing is `read_rows`'; what is left here is the page — bounds, the window, and
     the three states a screen has to tell apart. **"Missing" and "unreadable" are not the
     same answer**: rendering a directory-where-a-file-should-be as "no journal yet" sends
     the operator looking for a path that is already right.
+
+    **`follow` reverses the order as well as the window, and that is the point.** A page
+    is read from the end of an evening and so arrives newest first; a tail is appended to
+    a list on a screen while the room is still running, and a viewer that had to reverse
+    each response before appending it would draw the evening inside out every two seconds.
+
+    **Two parameters rather than the one the plan called for**, and the second is named
+    `since` rather than reusing `offset`. They mean different things — `offset` is how
+    many rows to skip from the newest, `since` is a row's own 1-based line number in the
+    file — and this repository has already paid for one name carrying two meanings inside
+    one body. A client that sent its tail position back as `offset` would page from the
+    wrong end and be told nothing was wrong.
+
+    The whole file is parsed either way: a JSONL has no index, and `read_rows` is the one
+    reader both surfaces share. 29.8 ms against the recorded 5,192-row evening, well
+    inside a 2 s poll.
     """
     limit = max(1, min(limit, MAX_JOURNAL_LIMIT))
     offset = max(0, offset)
+    since = max(0, since)
     shown = str(path)
     existed = path.exists()
     try:
@@ -417,7 +449,22 @@ def read_journal(
     if not existed:
         return JournalPage(ok=True, path=shown, exists=False, offset=offset, limit=limit)
 
-    window = rows[offset : offset + limit]
+    if follow:
+        # `read_rows` is newest first; a tail is not. Reversed here rather than given a
+        # second ordering in the adapter — the file's order is one decision and it is
+        # stated there once.
+        oldest_first = tuple(reversed(rows))
+        fresh = [entry for entry in oldest_first if entry.index > since]
+        window = tuple(fresh[:limit])
+        # Clamped to the last row the file actually holds when nothing is new, for
+        # `JobRegistry.lines_since`' reason: a position the file cannot reach is a client
+        # that never sees another row, and it says nothing while it waits.
+        last_parsed = oldest_first[-1].index if oldest_first else 0
+        next_index = window[-1].index if window else min(since, last_parsed)
+    else:
+        window = tuple(rows[offset : offset + limit])
+        next_index = 0
+
     return JournalPage(
         ok=True,
         path=shown,
@@ -426,6 +473,7 @@ def read_journal(
         skipped=skipped,
         offset=offset,
         limit=limit,
+        next_index=next_index,
         # Field for field, deliberately. `JournalRow` is `JournalEntry` with a response
         # model's docstrings on it, and a hand-written mapping between the two is the
         # seam the three dropped keys came through.
@@ -434,8 +482,18 @@ def read_journal(
 
 
 @router.get("/asta/journal", response_model=JournalPage, tags=["asta"])
-def asta_journal(offset: int = 0, limit: int = DEFAULT_JOURNAL_LIMIT) -> JournalPage:
+def asta_journal(
+    offset: int = 0,
+    limit: int = DEFAULT_JOURNAL_LIMIT,
+    follow: bool = False,
+    since: int = 0,
+) -> JournalPage:
     """The CLI's record of a live room, read back. The app writes nothing here.
+
+    `?follow=1&since=N` tails it instead: the rows written after line N, oldest first,
+    and a `next_index` to send back. That is what a watch job's viewer polls — the
+    journal is the only channel a supervised child has to a screen, because its own
+    stdout is a Rich `Live` that renders to a pipe nobody reads.
 
     Resolved absolute deliberately: `fantabot_data_dir` defaults to `./data`, which is
     only the repository's `data/` when the process was started from the repository root.
@@ -446,4 +504,6 @@ def asta_journal(offset: int = 0, limit: int = DEFAULT_JOURNAL_LIMIT) -> Journal
     """
     from fantabot.config import journal_path
 
-    return read_journal(journal_path(), offset=offset, limit=limit)
+    return read_journal(
+        journal_path(), offset=offset, limit=limit, follow=follow, since=since
+    )
