@@ -308,8 +308,19 @@ src/fantabot/
   to `RosterRules()` and `admits` drops any evening with fewer lots than `rules.size`, which
   silently discards Classic rooms for failing to fill a roster Classic does not have. The
   schemi column is `float | None` and prints `—` rather than `0.0`: in that column a literal
-  zero reads as a rosa that can field nothing. First live Classic sweep: 235 of 259 admitted
-  at α 1.00, 897/2,295 won (39%) — inside the same 32–49% band.
+  zero reads as a rosa that can field nothing.
+  **The full sweep on both corpora (2026-09-20) says the two formats do not respond to α
+  alike, and `won %` hides it.** Classic, 235 of 259 admitted: 0.85 → 1.15 raises spend 51%
+  (176 → 266) for a **flat 3.7 slots** and five *fewer* lots won (873 → 868). Mantra, 45 of
+  48: the same 56% more spend buys 29% more roster (4.8 → 6.2 slots, 214 → 277 won). So on
+  Classic the rising `won %` (33 → 45%) is its **denominator collapsing** — available falls
+  2,616 → 1,939 as the moving plan stops counting lots — and not the numerator moving at
+  all. Grading α on `won %` alone would read "higher is better" off a column that is flat.
+  **α = 1.00 is the argmax of `won` on Classic** (897 against 864–890 everywhere else) —
+  mild, and the first evidence for 1.00 that is not the arithmetic argument above.
+  ⚠ `slots` of 3.7/25 and 5.7/30 are **not** a forecast of a four-man rosa: `_replay_one`
+  prices only plan members and counts every other lot lost at any α. The columns grade
+  alphas against each other; they do not predict an evening.
 - **The MAX cap has no server backstop.** `docs/fantalab/01:142` calls it
   client-enforced and `06:389-412` shows the RTDB rules validating only that a
   raise exceeds the current price and names the right lot. `domain/asta/bid.py`'s
