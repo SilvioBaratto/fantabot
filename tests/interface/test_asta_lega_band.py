@@ -177,6 +177,84 @@ def _ignore(_note: str) -> None:
 # -- `--size`: the room's own total, which `asta bid` cannot read for itself ---------------
 
 
+class TestNoLiveCommandDefaultsTheFormatAtTheRead:
+    """The format is *decided* before the world is read, never defaulted at the call.
+
+    `asta room` passed `listone=resolved.asta_type or "mantra"`, and that `or` is how a room
+    declaring no format came to be played as Mantra — pool, value model, corpus and the
+    11-schemi legality matrix, none of which it had asked for. The coercion also hid the
+    guard: it turned an unanswered question into an answer before `build_plan_inputs` could
+    refuse it.
+
+    `resolve_room` refuses that room now, so the `or` is dead — and **dead is exactly why
+    this is structural.** Restoring it changes no behaviour and no behavioural test can see
+    it; it survived a mutation battery. What it does is put the fail-open back, ready for
+    the day someone widens `ResolvedRoom.asta_type` to optional again.
+    """
+
+    @staticmethod
+    def _reads() -> dict[str, object]:
+        """`{command: the listone argument, or None when it passes none}`."""
+        import ast
+
+        from _paths import module_file
+
+        tree = ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
+        found: dict[str, object] = {}
+        for fn in (n for n in tree.body if isinstance(n, ast.FunctionDef)):
+            for node in ast.walk(fn):
+                if not (
+                    isinstance(node, ast.Call)
+                    and getattr(node.func, "id", getattr(node.func, "attr", None))
+                    in ("read_plan_inputs", "build_plan_inputs")
+                ):
+                    continue
+                stated = [k.value for k in node.keywords if k.arg == "listone"]
+                found[fn.name] = stated[0] if stated else None
+        return found
+
+    def test_the_scan_finds_every_world_read(self) -> None:
+        """A scan over nothing passes for ever. Four commands read a world; a fifth that
+        starts to — or one of these four that stops — shows up here rather than silently."""
+        assert set(self._reads()) == {
+            "asta_room", "asta_bid", "asta_calibrate", "asta_bench"
+        }
+
+    def test_the_two_live_commands_state_the_format(self) -> None:
+        """The two that can spend credits, and the only two that can be told a format:
+        `asta room` reads it off the resolved room, `asta bid` off `--format`/`--lega`."""
+        reads = self._reads()
+
+        assert reads["asta_room"] is not None and reads["asta_bid"] is not None
+
+    def test_the_two_that_omit_it_are_the_mantra_only_replays(self) -> None:
+        """`asta calibrate` and `asta bench` declare no `--format` at all — they replay
+        recorded Mantra rooms — so taking the parameter's default is consistent rather than
+        forgetful. Named here so a *third* omission is not read as one of these.
+
+        ⚠ Not a claim that their Mantra-only reading is right: `asta calibrate` prices off
+        the Mantra corpus while the recorded Classic corpus is the larger one. That is
+        developer machinery and a separate question; what this pins is that neither of them
+        is a live command quietly dropping a format it was given.
+        """
+        reads = self._reads()
+
+        assert reads["asta_calibrate"] is None and reads["asta_bench"] is None
+
+    def test_none_of_them_falls_back_with_an_or(self) -> None:
+        import ast
+
+        offenders = [
+            f"{command}: {ast.unparse(arg)}"
+            for command, arg in self._reads().items()
+            if isinstance(arg, ast.BoolOp)
+        ]
+        assert offenders == [], (
+            f"a world read defaults its own format: {offenders}. The format is decided "
+            "before the read — an `or` here answers a question the room never did."
+        )
+
+
 class TestBothCommandsDeclareTheSameDefault:
     """`--format` means "detect it" on both, and the default is what says so.
 

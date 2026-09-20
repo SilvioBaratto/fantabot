@@ -109,9 +109,15 @@ class ResolvedRoom:
     #: The Classic `static` per-role band `{P,D,C,A}`, carried so `rules_for_room` can build a
     #: `ClassicRosterRules`. `None` for a Mantra room.
     players_settings_data: Mapping[str, int] | None
-    #: `"mantra"` or `"classic"` — the discriminator the interface reads to pick the listone and
-    #: the rules shape. Carried rather than re-fetched so the two cannot disagree.
-    asta_type: str | None
+    #: `"mantra"` or `"classic"` — the discriminator the interface reads to pick the listone
+    #: and the rules shape. Carried rather than re-fetched so the two cannot disagree.
+    #:
+    #: **Not optional, unlike the platform's own field.** `resolve_room` refuses a room that
+    #: declares no format, so by the time one exists here the question has been answered —
+    #: and saying so in the type is what lets the interface pass it straight to
+    #: `read_plan_inputs` instead of coercing it to Mantra, which is how a room that never
+    #: said it was Mantra came to be played as one.
+    asta_type: str
     asta_mode: str | None
     raise_mode: str | None
     counter_time: int | None
@@ -155,8 +161,28 @@ def resolve_room(
     config = fetch(fantaleague_id)
 
     # Both formats are fielded now (mantra via the 11 schemi, classic via the P/D/C/A bands).
-    # An unknown asta_type is still refused, fail-closed: we can only field what we model.
-    if config.asta_type and config.asta_type not in ("mantra", "classic"):
+    # An unknown asta_type is refused, fail-closed: we can only field what we model.
+    #
+    # **And so is a room that declares none**, which the guard used to let past: it read
+    # `if config.asta_type and ...`, so silence walked straight through a check whose own
+    # comment called it fail-closed. That silence was then coerced — `asta_room` read
+    # `listone=resolved.asta_type or "mantra"` — so a room that never said it was Mantra was
+    # played as one, pool, value model, corpus and 11-schemi legality alike. Worse, the band
+    # comes from a *different* field: a `static` selection with a `players_settings_data`
+    # band makes `rules_for_room` return `ClassicRosterRules`, so one run could hold a
+    # Classic band over a Mantra pool, which the optimizer dispatches on `kind` and cannot
+    # reconcile.
+    #
+    # Measured before closing it: over the 3,095 rooms in the live registry **every one
+    # declares a format** (2,848 classic, 247 mantra), so this refuses nothing that has ever
+    # been seen — and this is the path that spends credits.
+    if not config.asta_type:
+        raise RoomRefused(
+            "this room does not say whether it is mantra or classic, and the two are "
+            "different games — the pool, the prices and the legality all differ. Bid it by "
+            "hand."
+        )
+    if config.asta_type not in ("mantra", "classic"):
         raise RoomRefused(
             f"this room is {config.asta_type!r}, neither mantra nor classic — nothing here can "
             "field that rosa. Bid it by hand."

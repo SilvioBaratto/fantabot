@@ -119,6 +119,27 @@ class TestWhatIsRefused:
         with pytest.raises(RoomRefused, match="neither mantra nor classic"):
             _resolve({**BODY, "asta_type": "roman"})
 
+    @pytest.mark.parametrize("absent", [None, ""])
+    def test_a_room_that_declares_no_format_is_refused_too(self, absent: object) -> None:
+        """The guard read `if config.asta_type and config.asta_type not in (...)`, so a room
+        declaring **nothing** walked straight past a check whose own comment calls it
+        fail-closed — *"we can only field what we model"*.
+
+        It is not harmless silence. `asta_room` then coerced it with
+        `listone=resolved.asta_type or "mantra"`, so a room that never said it was Mantra
+        was played as one: the pool, the value model, the corpus and the 11-schemi legality
+        matrix all Mantra. And `rules_for_room` reads a different field — a `static`
+        selection with a `players_settings_data` band returns `ClassicRosterRules` — so the
+        same run could hold a Classic band over a Mantra pool, which the optimizer
+        dispatches on `kind` and cannot reconcile.
+
+        Measured before closing it: over the 3,095 rooms in the live registry, **every one
+        declares a format** (2,848 classic, 247 mantra). So this refuses nothing that has
+        ever been seen, and it is the command that spends credits.
+        """
+        with pytest.raises(RoomRefused, match="does not say"):
+            _resolve({**BODY, "asta_type": absent})
+
     def test_an_ordered_raise_mode(self) -> None:
         """The `raise_state` array an ordered room expects is undecoded (`docs/fantalab/06
         §8`), so our payload would be wrong. Refused rather than sent and hoped for."""

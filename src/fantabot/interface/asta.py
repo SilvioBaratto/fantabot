@@ -700,7 +700,11 @@ def asta_room(
             callable_ids={str(fid) for fid in bridge.values()},
             num_teams=resolved.num_teams or 8,
             num_credits=int(resolved.num_credits or 500),
-            listone=resolved.asta_type or "mantra",
+            # `resolved.asta_type`, not `... or "mantra"`. `resolve_room` refuses a room
+            # that declares no format, so there is nothing left to coerce — and the
+            # coercion was what hid it: it turned an unanswered question into Mantra
+            # before `build_plan_inputs`' own guard could see it.
+            listone=resolved.asta_type,
         )
 
     # Three locks: the two the operator opens, and the bridge that names the lots — a stale
