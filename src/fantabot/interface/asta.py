@@ -973,7 +973,8 @@ def asta_bid(
     from fantabot.adapters.http.fantalab import feed, listone, room, rtdb
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
-    from fantabot.application.asta_room import RoomFrame, RoomTracker, error_row, waiting_row
+    from fantabot.application.asta_room import RoomFrame
+    from fantabot.application.asta_session import session_from
     from fantabot.config import journal_path, live_auto_act
     from fantabot.domain.asta.bid import Seat, max_bid
 
@@ -1096,36 +1097,6 @@ def asta_bid(
         cycle_started[0] = time.perf_counter()
         return router.read_lot()[0]
 
-    tracker = RoomTracker(
-        seat=seat,
-        bridge=bridge,
-        pool=world.pool, value=world.value, prices=world.prices, teams=world.teams,
-        legality=world.legality, names=world.names,
-        rules=room_rules,
-        budget=budget,
-        lam=lam,
-        ceiling_alpha=ceiling_alpha,
-        bargain_beta=bargain_beta,
-        bargain_share=bargain_share,
-        # No admin_user_id / seat_by_user: both live on `RoomConfig`, reached only through the
-        # authenticated `rest.fetch_league` this command deliberately never calls (see its own
-        # docstring). A passed lot the admin actually let stand is invisible here the same way
-        # it always was — `RoomTracker` degrades to that, not to a crash, without them.
-        #
-        # `bridge_refresh` has no such barrier — the listone endpoint is unauthenticated, so
-        # this command can and does get the same mid-evening re-resolution `asta room` does.
-        bridge_refresh=lambda: listone.fetch(refresh=True),
-        ledger=lambda: feed.ledger_events(db, league),
-        journal=_timed_journal,
-        counter_time=None, counter_time_first=None,
-    )
-
-    # One code path, not two. `asta bid` used to carry its own copy of this fold — and
-    # `CLAUDE.md` records where that leads: three commands each grew their own value model and
-    # the one that spent credits fell behind the one that advised.
-    latest: list[RoomFrame] = []
-    reported: set[str] = set()
-
     # Both nodes, not just `auction/`. Under ASSEGNA random the lot lands on `assign/<fl>`
     # and a bidder watching only the first sees an empty room all evening (docs/fantalab/06
     # §10.6). The node travels with the lot so the raise goes back where it came from.
@@ -1134,47 +1105,56 @@ def asta_bid(
         write=lambda payload, node: rtdb.place_raise(db, league, payload, node=node),
     )
 
-    def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        import time as _time
+    # One composition, not two — `session_from` rather than `session_for`, because this
+    # command is unauthenticated by design and has no `ResolvedRoom` to read a chair, an
+    # admin uid or a countdown off. Those four are stated as `None` here rather than left to
+    # a default, which is the whole reason the factory takes them as required keywords: each
+    # degrades *silently*, and a passed lot the admin let stand is invisible to this command
+    # the same way it always was — `RoomTracker` degrades to that, not to a crash.
+    #
+    # `bridge_refresh` has no such barrier: the listone endpoint needs no token, so this
+    # command gets the same mid-evening re-resolution `asta room` does.
+    bid_session = session_from(
+        seat=seat,
+        fantaleague_id=league,
+        admin_user_id=None,
+        seat_by_user=None,
+        counter_time=None,
+        counter_time_first=None,
+        bridge=bridge,
+        world=world,
+        rules=room_rules,
+        budget=budget,
+        lam=lam,
+        ceiling_alpha=ceiling_alpha,
+        bargain_beta=bargain_beta,
+        bargain_share=bargain_share,
+        bridge_refresh=lambda: listone.fetch(refresh=True),
+        ledger=lambda: feed.ledger_events(db, league),
+        journal=_timed_journal,
+    )
 
-        frame = tracker.cycle(snapshot, now_ms=int(_time.time() * 1000), node=router.node)
-        latest.append(frame)
-        # Said once rather than once per poll: at a 2 s cycle the same line would scroll the
-        # heartbeat away inside a minute, and the heartbeat is all the operator is reading.
+    # The paint, and only the paint. The fold, the `latest` buffer, the two trouble rows and
+    # the loop itself are the session's — this command used to carry its own copy of all four,
+    # and `CLAUDE.md` records where that leads twice over: the copy that falls behind is the
+    # one that spends credits.
+    reported: set[str] = set()
+
+    def on_frame(frame: RoomFrame) -> None:
+        """Said once rather than once per poll: at a 2 s cycle the same line would scroll the
+        heartbeat away inside a minute, and the heartbeat is all the operator is reading."""
         if frame.note and frame.note not in reported:
             reported.add(frame.note)
             console.print(f"[yellow]{frame.note}[/yellow]")
-        if frame.target is None or frame.walk_away is None:
-            return None
-        return (frame.target, frame.walk_away)
-
-    def _remaining() -> int:
-        return latest[-1].credits_left if latest else int(budget)
-
-    def _cap() -> int:
-        return latest[-1].max_cap if latest else max_bid(int(budget), room_rules.size)
-
-    def heartbeat(line: str) -> None:
-        """Printed as before; also journaled for the one message that means `target_of` (and
-        so `tracker.cycle`'s own journal row) never ran this poll — see `asta_room`'s
-        identical heartbeat for why only this one line qualifies."""
-        console.print(line)
-        if "waiting for a lot" in line:
-            _timed_journal(waiting_row(now_ms=int(time.time() * 1000)))
 
     def on_error(exc: Exception, consecutive: int) -> None:
-        """Replaces `run_bid_loop`'s own fallback (which only ever printed) so a failed poll
-        leaves a record, not just a line that scrolled away."""
+        """Shown here, journaled by the session. `run_bid_loop`'s own fallback only ever
+        printed, so a failed poll left a line that scrolled away and no record."""
         console.print(f"[red]{type(exc).__name__}: {exc} ({consecutive} in a row)[/red]")
-        _timed_journal(error_row(exc, now_ms=int(time.time() * 1000)))
 
     with _disarm_on_sigint(armed):
-        report = room.run_bid_loop(
-            seat=seat,
-            fantaleague_id=league,
-            remaining_budget=_remaining,
-            max_cap=_cap,
-            target_of=target_of,
+        report = bid_session.run(
+            node=lambda: router.node,
             read=_timed_read,
             # Bound per call for the same reason as the live room above: the ambient lock is
             # re-read on every write, so editing `.env` mid-evening disarms this loop too.
@@ -1186,9 +1166,11 @@ def asta_bid(
             )(payload),
             now=lambda: int(time.time() * 1000),
             sleep=time.sleep,
-            keep_going=lambda _cycle: True,
-            heartbeat=heartbeat,
+            on_frame=on_frame,
             on_error=on_error,
+            on_heartbeat=console.print,
+            fallback_budget=int(budget),
+            fallback_cap=max_bid(int(budget), room_rules.size),
             poll_seconds=poll,
         )
     journal.close()

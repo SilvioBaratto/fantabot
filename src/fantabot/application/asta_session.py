@@ -131,6 +131,7 @@ class AstaSession:
         fallback_cap: int,
         poll_seconds: float,
         keep_going: Callable[[int], bool] = lambda _cycle: True,
+        on_heartbeat: Callable[[str], None] = lambda _line: None,
     ) -> LoopReport:
         """Poll the room until `keep_going` says otherwise, bidding this session's own targets.
 
@@ -172,12 +173,20 @@ class AstaSession:
             return cycle.target
 
         def heartbeat(line: str) -> None:
-            """Every line but one has nowhere to go — the screen is the frame.
+            """Journaled for one line; shown by whoever has somewhere to show it.
 
-            `run_bid_loop` writes this exact message only when `read()` returned no lot at
+            `run_bid_loop` writes the waiting message only when `read()` returned no lot at
             all: the one poll where `cycle` (and so the journal row it writes itself) never
             ran. Journaling any other line would double the row for the same poll.
+
+            **`on_heartbeat` defaults to a no-op because one surface has no use for it and
+            the other has nothing else.** `asta room` paints a Rich `Live` and the frame *is*
+            the screen, so a scrolling line would fight it; `asta bid` prints, and the
+            heartbeat is the whole of what an operator watching an armed run can read. A lift
+            that journaled the line and stopped printing it would leave that run with a blank
+            terminal for as long as the room stayed empty.
             """
+            on_heartbeat(line)
             if "waiting for a lot" in line:
                 self._journal(waiting_row(now_ms=now()))
 
@@ -232,6 +241,79 @@ def target_of(frame: RoomFrame) -> tuple[str, int] | None:
     return (frame.target, frame.walk_away)
 
 
+def session_from(
+    *,
+    seat: Seat,
+    fantaleague_id: str,
+    admin_user_id: str | None,
+    seat_by_user: Mapping[str, str] | None,
+    counter_time: int | None,
+    counter_time_first: int | None,
+    bridge: Mapping[str, int],
+    world: PlanInputs,
+    rules: RoomRules,
+    budget: float,
+    lam: float,
+    ceiling_alpha: float,
+    bargain_beta: float,
+    bargain_share: float,
+    ledger: Callable[[], Iterable[AssignmentEvent]],
+    journal: Callable[[Mapping[str, Any]], None],
+    bridge_refresh: Callable[[], Mapping[str, int]] | None = None,
+) -> AstaSession:
+    """The one construction. Everything the tracker needs, named by the caller that has it.
+
+    `session_for` is this with a `ResolvedRoom` read for it; **`asta bid` cannot use that
+    door**, because it is unauthenticated by design (its own docstring) and never fetches
+    `RoomConfig` — so the four room-shaped facts arrive here as `None` rather than through a
+    room the command cannot see. Two entry points, one composition: the alternative was the
+    bidder keeping the twenty-keyword assembly it already had, which is the divergence this
+    module exists to prevent and the one that historically fell behind on the surface that
+    spends credits.
+
+    **The four are required keywords, not defaults.** Each degrades *silently* when it is
+    missing — a missing `seat_by_user` stops attributing our own passed lots, a missing
+    `admin_user_id` claims somebody else's auto-skips, a missing `counter_time` leaves the
+    screen with no countdown — and `RoomTracker` already defaults all four. A second default
+    here would be the second copy, one layer up. A caller with nothing to give says `None`
+    out loud.
+
+    The five numbers are required for the same reason: both surfaces read them from their own
+    option set. `bridge_refresh` is the genuine optional — the listone endpoint is
+    unauthenticated, so even `asta bid` has one, but a caller composing a session for a replay
+    has nothing to fetch with.
+    """
+    tracker = RoomTracker(
+        seat=seat,
+        bridge=bridge,
+        pool=world.pool,
+        value=world.value,
+        prices=world.prices,
+        teams=world.teams,
+        legality=world.legality,
+        names=world.names,
+        rules=rules,
+        budget=budget,
+        lam=lam,
+        ceiling_alpha=ceiling_alpha,
+        bargain_beta=bargain_beta,
+        bargain_share=bargain_share,
+        admin_user_id=admin_user_id,
+        seat_by_user=seat_by_user,
+        bridge_refresh=bridge_refresh,
+        ledger=ledger,
+        journal=journal,
+        counter_time=counter_time,
+        counter_time_first=counter_time_first,
+    )
+    return AstaSession(
+        tracker,
+        journal=journal,
+        seat=seat,
+        fantaleague_id=fantaleague_id,
+    )
+
+
 def session_for(
     *,
     resolved: ResolvedRoom,
@@ -250,47 +332,36 @@ def session_for(
 ) -> AstaSession:
     """Compose a session from the room the platform declared and the world we read.
 
-    The five numbers are required keywords rather than defaulted: both surfaces read them from
-    their own option set, and a default declared here as well as in `RoomTracker` is the second
-    copy this module exists to prevent. `bridge_refresh` is the exception and stays optional —
-    `asta bid` is unauthenticated by design and has no listone fetcher to give.
+    The authenticated door. Everything it adds over `session_from` is read off the one
+    `ResolvedRoom`: the chair, the admin uid, the chair table and the two countdown values.
+    Nothing is decided here — this is the translation, and keeping it a translation is what
+    lets the unauthenticated bidder share the composition rather than grow a second one.
 
     **`user_id` is separate from `resolved.seat`.** Two `Seat` types are in play (`asta_room`'s
     own note): the room's chair carries a team name and a position, the bid payload carries a
     pair of ids. The seat's `user_id` is `None` for a free chair, and ours comes from the stored
     FantaLab session — so the pair is assembled here, once, rather than in each caller.
     """
-    # Bound once and used twice — the tracker decides with it and `run_bid_loop` signs the
-    # raise with it. Two constructions out of the same two fields is two chances to swap them.
-    seat = Seat(fantateam_id=resolved.seat.fantateam_id, user_id=user_id)
-    tracker = RoomTracker(
-        seat=seat,
+    return session_from(
+        # Bound once and used twice — the tracker decides with it and `run_bid_loop` signs the
+        # raise with it. Two constructions from the same two fields is two chances to swap them.
+        seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=user_id),
+        fantaleague_id=resolved.fantaleague_id,
+        admin_user_id=resolved.admin_id,
+        seat_by_user=resolved.seat_by_user,
+        counter_time=resolved.counter_time,
+        counter_time_first=resolved.counter_time_first,
         bridge=bridge,
-        pool=world.pool,
-        value=world.value,
-        prices=world.prices,
-        teams=world.teams,
-        legality=world.legality,
-        names=world.names,
+        world=world,
         rules=rules,
         budget=budget,
         lam=lam,
         ceiling_alpha=ceiling_alpha,
         bargain_beta=bargain_beta,
         bargain_share=bargain_share,
-        admin_user_id=resolved.admin_id,
-        seat_by_user=resolved.seat_by_user,
-        bridge_refresh=bridge_refresh,
         ledger=ledger,
         journal=journal,
-        counter_time=resolved.counter_time,
-        counter_time_first=resolved.counter_time_first,
-    )
-    return AstaSession(
-        tracker,
-        journal=journal,
-        seat=seat,
-        fantaleague_id=resolved.fantaleague_id,
+        bridge_refresh=bridge_refresh,
     )
 
 

@@ -15,12 +15,18 @@ Read from the source rather than driven through a live room: the loops are Typer
 a Rich screen and a network client in them, and what is being asserted is a wiring property
 that an AST can see and a fake room cannot make more true.
 
-**Two modules, since 3.6b.** The room's loop was lifted into `application/asta_session.py`,
-and both rows went with it — so a scan of the Typer body alone would now find `asta bid`'s
-two, report success on half the surface, and say nothing about the one that moved. The
-clock itself did **not** move: `cycle_ms` is still measured in `interface/`, around the
-journal the session is handed, for the same reason `interface/asta.py::_today` is the asta
-feature's only calendar read.
+**One module, since 3.9a — and that is the third shape this file has had.** The room's loop
+moved into `application/asta_session.py` at 3.6b, leaving `asta bid`'s pair inline; 3.9a
+lifted the bidder onto the same composition, so both rows are now built in exactly one place
+and neither Typer body builds any. The scan is written to say that rather than to count two
+per surface: a file asserting `asta bid` still holds its own pair would go red on the lift
+that removed the duplication, which is backwards.
+
+The clock itself did **not** move, on either lift: `cycle_ms` is still measured in
+`interface/`, around the journal each surface hands its session, for the same reason
+`interface/asta.py::_today` is the asta feature's only calendar read. That is why the two
+halves below are separate claims — the rows reach *a* sink in `application/`, and each
+surface injects the *timed* one. Either half alone passes over the defect.
 """
 
 from __future__ import annotations
@@ -58,20 +64,23 @@ def _row_builder_calls(tree: ast.AST) -> list[ast.Call]:
 def test_the_row_builders_are_called_at_all() -> None:
     """A scan over nothing reports success; this is what makes the rest mean something.
 
-    Two rows each on two surfaces: `asta bid`'s pair is still inline in the Typer body, and
-    the room's pair moved into `AstaSession.run` with the loop that produces them.
+    Two rows, once, in the lifted loop that produces them — and **none** in the Typer bodies,
+    which is the property 3.9a bought. A third copy appearing in `interface/` is a command
+    that has started journaling its own trouble rows again, with its own idea of when.
     """
-    assert len(_row_builder_calls(_tree())) == 2, "asta bid's two rows"
     assert len(_row_builder_calls(_tree(SESSION))) == 2, "the lifted loop's two rows"
+    assert _row_builder_calls(_tree()) == [], (
+        "a Typer body builds a trouble row of its own: the loop is not the only place a "
+        "skipped or crashed poll is recorded, so the two surfaces can disagree about when"
+    )
 
 
-@pytest.mark.parametrize("module", [ASTA, SESSION])
 @pytest.mark.parametrize("builder", ["waiting_row", "error_row"])
-def test_every_row_goes_through_the_timed_journal(builder: str, module: str) -> None:
-    """`journal.write(waiting_row(...))` is the defect. The timed sink is the fix.
+def test_every_row_goes_through_the_timed_journal(builder: str, module: str = SESSION) -> None:
+    """`journal.write(waiting_row(...))` is the defect. The injected sink is the fix.
 
-    In the Typer body that sink is `_timed_journal`; in `AstaSession.run` it is whatever
-    the caller injected — `_timed_journal` for the room, asserted below.
+    In `AstaSession.run` that sink is whatever the caller composed the session with — the
+    timed one on both surfaces, asserted separately below.
     """
     tree = _tree(module)
     untimed = [
@@ -93,13 +102,12 @@ def test_every_row_goes_through_the_timed_journal(builder: str, module: str) -> 
     )
 
 
-@pytest.mark.parametrize(
-    ("module", "sink"), [(ASTA, "_timed_journal"), (SESSION, "_journal")], ids=["cli", "session"]
-)
 @pytest.mark.parametrize("builder", ["waiting_row", "error_row"])
-def test_and_reaches_the_timed_one(builder: str, module: str, sink: str) -> None:
-    """One per surface. `asta bid` calls `_timed_journal` by name; the lifted loop calls the
-    journal it was composed with, which for the room is that same function."""
+def test_and_reaches_the_timed_one(
+    builder: str, module: str = SESSION, sink: str = "_journal"
+) -> None:
+    """The lifted loop journals through the sink it was composed with, not through one it
+    reaches for — which is what lets `cycle_ms` be measured a layer out."""
     tree = _tree(module)
     timed = [
         call
@@ -115,24 +123,41 @@ def test_and_reaches_the_timed_one(builder: str, module: str, sink: str) -> None
     assert len(timed) == 1, f"{builder} reaches {sink} {len(timed)} times in {module}, expected 1"
 
 
-def test_the_rooms_session_is_composed_with_the_timed_journal() -> None:
+#: The two doors into the one composition: the room reads a `ResolvedRoom`, the bidder is
+#: unauthenticated and cannot. Named here so a third surface that grows its own factory shows
+#: up as a count mismatch rather than as silence.
+FACTORIES = ("session_for", "session_from")
+
+
+@pytest.mark.parametrize("factory", FACTORIES)
+def test_each_live_command_composes_with_the_timed_journal(factory: str) -> None:
     """The join between the two halves above: the lifted loop journals through whatever it
-    was given, so the row carries `cycle_ms` only if the room handed it the timed sink.
+    was given, so the row carries `cycle_ms` only if the command handed it the timed sink.
 
     `session_for(journal=journal)` — the raw one — would leave every waiting and error row
-    the room writes with no timing at all, which is the defect this whole file is about,
-    moved one layer out rather than fixed.
+    with no timing at all, which is the defect this whole file is about, moved one layer out
+    rather than fixed. Both surfaces, because 3.9a gave `asta bid` the same seam to miss.
     """
     [journal] = [
         keyword.value
-        for call in _calls_named(_tree(), "session_for")
+        for call in _calls_named(_tree(), factory)
         for keyword in call.keywords
         if keyword.arg == "journal"
     ]
 
     assert isinstance(journal, ast.Name) and journal.id == "_timed_journal", (
-        f"the room's session journals through `{ast.unparse(journal)}`, not the timed sink"
+        f"`{factory}` journals through `{ast.unparse(journal)}`, not the timed sink"
     )
+
+
+def test_both_factories_are_actually_used() -> None:
+    """The parametrisation above is over a written list, so it cannot notice a door nobody
+    opens — and a `[journal] = [...]` over an empty list raises `ValueError`, not an
+    assertion anybody reads as "this command stopped composing a session"."""
+    used = {
+        name for name in FACTORIES if _calls_named(_tree(), name)
+    }
+    assert used == set(FACTORIES), f"unused session factory: {sorted(set(FACTORIES) - used)}"
 
 
 def test_the_clock_starts_in_the_read_and_nowhere_else() -> None:

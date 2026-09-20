@@ -234,6 +234,7 @@ TREE: dict[str, str] = {
     "test_asta_id_bridge.py": "interface",
     "test_asta_callable_pool.py": "interface",
     "test_asta_arming.py": "interface",
+    "test_asta_bid_session.py": "interface",
     "test_asta_cycle_ms.py": "interface",
     "test_asta_lega_band.py": "interface",
     "test_room_view.py": "interface",

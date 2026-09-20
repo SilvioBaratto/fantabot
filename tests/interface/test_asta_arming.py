@@ -226,8 +226,8 @@ class TestAstaBidCanBeDisarmedMidRun:
     def test_the_first_ctrl_c_holds_the_next_bid_and_the_second_ends_the_run(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from fantabot.adapters.http.fantalab import room
         from fantabot.adapters.http.fantalab.room import LoopReport
+        from fantabot.application import asta_session
         from fantabot.interface.app import app
 
         sent = _wire_asta_bid(monkeypatch)
@@ -252,7 +252,12 @@ class TestAstaBidCanBeDisarmedMidRun:
                 seen["exited"] = True  # what `run_bid_loop` does with it: return the report
             return LoopReport(cycles=2, bids_sent=1, refused={})
 
-        monkeypatch.setattr(room, "run_bid_loop", loop)
+        # Patched where the name is *looked up*, not where it is defined. Since 3.9a the
+        # Typer body drives `AstaSession.run`, which holds its own `run_bid_loop` reference —
+        # so a patch on the adapter module is inert and this harness would run the real loop,
+        # whose `keep_going` is `lambda _cycle: True`. Every assertion below is unchanged:
+        # what moved is the call, not what the command does with a Ctrl-C.
+        monkeypatch.setattr(asta_session, "run_bid_loop", loop)
         before = signal.getsignal(signal.SIGINT)
 
         result = CliRunner().invoke(
