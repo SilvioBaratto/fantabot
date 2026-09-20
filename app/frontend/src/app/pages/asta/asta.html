@@ -296,8 +296,11 @@
      `Live`, which on a pipe renders to nobody, so this is not a second copy of that
      screen — it is the same file, read from the growing end.
 
-     Nothing here bids. The watch is started without `--arm` and there is no control on
-     this page that could add one; 3.9c is where arming arrives, behind its own locks. -->
+     Two runs can be started from here and only one can act. A watch is started without
+     `--arm` and there is no control that could add one. A bid states its arming intent on
+     every request, and the server decides: `FANTABOT_AUTO_ACT` and the request's own `arm`
+     are read by `application/arming`, and the MAX cap is applied inside the child's loop,
+     where this page has no seam to reach it. -->
 <section class="live" aria-labelledby="live-heading">
   <mat-card class="panel" appearance="outlined">
     <div class="panel-body live-head">
@@ -309,8 +312,14 @@
       </div>
       <div class="live-actions">
         @if (watchJobId(); as job) {
-          <span class="tag" aria-live="polite">Watching · {{ job }}</span>
-          <button matButton="outlined" type="button" (click)="stopWatch()">
+          <span class="tag" aria-live="polite">
+            {{ runKind() === 'bid' ? 'Bidding' : 'Watching' }} · {{ job }}
+          </span>
+          <!-- Two stages, and the label says which one this click is. The first stop on an
+               armed run disarms it and leaves it drawing; only the second ends it. A run
+               with nothing to disarm leaves on the first, which is why the view waits for
+               the job's own status rather than assuming either. -->
+          <button matButton="outlined" type="button" (click)="stopRun()">
             <lucide-icon
               matButtonIcon
               class="lucide-slot"
@@ -318,9 +327,19 @@
               name="x"
               aria-hidden="true"
             />
-            Stop
+            {{ stopsAsked() === 0 ? 'Stop' : 'Stop run' }}
           </button>
         } @else {
+          <!-- Off on arrival, always. A reload, a restored session or a tab left open
+               overnight must not carry an arming decision forward, so this is restated on
+               every request that could act and the server refuses one that does not say. -->
+          <mat-checkbox
+            data-testid="arm-checkbox"
+            [checked]="armRequested()"
+            (change)="setArmRequested($event.checked)"
+          >
+            Arm — real credits
+          </mat-checkbox>
           <button
             matButton="filled"
             type="button"
@@ -337,6 +356,23 @@
             />
             Watch room
           </button>
+          <button
+            matButton="outlined"
+            type="button"
+            data-testid="bid-button"
+            [disabled]="bidStarting() || !roomUrl().trim()"
+            (click)="bidRoom()"
+          >
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [class.is-spinning]="bidStarting()"
+              [size]="18"
+              [name]="bidStarting() ? 'loader-2' : 'gavel'"
+              aria-hidden="true"
+            />
+            Bid in room
+          </button>
         }
       </div>
     </div>
@@ -344,6 +380,34 @@
     @if (watchError(); as refusal) {
       <div class="panel-body" role="alert">
         <p class="state-body is-error">{{ refusal }}</p>
+      </div>
+    }
+
+    <!-- The one state where a mistaken click costs real credits. The CLI prints a bold red
+         line before the first poll for exactly this reason, and a page has less excuse:
+         there is no scrollback to check. -->
+    @if (watchJobId() && runArmed()) {
+      <div class="panel-body" data-testid="armed-banner" role="alert">
+        <p class="state-body is-error">
+          ● ARMED — this run places real bids. Stop once to disarm and keep watching; twice to end
+          it.
+        </p>
+      </div>
+    }
+
+    <!-- Every shut lock, not the first. A ternary over two causes sends an operator to fix
+         one, retry, and be told about the other. -->
+    @if (watchJobId() && runKind() === 'bid' && !runArmed() && runReason()) {
+      <div class="panel-body" data-testid="not-armed-note">
+        <p class="state-body">Dry run — {{ runReason() }}. It decides and sends nothing.</p>
+      </div>
+    }
+
+    @if (stopsAsked() === 1) {
+      <div class="panel-body" data-testid="disarm-note" role="status">
+        <p class="state-body">
+          Disarm requested — the run keeps watching and deciding. Stop again to end it.
+        </p>
       </div>
     }
 

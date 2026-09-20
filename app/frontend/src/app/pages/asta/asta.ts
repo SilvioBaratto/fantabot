@@ -16,6 +16,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -46,6 +47,19 @@ const JOURNAL_PAGE = 100;
  * on a room that already has one.
  */
 const WATCH_KIND = 'asta-watch';
+
+/**
+ * The bidding child's kind, spelled as `room_bid.py` spells it.
+ *
+ * A separate kind and not a flag on the watch: the page renders a different banner over a
+ * run that can spend credits, and `GET /jobs` is the only thing a reopened tab has to tell
+ * them apart. A page that reattached only `asta-watch` would offer to start a second run on
+ * a room that already has one bidding in it.
+ */
+const BID_KIND = 'asta-bid';
+
+/** The two kinds this page attaches, newest-first order irrelevant: only one can be live. */
+const LIVE_KINDS = [BID_KIND, WATCH_KIND];
 
 /**
  * How often the tail is read. The room's own poll is 2 s (`interface/asta.py:518`), so a
@@ -106,6 +120,7 @@ const EXCLUSION_FALLBACK = 'The exclusion was refused and the reason did not com
     MatButtonModule,
     MatButtonToggleModule,
     MatCardModule,
+    MatCheckboxModule,
     MatDividerModule,
     MatFormFieldModule,
     MatInputModule,
@@ -206,6 +221,51 @@ export class AstaComponent implements OnInit {
   readonly watchStarting = signal(false);
   /** The server's refusal, verbatim — `parse_room_url`'s own sentence on a 400. */
   readonly watchError = signal<string | null>(null);
+
+  /**
+   * Which of the two children is attached. `null` when none is.
+   *
+   * One id for both, because only one run is ever shown: they tail the same journal, and a
+   * second set of signals would be a second answer to "what is on screen".
+   */
+  readonly runKind = signal<'watch' | 'bid' | null>(null);
+
+  /**
+   * The arming intent, restated on every request that could act.
+   *
+   * **Starts off and is never restored from anywhere.** `application/arming`'s rule and the
+   * reason for it: a page can be reloaded, restored by the session manager, or left open
+   * overnight, and none of those may carry an arming decision forward. The server refuses a
+   * request that does not say at all — a 422, not a dry run.
+   */
+  readonly armRequested = signal(false);
+  readonly bidStarting = signal(false);
+  /** What the server answered about the locks — never what this page asked for. */
+  readonly runArmed = signal(false);
+  /** Every shut lock, by name, in the order an operator would fix them. */
+  readonly runClosed = signal<string[]>([]);
+  /** The same facts as one line, for the reader with no controls to mark. */
+  readonly runReason = signal('');
+
+  /**
+   * How many stops this page has sent for the attached run. 0, 1 or 2.
+   *
+   * It reports what was **asked**, never what happened: the escalation state lives in the
+   * flag file on the server, which is what makes it survive this tab reloading. The job's
+   * own status is what says the run ended, and until it does the view keeps drawing — a
+   * stop that killed the view along with the bidding would leave the operator blind at the
+   * exact moment they have to bid by hand.
+   */
+  readonly stopsAsked = signal(0);
+
+  /**
+   * Whether a status poll is already running for the attached job.
+   *
+   * A plain field, not a signal: nothing renders it, and the only thing it decides is that
+   * a second stop does not start a second interval — which would double the request rate
+   * for every click after the first.
+   */
+  private statusWatched = false;
 
   /**
    * The newest row the tail has seen. One slot, not a list: the panes are a frame, and
@@ -517,7 +577,12 @@ export class AstaComponent implements OnInit {
       .subscribe({
         next: (started) => {
           this.watchStarting.set(false);
-          this.attach(started.job_id);
+          // A watch cannot arm and says so: the route sends no `--arm` and there is no
+          // control that could add one. Reset rather than left over from a previous bid.
+          this.runArmed.set(false);
+          this.runClosed.set([]);
+          this.runReason.set('');
+          this.attach(started.job_id, 'watch');
         },
         error: (err: unknown) => {
           // The 400's `detail` is `parse_room_url`'s own sentence and already names what
@@ -531,24 +596,111 @@ export class AstaComponent implements OnInit {
       });
   }
 
+  setArmRequested(arm: boolean): void {
+    this.armRequested.set(arm);
+  }
+
   /**
-   * Ask the watch to stop. The frame it left stays on screen.
+   * Start a **bidding** run over the room in the link field.
    *
-   * A 409 is the server saying the job has no way to be stopped — not that stopping
-   * failed — so it is reported and the job stays attached, because it is still running.
+   * The same field and the same tail as the watch: what differs is that this child is given
+   * the room's own shape and, when both locks are open, `--arm`. Nothing here decides
+   * whether it may act — the route asks `application/arming` and the child re-reads the
+   * ambient lock on every write, which is what makes editing `.env` mid-evening disarm a
+   * run this page started.
+   *
+   * A room that does not resolve starts nothing and says which of the four reasons it was.
+   * The reason is the server's, verbatim: a sentence composed here would be a second
+   * opinion about a room the server has already ruled on.
    */
-  stopWatch(): void {
+  bidRoom(): void {
+    const url = this.roomUrl().trim();
+    if (!url || this.bidStarting() || this.watchJobId() !== null) return;
+    this.bidStarting.set(true);
+    this.watchError.set(null);
+    this.asta
+      .bidRoom(url, this.armRequested())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (started) => {
+          this.bidStarting.set(false);
+          this.runArmed.set(started.armed);
+          this.runClosed.set(started.closed);
+          this.runReason.set(started.reason);
+          if (started.outcome !== 'started') {
+            this.watchError.set(started.reason || 'The room would not resolve.');
+            return;
+          }
+          this.attach(started.job_id, 'bid');
+        },
+        error: (err: unknown) => {
+          this.watchError.set(
+            refusalOf(err, 'The run was refused and the reason did not come back.'),
+          );
+          this.bidStarting.set(false);
+        },
+      });
+  }
+
+  /**
+   * Ask the attached run to stop, one stage further than last time.
+   *
+   * **It does not detach.** The first stop on an armed run disarms it and leaves it
+   * drawing — that is the whole reason the gesture has two stages, and 3.9c's own
+   * criterion: *a stop that kills the view along with the bidding leaves the operator blind
+   * mid-auction.* What ends the view is `watchStatus` seeing the job finish, which is also
+   * what covers the run that had nothing to disarm and left on the first request.
+   *
+   * A 409 is the server saying the job has no way to be stopped — not that stopping failed
+   * — so it is reported, the job stays attached, and the counter does not move: the
+   * escalation the next click means is the server's, and nothing was escalated.
+   */
+  stopRun(): void {
     const jobId = this.watchJobId();
     if (jobId === null) return;
     this.jobs
       .stop(jobId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        // Clearing the id is what ends the tail: `takeWhile` below reads it every tick.
-        next: () => this.watchJobId.set(null),
+        next: () => {
+          this.stopsAsked.update((asked) => asked + 1);
+          this.watchStatus(jobId);
+        },
         error: (err: unknown) =>
           this.watchError.set(refusalOf(err, 'The job would not stop and did not say why.')),
       });
+  }
+
+  /**
+   * Poll the job's own status until it is no longer running, then detach.
+   *
+   * Started by the first stop and only then: before one, the tail is the whole cost of the
+   * view, and a second request per tick for the three hours an auction lasts buys nothing
+   * — nothing but a stop is going to end the run.
+   *
+   * The frame is deliberately **not** cleared on detach. `error_overlay`'s trade: the last
+   * walk-away on screen is what the operator bids by hand with.
+   */
+  private watchStatus(jobId: string): void {
+    if (this.statusWatched) return;
+    this.statusWatched = true;
+    interval(TAIL_MS)
+      .pipe(
+        takeWhile(() => this.watchJobId() === jobId),
+        switchMap(() => this.jobs.get(jobId).pipe(catchError(() => EMPTY))),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((status) => {
+        if (status.status !== 'running') this.detach();
+      });
+  }
+
+  /** Let go of the run. The frame it left stays on screen — see `watchStatus`. */
+  private detach(): void {
+    this.watchJobId.set(null);
+    this.runKind.set(null);
+    this.stopsAsked.set(0);
+    this.statusWatched = false;
   }
 
   /**
@@ -570,8 +722,10 @@ export class AstaComponent implements OnInit {
         // `running`, not merely present: `GET /jobs` lists everything this session has
         // ever run, and tailing a `done` row would show a room that closed hours ago and
         // call it live.
-        const live = list.jobs.find((job) => job.kind === WATCH_KIND && job.status === 'running');
-        if (live) this.attach(live.id);
+        const live = list.jobs.find(
+          (job) => LIVE_KINDS.includes(job.kind) && job.status === 'running',
+        );
+        if (live) this.attach(live.id, live.kind === BID_KIND ? 'bid' : 'watch');
       });
   }
 
@@ -582,8 +736,10 @@ export class AstaComponent implements OnInit {
    * already under way has rows to show now, and two seconds of blank panes is the state
    * this view exists to prevent.
    */
-  private attach(jobId: string): void {
+  private attach(jobId: string, kind: 'watch' | 'bid'): void {
     this.watchJobId.set(jobId);
+    this.runKind.set(kind);
+    this.stopsAsked.set(0);
     interval(TAIL_MS)
       .pipe(
         startWith(0),

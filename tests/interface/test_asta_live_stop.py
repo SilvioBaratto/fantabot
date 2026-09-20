@@ -112,21 +112,39 @@ class TestTheTwoStagesAreHonoured:
 
         assert kept == [False] and armed == [False]
 
-    def test_a_run_that_was_never_armed_still_leaves_on_exit(self) -> None:
-        from fantabot.adapters.files.stopflag import EXIT
+    def test_a_run_that_was_never_armed_leaves_on_the_first_request(self) -> None:
+        """`_disarm_on_sigint`'s own rule, and it has to be this one too or the platforms
+        disagree. On POSIX `ProcessJob.stop` sends a SIGINT as well as writing the flag, and
+        a never-armed run ends there on the first click; on Windows nothing is sent, so a
+        first stage that kept it alive would make §12's second criterion true on one platform
+        only. A watch is exactly this case — it is started without `--arm`."""
+        from fantabot.adapters.files.stopflag import DISARM, EXIT
 
-        armed = [False]
-        kept, _ = self._poll([EXIT], armed)
+        assert self._poll([DISARM], armed=[False])[0] == [False]
+        assert self._poll([EXIT], armed=[False])[0] == [False]
 
-        assert kept == [False]
-
-    def test_the_disarm_is_announced_once_not_once_a_poll(self) -> None:
-        """At a 2 s poll the same line would scroll the heartbeat away inside a minute, and
-        under a supervisor every line is a row in the job log."""
+    def test_an_armed_run_is_not_ended_by_the_stage_that_only_disarms_it(self) -> None:
+        """The other side of the same line: the case above must not swallow the two-stage
+        gesture on the one run that has something to disarm."""
         from fantabot.adapters.files.stopflag import DISARM
 
-        _, said = self._poll([DISARM, DISARM, DISARM], armed=[True])
+        assert self._poll([DISARM], armed=[True])[0] == [True]
 
+    def test_one_request_is_honoured_once_however_many_polls_read_it(self) -> None:
+        """**The flag stays on disk**, so every poll after a `disarm` reads a `disarm` —
+        `request_stop` escalates only when the caller asks again. Without the latch the
+        second read finds `armed` already false, takes that for "nothing to disarm", and
+        ends a run the operator asked to keep watching.
+
+        The line is said once for the same reason it matters elsewhere: at a 2 s poll it
+        would scroll the heartbeat away inside a minute, and under a supervisor every line
+        is a row in the job log.
+        """
+        from fantabot.adapters.files.stopflag import DISARM
+
+        kept, said = self._poll([DISARM, DISARM, DISARM], armed=[True])
+
+        assert kept == [True, True, True], "a re-read of one disarm ended the run"
         assert len(said) == 1, said
 
 

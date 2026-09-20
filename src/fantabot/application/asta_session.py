@@ -242,27 +242,46 @@ def stop_poll(
     *exit*; a caller that wants more escalates by killing the process, which is a different
     mechanism on purpose.
 
+    **A run with nothing to disarm leaves on the first request**, which is `_disarm_on_sigint`'s
+    own rule and has to be this one too, or the two platforms stop agreeing. On POSIX
+    `ProcessJob.stop` sends a `SIGINT` *as well as* writing the flag, and a never-armed run
+    ends there on the first click; on Windows nothing is sent, so without this the same click
+    would disarm a run that was already disarmed and keep it alive — `ProcessJob.stop`'s own
+    note, "it has nothing to disarm and winds down on either stage", true on one platform
+    only. §12's second success criterion is that a stop works the same on both.
+
     **`armed` is the same list `_disarm_on_sigint` clears and the writer reads per bid.** One
     disarm, two ways to ask for it — a second flag would be a second answer to "is this run
     armed", and the two would disagree the first time both were used.
 
-    Announced once rather than once a poll: at a 2 s cadence the same line scrolls the
-    heartbeat away inside a minute, and under a supervisor every line is a row in the job log.
+    **The flag stays on disk, so a stage is read on every poll after it is written** —
+    `request_stop` escalates only when the *caller* asks again. That is what `honoured` is
+    for, and it is load-bearing rather than cosmetic: without it the second read of one
+    `disarm` would find `armed` already false, take that for "nothing to disarm" and end a
+    run the operator asked to keep watching. One request, honoured once. It also keeps the
+    line to one: at a 2 s cadence the same sentence scrolls the heartbeat away inside a
+    minute, and under a supervisor every line is a row in the job log.
     """
-    said = False
+    honoured = False
 
     def keep_going(_cycle: int) -> bool:
-        nonlocal said
+        nonlocal honoured
         stage = read_stage()
         if stage is None:
             return True
-        armed[0] = False
         if stage == EXIT:
+            armed[0] = False
             announce("stop requested — leaving")
             return False
-        if not said:
-            said = True
-            announce("stop requested — disarmed, still watching")
+        if honoured:
+            return True
+        honoured = True
+        was_armed = armed[0]
+        armed[0] = False
+        if not was_armed:
+            announce("stop requested — leaving")
+            return False
+        announce("stop requested — disarmed, still watching")
         return True
 
     return keep_going

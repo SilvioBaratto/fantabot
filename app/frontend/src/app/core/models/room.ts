@@ -21,3 +21,28 @@ export interface RoomCheck {
   /** `read from the room` / `assumed — nothing was declared`. Rendered beside the size. */
   roster_provenance: string;
 }
+
+/**
+ * The five answers `POST /asta/room/bid` can give.
+ *
+ * Four of them are `RoomOutcome`'s, reached through the same `check_room` call rather than
+ * re-derived — a second resolution path is a second set of reasons, and they drift.
+ * `started` covers both an armed run and a dry one, because a dry run is not a failure: it
+ * is the rehearsal an operator does before arming, and it still watches, decides and
+ * journals.
+ */
+export type BidOutcome = 'started' | 'refused' | 'bad_link' | 'no_credential' | 'unreachable';
+
+export interface BidStarted {
+  outcome: BidOutcome;
+  reason: string;
+  /** Empty on every outcome but `started`. */
+  job_id: string;
+  armed: boolean;
+  /**
+   * Every shut lock, **by name**, in the order an operator would fix them. Empty when
+   * armed. A list and not a sentence so the page can mark each control; `reason` is the
+   * same facts as one line.
+   */
+  closed: string[];
+}

@@ -10,7 +10,7 @@ import { AstaPlan } from '../../core/models/asta-plan';
 import { Exclusion, Exclusions } from '../../core/models/exclusion';
 import { JobSummary } from '../../core/models/job';
 import { JournalPage, JournalRow } from '../../core/models/journal';
-import { RoomCheck } from '../../core/models/room';
+import { BidStarted, RoomCheck } from '../../core/models/room';
 import { WINDOW_SIZE_QUERIES, WindowSizeClass } from '../../core/window-size-class';
 import { AstaComponent } from './asta';
 
@@ -320,7 +320,15 @@ describe('AstaComponent', () => {
       expect(text).toContain('invitation link');
     });
 
-    it('offers nothing that could bid', async () => {
+    it('offers a bid control that is disarmed until it is told otherwise', async () => {
+      // **Replaced at 3.9c, not deleted — T21's rule, in the commit that earns it.** This
+      // asserted that no button on the page could bid, which was true until the page could.
+      // Absence is the weaker property and it stops being checkable the moment the feature
+      // lands; what survives is the arming contract: the control exists, and it is off.
+      //
+      // A page that loaded with it on is a lock nobody turned, which is the failure mode
+      // `application/arming` is written against — a reload, a restored session, or a tab
+      // left open overnight, none of which may carry an arming decision forward.
       const fixture = await ready();
       await check(fixture, {
         outcome: 'resolved',
@@ -341,7 +349,17 @@ describe('AstaComponent', () => {
       const labels = Array.from(fixture.nativeElement.querySelectorAll('button')).map((b) =>
         ((b as HTMLButtonElement).textContent ?? '').toLowerCase(),
       );
-      expect(labels.some((l) => /bid|arm|raise|offer/.test(l))).toBe(false);
+      expect(labels.some((l) => /bid/.test(l))).toBe(true);
+
+      const arm = fixture.nativeElement.querySelector(
+        '[data-testid="arm-checkbox"] input',
+      ) as HTMLInputElement;
+      expect(arm).not.toBeNull();
+      expect(arm.checked).toBe(false);
+      expect(fixture.componentInstance.armRequested()).toBe(false);
+      // Both, because they are two claims: the signal is what the request carries, and the
+      // box is what the operator reads. A page whose control and state disagreed would arm
+      // a run the screen says is a rehearsal.
     });
   });
 
@@ -1458,7 +1476,13 @@ describe('AstaComponent', () => {
       }
     });
 
-    it('stops the watch and stops tailing', async () => {
+    it('stops the watch and stops tailing once the job has actually ended', async () => {
+      // **Re-cut at 3.9c.** This asserted that the id was cleared on the *stop response*,
+      // which claimed an ended run the moment the request returned. `ProcessJob.stop`'s
+      // stage one asks and returns; what says the child went is the job's own status. For
+      // a watch the two are almost the same instant — it has nothing to disarm and leaves
+      // on the first request — and for an armed bid they are not the same thing at all,
+      // which is why the page reports what it asked and detaches on what happened.
       vi.useFakeTimers();
       try {
         const fixture = await ready([watching()]);
@@ -1467,8 +1491,16 @@ describe('AstaComponent', () => {
           .flush(tail({ rows: [cycle()], next_index: 1 }));
         await vi.advanceTimersByTimeAsync(0);
 
-        fixture.componentInstance.stopWatch();
+        fixture.componentInstance.stopRun();
         httpMock.expectOne(`${environment.apiUrl}jobs/W1/stop`).flush({ ok: true });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fixture.componentInstance.watchJobId()).toBe('W1');
+
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail({ next_index: 1 }));
+        httpMock
+          .expectOne(`${environment.apiUrl}jobs/W1`)
+          .flush({ id: 'W1', status: 'done', lines: [], ok: true, error: null });
         await vi.advanceTimersByTimeAsync(0);
 
         expect(fixture.componentInstance.watchJobId()).toBeNull();
@@ -1479,6 +1511,7 @@ describe('AstaComponent', () => {
 
         await vi.advanceTimersByTimeAsync(2100);
         httpMock.expectNone((r) => r.url.includes('asta/journal'));
+        httpMock.expectNone(`${environment.apiUrl}jobs/W1`);
       } finally {
         vi.useRealTimers();
       }
@@ -1518,6 +1551,241 @@ describe('AstaComponent', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  // -- 3.9c: the room view arms, and disarms ---------------------------------------------
+  describe('live room — arming', () => {
+    async function ready(jobs: JobSummary[] = []) {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions();
+      httpMock.expectOne(`${environment.apiUrl}jobs`).flush({ jobs });
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    function tail(over: Partial<JournalPage> = {}): JournalPage {
+      return {
+        ok: true,
+        path: '/room_journal.jsonl',
+        exists: true,
+        total: 0,
+        skipped: 0,
+        offset: 0,
+        limit: 100,
+        next_index: 0,
+        rows: [],
+        error: null,
+        ...over,
+      };
+    }
+
+    /** Start a bid and flush its first tail. Returns the fixture. */
+    async function bidding(body: Partial<BidStarted> = {}, arm = true) {
+      const fixture = await ready();
+      fixture.componentInstance.setRoomUrl('abc');
+      fixture.componentInstance.setArmRequested(arm);
+      fixture.componentInstance.bidRoom();
+      httpMock.expectOne(`${environment.apiUrl}asta/room/bid`).flush({
+        outcome: 'started',
+        reason: '',
+        job_id: 'B1',
+        armed: arm,
+        closed: arm ? [] : ['arm'],
+        ...body,
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return fixture;
+    }
+
+    it('will not arm unless the page is told to, on the request that could act', async () => {
+      // `application/arming`'s rule, rendered: a page can be reloaded, restored by the
+      // session manager, or left open overnight, and none of those may carry an arming
+      // decision forward. So the control starts off and the body always states it.
+      const fixture = await ready();
+      expect(fixture.componentInstance.armRequested()).toBe(false);
+
+      fixture.componentInstance.setRoomUrl('abc');
+      fixture.componentInstance.bidRoom();
+
+      const started = httpMock.expectOne(`${environment.apiUrl}asta/room/bid`);
+      expect(started.request.body).toEqual({ url: 'abc', arm: false });
+      started.flush({
+        outcome: 'started',
+        reason: 'the request did not ask to arm',
+        job_id: 'B1',
+        armed: false,
+        closed: ['arm'],
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+      fixture.detectChanges();
+      await fixture.whenStable();
+    });
+
+    it('names every shut lock, not the first', async () => {
+      // The defect `application/arming` exists for: a ternary over two causes sends an
+      // operator to fix one, retry, and be told about the other.
+      const fixture = await bidding(
+        {
+          armed: false,
+          closed: ['FANTABOT_AUTO_ACT', 'arm'],
+          reason: 'FANTABOT_AUTO_ACT is false and the request did not ask to arm',
+        },
+        false,
+      );
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('FANTABOT_AUTO_ACT');
+      expect(text).toContain('did not ask to arm');
+    });
+
+    it('says on screen, unmissably, that a run is armed', async () => {
+      // The one state where a mistaken click costs real credits. The CLI prints a bold red
+      // line before the first poll for this reason; a page that looked the same armed and
+      // disarmed would be worse, because there is no scrollback to check.
+      const fixture = await bidding();
+
+      const banner = fixture.nativeElement.querySelector('[data-testid="armed-banner"]');
+      expect(banner).not.toBeNull();
+      expect(banner.textContent).toContain('ARMED');
+    });
+
+    it('shows no armed banner over a dry run', async () => {
+      const fixture = await bidding({ armed: false, closed: ['arm'] }, false);
+
+      expect(fixture.nativeElement.querySelector('[data-testid="armed-banner"]')).toBeNull();
+    });
+
+    it('a refused room starts nothing and shows the reason the server gave', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.setRoomUrl('nope');
+      fixture.componentInstance.bidRoom();
+      httpMock.expectOne(`${environment.apiUrl}asta/room/bid`).flush({
+        outcome: 'bad_link',
+        reason: 'paste the app.fantalab.it/asta?asta= link',
+        job_id: '',
+        armed: false,
+        closed: [],
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      // No tail: nothing was started. An outstanding request would fail `httpMock.verify`.
+      expect(fixture.componentInstance.watchJobId()).toBeNull();
+      expect(fixture.nativeElement.textContent).toContain('app.fantalab.it/asta?asta=');
+    });
+
+    it('the first stop disarms and the view keeps drawing', async () => {
+      // 3.9c's own criterion: *"a stop that kills the view along with the bidding leaves
+      // the operator blind mid-auction."* The run is still on the platform after the first
+      // stop — disarmed, still deciding — and the walk-away on screen is what the operator
+      // now has to bid by hand.
+      vi.useFakeTimers();
+      try {
+        const fixture = await bidding();
+        fixture.componentInstance.stopRun();
+        httpMock.expectOne(`${environment.apiUrl}jobs/B1/stop`).flush({ ok: true });
+        await vi.advanceTimersByTimeAsync(0);
+        fixture.detectChanges();
+
+        expect(fixture.componentInstance.watchJobId()).toBe('B1');
+        expect(fixture.componentInstance.stopsAsked()).toBe(1);
+
+        // The tail is still running: the next tick asks for rows, and the job is still
+        // reported as running, so nothing detaches.
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+        httpMock
+          .expectOne(`${environment.apiUrl}jobs/B1`)
+          .flush({ id: 'B1', status: 'running', lines: [], ok: null, error: null });
+        await vi.advanceTimersByTimeAsync(0);
+        fixture.detectChanges();
+
+        expect(fixture.componentInstance.watchJobId()).toBe('B1');
+        expect(fixture.nativeElement.textContent).toContain('Disarm requested');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('detaches only once the server says the job has ended', async () => {
+      // The page reports what it *asked*; the job's own status is what says it happened.
+      // A page that cleared the id on the stop response would claim an ended run over one
+      // that is still deciding — and stop tailing the only channel that would say so.
+      vi.useFakeTimers();
+      try {
+        const fixture = await bidding();
+        fixture.componentInstance.stopRun();
+        httpMock.expectOne(`${environment.apiUrl}jobs/B1/stop`).flush({ ok: true });
+        await vi.advanceTimersByTimeAsync(0);
+
+        fixture.componentInstance.stopRun();
+        httpMock.expectOne(`${environment.apiUrl}jobs/B1/stop`).flush({ ok: true });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fixture.componentInstance.stopsAsked()).toBe(2);
+        // Still attached: two requests is not two confirmations.
+        expect(fixture.componentInstance.watchJobId()).toBe('B1');
+
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+        httpMock
+          .expectOne(`${environment.apiUrl}jobs/B1`)
+          .flush({ id: 'B1', status: 'done', lines: [], ok: true, error: null });
+        await vi.advanceTimersByTimeAsync(0);
+        fixture.detectChanges();
+
+        expect(fixture.componentInstance.watchJobId()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a stop the server refuses keeps the run attached and says why', async () => {
+      // A 409 is the server saying the job has no way to be stopped — not that stopping
+      // failed. Detaching on it would leave a live child with nothing watching it.
+      const fixture = await bidding();
+      fixture.componentInstance.stopRun();
+      httpMock
+        .expectOne(`${environment.apiUrl}jobs/B1/stop`)
+        .flush({ detail: 'this job cannot be stopped' }, { status: 409, statusText: 'Conflict' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.watchJobId()).toBe('B1');
+      expect(fixture.componentInstance.stopsAsked()).toBe(0);
+      expect(fixture.nativeElement.textContent).toContain('cannot be stopped');
+    });
+
+    it('reattaches a bid that was already running, and knows it is not a watch', async () => {
+      // `GET /jobs` is the source of truth. A page that only looked for `asta-watch` would
+      // offer to start a second run on a room that already has one bidding in it.
+      const fixture = await ready([
+        {
+          id: 'B9',
+          kind: 'asta-bid',
+          status: 'running',
+          started_at: '2026-09-20T19:31:00Z',
+          line_count: 3,
+          ok: null,
+          stoppable: true,
+        },
+      ]);
+      httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.watchJobId()).toBe('B9');
+      expect(fixture.componentInstance.runKind()).toBe('bid');
     });
   });
 });

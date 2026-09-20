@@ -5,7 +5,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AstaPlan } from '../models/asta-plan';
 import { JournalPage } from '../models/journal';
-import { RoomCheck } from '../models/room';
+import { BidStarted, RoomCheck } from '../models/room';
 
 @Injectable({ providedIn: 'root' })
 export class AstaService {
@@ -60,5 +60,23 @@ export class AstaService {
    */
   watchRoom(url: string): Observable<{ job_id: string }> {
     return this.http.post<{ job_id: string }>(`${environment.apiUrl}asta/room/watch`, { url });
+  }
+
+  /**
+   * Bid in a live room, supervised as a child process. **The one call here that can spend
+   * credits — and it does not spend them: the child holds the locks.**
+   *
+   * `arm` is always sent and never defaulted. `application/arming`'s rule: a page can be
+   * reloaded, restored by the session manager, or left open overnight, and none of those
+   * may carry an arming decision forward — so the intent is restated on every request that
+   * could act, and the server answers 422 to one that does not say.
+   *
+   * Still no number from the value model. `--lam`, `--budget` and the three alphas are the
+   * child's own option set; what the route *does* add is the room's own shape — shard,
+   * seat, format, teams, credits — which it reads from the platform rather than guessing,
+   * because `asta bid` is unauthenticated and cannot.
+   */
+  bidRoom(url: string, arm: boolean): Observable<BidStarted> {
+    return this.http.post<BidStarted>(`${environment.apiUrl}asta/room/bid`, { url, arm });
   }
 }
