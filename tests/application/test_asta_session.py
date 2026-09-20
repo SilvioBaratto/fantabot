@@ -17,6 +17,8 @@ not the world's.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+
 from fantabot.adapters.http.fantalab.rest import Seat as RoomSeat
 from fantabot.application.asta_room import ResolvedRoom
 from fantabot.application.asta_session import AstaSession, session_for
@@ -84,8 +86,13 @@ def _room(**kw: object) -> ResolvedRoom:
         "asta_type": "mantra",
         "asta_mode": "call",
         "raise_mode": "free",
-        "counter_time": 10,
-        "counter_time_first": 20,
+        # **Not 10 and 20.** `live.DEFAULT_COUNTER_TIME` is 10 and `..._FIRST` is 20, so a
+        # fixture using those numbers reads the same whether the room's own values were
+        # wired through or dropped on the floor — the first version of this file asserted
+        # `seconds_left == 9.0` and stayed green with `counter_time=None` passed in. 7 s is
+        # what a real room declares (`CLAUDE.md`: "counter_time is 7-10 s").
+        "counter_time": 7,
+        "counter_time_first": 15,
         "call_at_quotaz": False,
         "team_names": {OUR_TEAM: "Noi"},
         "admin_id": "the-admin",
@@ -99,9 +106,11 @@ def _session(
     rows: list[dict[str, object]] | None = None,
     ledger: tuple[AssignmentEvent, ...] = (),
     room: ResolvedRoom | None = None,
+    bridge_refresh: Callable[[], Mapping[str, int]] | None = None,
 ) -> AstaSession:
     return session_for(
         resolved=room if room is not None else _room(),
+        bridge_refresh=bridge_refresh,
         user_id=OUR_UID,
         bridge=BRIDGE,
         world=WORLD,
@@ -201,11 +210,18 @@ class TestTheWiringTheAppWouldOtherwiseAssembleAgain:
         assert cycle.frame.decision == "pass"
 
     def test_the_countdown_comes_from_the_rooms_own_counter_time(self) -> None:
-        """10 s here, 20 for a first raise. A dropped `counter_time` leaves the screen with no
-        clock on the lot it is about to bid on."""
-        cycle = _session().cycle(_lot(), now_ms=1_000)
+        """7 s on a raised lot. A dropped `counter_time` falls back to the domain's default
+        and leaves the screen showing a clock the room is not keeping."""
+        cycle = _session().cycle(_lot(price=5), now_ms=1_000)
 
-        assert cycle.frame.seconds_left == 9.0
+        assert cycle.frame.seconds_left == 6.0
+
+    def test_and_the_longer_one_for_a_lot_nobody_has_bid_on_yet(self) -> None:
+        """15 s, not 7: a called player has to be noticed before anyone can bid on him, and
+        `counter_time_first` is a second keyword that can be dropped on its own."""
+        cycle = _session().cycle(_lot(price=0), now_ms=1_000)
+
+        assert cycle.frame.seconds_left == 14.0
 
     def test_a_skipped_lot_our_own_raise_stood_on_is_ours(self) -> None:
         """`seat_by_user`. Two of these were ours on 2026-09-01 and missing from the rosa all
@@ -218,11 +234,37 @@ class TestTheWiringTheAppWouldOtherwiseAssembleAgain:
 
     def test_but_the_admins_own_auto_skip_is_not(self) -> None:
         """`admin_id`. 248 of them in one evening; claiming one is claiming a lot nobody bid
-        on. The admin is seated here, so only `admin_user_id` can tell the two apart."""
+        on. The admin is seated here, so only `admin_user_id` can tell the two apart.
+
+        Asserted on `recent` and not on `owned`: a wrongly attributed skip goes to the admin's
+        *own* seat, never to ours, so our rosa reads the same either way and the first version
+        of this test could not fail. Nor could a `walkaways` assertion — this fixture has one
+        keeper and an obligatory keeper slot, so the pool is infeasible the moment he leaves
+        it by either route. What actually differs is the sale line the room shows and the
+        copilot is briefed on: `Portiere 0 a None` — a lot nobody bought — against
+        `Portiere 10 a them`, a purchase invented out of an auto-skip.
+        """
         room = _room(seat_by_user={OUR_UID: OUR_TEAM, "the-admin": "them"})
         cycle = _session(
             ledger=(AssignmentEvent("uuid-gk", 0, None, bidder_user_id="the-admin"),),
             room=room,
         ).cycle(_lot(), now_ms=1_000)
 
+        assert cycle.frame.recent == ("Portiere 0 a None",)
         assert "100" not in cycle.frame.owned
+
+    def test_a_lot_the_bridge_cannot_name_triggers_one_refresh(self) -> None:
+        """`bridge_refresh`. 41 of 570 pool players were absent from FantaLab's listone on
+        2026-08-28, and a signing added mid-evening arrives *as the lot on the block* — the
+        most time-critical case there is. Without the keyword the room holds on it all night.
+        """
+        calls: list[int] = []
+
+        def refresh() -> Mapping[str, int]:
+            calls.append(1)
+            return {**BRIDGE, "uuid-new": 300}
+
+        cycle = _session(bridge_refresh=refresh).cycle(_lot("uuid-new"), now_ms=1_000)
+
+        assert calls == [1]
+        assert cycle.frame.lot_name == "Riserva"

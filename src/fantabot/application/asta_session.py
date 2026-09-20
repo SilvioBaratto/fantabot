@@ -73,10 +73,19 @@ class AstaSession:
 def target_of(frame: RoomFrame) -> tuple[str, int] | None:
     """The frame as `run_bid_loop` wants it: the player, and the most we will pay for him.
 
-    Both halves are required. A target with no walk-away is what `MIN_BID`-floored pricing
-    used to produce for 10 of 30 measured players (`CLAUDE.md`, defect B2), and handing that
-    to the loop as a target with a `None` ceiling is how a plan that budgeted 96 credits for
-    one of them would have bid without one.
+    Both halves are required, and the second one is a **type** guard rather than a runtime
+    one — worth saying, because it is the half a later reader would delete as redundant.
+    `RoomTracker._decide` sets `target` and `walk_away` in the same `RoomFrame` call every
+    time, so no frame it builds has one without the other; the mutation that weakens this to
+    `and` passes all thirteen tests in `test_asta_session.py` and is caught by **mypy**, which
+    stops being able to type the tuple as `tuple[str, int]`. That is the check to keep green
+    if this line is ever touched.
+
+    It is still written as a refusal rather than an `assert`, because the frame is a value
+    another caller may one day build: handing the loop a target with a `None` ceiling is a
+    raise against no ceiling at all, and `MIN_BID`-floored pricing produced exactly that for
+    10 of 30 measured players (`CLAUDE.md`, defect B2) while the same plan budgeted 96 credits
+    for one of them.
     """
     if frame.target is None or frame.walk_away is None:
         return None
