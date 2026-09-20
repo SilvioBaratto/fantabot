@@ -11,9 +11,16 @@ for a waiting poll to read. One field, one meaning: the whole poll, read include
 is lost by the redefinition — `cycle_ms` postdates the 2026-09-01 evening and is null across
 every recorded row.
 
-Read from the source rather than driven through a live room: the two loops are 350 and 250
-lines of Typer body with a Rich screen and a network client in them, and what is being
-asserted is a wiring property that an AST can see and a fake room cannot make more true.
+Read from the source rather than driven through a live room: the loops are Typer bodies with
+a Rich screen and a network client in them, and what is being asserted is a wiring property
+that an AST can see and a fake room cannot make more true.
+
+**Two modules, since 3.6b.** The room's loop was lifted into `application/asta_session.py`,
+and both rows went with it — so a scan of the Typer body alone would now find `asta bid`'s
+two, report success on half the surface, and say nothing about the one that moved. The
+clock itself did **not** move: `cycle_ms` is still measured in `interface/`, around the
+journal the session is handed, for the same reason `interface/asta.py::_today` is the asta
+feature's only calendar read.
 """
 
 from __future__ import annotations
@@ -24,10 +31,11 @@ import pytest
 from _paths import module_file
 
 ASTA = "fantabot.interface.asta"
+SESSION = "fantabot.application.asta_session"
 
 
-def _tree() -> ast.Module:
-    return ast.parse(module_file(ASTA).read_text(encoding="utf-8"))
+def _tree(module: str = ASTA) -> ast.Module:
+    return ast.parse(module_file(module).read_text(encoding="utf-8"))
 
 
 def _calls_named(tree: ast.AST, *names: str) -> list[ast.Call]:
@@ -50,16 +58,22 @@ def _row_builder_calls(tree: ast.AST) -> list[ast.Call]:
 def test_the_row_builders_are_called_at_all() -> None:
     """A scan over nothing reports success; this is what makes the rest mean something.
 
-    Two commands, two rows each — `asta room` and `asta bid` both journal a skipped poll
-    and a failed one.
+    Two rows each on two surfaces: `asta bid`'s pair is still inline in the Typer body, and
+    the room's pair moved into `AstaSession.run` with the loop that produces them.
     """
-    assert len(_row_builder_calls(_tree())) == 4
+    assert len(_row_builder_calls(_tree())) == 2, "asta bid's two rows"
+    assert len(_row_builder_calls(_tree(SESSION))) == 2, "the lifted loop's two rows"
 
 
+@pytest.mark.parametrize("module", [ASTA, SESSION])
 @pytest.mark.parametrize("builder", ["waiting_row", "error_row"])
-def test_every_row_goes_through_the_timed_journal(builder: str) -> None:
-    """`journal.write(waiting_row(...))` is the defect. `_timed_journal(...)` is the fix."""
-    tree = _tree()
+def test_every_row_goes_through_the_timed_journal(builder: str, module: str) -> None:
+    """`journal.write(waiting_row(...))` is the defect. The timed sink is the fix.
+
+    In the Typer body that sink is `_timed_journal`; in `AstaSession.run` it is whatever
+    the caller injected — `_timed_journal` for the room, asserted below.
+    """
+    tree = _tree(module)
     untimed = [
         call.lineno
         for call in _calls_named(tree, "write")
@@ -79,12 +93,17 @@ def test_every_row_goes_through_the_timed_journal(builder: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("module", "sink"), [(ASTA, "_timed_journal"), (SESSION, "_journal")], ids=["cli", "session"]
+)
 @pytest.mark.parametrize("builder", ["waiting_row", "error_row"])
-def test_and_reaches_the_timed_one(builder: str) -> None:
-    tree = _tree()
+def test_and_reaches_the_timed_one(builder: str, module: str, sink: str) -> None:
+    """One per surface. `asta bid` calls `_timed_journal` by name; the lifted loop calls the
+    journal it was composed with, which for the room is that same function."""
+    tree = _tree(module)
     timed = [
         call
-        for call in _calls_named(tree, "_timed_journal")
+        for call in _calls_named(tree, sink)
         if any(
             isinstance(arg, ast.Call)
             and isinstance(arg.func, ast.Name)
@@ -93,7 +112,27 @@ def test_and_reaches_the_timed_one(builder: str) -> None:
         )
     ]
 
-    assert len(timed) == 2, f"{builder} reaches _timed_journal {len(timed)} times, expected 2"
+    assert len(timed) == 1, f"{builder} reaches {sink} {len(timed)} times in {module}, expected 1"
+
+
+def test_the_rooms_session_is_composed_with_the_timed_journal() -> None:
+    """The join between the two halves above: the lifted loop journals through whatever it
+    was given, so the row carries `cycle_ms` only if the room handed it the timed sink.
+
+    `session_for(journal=journal)` — the raw one — would leave every waiting and error row
+    the room writes with no timing at all, which is the defect this whole file is about,
+    moved one layer out rather than fixed.
+    """
+    [journal] = [
+        keyword.value
+        for call in _calls_named(_tree(), "session_for")
+        for keyword in call.keywords
+        if keyword.arg == "journal"
+    ]
+
+    assert isinstance(journal, ast.Name) and journal.id == "_timed_journal", (
+        f"the room's session journals through `{ast.unparse(journal)}`, not the timed sink"
+    )
 
 
 def test_the_clock_starts_in_the_read_and_nowhere_else() -> None:
@@ -137,11 +176,19 @@ def test_the_loops_read_through_the_timed_read() -> None:
     """A `read=` that bypasses it is a poll whose clock never started, so every row that
     poll writes reports the time since the *previous* one."""
     tree = _tree()
+    # Found by the keyword rather than by the callee's name: since 3.6b the room drives
+    # `AstaSession.run` and `asta bid` still calls `run_bid_loop` directly, and a scan keyed
+    # to either name would silently cover one command. `poll_seconds` is what both loop
+    # drivers take and nothing else in this module does — `LotRouter(read=, write=)` is the
+    # near miss a `read=`-only scan would pick up.
+    loops = [
+        call
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and any(keyword.arg == "poll_seconds" for keyword in call.keywords)
+    ]
     reads = [
-        keyword.value
-        for call in _calls_named(tree, "run_bid_loop")
-        for keyword in call.keywords
-        if keyword.arg == "read"
+        keyword.value for call in loops for keyword in call.keywords if keyword.arg == "read"
     ]
 
     assert len(reads) == 2, f"expected two bid loops, found {len(reads)}"

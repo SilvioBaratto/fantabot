@@ -288,15 +288,38 @@ def _name(func: ast.expr) -> str | None:
 
 _ASTA = ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
 
+def _loop_call(fn: ast.FunctionDef) -> ast.Call | None:
+    """The call that drives this command's bid loop, found by what it *takes*.
+
+    Not by the callee's name. Since 3.6b `asta room` drives `AstaSession.run` and `asta bid`
+    still calls `run_bid_loop` directly, so a scan keyed to either name covers one command
+    and reports success over the other — the exact failure mode `test_the_discovery_finds_
+    both_live_commands` exists to catch. What both drivers take, and nothing else in this
+    module does, is a `write=` that is a **lambda**: the per-bid writer. That is also the
+    property under test, so the discriminator and the assertion are the same fact.
+    """
+    found = [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call)
+        and any(
+            keyword.arg == "write" and isinstance(keyword.value, ast.Lambda)
+            and any(
+                isinstance(inner, ast.Call) and _name(inner.func) == "bid_writer"
+                for inner in ast.walk(keyword.value)
+            )
+            for keyword in node.keywords
+        )
+    ]
+    return found[0] if len(found) == 1 else None
+
+
 #: Every command body that runs a bid loop — discovered, not listed, so a third live command
 #: is covered the day it is written rather than the day someone remembers to add it here.
 LIVE_COMMANDS = sorted(
     fn.name
     for fn in _ASTA.body
-    if isinstance(fn, ast.FunctionDef)
-    and any(
-        isinstance(n, ast.Call) and _name(n.func) == "run_bid_loop" for n in ast.walk(fn)
-    )
+    if isinstance(fn, ast.FunctionDef) and _loop_call(fn) is not None
 )
 
 
@@ -316,9 +339,14 @@ def test_every_live_command_can_be_disarmed(command: str) -> None:
     from a sentence about a call. `TestAstaBidCanBeDisarmedMidRun` proves the behaviour for
     one command end to end; this proves the shape for every command, including `asta room`,
     which has no end-to-end harness.
+
+    The lift does not weaken it: `bid_writer` is the gate both locks meet at, it stays in
+    `interface/` (3.9a's own note), and whichever call it is handed to has to sit inside the
+    handler.
     """
     fn = next(n for n in _ASTA.body if isinstance(n, ast.FunctionDef) and n.name == command)
-    [loop] = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and _name(n.func) == "run_bid_loop"]
+    loop = _loop_call(fn)
+    assert loop is not None
 
     guarded = [
         w

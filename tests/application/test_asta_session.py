@@ -268,3 +268,276 @@ class TestTheWiringTheAppWouldOtherwiseAssembleAgain:
 
         assert calls == [1]
         assert cycle.frame.lot_name == "Riserva"
+
+
+# -- the loop (3.6b) ---------------------------------------------------------------------
+#
+# 3.6a lifted the cycle; the wiring around it stayed in a 350-line Typer body. That body held
+# the `latest` one-slot buffer the budget and cap guards read, the heartbeat filter that
+# journals a skipped poll, the error journal, and the `run_bid_loop` call itself — every one
+# of them a thing the app's room route would have had to write again from the same parts.
+#
+# ⚠ The gap 3.6a found and left: **nothing in the suite noticed `asta room` dropping the
+# session's answer.** Forcing `target_of`'s return to `None` in the Typer body left 2,079
+# tests green — the room would have watched all evening and never bid. `TestTheLoopBidsTheSessionsOwnTarget`
+# is that gap closed: the answer and the loop are now joined inside one tested call.
+
+from types import SimpleNamespace  # noqa: E402 — grouped with the tests that need it
+
+from fantabot.application.arming import ARM, AUTO_ACT  # noqa: E402
+from fantabot.application.asta_session import STALE_BRIDGE, room_arming  # noqa: E402
+
+
+class _Writes:
+    """A writer that records what reached the room, with an `armed` flag it re-reads per call.
+
+    Not a mock: `run_bid_loop` reads `.sent` off whatever comes back and counts the bid from
+    it, so the return value has to be the real shape (`bid_writer`'s own note).
+    """
+
+    def __init__(self, armed: list[bool] | None = None) -> None:
+        self.sent: list[int] = []
+        #: The whole payload, not only its price: the raise carries the pair of ids it is
+        #: signed with, and that is the field nothing else in this file can see.
+        self.payloads: list[dict[str, object]] = []
+        self.armed = [True] if armed is None else armed
+
+    def __call__(self, payload: dict[str, object]) -> object:
+        price = int(payload["price"])  # type: ignore[call-overload]
+        if not self.armed[0]:
+            return SimpleNamespace(sent=False, status=None, price=price)
+        self.sent.append(price)
+        self.payloads.append(dict(payload))
+        return SimpleNamespace(sent=True, status=200, price=price)
+
+
+def _drive(
+    session: AstaSession,
+    snapshots: list[dict[str, object] | None],
+    *,
+    write: object | None = None,
+    frames: list[object] | None = None,
+    errors: list[tuple[Exception, int]] | None = None,
+    fallback_budget: int = 100,
+    fallback_cap: int = 100,
+    read: Callable[[], object] | None = None,
+) -> object:
+    """One bounded run. Every effect is injected, so this opens nothing and never sleeps."""
+    queue = list(snapshots)
+
+    def default_read() -> object:
+        return queue.pop(0) if queue else None
+
+    return session.run(
+        node=lambda: "auction",
+        read=read or default_read,
+        write=write or _Writes(),
+        now=lambda: 1_000,
+        sleep=lambda _s: None,
+        on_frame=(lambda frame: frames.append(frame)) if frames is not None else (lambda _f: None),
+        on_error=(
+            (lambda exc, n: errors.append((exc, n))) if errors is not None else (lambda _e, _n: None)
+        ),
+        fallback_budget=fallback_budget,
+        fallback_cap=fallback_cap,
+        poll_seconds=0.0,
+        keep_going=lambda cycle: cycle < len(snapshots),
+    )
+
+
+class TestTheLoopBidsTheSessionsOwnTarget:
+    """The gap 3.6a found: the session decided, and the body dropped the answer.
+
+    With the wiring here, the decision and the loop that acts on it are one call — there is
+    no seam left for a caller to drop it at, and this test fails the moment `cycle.target`
+    stops reaching `run_bid_loop`.
+    """
+
+    def test_a_lot_we_want_is_raised_on(self) -> None:
+        writes = _Writes()
+
+        report = _drive(_session(), [_lot()], write=writes)
+
+        assert writes.sent == [6], "the session's target never reached the loop"
+        assert report.bids_sent == 1
+
+    def test_a_lot_we_do_not_want_is_not(self) -> None:
+        """`uuid-a2` is the fixture's control — unplanned, and buying him only swaps mu down."""
+        writes = _Writes()
+
+        report = _drive(_session(), [_lot("uuid-a2", price=50)], write=writes)
+
+        assert writes.sent == []
+        assert report.bids_sent == 0
+
+    def test_the_raise_is_signed_with_the_pair_the_session_was_composed_with(self) -> None:
+        """Two ids, and they are not interchangeable: `fantateam_id` is the chair, `user_id`
+        is the account. `session_for` assembles the pair once and the loop signs with that
+        same object — the Typer body used to build a second `Seat(...)` out of the same two
+        fields for `run_bid_loop`, which is two chances to swap them.
+
+        Swapping them is not an error anywhere: it is a `200` that drives somebody else's
+        team all evening. Nothing but the payload can see it, which is why this asserts on
+        the payload rather than on the frame.
+        """
+        writes = _Writes()
+
+        _drive(_session(), [_lot()], write=writes)
+
+        [payload] = writes.payloads
+        assert payload["fantateam_id"] == OUR_TEAM
+        assert payload["user_id"] == OUR_UID
+        assert payload["fantaleague_id"] == "fl-1", "the raise names the room it belongs to"
+
+    def test_the_raise_is_capped_by_the_frames_own_walk_away(self) -> None:
+        """90 is what `cycle` priced him at. A lot already above it is held, not chased."""
+        writes = _Writes()
+
+        _drive(_session(), [_lot(price=90)], write=writes)
+
+        assert writes.sent == []
+
+
+class TestTheGuardsReadTheLastFrameAndNotTheStartingCredits:
+    """`remaining_budget` was a plain int passed once, and after the first lot won it compared
+    every bid against a number that had stopped being true. Both guards read the one-slot
+    buffer this loop keeps — the buffer the Typer body used to own."""
+
+    def test_the_budget_guard_reads_the_frame(self) -> None:
+        writes = _Writes()
+
+        _drive(_session(), [_lot()], write=writes, fallback_budget=0)
+
+        assert writes.sent == [6], "the loop guarded against the fallback, not the frame"
+
+    def test_and_so_does_the_cap(self) -> None:
+        writes = _Writes()
+
+        _drive(_session(), [_lot()], write=writes, fallback_cap=0)
+
+        assert writes.sent == [6], "the loop capped at the fallback, not the frame"
+
+
+class TestThePollsThatMeanTheLoopIsInTrouble:
+    """`waiting_row` and `error_row` are the two rows a screen cannot show and a journal must."""
+
+    def test_a_poll_with_no_lot_journals_a_waiting_row(self) -> None:
+        """`run_bid_loop` short-circuits before `cycle` on an empty node, so nothing inside
+        `RoomTracker` ever sees this poll. Without the row the gap reads as a stall."""
+        rows: list[dict[str, object]] = []
+
+        _drive(_session(rows), [None])
+
+        assert rows == [{"at_ms": 1_000, "decision": "waiting"}]
+
+    def test_a_failed_poll_journals_an_error_row_and_reaches_the_screen(self) -> None:
+        rows: list[dict[str, object]] = []
+        seen: list[tuple[Exception, int]] = []
+
+        def boom() -> object:
+            raise TimeoutError("hotel wifi")
+
+        _drive(_session(rows), [_lot()], read=boom, errors=seen)
+
+        assert rows == [{"at_ms": 1_000, "decision": "error", "error": "TimeoutError"}]
+        assert [type(exc).__name__ for exc, _n in seen] == ["TimeoutError"]
+        assert seen[0][1] == 1, "the consecutive count the banner reports"
+
+    def test_a_bid_poll_journals_once_and_not_twice(self) -> None:
+        """`cycle` journals its own row. A heartbeat that journaled every line would double
+        every poll that got as far as a decision."""
+        rows: list[dict[str, object]] = []
+
+        _drive(_session(rows), [_lot()])
+
+        assert len(rows) == 1
+        assert rows[0]["decision"] == "bid"
+
+
+class TestTheScreenSeesEveryFrame:
+    def test_the_painter_is_handed_the_frame_each_poll(self) -> None:
+        frames: list[object] = []
+
+        _drive(_session(), [_lot(), _lot("uuid-a2", price=50)], frames=frames)
+
+        assert [f.lot_id for f in frames] == ["uuid-a1", "uuid-a2"]  # type: ignore[attr-defined]
+
+    def test_a_poll_with_no_lot_paints_nothing_new(self) -> None:
+        """The screen holds the last good picture; `cycle` never ran, so there is no frame."""
+        frames: list[object] = []
+
+        _drive(_session(), [None], frames=frames)
+
+        assert frames == []
+
+
+class TestTheWriterIsConsultedPerBidAndNotCapturedAtLoopStart:
+    """The disarm property, at this seam. `armed` is a list so a Ctrl-C can clear it without
+    a global, and the loop must ask again on the very next write — a writer whose answer was
+    captured once keeps bidding after the operator disarmed."""
+
+    def test_a_disarm_between_polls_holds_the_next_raise(self) -> None:
+        armed = [True]
+        writes = _Writes(armed)
+
+        def read() -> object:
+            if writes.sent:  # the operator's Ctrl-C, delivered between the two polls
+                armed[0] = False
+            return _lot()
+
+        report = _drive(_session(), [_lot(), _lot()], write=writes, read=read)
+
+        assert writes.sent == [6], "a raise was sent after the operator disarmed"
+        assert report.cycles == 2, "disarming must not end the run — it keeps watching"
+
+
+class TestTheStaleBridgeRefusesArmingAndNotTheRun:
+    """A bridge the refresh could not renew is a reason to refuse *arming*, never the run:
+    the room still draws and can be watched, exactly as a disarmed run always could.
+
+    4 hours is strictly tighter than the 5-hour-stale copy that missed 16 transfer-deadline
+    signings on 2026-08-28 — the incident this guards against.
+    """
+
+    def test_both_locks_open_and_a_fresh_bridge_arms(self) -> None:
+        decision = room_arming(
+            arm=True, auto_act=True, bridge_age=30.0, max_bridge_age_hours=4.0
+        )
+
+        assert decision.armed is True
+        assert decision.closed == ()
+
+    def test_a_stale_bridge_is_a_third_lock_named_on_its_own(self) -> None:
+        decision = room_arming(
+            arm=True, auto_act=True, bridge_age=5 * 3600.0, max_bridge_age_hours=4.0
+        )
+
+        assert decision.armed is False
+        assert decision.closed == (STALE_BRIDGE,)
+
+    def test_an_unknown_age_is_not_stale(self) -> None:
+        """A pre-envelope cache has no age to compare, and refusing to arm on information a
+        room never had the chance to write would punish the upgrade itself."""
+        decision = room_arming(
+            arm=True, auto_act=True, bridge_age=None, max_bridge_age_hours=4.0
+        )
+
+        assert decision.armed is True
+
+    def test_every_shut_lock_is_named_together(self) -> None:
+        """Both, not the first: an operator with three shut fixes one, retries, and is told
+        about the next. `Arming.closed` lists them all."""
+        decision = room_arming(
+            arm=False, auto_act=False, bridge_age=5 * 3600.0, max_bridge_age_hours=4.0
+        )
+
+        assert decision.closed == (AUTO_ACT, ARM, STALE_BRIDGE)
+
+    def test_a_stale_bridge_never_refuses_the_run_itself(self) -> None:
+        """There is no third return value and no exception — the only thing it can say is
+        `armed is False`."""
+        decision = room_arming(
+            arm=True, auto_act=True, bridge_age=99 * 3600.0, max_bridge_age_hours=4.0
+        )
+
+        assert isinstance(decision.armed, bool)

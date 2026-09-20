@@ -16,6 +16,18 @@ same reason `interface/asta.py::_today` is the asta feature's only calendar read
 is the decision: the frame, and the `(target, walk_away)` tuple `run_bid_loop` asks a
 `target_of` for.
 
+**The loop is here for the same reason the cycle is.** `run_bid_loop`'s wiring, the `latest`
+one-slot buffer its budget and cap guards read, the heartbeat line that journals a poll
+`RoomTracker.cycle` never ran, and the error row a failed poll leaves behind were all in the
+same Typer body — and the gap that found was that **nothing in 2,079 tests noticed the body
+dropping the session's answer**: forcing its `target_of` to return `None` left the whole suite
+green, and the room would have watched all evening and never bid. The decision and the loop
+that acts on it are one call now, so there is no seam left to drop it at.
+
+What still crosses outward is paint and the clock: `on_frame` is handed each frame and
+`on_error` each failure, and both are the caller's to draw. `cycle_ms` is measured around the
+`journal` this module is given, not inside it.
+
 This module opens nothing and can prove it: `test_asta_session.py` asserts it reaches neither
 Postgres, nor Rich, nor typer, nor `interface/`.
 """
@@ -26,10 +38,28 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from fantabot.application.asta_room import ResolvedRoom, RoomFrame, RoomRules, RoomTracker
+from fantabot.adapters.http.fantalab.listone import is_stale
+from fantabot.adapters.http.fantalab.room import LoopReport, run_bid_loop
+from fantabot.application.arming import Arming, decide_arming
+from fantabot.application.asta_room import (
+    ResolvedRoom,
+    RoomFrame,
+    RoomRules,
+    RoomTracker,
+    error_row,
+    waiting_row,
+)
 from fantabot.application.plan_inputs import PlanInputs
 from fantabot.domain.asta.bid import Seat
 from fantabot.domain.asta.live import AssignmentEvent
+
+Snapshot = Mapping[str, Any]
+
+#: The third lock, by **name**, beside `arming.AUTO_ACT` and `arming.ARM`. A name rather than
+#: a sentence for the reason that module gives: the fact is shared by both surfaces, and the
+#: wording is not — this one's CLI line carries the measured age and the operator's own limit,
+#: which no static map can hold.
+STALE_BRIDGE = "listone-bridge"
 
 
 @dataclass(frozen=True)
@@ -54,8 +84,26 @@ class AstaSession:
     re-fetch the listone for each unmappable lot.
     """
 
-    def __init__(self, tracker: RoomTracker) -> None:
+    def __init__(
+        self,
+        tracker: RoomTracker,
+        *,
+        journal: Callable[[Mapping[str, Any]], None],
+        seat: Seat,
+        fantaleague_id: str,
+    ) -> None:
         self._tracker = tracker
+        #: The same sink `RoomTracker` writes its own row through. Held here too because the
+        #: two rows that mean the loop is in trouble are built *outside* the tracker: on a
+        #: poll with no lot, `run_bid_loop` short-circuits before `cycle`, so nothing inside
+        #: `RoomTracker` ever sees it.
+        self._journal = journal
+        #: Assembled once, in `session_for`, from the room's chair and the stored uid.
+        #: `run_bid_loop` needs the same pair, and the Typer body used to build a second
+        #: `Seat(...)` for it out of the same two fields — two chances to swap the ids, which
+        #: is a `200` that drives somebody else's team all evening.
+        self._seat = seat
+        self._fantaleague_id = fantaleague_id
 
     @property
     def tracker(self) -> RoomTracker:
@@ -68,6 +116,98 @@ class AstaSession:
         """One poll: fold, re-plan, decide, journal — and both answers."""
         frame = self._tracker.cycle(snapshot, now_ms=now_ms, node=node)
         return Cycle(frame=frame, target=target_of(frame))
+
+    def run(
+        self,
+        *,
+        node: Callable[[], str],
+        read: Callable[[], Snapshot | None],
+        write: Callable[[dict[str, Any]], Any],
+        now: Callable[[], int],
+        sleep: Callable[[float], None],
+        on_frame: Callable[[RoomFrame], None],
+        on_error: Callable[[Exception, int], None],
+        fallback_budget: int,
+        fallback_cap: int,
+        poll_seconds: float,
+        keep_going: Callable[[int], bool] = lambda _cycle: True,
+    ) -> LoopReport:
+        """Poll the room until `keep_going` says otherwise, bidding this session's own targets.
+
+        Every effect is injected, exactly as `run_bid_loop` takes them, so this opens nothing:
+        `read` and `write` are the caller's bound RTDB calls, `now` and `sleep` are its clock,
+        and `on_frame` / `on_error` are its paint. The clock is a parameter rather than a call
+        for the reason `interface/asta.py::_today` exists — the asta feature reads the calendar
+        in exactly one place, and it is not this layer.
+
+        **`node` is a callable, not a string.** `LotRouter.node` is rewritten by every
+        `read_lot()`: CHIAMA puts a lot on `auction/<fl>` and ASSEGNA on `assign/<fl>`, and a
+        raise must go back to the node its lot came from. A node read once at composition is
+        the node the room happened to be using before the first poll.
+
+        **`write` is called, not composed.** It must re-read the arming flag per bid — that is
+        what makes a Ctrl-C hold the very next raise — so a caller passes a closure over its
+        own `armed` list rather than a writer bound at loop start. The gate itself
+        (`bid_writer`) stays with the surface that owns the two locks.
+
+        `fallback_cap` is an `int` and not an optional, although `run_bid_loop` accepts `None`
+        for "no cap": the cap guard is the only thing between a "pay anything" walk-away and a
+        rosa that cannot be fielded, and a session that could be composed without one is a
+        session somebody composes without one.
+
+        `fallback_budget` and `fallback_cap` are only what the guards read **before the first
+        frame exists**. From the first poll on they read the frame, because `remaining_budget`
+        was once a plain int passed once and after the first lot won it compared every bid
+        against a number that had stopped being true.
+        """
+        #: One slot, not a log: only the last frame is ever read, and a frame per poll for
+        #: three hours is thousands of walk-away dicts held by a process that must not die
+        #: mid-auction.
+        latest: list[RoomFrame] = []
+
+        def pick(snapshot: Snapshot) -> tuple[str, int] | None:
+            cycle = self.cycle(snapshot, now_ms=now(), node=node())
+            latest[:] = [cycle.frame]
+            on_frame(cycle.frame)
+            return cycle.target
+
+        def heartbeat(line: str) -> None:
+            """Every line but one has nowhere to go — the screen is the frame.
+
+            `run_bid_loop` writes this exact message only when `read()` returned no lot at
+            all: the one poll where `cycle` (and so the journal row it writes itself) never
+            ran. Journaling any other line would double the row for the same poll.
+            """
+            if "waiting for a lot" in line:
+                self._journal(waiting_row(now_ms=now()))
+
+        def failed(exc: Exception, consecutive: int) -> None:
+            """Journaled here and painted by the caller. A run reporting a stall used to
+            leave no record of why.
+
+            Passed to `run_bid_loop` rather than left to its own fallback, which only ever
+            printed: the alternative the room used — sniffing the heartbeat line's *text* for
+            "Error"/"timed out" — silently missed `ReadTimeout`, `ConnectTimeout` and
+            `PoolTimeout`, on a flaky link the three most likely of all.
+            """
+            self._journal(error_row(exc, now_ms=now()))
+            on_error(exc, consecutive)
+
+        return run_bid_loop(
+            seat=self._seat,
+            fantaleague_id=self._fantaleague_id,
+            remaining_budget=lambda: latest[-1].credits_left if latest else fallback_budget,
+            max_cap=lambda: latest[-1].max_cap if latest else fallback_cap,
+            target_of=pick,
+            read=read,
+            write=write,
+            now=now,
+            sleep=sleep,
+            keep_going=keep_going,
+            heartbeat=heartbeat,
+            on_error=failed,
+            poll_seconds=poll_seconds,
+        )
 
 
 def target_of(frame: RoomFrame) -> tuple[str, int] | None:
@@ -120,8 +260,11 @@ def session_for(
     pair of ids. The seat's `user_id` is `None` for a free chair, and ours comes from the stored
     FantaLab session — so the pair is assembled here, once, rather than in each caller.
     """
+    # Bound once and used twice — the tracker decides with it and `run_bid_loop` signs the
+    # raise with it. Two constructions out of the same two fields is two chances to swap them.
+    seat = Seat(fantateam_id=resolved.seat.fantateam_id, user_id=user_id)
     tracker = RoomTracker(
-        seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=user_id),
+        seat=seat,
         bridge=bridge,
         pool=world.pool,
         value=world.value,
@@ -143,4 +286,41 @@ def session_for(
         counter_time=resolved.counter_time,
         counter_time_first=resolved.counter_time_first,
     )
-    return AstaSession(tracker)
+    return AstaSession(
+        tracker,
+        journal=journal,
+        seat=seat,
+        fantaleague_id=resolved.fantaleague_id,
+    )
+
+
+def room_arming(
+    *,
+    arm: bool,
+    auto_act: bool | None = None,
+    bridge_age: float | None,
+    max_bridge_age_hours: float,
+) -> Arming:
+    """The arming contract for a live room: the two locks, plus the bridge that names the lots.
+
+    A third lock rather than a separate refusal, because it fails the same way and an operator
+    fixes it in the same breath — and because `Arming.closed` names **every** shut lock, which
+    a second return value would not. `decide_arming`'s own note is the reason: report one of
+    two causes and an operator fixes it, retries, and is told about the other.
+
+    **It refuses arming, never the run.** The room still draws and can be watched, exactly as
+    a disarmed run always could — a stale bridge costs us the confidence to spend credits, not
+    the ability to look at the evening. There is no third return value and no exception here;
+    the only thing this can say is `armed is False`.
+
+    A bridge with **no** age (a pre-envelope cache, or a fetch that never ran) is not stale:
+    there is nothing to compare, and refusing on information a room never had the chance to
+    write would punish the upgrade itself. `is_stale` is the adapter's, imported rather than
+    restated — the staleness rule and the cache that measures the age belong together.
+    """
+    decision = decide_arming(arm=arm, auto_act=auto_act)
+    if not is_stale(bridge_age, max_hours=max_bridge_age_hours):
+        return decision
+    # Last, not first: the two locks are things the operator *chose*, and this one is a fact
+    # about the world they now have to react to. Fix order, same as `arming.decide_arming`'s.
+    return Arming(armed=False, closed=(*decision.closed, STALE_BRIDGE))

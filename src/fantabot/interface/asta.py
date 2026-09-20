@@ -560,13 +560,11 @@ def asta_room(
     from fantabot.application.asta_room import (
         RoomFrame,
         RoomRefused,
-        error_row,
         resolve_room,
-        waiting_row,
     )
-    from fantabot.application.asta_session import session_for
+    from fantabot.application.asta_session import STALE_BRIDGE, room_arming, session_for
     from fantabot.config import journal_path, live_auto_act, settings
-    from fantabot.domain.asta.bid import Seat, max_bid
+    from fantabot.domain.asta.bid import max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
     from fantabot.domain.asta.report import listone_rows
     from fantabot.domain.tokens.crypto import TokenCipher
@@ -654,23 +652,27 @@ def asta_room(
             listone=resolved.asta_type or "mantra",
         )
 
-    # A stale bridge (the refresh above failed and fell back) is a reason to refuse
-    # *arming*, not to refuse the run — the room still draws and can be watched, exactly
-    # as a disarmed run always could. `bridge_age is None` (a pre-envelope cache) is not
-    # penalised: there is no age to compare, and refusing on missing information a room
-    # never had a chance to write would punish the upgrade itself.
-    if listone.is_stale(bridge_age, max_hours=max_bridge_age_hours):
-        assert bridge_age is not None  # `is_stale` only returns True with a real age
+    # Three locks: the two the operator opens, and the bridge that names the lots — a stale
+    # one refuses *arming*, never the run. `room_arming` is where all three are weighed, in
+    # `application/`, because the app's room route needs the same answer and a second copy
+    # of it would be a second opinion nobody is told about. Its docstring carries the why.
+    gate = room_arming(
+        arm=arm,
+        auto_act=live_auto_act(),
+        bridge_age=bridge_age,
+        max_bridge_age_hours=max_bridge_age_hours,
+    )
+    if STALE_BRIDGE in gate.closed:
+        assert bridge_age is not None  # only a real age can make that lock shut
+        # The wording is the CLI's: this line carries the measured age and the operator's own
+        # limit, which is why the lock is named rather than sentenced in `application/`.
         console.print(
             f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
             f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
         )
-        arm = False
 
-    # Arming is a positive act twice over: the env var alone arms every run for the rest of
-    # the day, and the operator who edits `.env` in the morning is not the one at the keyboard
-    # at 21:47. `armed` is a list so the SIGINT handler can disarm it without a global.
-    armed = [bool(live_auto_act() and arm)]
+    # `armed` is a list so the SIGINT handler can disarm it without a global.
+    armed = [gate.armed]
     if armed[0] and not typer.confirm(
         f"Bid REAL CREDITS in {resolved.fantaleague_id} as "
         f"{resolved.seat.team_name or resolved.seat.fantateam_id}, budget {credits:.0f}?"
@@ -728,11 +730,10 @@ def asta_room(
         journal=_timed_journal,
     )
 
-    # One slot, not a log: only `latest[-1]` is ever read, and a frame per poll for three
-    # hours is thousands of walk-away dicts held by a process that must not die mid-auction.
-    latest: list[RoomFrame] = []
-    #: The last painted screen, so `on_error` can redraw it under a banner. One slot, for the
-    #: same reason `latest` is one slot.
+    #: The last painted screen, so `on_error` can redraw it under a banner. One slot, not a
+    #: log: a renderable per poll for three hours is held by a process that must not die
+    #: mid-auction. The frame buffer the budget and cap guards read is `AstaSession.run`'s —
+    #: this one is paint, and paint is what stays here.
     screen: list[RenderableType] = []
 
     # Out of band, on a daemon thread. `counter_time` is 7-10 s and a query takes seconds, so
@@ -743,13 +744,13 @@ def asta_room(
     if worker is not None:
         worker.start()
 
-    def target_of(snapshot: Mapping[str, Any]) -> tuple[str, int] | None:
-        cycle = room_session.cycle(
-            snapshot, now_ms=int(time.time() * 1000), node=router.node
-        )
-        frame = cycle.frame
-        latest[:] = [frame]
+    def paint(frame: RoomFrame) -> None:
+        """The frame, drawn. Everything below this line is Rich or the copilot.
 
+        It is handed every frame the session builds, which is the shape that closes 3.6a's
+        gap: the decision no longer travels back out through a body that could drop it —
+        `AstaSession.run` keeps the answer and passes the picture.
+        """
         advice = None
         if worker is not None:
             fresh = [pid for pid in list(frame.walkaways)[:brief_top] if pid not in briefed]
@@ -782,22 +783,13 @@ def asta_room(
         )
         screen[:] = [view]
         live.update(view)
-        return cycle.target
-
-    def heartbeat(line: str) -> None:
-        """The screen is the frame, so this discards every line but one. `run_bid_loop`
-        writes this exact message only when `read()` returned no lot at all — the one case
-        where `target_of` (and so `tracker.cycle`, and so the journal row it writes itself)
-        never ran this poll. Every other heartbeat line here followed a `target_of` call
-        that already journaled; journaling again would double the row for the same poll.
-        """
-        if "waiting for a lot" in line:
-            _timed_journal(waiting_row(now_ms=int(time.time() * 1000)))
 
     def on_error(exc: Exception, consecutive: int) -> None:
-        """A failed poll: shown on the screen the operator is actually looking at, and now
-        journaled too — a run reporting a stall used to leave no record of why."""
-        _timed_journal(error_row(exc, now_ms=int(time.time() * 1000)))
+        """A failed poll, shown on the screen the operator is actually looking at.
+
+        The journal row is `AstaSession.run`'s — both surfaces need it, and a run reporting a
+        stall used to leave no record of why. This banner is the terminal's alone.
+        """
         live.update(
             error_overlay(
                 screen[0] if screen else None,
@@ -815,12 +807,10 @@ def asta_room(
     # The cleanup stays inside, so a Ctrl-C during `worker.stop()` is still the handler's.
     with _disarm_on_sigint(armed):
         with Live(console=console, screen=True, refresh_per_second=4) as live:
-            report = room.run_bid_loop(
-                seat=Seat(fantateam_id=resolved.seat.fantateam_id, user_id=stored.user_id),
-                fantaleague_id=resolved.fantaleague_id,
-                remaining_budget=lambda: latest[-1].credits_left if latest else int(credits),
-                max_cap=lambda: latest[-1].max_cap if latest else max_bid(int(credits), rules.size),
-                target_of=target_of,
+            report = room_session.run(
+                # A callable: `LotRouter.node` is rewritten by every read, and a raise must
+                # go back to the node its own lot came from.
+                node=lambda: router.node,
                 read=_timed_read,
                 # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
                 # writer captured at loop start would keep bidding after the operator disarmed.
@@ -832,15 +822,12 @@ def asta_room(
                 )(payload),
                 now=lambda: int(time.time() * 1000),
                 sleep=time.sleep,
-                keep_going=lambda _cycle: True,
-                # Most heartbeat lines have nowhere to go — the screen is the frame — but
-                # `heartbeat` above still journals the one that means `tracker.cycle` never ran
-                # this poll. Errors used to be shown by filtering the line's *text*, which missed
-                # `ReadTimeout`, `ConnectTimeout` and `PoolTimeout` — on a flaky link the three
-                # most likely of all; they are painted into the Live and journaled now, by
-                # `on_error`.
-                heartbeat=heartbeat,
+                on_frame=paint,
                 on_error=on_error,
+                # Only what the guards read before the first frame exists; from the first
+                # poll on they read the frame.
+                fallback_budget=int(credits),
+                fallback_cap=max_bid(int(credits), rules.size),
                 poll_seconds=poll,
             )
 
