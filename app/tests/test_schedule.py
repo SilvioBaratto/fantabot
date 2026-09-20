@@ -617,10 +617,18 @@ class TestInstallReportsWhatLaunchdAlreadyHas:
         written = schedule.install(_job(repo), launchctl=Spy(code=113))
         assert written.loaded is False
 
-    def test_the_read_addresses_this_label_in_this_uid(self, home: Path, repo: Path) -> None:
+    def test_the_read_addresses_this_label_in_the_uid_it_was_given(
+        self, home: Path, repo: Path
+    ) -> None:
+        """A uid that is deliberately **not** this machine's.
+
+        It was 501, which is the developer's own, so `domain_target(job.label)` with the
+        `uid` dropped produced the identical string and the assertion could not fail. The
+        mutation that drops it is caught only against a uid nobody has.
+        """
         spy = Spy()
-        schedule.install(_job(repo), launchctl=spy, uid=501)
-        assert spy.calls == [["launchctl", "print", "gui/501/com.fantabot.lineup"]]
+        schedule.install(_job(repo), launchctl=spy, uid=777)
+        assert spy.calls == [["launchctl", "print", "gui/777/com.fantabot.lineup"]]
 
     def test_the_first_install_counts_as_changed(self, home: Path, repo: Path) -> None:
         assert schedule.install(_job(repo), launchctl=Spy()).changed is True
