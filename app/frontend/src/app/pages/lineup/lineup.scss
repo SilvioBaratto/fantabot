@@ -536,3 +536,14 @@ mat-card-actions.submit-actions {
   font: var(--mat-sys-body-small);
   letter-spacing: var(--mat-sys-body-small-tracking);
 }
+
+/* ------------------------------------------------- what the platform has saved */
+
+/* The panel reuses `pane` / `pane-title` / `state-text` rather than growing a second set
+   of names: it is the same kind of card as Starters and Bench, one section lower. The only
+   new rule is the gap between its own lines — `state-text` sets `margin: 0`, which is right
+   for a card holding one paragraph and wrong for one holding four. */
+.saved-note,
+.saved [data-testid] {
+  margin-block-start: 8px;
+}

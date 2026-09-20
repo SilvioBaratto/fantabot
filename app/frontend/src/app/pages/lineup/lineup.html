@@ -293,31 +293,50 @@
      A different question from the plan above, and the difference is the point: that is what
      we should field, this is what is saved. On a matchday where a submit was refused — an
      unfieldable module, a deadline already past — the two differ, and a page showing only
-     one of them is a page that cannot say so. -->
-<section class="saved" aria-labelledby="saved-heading" data-testid="saved-lineup">
-  <mat-card class="panel" appearance="outlined">
-    <div class="panel-body">
-      <h2 id="saved-heading" class="panel-title">Saved on the platform</h2>
-      <p class="panel-sub">
-        What the platform currently holds for this competition. Read-only — nothing here submits.
-      </p>
-    </div>
+     one of them is a page that cannot say so.
 
-    @if (currentError(); as refusal) {
-      <div class="panel-body" role="alert">
-        <p class="state-text">{{ refusal }}</p>
-      </div>
-    }
+     Drawn only once a lega is selected. It renders an empty heading otherwise, under "No
+     leagues yet" on a fresh install and while the plan is still in flight — a card that
+     asks a question about nothing. -->
+@if (selectedId() !== null) {
+  <section class="saved" aria-labelledby="saved-heading" data-testid="saved-lineup">
+    <mat-card appearance="outlined" class="pane">
+      <mat-card-content>
+        <h2 id="saved-heading" class="pane-title">Saved on the platform</h2>
+        <p class="state-text">
+          What the platform currently holds for this competition. Read-only — nothing here submits.
+        </p>
 
-    @if (currentNamed(); as saved) {
-      <div class="panel-body">
-        <p class="state-text">Module {{ saved.module }}</p>
-        <p class="state-text" data-testid="saved-starters">XI: {{ saved.starters.join(', ') }}</p>
-        <p class="state-text" data-testid="saved-bench">Bench: {{ saved.bench.join(', ') }}</p>
-      </div>
-    }
-  </mat-card>
-</section>
+        @if (currentError(); as refusal) {
+          <!-- `status`, not `alert`: "no lineup has been saved yet" is the ordinary state
+               before a matchday's first submit, and announcing it as an alert is a claim
+               about the roster rather than about the save. -->
+          <p class="state-text saved-note" role="status">{{ refusal }}</p>
+        }
+
+        @if (currentNamed(); as saved) {
+          <p class="state-text saved-note">Module {{ saved.module }}</p>
+          <p class="state-text" data-testid="saved-starters">XI: {{ saved.starters.join(', ') }}</p>
+          <p class="state-text" data-testid="saved-bench">Bench: {{ saved.bench.join(', ') }}</p>
+        } @else if (!currentError()) {
+          <!-- Three states, not two. `fetchCurrent` only fires once the plan has named a
+               competition, so on a lega whose plan was refused — no credential, no network
+               — nothing is ever asked and "Reading…" is a sentence about a request that
+               does not exist. Saying which of the two it is, is the whole job of this card:
+               a panel that cannot read and a competition with nothing saved look identical
+               otherwise. -->
+          @if (plan() && plan()!.competition === null) {
+            <p class="state-text saved-note" data-testid="saved-unasked">
+              Nothing to read yet — the plan above resolved no competition for this lega.
+            </p>
+          } @else {
+            <p class="state-text saved-note">Reading what the platform has saved…</p>
+          }
+        }
+      </mat-card-content>
+    </mat-card>
+  </section>
+}
 
 <!-- The scheduled lineup's history: what the launchd job did, read back. Read-only on purpose —
      turning the job on and off lives in `.env` and the launchd plist, never on this page. -->

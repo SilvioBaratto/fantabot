@@ -42,7 +42,10 @@
             {{ lega.league_name ?? 'Lega ' + lega.league_id }}
           </h2>
           <p mat-card-subtitle class="lega-meta">
-            #{{ lega.league_id }}@if (lega.matchday !== null) { · Matchday {{ lega.matchday }} }
+            #{{ lega.league_id }}
+            @if (lega.matchday !== null) {
+              · Matchday {{ lega.matchday }}
+            }
           </p>
         </mat-card-header>
 
@@ -112,14 +115,12 @@
                 class="table-scroll"
                 role="region"
                 tabindex="0"
-                [attr.aria-label]="
-                  'Teams in ' + (lega.league_name ?? 'lega ' + lega.league_id)
-                "
+                [attr.aria-label]="'Teams in ' + (lega.league_name ?? 'lega ' + lega.league_id)"
               >
                 <table mat-table [dataSource]="rosters()" class="teams-table">
                   <caption class="sr-only">
-                    Each team with the credits it has spent, the credits it has left and the
-                    number of players on its roster
+                    Each team with the credits it has spent, the credits it has left and the number
+                    of players on its roster
                   </caption>
 
                   <ng-container matColumnDef="team">
@@ -131,18 +132,14 @@
                   </ng-container>
 
                   <ng-container matColumnDef="spent">
-                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
-                      Spent
-                    </th>
+                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">Spent</th>
                     <td mat-cell *matCellDef="let team" class="cell-number">
                       {{ team.credits_spent ?? '—' }}
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="left">
-                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
-                      Left
-                    </th>
+                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">Left</th>
                     <td mat-cell *matCellDef="let team" class="cell-number">
                       {{ team.credits_remaining ?? '—' }}
                     </td>
@@ -173,9 +170,7 @@
   <mat-card class="state-card" appearance="outlined">
     <mat-card-content>
       <h2 class="state-title">No leagues yet</h2>
-      <p class="state-body">
-        Run a lega sync to read your leghe — rosters, credits and settings
-      </p>
+      <p class="state-body">Run a lega sync to read your leghe — rosters, credits and settings</p>
     </mat-card-content>
   </mat-card>
 }

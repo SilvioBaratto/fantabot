@@ -35,13 +35,13 @@
       <h2>Sign in in the browser window</h2>
       @if (connectKind() === 'fantalab') {
         <p class="measure">
-          A browser opened on this machine. Sign in to FantaLab — nothing is typed for you
-          — then choose Confirm sign-in.
+          A browser opened on this machine. Sign in to FantaLab — nothing is typed for you — then
+          choose Confirm sign-in.
         </p>
       } @else {
         <p class="measure">
-          A browser opened on this machine. Sign in to fantacalcio.it — nothing is typed
-          for you — then choose Confirm sign-in.
+          A browser opened on this machine. Sign in to fantacalcio.it — nothing is typed for you —
+          then choose Confirm sign-in.
         </p>
       }
 
@@ -49,7 +49,12 @@
            it, because the UI only started polling after the Continue button.
            `tabindex` because it scrolls, and a scrollable region needs a keyboard. -->
       @if (captureLog().length) {
-        <pre class="capture-log" tabindex="0" role="group" aria-label="Sign-in log">@for (line of captureLog(); track $index) {{{ line }}
+        <pre
+          class="capture-log"
+          tabindex="0"
+          role="group"
+          aria-label="Sign-in log"
+        >@for (line of captureLog(); track $index) {{{ line }}
 }</pre>
       }
     </div>
@@ -97,8 +102,8 @@
     <div class="banner banner-notice" role="status">
       <lucide-icon class="banner-icon" [size]="20" name="triangle-alert" />
       <p>
-        No encryption key is set. Configure <code>FANTABOT_ENCRYPTION_KEY</code> before
-        connecting an account, so tokens can be stored.
+        No encryption key is set. Configure <code>FANTABOT_ENCRYPTION_KEY</code> before connecting
+        an account, so tokens can be stored.
       </p>
     </div>
   }
@@ -173,8 +178,8 @@
           <div class="empty">
             <p class="empty-title">No account connected yet</p>
             <p class="measure">
-              Connect your fantacalcio account so the bot can read your leghe. Connecting
-              opens a real browser for you to sign in.
+              Connect your fantacalcio account so the bot can read your leghe. Connecting opens a
+              real browser for you to sign in.
             </p>
           </div>
         }
@@ -238,8 +243,8 @@
         } @else {
           <div class="empty">
             <p class="measure">
-              Not connected. FantaLab hosts the asta — the bot needs this only to watch or
-              bid in one, not to read your leghe.
+              Not connected. FantaLab hosts the asta — the bot needs this only to watch or bid in
+              one, not to read your leghe.
             </p>
           </div>
         }

@@ -628,6 +628,19 @@ describe('LineupComponent', () => {
       await fixture.whenStable();
     });
 
+    it('says why it asked for nothing, rather than claiming to be reading', async () => {
+      // `fetchCurrent` only fires once the plan names a competition, so on a refused plan
+      // nothing is ever asked — and "Reading…" is a sentence about a request that does not
+      // exist. A panel that cannot read and a competition with nothing saved look identical
+      // otherwise, which is the one thing this card is for.
+      const fixture = await ready(null);
+
+      const note = fixture.nativeElement.querySelector('[data-testid="saved-unasked"]');
+      expect(note).not.toBeNull();
+      expect(note.textContent).toContain('resolved no competition');
+      expect(fixture.nativeElement.textContent).not.toContain('Reading what the platform');
+    });
+
     it('asks for nothing when the plan resolved no competition', async () => {
       // A refused plan has not resolved one, and `undefined !== null` — which is how an
       // outstanding request for `competition=undefined` takes down three unrelated specs.
@@ -666,6 +679,42 @@ describe('LineupComponent', () => {
       expect(
         fixture.nativeElement.querySelector('[data-testid="saved-starters"]').textContent,
       ).toContain('4242');
+    });
+
+    it('draws no panel at all before a lega is selected', async () => {
+      // A card that asks a question about nothing. It rendered a heading and a subtitle on
+      // a fresh install, under "No leagues yet".
+      const fixture = TestBed.createComponent(LineupComponent);
+      fixture.detectChanges();
+      httpMock.expectOne((r) => r.url.includes('lineup/runs')).flush({ runs: [] });
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.querySelector('[data-testid="saved-lineup"]')).toBeNull();
+    });
+
+    it('announces "nothing saved yet" as status, never as an alert', async () => {
+      // It is the ordinary state before a matchday's first submit. `role="alert"` would
+      // interrupt a screen-reader user to report that nothing has happened.
+      const fixture = await ready();
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/current'))
+        .flush({
+          outcome: 'no_lineup',
+          reason: 'no lineup has been saved for this competition yet.',
+          module: '',
+          starters: [],
+          bench: [],
+        });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const note = fixture.nativeElement.querySelector('[data-testid="saved-lineup"] [role]');
+      expect(note?.getAttribute('role')).toBe('status');
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="saved-lineup"] [role="alert"]'),
+      ).toBeNull();
     });
 
     it('shows the server’s reason and no lineup when nothing is saved', async () => {

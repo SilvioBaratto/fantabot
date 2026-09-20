@@ -316,7 +316,11 @@
 /* Height is left at Material's density-0 default on purpose: `container-height` is a px
    token, so shrinking it clips the label when only the text is resized to 200%. */
 .role-chip {
-  @include mat.chips-overrides((label-text-color: var(--mat-sys-on-surface-variant)));
+  @include mat.chips-overrides(
+    (
+      label-text-color: var(--mat-sys-on-surface-variant),
+    )
+  );
 
   font-variant-numeric: tabular-nums;
 }

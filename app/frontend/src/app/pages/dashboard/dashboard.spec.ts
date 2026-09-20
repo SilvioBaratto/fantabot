@@ -75,9 +75,7 @@ describe('DashboardComponent', () => {
   it('reports an unreachable API as an alert', async () => {
     const fixture = TestBed.createComponent(DashboardComponent);
     fixture.detectChanges();
-    httpMock
-      .expectOne(`${environment.apiUrl}lega`)
-      .error(new ProgressEvent('error'));
+    httpMock.expectOne(`${environment.apiUrl}lega`).error(new ProgressEvent('error'));
     fixture.detectChanges();
     await fixture.whenStable();
 

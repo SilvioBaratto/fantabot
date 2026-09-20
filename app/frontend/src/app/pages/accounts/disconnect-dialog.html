@@ -5,24 +5,23 @@
 <mat-dialog-content id="disconnect-dialog-body">
   @if (data.kind === 'league') {
     <p>
-      This removes the stored token <strong>and everything the last sync saved</strong> —
-      rosters, credits, calendar and player pool.
+      This removes the stored token <strong>and everything the last sync saved</strong> — rosters,
+      credits, calendar and player pool.
     </p>
     <!-- The extent, not only the effect. "Rosters and calendar" is what the rows hold; the
          table list is how far the delete reaches, and it is the question an operator asks
          after a re-sync comes back thinner than they expected. -->
     <p>
-      Six tables are cleared: <code>league_snapshot</code>,
-      <code>league_team_snapshot</code>, <code>league_player_pool</code>,
-      <code>league_custom_role</code>, <code>league_competition</code> and
-      <code>league_fixture</code>.
+      Six tables are cleared: <code>league_snapshot</code>, <code>league_team_snapshot</code>,
+      <code>league_player_pool</code>, <code>league_custom_role</code>,
+      <code>league_competition</code> and <code>league_fixture</code>.
     </p>
     <p>The lega disappears from every page until you connect and sync again.</p>
     <!-- 2.3(b). Two different acts with two similar names is the actual problem, and the
          place to say so is the one screen where someone is about to perform one of them. -->
     <p class="divergence">
-      <code>fantabot auth forget --league</code> is not this. It removes the token row alone
-      and leaves all six tables standing.
+      <code>fantabot auth forget --league</code> is not this. It removes the token row alone and
+      leaves all six tables standing.
     </p>
   } @else {
     <p>This removes the stored FantaLab session for {{ data.name }}.</p>
