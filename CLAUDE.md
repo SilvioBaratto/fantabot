@@ -348,6 +348,20 @@ src/fantabot/
   it wrong". The probe takes a `_fetch` seam for exactly that reason, like `_callable_ids`.
   ⚠ `GET /asta/advisory` carried the same `listone = "mantra"` default one layer down,
   safe only because `asta.ts` happens to guard it; it is required now.
+  **The corpus shape is read the same way, with one rung more (2026-09-20).**
+  `--teams`/`--credits` were pinned at 8x500 on `asta live --league` while the same
+  `RoomConfig` carried `num_teams`/`num_credits`, and `asta room` coerced them with
+  `or 8`/`or 500` while printing the raw value. `choose_shape` resolves both, and
+  `--budget 0` reads the room's credits as `asta room` already did. It **does** default
+  where `choose_listone` refuses, and that asymmetry is deliberate: a format decides which
+  game is being played and has none defensible, a shape decides which recorded cell to
+  average and has `NoCorpus` underneath. The provenance is printed either way.
+  ⚠ Two traps here. Typer cannot tell a typed `8` from a defaulted one, so the detecting
+  commands need `int | None` options and the others must keep plain `int` — a sentinel a
+  command cannot act on is an option that lies. And a room that states **0** is not
+  stating anything: FantaLab sends 0 for an unset field, and taken literally that sends
+  `clearing_sales` after a `0x0` cell, refusing in the operator's name for the room's
+  doing.
 - **Stats source**: still unchosen. News sentiment is covered by
   `fantabot news fetch` (see `docs/spec-news-sentiment.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores. When one
