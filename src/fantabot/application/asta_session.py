@@ -284,6 +284,15 @@ def stop_poll(
     note, "it has nothing to disarm and winds down on either stage", true on one platform
     only. §12's second success criterion is that a stop works the same on both.
 
+    ⚠ **"Nothing to disarm" is a fact about the *start* of the run, and reading `armed` for it
+    is a real defect.** Both mechanisms clear the same list, and on POSIX both arrive for one
+    click: `_request_stop` writes the flag, `_signal` sends the `SIGINT`, the handler clears
+    `armed[0]` and keeps the run drawing — and the next poll then reads that same `disarm` off
+    disk. A gate asking "is it armed *now*" finds `False`, takes it for "nothing to disarm",
+    and **ends an armed run on its first Stop, on POSIX only** — which is exactly the
+    divergence this rule exists to close, reintroduced by the rule. So the answer is snapshot
+    once, here, before the loop and before any handler can have fired.
+
     **`armed` is the same list `_disarm_on_sigint` clears and the writer reads per bid.** One
     disarm, two ways to ask for it — a second flag would be a second answer to "is this run
     armed", and the two would disagree the first time both were used.
@@ -296,6 +305,9 @@ def stop_poll(
     line to one: at a 2 s cadence the same sentence scrolls the heartbeat away inside a
     minute, and under a supervisor every line is a row in the job log.
     """
+    #: Read once, at composition, which is before the loop and before any handler can have
+    #: fired. See the ⚠ above: this is the whole of why it is not read per poll.
+    armed_at_start = armed[0]
     honoured = False
 
     def keep_going(_cycle: int) -> bool:
@@ -310,9 +322,8 @@ def stop_poll(
         if honoured:
             return True
         honoured = True
-        was_armed = armed[0]
         armed[0] = False
-        if not was_armed:
+        if not armed_at_start:
             announce("stop requested — leaving")
             return False
         announce("stop requested — disarmed, still watching")

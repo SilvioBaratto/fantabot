@@ -108,6 +108,10 @@ class TestTheTwoStagesAreHonoured:
 
         said: list[str] = []
         remaining = list(stages)
+        # Built *with* `armed` already in the state the case describes: `stop_poll` snapshots
+        # it at composition, which is the property `test_a_sigint_and_the_flag_are_one_
+        # request_and_disarm_once` exists for. A helper that mutated `armed` after this line
+        # would be testing the old, defective reading.
         keep_going = stop_poll(
             read_stage=lambda: remaining.pop(0), armed=armed, announce=said.append
         )
@@ -157,6 +161,35 @@ class TestTheTwoStagesAreHonoured:
         from fantabot.adapters.files.stopflag import DISARM
 
         assert self._poll([DISARM], armed=[True])[0] == [True]
+
+    def test_a_sigint_and_the_flag_are_one_request_and_disarm_once(self) -> None:
+        """**On POSIX both arrive**, and reading `armed` to decide would collapse the gesture.
+
+        `ProcessJob.stop` writes the flag *and* sends a `SIGINT` — `_request_stop` then
+        `_signal`, in that order. The handler clears `armed[0]` and keeps the run drawing,
+        which is stage one; the next poll then reads the same `disarm` off disk. A gate that
+        asked "is it armed *now*" would find `False`, take that for "nothing to disarm", and
+        end an armed run on its first Stop — on POSIX only, which is precisely the
+        cross-platform divergence §12's second criterion forbids.
+
+        So the question is whether the run was armed **when the loop started**, which is a
+        fixed fact, not a mutable list two mechanisms both clear.
+        """
+        from fantabot.adapters.files.stopflag import DISARM
+        from fantabot.application.asta_session import stop_poll
+
+        armed = [True]
+        said: list[str] = []
+        keep_going = stop_poll(
+            read_stage=lambda: DISARM, armed=armed, announce=said.append
+        )
+        # The SIGINT handler, firing between the loop starting and the next poll.
+        armed[0] = False
+
+        assert keep_going(0) is True, (
+            "a Ctrl-C and a Stop click are one request: the run disarmed and must keep drawing"
+        )
+        assert keep_going(1) is True, "and the same flag, re-read, is still one request"
 
     def test_one_request_is_honoured_once_however_many_polls_read_it(self) -> None:
         """**The flag stays on disk**, so every poll after a `disarm` reads a `disarm` —
