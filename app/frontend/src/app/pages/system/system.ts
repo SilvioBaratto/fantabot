@@ -59,15 +59,6 @@ export class SystemComponent implements OnInit {
   /** The last failed dump's own words, from the job log. Cleared when a new one starts. */
   readonly dumpError = signal<string | null>(null);
 
-  /**
-   * Whether there is anything to offer.
-   *
-   * A refused target has **no path**, so there is no disabled button beside one: a
-   * greyed-out control next to a filename is a screen claiming a file it will never
-   * write. The template drops the control instead and renders the reason.
-   */
-  readonly canDump = computed(() => !!this.dumpTarget()?.path);
-
   /** `412000000` -> `393 MB`. Binary, because that is what the command prints. */
   readonly dumpSize = computed(() => {
     const bytes = this.dumpTarget()?.size_bytes;
@@ -110,7 +101,11 @@ export class SystemComponent implements OnInit {
    * the last act is to re-read the target rather than to render the last line.
    */
   startDump(): void {
-    if (!this.canDump() || this.dumping()) return;
+    // A refused target has **no path**, so the template renders no button at all rather
+    // than a disabled one beside a filename it will never write. This is the same
+    // refusal at the only other way in — the component is reachable from a future
+    // template, and a POST from here would spawn a child the route then refuses anyway.
+    if (!this.dumpTarget()?.path || this.dumping()) return;
     this.dumping.set(true);
     this.dumpError.set(null);
     this.dumpService

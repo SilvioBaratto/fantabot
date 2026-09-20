@@ -530,4 +530,17 @@ describe('SystemComponent', () => {
     expect(pane.querySelector('a[download]')).toBeNull();
     expect(pane.querySelector('a[href]')).toBeNull();
   });
+
+  it('refuses to start a dump for a refused target, asked directly', async () => {
+    // The template renders no button in this state, so the guard is only reachable from
+    // the component — which is where a future template would reach it from. Without this,
+    // `startDump`'s own check is code no test can fail.
+    const refusal = 'refusing to write the dump onto an external volume: /Volumes/x/f.dump';
+    const fixture = await pageWith({ path: '', refused: refusal, exists: false, size_bytes: null });
+
+    fixture.componentInstance.startDump();
+
+    httpMock.expectNone(`${environment.apiUrl}db/dump`);
+    expect(fixture.componentInstance.dumping()).toBe(false);
+  });
 });
