@@ -766,14 +766,16 @@ def db_unexclude(
 
 
 def _pg_dump_argv(database_url: str) -> list[str]:
-    """`pg_dump` addressing whatever the DSN addresses, in custom format.
+    """`application/db_dump.pg_dump_argv`, under the name this module's tests know it by.
 
-    The driver suffix is stripped because `postgresql+psycopg2://` is SQLAlchemy's
-    spelling and libpq does not know it; everything else — user, password, host, and the
-    `?host=` socket directory the bundled server uses — is a valid libpq connection URI
-    already, so the DSN is handed over whole rather than picked apart into flags.
+    Kept as an alias rather than deleted: `tests/interface/test_cli_db_dump.py` pins the
+    libpq translation against *this* name, and a lift is verified by the command's own
+    tests passing unchanged. Editing them to follow the function would have made the
+    proof circular.
     """
-    return ["pg_dump", "-Fc", database_url.replace("+psycopg2://", "://", 1)]
+    from fantabot.application.db_dump import pg_dump_argv
+
+    return pg_dump_argv(database_url)
 
 
 def db_dump() -> None:
@@ -803,35 +805,33 @@ def db_dump() -> None:
     repeats one already present (measured 2026-09-05: `asta.key` at 20 against a table
     maximum of 5,707). Row counts prove the data arrived, not that it can be written to.
     """
-    import subprocess
     from datetime import UTC, datetime
 
+    from fantabot.application.db_dump import (
+        DumpRefused,
+        PgDumpFailed,
+        PgDumpMissing,
+        dump_target,
+        run_dump,
+    )
     from fantabot.config import settings
 
-    out = Path.home() / f"fantabot-db-{datetime.now(UTC):%Y%m%d}.dump"
-    # The guard the shell script carried: never write the dump onto the repo's own
-    # volume, which is the thing the dump exists to survive the loss of.
-    if str(out.resolve()).startswith("/Volumes/"):
-        console.print(f"[red]refusing to write the dump onto an external volume: {out}[/red]")
-        raise typer.Exit(code=1)
-
-    argv = _pg_dump_argv(settings.fantabot_database_url)
+    # UTC rather than the local date `db scrape` reads: the filename is the only thing
+    # that distinguishes two dumps, and a machine that travels would otherwise write
+    # today's dump over yesterday's.
     try:
-        with out.open("wb") as handle:
-            result = subprocess.run(argv, stdout=handle)
-    except FileNotFoundError:
-        console.print("[red]pg_dump is not on PATH[/red]")
-        console.print(
-            "The bundled server ships one: it lives beside the `postgres` binary in "
-            "pixeltable_pgserver's `pginstall18/bin`."
-        )
+        out = dump_target(Path.home(), datetime.now(UTC).date())
+    except DumpRefused as refused:
+        console.print(f"[red]{refused}[/red]")
         raise typer.Exit(code=1) from None
-    if result.returncode != 0:
-        console.print("[red]pg_dump failed — is the database running?[/red]")
-        console.print("Start it with: [bold]fantabot-app db start[/bold]")
-        raise typer.Exit(code=1)
 
-    console.print(f"wrote {out} ({out.stat().st_size / 1_048_576:.0f} MB)")
+    try:
+        wrote = run_dump(out, settings.fantabot_database_url)
+    except (PgDumpMissing, PgDumpFailed) as failed:
+        console.print(f"[red]{failed}[/red]")
+        raise typer.Exit(code=1) from None
+
+    console.print(f"wrote {wrote.path} ({wrote.size_bytes / 1_048_576:.0f} MB)")
     console.print("[dim]restore: see `fantabot db dump --help`[/dim]")
 
 

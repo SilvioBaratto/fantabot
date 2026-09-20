@@ -138,6 +138,9 @@ TREE: dict[str, str] = {
     # T23: what `db scrape` may be asked for — the three tables, what a season is, and
     # the stale `DEFAULT_SEASONS` that makes an omitted `--season` scrape last season.
     "test_scrape_inputs.py": "application",
+    # T26: where a dump lands, and the refusal that keeps it off this volume. Separate
+    # from `test_cli_db_dump.py`, which is about the CLI's printing of it.
+    "test_db_dump.py": "application",
     "test_lineup_submit.py": "application",
     "test_asta_room_tracker.py": "application",
     "test_asta_copilot_worker.py": "application",
