@@ -38,6 +38,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from fantabot.adapters.files.stopflag import EXIT
 from fantabot.adapters.http.fantalab.listone import is_stale
 from fantabot.adapters.http.fantalab.room import LoopReport, run_bid_loop
 from fantabot.application.arming import Arming, decide_arming
@@ -217,6 +218,54 @@ class AstaSession:
             on_error=failed,
             poll_seconds=poll_seconds,
         )
+
+
+def stop_poll(
+    *,
+    read_stage: Callable[[], str | None],
+    armed: list[bool],
+    announce: Callable[[str], None],
+) -> Callable[[int], bool]:
+    """A `keep_going` that honours the polled two-stage stop. Pure — every effect injected.
+
+    **Why a file and not a signal**: `stopflag.py`'s docstring is the diagnosis. On Windows
+    `CTRL_BREAK_EVENT` reaches a Python child as SIGBREAK and terminates it before
+    `except KeyboardInterrupt` runs, so `ProcessJob._signal` sends nothing there at all and
+    the flag is the *whole* stop. Neither live command ever read one, which for a watch is
+    harmless — the journal flushes per line — and for a bidder is the difference between
+    "stop bidding" and "keep bidding until the grace timer kills you".
+
+    **Two stages, because the gesture has two.** *Disarm* clears the writer's lock and keeps
+    the loop running: the room still draws, which is the reason the gesture is not a
+    boolean — blanking the screen takes the walk-away away at the exact moment the operator
+    has to bid by hand. *Exit* clears it too and ends the loop. There is no stage after
+    *exit*; a caller that wants more escalates by killing the process, which is a different
+    mechanism on purpose.
+
+    **`armed` is the same list `_disarm_on_sigint` clears and the writer reads per bid.** One
+    disarm, two ways to ask for it — a second flag would be a second answer to "is this run
+    armed", and the two would disagree the first time both were used.
+
+    Announced once rather than once a poll: at a 2 s cadence the same line scrolls the
+    heartbeat away inside a minute, and under a supervisor every line is a row in the job log.
+    """
+    said = False
+
+    def keep_going(_cycle: int) -> bool:
+        nonlocal said
+        stage = read_stage()
+        if stage is None:
+            return True
+        armed[0] = False
+        if stage == EXIT:
+            announce("stop requested — leaving")
+            return False
+        if not said:
+            said = True
+            announce("stop requested — disarmed, still watching")
+        return True
+
+    return keep_going
 
 
 def target_of(frame: RoomFrame) -> tuple[str, int] | None:

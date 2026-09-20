@@ -62,6 +62,13 @@ class RoomCheck(BaseModel):
     num_credits: int | None = None
     seat_team_id: str | None = None
     seat_team_name: str | None = None
+    #: **Ours**, from the stored FantaLab session — the uid a bid payload is signed with, and
+    #: the one `resolve_room` matched our chair by. Carried because `POST /asta/room/bid`
+    #: needs it and resolving the room a second time to learn it would be a second resolution
+    #: path with a second set of outcomes. It is not a credential: the bearer is resolved
+    #: inside `rest.fetcher_from` and never enters this module, which is what the header of
+    #: this file promises.
+    seat_user_id: str | None = None
     roster_size: int | None = None
     #: `read from the room` / `assumed — nothing was declared`. Carried beside the
     #: size because a band nobody declared and a band the room stated are different facts,
@@ -134,6 +141,7 @@ def check_room(url: str, *, connect: Connect) -> RoomCheck:
     )
     return RoomCheck(
         outcome="resolved",
+        seat_user_id=user_id,
         fantaleague_id=resolved.fantaleague_id,
         shard=resolved.db,
         asta_type=resolved.asta_type,
@@ -202,25 +210,30 @@ class JobStarted(BaseModel):
 
 
 def watch_flag(fantaleague_id: str) -> Path:
-    """`room-<id>.watch.stop`, beside the journal. One flag per room.
+    """`room-<id>.watch.stop`, beside the journal. One flag per (room, role).
 
     A watch takes no landing-zone role, so `ProcessJob` needs a flag of its own, and
     `stop_path` refuses any role but `collector` and `loader` — rightly: its two are a
-    contract about who may hold a landing zone. Derived from the room rather than fixed,
-    for `stop_path`'s own reason: a flag shared between two rooms would let a stop aimed
-    at either stop the other.
+    contract about who may hold a landing zone. `room_stop_path` is the room's equivalent
+    and carries the same two reasons: per-room, so a stop aimed at one does not reach the
+    other, and per-role, so Stop on a watch does not end a bid on the same room.
 
     Beside the journal because that is the artefact the run is about, the same way a
     harvest flag sits beside its landing zone. `journal_path()` is resolved, so the flag
     does not move when the working directory does.
     """
+    from fantabot.adapters.files.stopflag import room_stop_path
     from fantabot.config import journal_path
 
+    # The derivation is `fantabot`'s since 3.9b, and the child calls the same function with
+    # the same `journal_path()` — one spelling of one fact, rather than a shape the app
+    # restates and the CLI has to agree with by inspection.
+    #
     # Annotated, not returned bare: `fantabot` ships no `py.typed`, so this venv's mypy
     # reads every symbol from it as `Any` — `processes._request_stop`'s reason for the
     # same shape.
-    journal: Path = journal_path()
-    return journal.with_name(f"room-{fantaleague_id}.watch.stop")
+    flag: Path = room_stop_path(journal_path(), fantaleague_id, "watch")
+    return flag
 
 
 @router.post("/asta/room/watch", response_model=JobStarted, tags=["asta"])

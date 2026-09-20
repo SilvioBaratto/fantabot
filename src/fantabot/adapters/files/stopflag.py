@@ -100,6 +100,36 @@ def stop_path(base: Path, role: str) -> Path:
     return base.with_name(f"{base.name}.{role}.stop")
 
 
+#: The two roles a live room can be driven under, kept apart for `stop_path`'s reason: a
+#: watch and a bid are the *intended* pairing on one room — an operator watches, then arms —
+#: and one flag for both would let a stop aimed at either end the other. Separate from
+#: `lock.ROLES`, which is a contract about who may hold a landing zone; a room has none.
+ROOM_ROLES: Final = ("watch", "bid")
+
+
+def room_stop_path(journal: Path, fantaleague_id: str, role: str) -> Path:
+    """`room-<fantaleague_id>.<role>.stop`, beside the journal. One flag per (room, role).
+
+    **The child derives this; nobody tells it.** Not an argv token and not an environment
+    variable — the app and the CLI call this same function with `config.journal_path()`, so
+    there is one spelling of one fact. A `--stop-flag` option would be the second, and the
+    `./data/aste_live` footgun in a new costume: a relative path resolves against whoever
+    launched the process, and a supervisor and its child do not share a working directory by
+    construction.
+
+    Beside the journal because that is the artefact the run is about, the same way a harvest
+    flag sits beside its landing zone — `ls` there should answer "what is happening here".
+    `journal_path()` is already resolved, so the flag does not move when the cwd does.
+
+    `journal` is a parameter rather than a call: this module is polled from the collection
+    path and carries `lock.py`'s rule that nothing here may reach persistence, and
+    `fantabot.config` is a door this file deliberately does not open.
+    """
+    if role not in ROOM_ROLES:
+        raise ValueError(f"{role!r} is not a room role. Use one of: {', '.join(ROOM_ROLES)}")
+    return journal.with_name(f"room-{fantaleague_id}.{role}.stop")
+
+
 def _read(path: Path) -> dict[str, object]:
     """The flag as written, or `{}` for anything that is not a flag.
 

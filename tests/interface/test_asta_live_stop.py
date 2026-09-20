@@ -1,0 +1,163 @@
+"""A live loop that can be stopped by a file, not only by a signal.
+
+The half 3.9a carried forward and 3.7 recorded against the watch: **`asta bid` does not poll
+the cooperative stop flag.** On POSIX the supervisor's first stop is a `SIGINT` and the
+handler `_disarm_on_sigint` installs answers it. On Windows nothing is sent — `stopflag.py`'s
+own docstring is the diagnosis, `CTRL_BREAK_EVENT` reaching a Python child as SIGBREAK and
+killing it before `except KeyboardInterrupt` runs — so a supervised child there can only be
+stopped by the flag, and neither live command ever looked at one. For a watch that is
+harmless: the journal flushes per line. For a bidder it is the difference between "stop
+bidding" and "keep bidding until the grace timer kills you".
+
+**How the child learns its flag path: it derives it, like everything else in this
+repository.** Not an argv token and not an environment variable — `room_stop_path` takes the
+journal path and the room, and the app and the CLI call the same function. The alternative
+was a `--stop-flag` option, which is a second spelling of one fact and the exact shape of the
+`./data/aste_live` footgun: a path that resolves differently depending on who launched the
+process.
+
+**The role is in the name because a watch and a bid can run on one room.** Same reasoning as
+`stop_path`'s collector/loader split — one file for both would let a stop aimed at the watch
+end the bidding.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+from _paths import module_file
+
+ASTA = "fantabot.interface.asta"
+
+
+class TestTheFlagPathIsOneDerivation:
+    def test_it_hangs_off_the_journal_and_names_the_room_and_the_role(
+        self, tmp_path: Path
+    ) -> None:
+        from fantabot.adapters.files.stopflag import room_stop_path
+
+        flag = room_stop_path(tmp_path / "room_journal.jsonl", "4103937", "bid")
+
+        assert flag.parent == tmp_path
+        assert flag.name == "room-4103937.bid.stop"
+
+    def test_a_watch_and_a_bid_on_one_room_do_not_share_it(self, tmp_path: Path) -> None:
+        """The whole reason the role is in the name. A stop aimed at the watch would
+        otherwise end the bidding, and the operator would read it as the room going quiet."""
+        from fantabot.adapters.files.stopflag import room_stop_path
+
+        journal = tmp_path / "room_journal.jsonl"
+
+        assert room_stop_path(journal, "L1", "bid") != room_stop_path(journal, "L1", "watch")
+
+    def test_two_rooms_do_not_share_it_either(self, tmp_path: Path) -> None:
+        from fantabot.adapters.files.stopflag import room_stop_path
+
+        journal = tmp_path / "room_journal.jsonl"
+
+        assert room_stop_path(journal, "L1", "bid") != room_stop_path(journal, "L2", "bid")
+
+    def test_an_unknown_role_is_refused_rather_than_filed_somewhere_new(
+        self, tmp_path: Path
+    ) -> None:
+        """`stop_path`'s rule, and for its reason: a typo that silently creates a third
+        flag is a run nobody can stop, reported as a run that ignores Stop."""
+        from fantabot.adapters.files.stopflag import room_stop_path
+
+        with pytest.raises(ValueError, match=r"watch, bid"):
+            room_stop_path(tmp_path / "room_journal.jsonl", "L1", "collect")
+
+
+class TestTheTwoStagesAreHonoured:
+    """`stop_poll` is the rule, once, for both live commands. Pure — every effect injected."""
+
+    @staticmethod
+    def _poll(stages: list[str | None], armed: list[bool]) -> tuple[list[bool], list[str]]:
+        """One poll per stage, in order. Returns what the loop was told and what was said."""
+        from fantabot.application.asta_session import stop_poll
+
+        said: list[str] = []
+        remaining = list(stages)
+        keep_going = stop_poll(
+            read_stage=lambda: remaining.pop(0), armed=armed, announce=said.append
+        )
+        return [keep_going(cycle) for cycle, _ in enumerate(stages)], said
+
+    def test_no_request_changes_nothing(self) -> None:
+        armed = [True]
+        kept, said = self._poll([None, None, None], armed)
+
+        assert kept == [True, True, True] and armed == [True] and said == []
+
+    def test_the_first_stage_disarms_and_keeps_drawing(self) -> None:
+        """*Disarm* means stop deciding and keep drawing — the whole reason the gesture has
+        two stages. A loop that exited here would take the walk-away off the screen at the
+        exact moment the operator has to bid by hand."""
+        from fantabot.adapters.files.stopflag import DISARM
+
+        armed = [True]
+        kept, said = self._poll([DISARM, None, None], armed)
+
+        assert kept == [True, True, True], "a disarm ended the run"
+        assert armed == [False], "a disarm left the writer armed"
+        assert said, "a disarm said nothing: on screen it is indistinguishable from a quiet room"
+
+    def test_the_second_stage_leaves(self) -> None:
+        from fantabot.adapters.files.stopflag import EXIT
+
+        armed = [True]
+        kept, _ = self._poll([EXIT], armed)
+
+        assert kept == [False] and armed == [False]
+
+    def test_a_run_that_was_never_armed_still_leaves_on_exit(self) -> None:
+        from fantabot.adapters.files.stopflag import EXIT
+
+        armed = [False]
+        kept, _ = self._poll([EXIT], armed)
+
+        assert kept == [False]
+
+    def test_the_disarm_is_announced_once_not_once_a_poll(self) -> None:
+        """At a 2 s poll the same line would scroll the heartbeat away inside a minute, and
+        under a supervisor every line is a row in the job log."""
+        from fantabot.adapters.files.stopflag import DISARM
+
+        _, said = self._poll([DISARM, DISARM, DISARM], armed=[True])
+
+        assert len(said) == 1, said
+
+
+class TestBothLiveCommandsPoll:
+    """Structural, and discovered rather than listed: a third live command is covered the
+    day it is written. The behavioural half is `TestAstaBidStopsOnTheFlag` below — this is
+    what stops the other command quietly losing it again."""
+
+    @staticmethod
+    def _tree() -> ast.Module:
+        return ast.parse(module_file(ASTA).read_text(encoding="utf-8"))
+
+    def _loop_calls(self) -> list[ast.Call]:
+        return [
+            call
+            for call in ast.walk(self._tree())
+            if isinstance(call, ast.Call)
+            and any(keyword.arg == "poll_seconds" for keyword in call.keywords)
+        ]
+
+    def test_the_discovery_finds_both(self) -> None:
+        assert len(self._loop_calls()) == 2
+
+    def test_every_loop_keeps_going_by_asking_the_flag(self) -> None:
+        for call in self._loop_calls():
+            [keep_going] = [k.value for k in call.keywords if k.arg == "keep_going"]
+            assert (
+                isinstance(keep_going, ast.Call)
+                and isinstance(keep_going.func, ast.Name)
+                and keep_going.func.id == "stop_poll"
+            ), (
+                f"a live loop runs until `{ast.unparse(keep_going)}`, so a supervised child "
+                "on Windows — where no signal is sent — cannot be stopped short of the kill"
+            )

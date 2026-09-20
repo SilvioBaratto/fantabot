@@ -552,6 +552,12 @@ def asta_room(
     import time
 
     from fantabot.adapters.files.room_journal import RoomJournal
+    from fantabot.adapters.files.stopflag import (
+        clear_stop,
+        clear_unless_precleared,
+        read_stop,
+        room_stop_path,
+    )
     from fantabot.adapters.http.fantalab import feed, listone, rest, room, rtdb
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
@@ -562,7 +568,12 @@ def asta_room(
         RoomRefused,
         resolve_room,
     )
-    from fantabot.application.asta_session import STALE_BRIDGE, room_arming, session_for
+    from fantabot.application.asta_session import (
+        STALE_BRIDGE,
+        room_arming,
+        session_for,
+        stop_poll,
+    )
     from fantabot.config import journal_path, live_auto_act, settings
     from fantabot.domain.asta.bid import max_bid
     from fantabot.domain.asta.live import InvitationLink, parse_room_url
@@ -730,6 +741,13 @@ def asta_room(
         journal=_timed_journal,
     )
 
+    # The cooperative stop, derived rather than told — `room_stop_path`'s own note. A
+    # supervised run on Windows gets no signal at all, so this file is the whole of how the
+    # app asks a live command to stop; a terminal run has no supervisor and clears its own
+    # leftovers, which is what `clear_unless_precleared` is deciding between.
+    stop_flag = room_stop_path(journal_path(), resolved.fantaleague_id, "watch")
+    clear_unless_precleared(stop_flag)
+
     #: The last painted screen, so `on_error` can redraw it under a banner. One slot, not a
     #: log: a renderable per poll for three hours is held by a process that must not die
     #: mid-auction. The frame buffer the budget and cap guards read is `AstaSession.run`'s —
@@ -828,12 +846,23 @@ def asta_room(
                 # poll on they read the frame.
                 fallback_budget=int(credits),
                 fallback_cap=max_bid(int(credits), rules.size),
+                # The other half of the two-stage gesture: Ctrl-C from the keyboard,
+                # the flag from a supervisor that has no keyboard to press.
+                keep_going=stop_poll(
+                    read_stage=lambda: read_stop(stop_flag),
+                    armed=armed,
+                    announce=console.print,
+                ),
                 poll_seconds=poll,
             )
 
         if worker is not None:
             worker.stop()
         journal.close()
+        # Left clean for the next run: a flag holding `exit` past the run it was written
+        # for makes the *next* run's first click an exit, landing the old gesture's second
+        # stage on a process that never saw its first.
+        clear_stop(stop_flag)
     _report_stopped(report)
 
 
@@ -960,6 +989,12 @@ def asta_bid(
     import time
 
     from fantabot.adapters.files.room_journal import RoomJournal
+    from fantabot.adapters.files.stopflag import (
+        clear_stop,
+        clear_unless_precleared,
+        read_stop,
+        room_stop_path,
+    )
 
     if fmt not in ("mantra", "classic"):
         raise typer.BadParameter("--format must be 'mantra' or 'classic'")
@@ -974,7 +1009,7 @@ def asta_bid(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.application.asta_room import RoomFrame
-    from fantabot.application.asta_session import session_from
+    from fantabot.application.asta_session import session_from, stop_poll
     from fantabot.config import journal_path, live_auto_act
     from fantabot.domain.asta.bid import Seat, max_bid
 
@@ -1134,6 +1169,14 @@ def asta_bid(
         journal=_timed_journal,
     )
 
+    # The cooperative stop, derived rather than told. **This is the half 3.9a carried and
+    # 3.7 recorded**: on Windows `ProcessJob._signal` sends nothing, so a supervised
+    # `asta bid` that did not poll a flag could only be stopped by the grace timer's kill —
+    # on the one command that spends credits. `"bid"` and not `"watch"`: a stop aimed at a
+    # watch on the same room must not end the bidding.
+    stop_flag = room_stop_path(journal_path(), league, "bid")
+    clear_unless_precleared(stop_flag)
+
     # The paint, and only the paint. The fold, the `latest` buffer, the two trouble rows and
     # the loop itself are the session's — this command used to carry its own copy of all four,
     # and `CLAUDE.md` records where that leads twice over: the copy that falls behind is the
@@ -1171,9 +1214,18 @@ def asta_bid(
             on_heartbeat=console.print,
             fallback_budget=int(budget),
             fallback_cap=max_bid(int(budget), room_rules.size),
+            # Ctrl-C is the keyboard's half of the two-stage gesture; this is a
+            # supervisor's, which has no keyboard to press.
+            keep_going=stop_poll(
+                read_stage=lambda: read_stop(stop_flag),
+                armed=armed,
+                announce=console.print,
+            ),
             poll_seconds=poll,
         )
     journal.close()
+    # Left clean for the next run — see `asta_room`'s identical line.
+    clear_stop(stop_flag)
     _report_stopped(report)
 
 

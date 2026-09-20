@@ -157,6 +157,51 @@ def test_the_boundary_names_the_functions_that_actually_act() -> None:
     )
 
 
+def test_no_app_module_reaches_the_cap() -> None:
+    """**The MAX cap stays the last line of defence, unweakened and unwrapped.**
+
+    Nothing on the platform enforces it: `docs/fantalab/01:142` calls it client-enforced and
+    `06:389-412` shows the RTDB rules validating only that a raise exceeds the current price
+    and names the right lot. It is the only thing between a "pay anything" walk-away and a
+    rosa that cannot be fielded, and `reservations` really does return the whole remaining
+    budget for a target whose removal makes the roster infeasible.
+
+    So the app may not compute one — not to raise it, not to default it, and not to wrap it
+    in a route's own ceiling. The child computes it from the room's band and applies it
+    inside the loop, where this package has no seam to reach it.
+
+    **Read as syntax, not as text, and it earned that on its first run.** A substring scan
+    for `max_cap` hit two innocents immediately: this rule written down in
+    `room_bid.py`'s own docstring, and `asta.py`'s `JournalRow.max_cap` — the *recorded*
+    number a viewer renders, which is the cap being reported, not applied. That is the exact
+    failure 3.11 is about: a scan that cannot tell a call from a sentence about a call, or
+    from a field that happens to share its name. An import is banned alongside the call
+    because a name bound but not yet used is the commit before the one that uses it.
+    """
+    acting = {"max_cap", "max_bid"}
+    offenders: list[tuple[str, str]] = []
+    for py in _source_files(under=_package_root()):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        where = str(py.relative_to(_package_root()))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = (
+                    func.id if isinstance(func, ast.Name)
+                    else func.attr if isinstance(func, ast.Attribute)
+                    else None
+                )
+                if name in acting:
+                    offenders.append((where, f"calls {name}()"))
+            elif isinstance(node, ast.ImportFrom):
+                offenders += [
+                    (where, f"imports {alias.name}")
+                    for alias in node.names
+                    if alias.name in acting
+                ]
+    assert offenders == [], f"the app computes a cap of its own: {offenders}"
+
+
 def test_every_get_server_call_states_the_cleanup_mode() -> None:
     """The bundled server's lifetime is explicit, and pgserver's default is not.
 
