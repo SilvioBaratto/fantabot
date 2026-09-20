@@ -209,6 +209,93 @@ class TestTheTwoStagesAreHonoured:
         assert len(said) == 1, said
 
 
+class TestTheFlagHoldsARaiseAlreadyInFlight:
+    """The gate runs at the **top** of a cycle; the raise happens later in the same one.
+
+    On POSIX that gap is covered by accident: `ProcessJob.stop` sends a `SIGINT` too, and the
+    handler clears `armed[0]` the moment it lands. On Windows nothing is sent, so the flag is
+    the whole stop — and a stop written just after `keep_going` returned True was honoured
+    only at the *next* cycle. That is not milliseconds: the per-cycle re-plan stalls up to
+    72 s at a lot change, and §12's second criterion is that a stop works the same on both.
+
+    So the writer asks the flag as well, at write time. One `stat` per bid, and bids are rare.
+    """
+
+    @staticmethod
+    def _writer(stage: str | None, *, armed: bool) -> object:
+        from fantabot.interface.asta import bid_writer
+
+        sent: list[int] = []
+        write = bid_writer(
+            auto_act=True,
+            arm=armed and stage is None,
+            send=lambda payload: sent.append(int(payload["price"])),
+        )
+        write({"price": 7})
+        return sent
+
+    def test_an_armed_run_with_no_request_still_bids(self) -> None:
+        assert self._writer(None, armed=True) == [7]
+
+    def test_a_disarm_written_mid_cycle_holds_the_raise(self) -> None:
+        from fantabot.adapters.files.stopflag import DISARM
+
+        assert self._writer(DISARM, armed=True) == []
+
+    def test_and_so_does_an_exit(self) -> None:
+        from fantabot.adapters.files.stopflag import EXIT
+
+        assert self._writer(EXIT, armed=True) == []
+
+
+class TestTheCleanupSurvivesTheLoopDying:
+    """Structural: the three cleanup calls are in a `finally`, on both commands.
+
+    They ran on the happy path only. Anything escaping `run` — a `KeyboardInterrupt` landing
+    inside `keep_going`, which is evaluated *outside* `run_bid_loop`'s own try — leaked the
+    journal handle, left the copilot thread alive, and left the flag holding `exit` for the
+    next run to read as its operator's second click. The last of those is the one that
+    matters: `request_stop` escalates from whatever is on disk.
+
+    Read from the syntax tree because driving it would need a live room and a real signal;
+    what is asserted is which block the calls are in, which an AST can see exactly.
+    """
+
+    @staticmethod
+    def _bodies() -> dict[str, ast.FunctionDef]:
+        tree = ast.parse(module_file(ASTA).read_text(encoding="utf-8"))
+        return {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in ("asta_room", "asta_bid")
+        }
+
+    @pytest.mark.parametrize("command", ["asta_room", "asta_bid"])
+    @pytest.mark.parametrize("call", ["close", "clear_stop"])
+    def test_the_cleanup_is_in_a_finally(self, command: str, call: str) -> None:
+        fn = self._bodies()[command]
+        finallys = [
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Try) and node.finalbody
+        ]
+        cleaned = [
+            node
+            for block in finallys
+            for statement in block.finalbody
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call)
+            and (
+                (isinstance(node.func, ast.Name) and node.func.id == call)
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == call)
+            )
+        ]
+        assert cleaned, (
+            f"{command} calls `{call}` outside a `finally`: a loop that raises leaks the "
+            "journal and leaves the stop flag holding whatever the last request wrote"
+        )
+
+
 class TestBothLiveCommandsPoll:
     """Structural, and discovered rather than listed: a third live command is covered the
     day it is written. The behavioural half is `TestAstaBidStopsOnTheFlag` below — this is
@@ -228,6 +315,17 @@ class TestBothLiveCommandsPoll:
 
     def test_the_discovery_finds_both(self) -> None:
         assert len(self._loop_calls()) == 2
+
+    def test_every_writer_asks_the_flag_as_well_as_the_armed_list(self) -> None:
+        """The structural half of the class above. `armed[0]` alone is a decision taken at
+        the top of the cycle; the flag is what can have changed since."""
+        for call in self._loop_calls():
+            [write] = [k.value for k in call.keywords if k.arg == "write"]
+            text = ast.unparse(write)
+            assert "read_stop" in text and "armed[0]" in text, (
+                f"a live writer arms on `{text[:90]}` — a stop written mid-cycle is honoured "
+                "only at the next one, which on Windows is the whole stop"
+            )
 
     def test_every_loop_keeps_going_by_asking_the_flag(self) -> None:
         for call in self._loop_calls():

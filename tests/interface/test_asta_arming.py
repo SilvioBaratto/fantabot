@@ -414,8 +414,22 @@ def test_every_live_command_can_be_disarmed(command: str) -> None:
         for k in n.keywords
         if k.arg == "arm"
     ]
-    assert (
-        isinstance(arm, ast.Subscript)
-        and isinstance(arm.value, ast.Name)
-        and arm.value.id == "armed"
-    ), f"{command}'s writer reads `{ast.unparse(arm)}` — only `armed[0]` is what a Ctrl-C clears"
+    # **Contains `armed[0]`, rather than *is* it.** The property under test is that a Ctrl-C
+    # reaches the writer, and `armed[0]` is the only thing a Ctrl-C clears — so it has to be
+    # read here. Since the stop flag became the whole stop on Windows the expression is
+    # `armed[0] and read_stop(stop_flag) is None`, which reads the list *and* what can have
+    # changed since the top of the cycle. An equality assertion would have forbidden the
+    # stronger condition, which is a test written against a shape rather than a claim.
+    reads_armed = [
+        node
+        for node in ast.walk(arm)
+        if isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "armed"
+    ]
+    assert reads_armed, (
+        f"{command}'s writer reads `{ast.unparse(arm)}` — only `armed[0]` is what a Ctrl-C clears"
+    )
+    assert not isinstance(arm, ast.Constant), (
+        f"{command}'s writer arms on the constant `{ast.unparse(arm)}`"
+    )

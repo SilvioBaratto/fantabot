@@ -839,45 +839,53 @@ def asta_room(
     # its restore was the line after the loop rather than a `finally`. Entered here rather
     # than before the copilot starts: nothing between the two blocks or reads the network.
     # The cleanup stays inside, so a Ctrl-C during `worker.stop()` is still the handler's.
-    with _disarm_on_sigint(armed):
-        with Live(console=console, screen=True, refresh_per_second=4) as live:
-            report = room_session.run(
-                # A callable: `LotRouter.node` is rewritten by every read, and a raise must
-                # go back to the node its own lot came from.
-                node=lambda: router.node,
-                read=_timed_read,
-                # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
-                # writer captured at loop start would keep bidding after the operator disarmed.
-                write=lambda payload: bid_writer(
-                    auto_act=live_auto_act(),
-                    arm=armed[0],
-                    send=router.write_raise,
-                    node=router.node,
-                )(payload),
-                now=lambda: int(time.time() * 1000),
-                sleep=time.sleep,
-                on_frame=paint,
-                on_error=on_error,
-                # Only what the guards read before the first frame exists; from the first
-                # poll on they read the frame.
-                fallback_budget=int(credits),
-                fallback_cap=max_bid(int(credits), rules.size),
-                # The other half of the two-stage gesture: Ctrl-C from the keyboard,
-                # the flag from a supervisor that has no keyboard to press.
-                keep_going=stop_poll(
-                    read_stage=lambda: read_stop(stop_flag),
-                    armed=armed,
-                    announce=console.print,
-                ),
-                poll_seconds=poll,
-            )
+    try:
+        with _disarm_on_sigint(armed), Live(console=console, screen=True, refresh_per_second=4) as live:
+                report = room_session.run(
+                    # A callable: `LotRouter.node` is rewritten by every read, and a raise must
+                    # go back to the node its own lot came from.
+                    node=lambda: router.node,
+                    read=_timed_read,
+                    # Bound per call, not once: `armed[0]` is what the first Ctrl-C clears, and a
+                    # writer captured at loop start would keep bidding after the operator disarmed.
+                    write=lambda payload: bid_writer(
+                        auto_act=live_auto_act(),
+                        # `armed[0]` **and** the flag. The first is a decision taken at the top
+                        # of this cycle; the second is what can have changed since — and on Windows
+                        # it is the whole stop, because `ProcessJob._signal` sends nothing there. A
+                        # stop written just after `keep_going` returned True was otherwise honoured
+                        # only at the next cycle, which at a lot change is up to 72 s away.
+                        arm=armed[0] and read_stop(stop_flag) is None,
+                        send=router.write_raise,
+                        node=router.node,
+                    )(payload),
+                    now=lambda: int(time.time() * 1000),
+                    sleep=time.sleep,
+                    on_frame=paint,
+                    on_error=on_error,
+                    # Only what the guards read before the first frame exists; from the first
+                    # poll on they read the frame.
+                    fallback_budget=int(credits),
+                    fallback_cap=max_bid(int(credits), rules.size),
+                    # The other half of the two-stage gesture: Ctrl-C from the keyboard,
+                    # the flag from a supervisor that has no keyboard to press.
+                    keep_going=stop_poll(
+                        read_stage=lambda: read_stop(stop_flag),
+                        armed=armed,
+                        announce=console.print,
+                    ),
+                    poll_seconds=poll,
+                )
 
+    finally:
+        # **In a `finally`, because these three ran only on the happy path.** Anything
+        # escaping `run` — a `KeyboardInterrupt` landing inside `keep_going`, which is
+        # evaluated *outside* `run_bid_loop`'s own try — leaked the journal handle, left the
+        # copilot thread alive, and left the flag holding `exit` for the next run to read as
+        # its operator's second click.
         if worker is not None:
             worker.stop()
         journal.close()
-        # Left clean for the next run: a flag holding `exit` past the run it was written
-        # for makes the *next* run's first click an exit, landing the old gesture's second
-        # stage on a process that never saw its first.
         clear_stop(stop_flag)
     _report_stopped(report)
 
@@ -1211,42 +1219,50 @@ def asta_bid(
         printed, so a failed poll left a line that scrolled away and no record."""
         console.print(f"[red]{type(exc).__name__}: {exc} ({consecutive} in a row)[/red]")
 
-    with _disarm_on_sigint(armed):
-        report = bid_session.run(
-            node=lambda: router.node,
-            read=_timed_read,
-            # Bound per call for the same reason as the live room above: the ambient lock is
-            # re-read on every write, so editing `.env` mid-evening disarms this loop too.
-            # `armed[0]`, not `arm`: read per bid, so the first Ctrl-C holds the very next raise.
-            write=lambda payload: bid_writer(
-                auto_act=live_auto_act(),
-                arm=armed[0],
-                send=router.write_raise,
-                # The node the lot came from, as `asta room` has always passed. Without it a
-                # dry-run `BidOutcome` for an ASSEGNA lot is recorded as `auction` — forensic
-                # only, and the two live commands should not differ about what they would
-                # have done.
-                node=router.node,
-            )(payload),
-            now=lambda: int(time.time() * 1000),
-            sleep=time.sleep,
-            on_frame=on_frame,
-            on_error=on_error,
-            on_heartbeat=console.print,
-            fallback_budget=int(budget),
-            fallback_cap=max_bid(int(budget), room_rules.size),
-            # Ctrl-C is the keyboard's half of the two-stage gesture; this is a
-            # supervisor's, which has no keyboard to press.
-            keep_going=stop_poll(
-                read_stage=lambda: read_stop(stop_flag),
-                armed=armed,
-                announce=console.print,
-            ),
-            poll_seconds=poll,
-        )
-    journal.close()
-    # Left clean for the next run — see `asta_room`'s identical line.
-    clear_stop(stop_flag)
+    try:
+        with _disarm_on_sigint(armed):
+            report = bid_session.run(
+                node=lambda: router.node,
+                read=_timed_read,
+                # Bound per call for the same reason as the live room above: the ambient lock is
+                # re-read on every write, so editing `.env` mid-evening disarms this loop too.
+                # `armed[0]`, not `arm`: read per bid, so the first Ctrl-C holds the very next raise.
+                write=lambda payload: bid_writer(
+                    auto_act=live_auto_act(),
+                    # `armed[0]` **and** the flag. The first is a decision taken at the top
+                    # of this cycle; the second is what can have changed since — and on Windows
+                    # it is the whole stop, because `ProcessJob._signal` sends nothing there. A
+                    # stop written just after `keep_going` returned True was otherwise honoured
+                    # only at the next cycle, which at a lot change is up to 72 s away.
+                    arm=armed[0] and read_stop(stop_flag) is None,
+                    send=router.write_raise,
+                    # The node the lot came from, as `asta room` has always passed. Without it a
+                    # dry-run `BidOutcome` for an ASSEGNA lot is recorded as `auction` — forensic
+                    # only, and the two live commands should not differ about what they would
+                    # have done.
+                    node=router.node,
+                )(payload),
+                now=lambda: int(time.time() * 1000),
+                sleep=time.sleep,
+                on_frame=on_frame,
+                on_error=on_error,
+                on_heartbeat=console.print,
+                fallback_budget=int(budget),
+                fallback_cap=max_bid(int(budget), room_rules.size),
+                # Ctrl-C is the keyboard's half of the two-stage gesture; this is a
+                # supervisor's, which has no keyboard to press.
+                keep_going=stop_poll(
+                    read_stage=lambda: read_stop(stop_flag),
+                    armed=armed,
+                    announce=console.print,
+                ),
+                poll_seconds=poll,
+            )
+    finally:
+        # See `asta_room`'s identical block: on the happy path only, a `KeyboardInterrupt`
+        # from inside `keep_going` leaked the journal and left the flag holding `exit`.
+        journal.close()
+        clear_stop(stop_flag)
     _report_stopped(report)
 
 
