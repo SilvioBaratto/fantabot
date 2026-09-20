@@ -164,7 +164,7 @@ def test_the_bridge_is_fetched_here_because_the_two_event_sources_differ(
 
 
 class TestTheDeclaredFormatProbe:
-    """`_declared_format` — the authenticated rung, and the one that must never be fatal.
+    """`_declared_room` — the authenticated rung, and the one that must never be fatal.
 
     It is a *seam*, taking `_fetch`, for the reason `_callable_ids` is one: a test that
     reached the real path would need a database session and a FantaLab bearer, and one that
@@ -175,9 +175,11 @@ class TestTheDeclaredFormatProbe:
 
     @staticmethod
     def _probe(**kw: object) -> object:
-        from fantabot.interface.asta import _declared_format
+        """The room's `asta_type`, via the probe — the field these tests are about."""
+        from fantabot.interface.asta import _declared_room
 
-        return _declared_format("123", **kw)  # type: ignore[arg-type]
+        room = _declared_room("123", **kw)  # type: ignore[arg-type]
+        return None if room is None else room.asta_type
 
     def test_it_returns_what_the_room_declares(self) -> None:
         from types import SimpleNamespace
@@ -233,15 +235,15 @@ class TestTheDeclaredFormatProbe:
         """"No FantaLab session" and "FantaLab is unreachable" send an operator to different
         fixes, and the rung below answers for a different population of rooms."""
         from fantabot.domain.tokens.errors import FantalabSessionMissing
-        from fantabot.interface.asta import _declared_format
+        from fantabot.interface.asta import _declared_room
 
         said: list[str] = []
 
         def _no_session(_id: str) -> object:
             raise FantalabSessionMissing()
 
-        assert _declared_format("123", warn=said.append, _fetch=_no_session) is None
-        assert said and "format" in said[0]
+        assert _declared_room("123", warn=said.append, _fetch=_no_session) is None
+        assert said and "the room could not be asked" in said[0]
 
     def test_a_silent_probe_is_the_default(self) -> None:
         """`warn` defaults to a sink, so a caller that has nowhere to print is not forced
@@ -254,6 +256,59 @@ class TestTheDeclaredFormatProbe:
         assert self._probe(_fetch=_no_session) is None
 
 
+def _run_league(
+    monkeypatch: pytest.MonkeyPatch,
+    *args: str,
+    declared: str | None = None,
+    recorded: str | None = None,
+    room_teams: int | None = None,
+    room_credits: int | None = None,
+    build: Any = None,
+) -> dict[str, Any]:
+    """Drive `--league` with both probes faked. Opens no socket and no database."""
+    import contextlib
+
+    import fantabot.interface.asta as cli
+    from fantabot.adapters.http.fantalab import listone
+    from fantabot.interface.app import app
+
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(listone, "fetch", lambda **_k: {"uuid-1": 7})
+    monkeypatch.setattr(cli, "normalize", lambda _rows: [])
+
+    def fake_build(_session: object, request: Any, **_kw: Any) -> Any:
+        seen["request"] = request
+        raise typer.Exit(0)
+
+    import fantabot.application.asta_advisory as advisory
+
+    monkeypatch.setattr(advisory, "build_advisory", build or fake_build)
+    from types import SimpleNamespace
+
+    room = (
+        None
+        if declared is None and room_teams is None and room_credits is None
+        else SimpleNamespace(
+            asta_type=declared, num_teams=room_teams, num_credits=room_credits
+        )
+    )
+    monkeypatch.setattr(cli, "_declared_room", lambda _id, **_kw: room)
+    monkeypatch.setattr(cli, "_recorded_format", lambda _id: recorded)
+    monkeypatch.setattr(
+        "fantabot.adapters.http.fantalab.feed.ledger_events", lambda _db, _lg: iter(())
+    )
+    monkeypatch.setattr(
+        "fantabot.adapters.persistence.database_manager.get_session",
+        lambda: contextlib.nullcontext(object()),
+    )
+
+    seen["result"] = CliRunner().invoke(
+        app, ["asta", "live", "--league", "999", "--db", "3", "--team", "US", *args]
+    )
+    return seen
+
+
 class TestTheLeagueFormatIsDetected:
     """`asta live --league` took `--format`'s `mantra` default and never asked the room.
 
@@ -264,61 +319,21 @@ class TestTheLeagueFormatIsDetected:
     guessing — and the guess is invisible: exit 0, a full advisory, the wrong game.
     """
 
-    @staticmethod
-    def _run(
-        monkeypatch: pytest.MonkeyPatch,
-        *args: str,
-        declared: str | None = None,
-        recorded: str | None = None,
-    ) -> dict[str, Any]:
-        """Drive `--league` with both probes faked. Opens no socket and no database."""
-        import contextlib
-
-        import fantabot.interface.asta as cli
-        from fantabot.adapters.http.fantalab import listone
-        from fantabot.interface.app import app
-
-        seen: dict[str, Any] = {}
-
-        monkeypatch.setattr(listone, "fetch", lambda **_k: {"uuid-1": 7})
-        monkeypatch.setattr(cli, "normalize", lambda _rows: [])
-
-        def fake_build(_session: object, request: Any, **_kw: Any) -> Any:
-            seen["request"] = request
-            raise typer.Exit(0)
-
-        import fantabot.application.asta_advisory as advisory
-
-        monkeypatch.setattr(advisory, "build_advisory", fake_build)
-        monkeypatch.setattr(cli, "_declared_format", lambda _id, **_kw: declared)
-        monkeypatch.setattr(cli, "_recorded_format", lambda _id: recorded)
-        monkeypatch.setattr(
-            "fantabot.adapters.http.fantalab.feed.ledger_events", lambda _db, _lg: iter(())
-        )
-        monkeypatch.setattr(
-            "fantabot.adapters.persistence.database_manager.get_session",
-            lambda: contextlib.nullcontext(object()),
-        )
-
-        seen["result"] = CliRunner().invoke(
-            app, ["asta", "live", "--league", "999", "--db", "3", "--team", "US", *args]
-        )
-        return seen
 
     def test_the_room_decides_the_listone(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen = self._run(monkeypatch, declared="classic")
+        seen = _run_league(monkeypatch, declared="classic")
 
         assert seen["request"].listone == "classic", seen["result"].output
 
     def test_the_corpus_answers_when_the_room_will_not(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        seen = self._run(monkeypatch, declared=None, recorded="classic")
+        seen = _run_league(monkeypatch, declared=None, recorded="classic")
 
         assert seen["request"].listone == "classic", seen["result"].output
 
     def test_what_the_operator_typed_still_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen = self._run(monkeypatch, "--format", "mantra", declared="classic")
+        seen = _run_league(monkeypatch, "--format", "mantra", declared="classic")
 
         assert seen["request"].listone == "mantra"
         assert "--format" in seen["result"].output
@@ -327,7 +342,7 @@ class TestTheLeagueFormatIsDetected:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The defect itself. This used to be exit 0 and a Mantra-priced advisory."""
-        seen = self._run(monkeypatch, declared=None, recorded=None)
+        seen = _run_league(monkeypatch, declared=None, recorded=None)
 
         assert seen["result"].exit_code != 0
         assert "--format" in seen["result"].output
@@ -335,6 +350,90 @@ class TestTheLeagueFormatIsDetected:
 
     def test_the_provenance_is_printed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A format the room just stated and one harvested weeks ago are different facts."""
-        seen = self._run(monkeypatch, declared=None, recorded="classic")
+        seen = _run_league(monkeypatch, declared=None, recorded="classic")
 
         assert "corpus" in seen["result"].output.lower()
+
+
+class TestTheCorpusShapeIsReadFromTheRoomToo:
+    """`--teams`/`--credits` name the recorded cell to average prices from, and they sat at
+    8x500 on `--league` while the same `RoomConfig` that answered the format carried
+    `num_teams`/`num_credits`.
+
+    It does not fail loudly: 8x500 is the corpus's biggest cell, so a 10x650 room falls
+    back onto one that exists and is full, and is priced against somebody else's league
+    with nothing raised. `NoCorpus` only catches a cell nobody ever recorded.
+
+    Typer cannot tell a typed `8` from a defaulted one, which is why both options are
+    `int | None` here and stay plain `int` on the four commands with no room to ask.
+    """
+
+    def test_the_room_decides_the_cell(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen = _run_league(monkeypatch, declared="classic", room_teams=10, room_credits=650)
+
+        assert (seen["request"].num_teams, seen["request"].num_credits) == (10, 650)
+
+    def test_what_the_operator_typed_still_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen = _run_league(
+            monkeypatch, "--teams", "8", declared="classic", room_teams=10, room_credits=650
+        )
+
+        assert seen["request"].num_teams == 8
+        assert seen["request"].num_credits == 650, "the half nobody typed still comes from the room"
+        assert "--teams" in seen["result"].output
+
+    def test_a_room_that_states_nothing_falls_back_and_says_so(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = _run_league(monkeypatch, declared="classic")
+
+        assert (seen["request"].num_teams, seen["request"].num_credits) == (8, 500)
+        assert "assumed" in seen["result"].output
+
+    def test_the_budget_follows_the_rooms_credits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Our starting credits in a 10x650 room are 650. `asta room` already reads the
+        room for this; `asta live` had 500 hard-defaulted beside a room that said 650."""
+        seen = _run_league(monkeypatch, declared="classic", room_teams=10, room_credits=650)
+
+        assert seen["request"].budget == 650.0
+
+    def test_a_stated_budget_is_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen = _run_league(
+            monkeypatch, "--budget", "400", declared="classic", room_teams=10, room_credits=650
+        )
+
+        assert seen["request"].budget == 400.0
+
+    def test_a_shape_the_corpus_never_recorded_is_refused_by_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`NoCorpus` is newly reachable here, and that is the point rather than a cost.
+
+        Before the room was asked, this path always ran at 8x500 — the corpus's biggest
+        cell, always full — so the refusal could not fire and a 10x650 room was priced off
+        somebody else's league in silence. Now it can fire, and an uncaught `LookupError`
+        would print a traceback where every other refusal on this command prints a line.
+
+        The message has to name the two flags, because the operator's next move is to pick
+        a shape the corpus holds — which `NoCorpus` already lists.
+        """
+        from fantabot.domain.asta.prices import NoCorpus
+
+        def _refuse(_session: object, _request: Any, **_kw: Any) -> Any:
+            raise NoCorpus("10x650 classic", ["8x500 classic", "8x500 mantra"])
+
+        seen = _run_league(
+            monkeypatch,
+            declared="classic",
+            room_teams=10,
+            room_credits=650,
+            build=_refuse,
+        )
+        out = seen["result"].output
+
+        assert seen["result"].exit_code == 1, out
+        assert "10x650" in out and "8x500 classic" in out
+        assert "--teams" in out and "--credits" in out
+        assert "Traceback" not in out

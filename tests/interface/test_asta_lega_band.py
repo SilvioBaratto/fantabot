@@ -286,6 +286,84 @@ class TestNoLiveCommandDefaultsTheFormatAtTheRead:
         )
 
 
+class TestNoWorldReadCoercesTheCorpusShape:
+    """The shape half of `test_none_of_them_falls_back_with_an_or`, which covered `listone`.
+
+    `asta room` was passing `num_teams=resolved.num_teams or 8` and
+    `num_credits=int(resolved.num_credits or 500)` while its own header printed
+    `resolved.num_teams` raw — so a room that stated neither printed *"None teams x None
+    credits"* and was then priced 8x500. The plan and the line above it disagreed, on the
+    command that spends credits.
+
+    It is the same shape as the `or "mantra"` removed from `listone` in `8cbd3ba`, and the
+    same argument: a coercion at the call site turns an unanswered question into an answer
+    before anything downstream can see that nobody asked. `choose_shape` answers it in one
+    place, with a provenance the header can print.
+    """
+
+    @staticmethod
+    def _shape_args() -> dict[str, list[str]]:
+        import ast as _ast
+
+        from _paths import module_file
+
+        tree = _ast.parse(module_file("fantabot.interface.asta").read_text(encoding="utf-8"))
+        found: dict[str, list[str]] = {}
+        for fn in (n for n in tree.body if isinstance(n, _ast.FunctionDef)):
+            for node in _ast.walk(fn):
+                if not (
+                    isinstance(node, _ast.Call)
+                    and getattr(node.func, "id", getattr(node.func, "attr", None))
+                    in ("read_plan_inputs", "build_plan_inputs")
+                ):
+                    continue
+                found.setdefault(fn.name, []).extend(
+                    _ast.unparse(k.value)
+                    for k in node.keywords
+                    if k.arg in ("num_teams", "num_credits")
+                )
+        return found
+
+    def test_the_scan_finds_the_reads_it_is_about(self) -> None:
+        """A scan over nothing passes for ever.
+
+        `asta_bench` states neither and is the known omission, exactly as it is for
+        `listone` above: it replays a recorded corpus as developer machinery and takes
+        `PlanRequest`'s own 8x500. Named here so a *second* omission is not read as this
+        one.
+        """
+        found = self._shape_args()
+
+        assert set(found) == {"asta_room", "asta_bid", "asta_calibrate", "asta_bench"}
+        assert {c for c, args in found.items() if not args} == {"asta_bench"}, found
+        assert all(len(args) == 2 for c, args in found.items() if c != "asta_bench"), found
+
+    def test_none_of_them_coerces_a_missing_number(self) -> None:
+        """The `or` is looked for **anywhere in the expression**, not only at its top.
+
+        `int(resolved.num_credits or 500)` is a `Call`, so a check that asked
+        `isinstance(node, BoolOp)` of the argument itself would have passed it — and that
+        was half the defect. This is the shape of "a test that cannot fail" the repo has a
+        written record of shipping.
+        """
+        import ast as _ast
+
+        offenders = {
+            command: [
+                a
+                for a in args
+                if any(isinstance(n, _ast.BoolOp) for n in _ast.walk(_ast.parse(a)))
+            ]
+            for command, args in self._shape_args().items()
+        }
+        offenders = {k: v for k, v in offenders.items() if v}
+
+        assert offenders == {}, (
+            f"a world read defaults its own corpus shape: {offenders}. An `or` here answers "
+            "a question the room never did, and the header above it prints the raw value."
+        )
+
+
 class TestTheCalibrationSweepsOneCorpus:
     """`asta calibrate` grades a corpus against prices read from a corpus. Both must be the
     **same** corpus, and the format is half of what identifies one.

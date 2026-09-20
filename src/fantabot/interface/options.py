@@ -168,6 +168,39 @@ CorpusCredits = Annotated[
 ]
 
 
+#: The same two options for a command that can **ask** — `asta live --league` names a
+#: FantaLab room whose `RoomConfig` states its own `num_teams`/`num_credits`.
+#:
+#: `int | None`, and the `None` is the whole point: Typer hands a body the default and a
+#: typed value indistinguishably, so with `int` there is no way to tell `--teams 8` from a
+#: run that said nothing — and "said nothing" is what has to defer to the room. The four
+#: commands with no room to ask keep the plain `int` above; a sentinel they could never act
+#: on would be an option that lies about what it does.
+#:
+#: Not caught by `NoCorpus`: 8x500 is the corpus's biggest cell, so a 10x650 room left at
+#: the default lands on a cell that exists and is full, and is priced against somebody
+#: else's league in silence.
+DetectedCorpusTeams = Annotated[
+    int | None,
+    typer.Option(
+        "--teams",
+        min=2,
+        help="Recorded league shape: number of teams. Read from the room on --league; "
+        "stating it overrides what the room says, and says so.",
+    ),
+]
+
+DetectedCorpusCredits = Annotated[
+    int | None,
+    typer.Option(
+        "--credits",
+        min=1,
+        help="Recorded league shape: credits per team. Read from the room on --league; "
+        "an unrecorded shape is refused, never priced off the nearest one.",
+    ),
+]
+
+
 
 #: The fantacalcio lega whose roster band (and format) to plan on.
 #:

@@ -46,6 +46,8 @@ from fantabot.interface.options import (
     CeilingAlpha,
     CorpusCredits,
     CorpusTeams,
+    DetectedCorpusCredits,
+    DetectedCorpusTeams,
     Lega,
     Season,
     Sentiment,
@@ -295,13 +297,18 @@ def _callable_ids(
     return None if ids is None else set(ids)
 
 
-def _declared_format(
+def _declared_room(
     fantaleague_id: str,
     *,
     warn: Callable[[str], None] = lambda _m: None,
     _fetch: Callable[[str], Any] | None = None,
-) -> str | None:
-    """A room's own `asta_type`, or `None` if it could not be asked. **Never fatal.**
+) -> Any | None:
+    """A room's own configuration, or `None` if it could not be asked. **Never fatal.**
+
+    **One probe, three facts.** It began as `_declared_format` and returned only
+    `asta_type`, which left `--teams`/`--credits` pinned at 8x500 on the same path while
+    the very `RoomConfig` that answered the format was also carrying `num_teams` and
+    `num_credits`. A second POST for numbers already in hand is a second thing to fail.
 
     `asta live --league` reads the `purchases/<fl>` ledger over the *unauthenticated* RTDB
     — `docs/fantalab/06` says so and the command's own docstring repeats it. This probe is
@@ -338,10 +345,9 @@ def _declared_format(
         # Said out loud rather than swallowed: "no FantaLab session" and "FantaLab is
         # unreachable" send an operator to different fixes, and the next rung down answers
         # for a *different* room population, so which rung failed is worth a line.
-        warn(f"the room could not be asked its format ({str(exc) or type(exc).__name__})")
+        warn(f"the room could not be asked about itself ({str(exc) or type(exc).__name__})")
         return None
-    asta_type: str | None = getattr(room, "asta_type", None)
-    return asta_type
+    return room
 
 
 def _recorded_format(fantaleague_id: str) -> str | None:
@@ -509,7 +515,11 @@ def asta_live(
     ),
     db: int = typer.Option(-1, help="The room's RTDB shard (its `db` field) — required with --league."),
     team: str = typer.Option(..., help="Our team id in the room."),
-    budget: float = typer.Option(500.0, help="Our starting credits."),
+    budget: float = typer.Option(
+        0.0,
+        help="Our starting credits. 0 reads the room's own num_credits on --league, and "
+        "is 500 on --replay — the same idiom asta room uses.",
+    ),
     lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
     fmt: str = typer.Option(
@@ -521,8 +531,8 @@ def asta_live(
         "read as Mantra is advised off players it cannot call, priced off another game — "
         "and nothing raises.",
     ),
-    teams: CorpusTeams = DEFAULT_NUM_TEAMS,
-    credits: CorpusCredits = DEFAULT_NUM_CREDITS,
+    teams: DetectedCorpusTeams = None,
+    credits: DetectedCorpusCredits = None,
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
@@ -554,7 +564,9 @@ def asta_live(
 
     from fantabot.adapters.persistence import database_manager
     from fantabot.application.asta_advisory import AdvisoryRequest, build_advisory
+    from fantabot.application.asta_format import ROOM_DECLARED
     from fantabot.application.plan_request import NoSentimentRows
+    from fantabot.domain.asta.prices import NoCorpus
 
     # `""` only — never a falsy-tolerant check. `--format ""` reads as "not given", which
     # on `--league` means "detect it"; anything else that is not a game is a typo.
@@ -569,18 +581,25 @@ def asta_live(
         if db < 0:
             console.print("[red]--league needs --db (the room's RTDB shard).[/red]")
             raise typer.Exit(1)
-        from fantabot.application.asta_format import FormatUnknown, choose_listone
+        from fantabot.application.asta_format import (
+            FormatUnknown,
+            budget_for,
+            choose_listone,
+            choose_shape,
+        )
 
-        # Resolved **before** the ledger read, so a refusal costs no network. Three rungs,
-        # most specific first: `--format`, then the room's own `asta_type`, then the corpus.
-        # There is no fourth. `mantra` was the fourth and it is the defect: this command's
-        # own help text stated the harm and the default committed it, and nothing downstream
-        # can raise — the pool, the prices and the bridge are all legal for the wrong game.
+        # Resolved **before** the ledger read, so a refusal costs no network — and off ONE
+        # probe, because the `RoomConfig` that answers the format carries the shape too.
+        room = _declared_room(league, warn=lambda m: console.print(f"[dim]{m}[/dim]"))
+
+        # Three rungs for the format, most specific first: `--format`, the room's own
+        # `asta_type`, the recorded corpus. There is no fourth. `mantra` was the fourth and
+        # it is the defect: this command's own help text stated the harm and the default
+        # committed it, and nothing downstream can raise — the pool, the prices and the
+        # bridge are each legal for the wrong game.
         try:
             chosen = choose_listone(
-                fmt,
-                _declared_format(league, warn=lambda m: console.print(f"[dim]{m}[/dim]")),
-                _recorded_format(league),
+                fmt, getattr(room, "asta_type", None), _recorded_format(league)
             )
         except FormatUnknown as exc:
             console.print(f"[red]{exc}[/red]")
@@ -589,6 +608,25 @@ def asta_live(
             console.print(f"[yellow]{chosen.warning}[/yellow]")
         console.print(f"[dim]format: {chosen.listone} ({chosen.provenance})[/dim]")
         fmt = chosen.listone
+
+        # The shape *does* have a fourth rung — see `choose_shape` for why the two differ.
+        # It is printed either way: an assumed 8x500 and a declared one are different facts,
+        # and the silent version of this priced a 10x650 room off somebody else's cell.
+        shape = choose_shape(
+            teams, credits, getattr(room, "num_teams", None), getattr(room, "num_credits", None)
+        )
+        if shape.warning:
+            console.print(f"[yellow]{shape.warning}[/yellow]")
+        console.print(
+            f"[dim]corpus: {shape.teams} teams ({shape.teams_from}) x "
+            f"{shape.credits} credits ({shape.credits_from})[/dim]"
+        )
+        teams, credits = shape.teams, shape.credits
+        budget = budget_for(budget, shape)
+        # Kept for the `NoCorpus` refusal below: "the room said 10x650 and we have no such
+        # sales" and "you typed a shape we have no sales for" send an operator to different
+        # next moves, and only the first is the room's doing.
+        shape_from_room = ROOM_DECLARED in (shape.teams_from, shape.credits_from)
 
         from fantabot.adapters.http.fantalab import feed
 
@@ -599,6 +637,12 @@ def asta_live(
         # no such field. So there is nothing to detect and a stated default is the honest
         # answer — the same argument `asta calibrate` makes about naming a corpus.
         fmt = fmt or "mantra"
+        # A replay has no room to ask, so the two sentinels resolve to the built-ins here —
+        # which is what keeps the goldens byte-identical.
+        teams = teams if teams is not None else DEFAULT_NUM_TEAMS
+        credits = credits if credits is not None else DEFAULT_NUM_CREDITS
+        budget = budget or float(DEFAULT_NUM_CREDITS)
+        shape_from_room = False
         rows = parse_replay_lines(Path(replay).read_text(encoding="utf-8").splitlines())
         events = normalize(row.get("state", row) for row in rows)
 
@@ -638,6 +682,23 @@ def asta_live(
             )
         except NoSentimentRows as exc:
             raise typer.BadParameter(str(exc)) from exc
+        except NoCorpus as exc:
+            # Newly reachable, and that is the point rather than a cost. While the shape was
+            # pinned at 8x500 this could not fire — that cell is the corpus's biggest and is
+            # always full — so a 10x650 room was priced off somebody else's league in
+            # silence. Now the room is asked, the shape can be one nobody recorded, and an
+            # uncaught `LookupError` would print a traceback where every other refusal on
+            # this command prints a line. `NoCorpus` already lists what the corpus holds;
+            # what it cannot know is which flags would change the question.
+            console.print(f"[red]{exc}[/red]")
+            console.print(
+                "[yellow]Pass --teams and --credits to price against a shape the corpus "
+                "holds. The shape above came from the room itself.[/yellow]"
+                if shape_from_room
+                else "[yellow]Pass --teams and --credits to price against a shape the "
+                "corpus holds.[/yellow]"
+            )
+            raise typer.Exit(code=1) from exc
 
     if advisory.dropped_sales:
         console.print(
@@ -714,6 +775,7 @@ def asta_room(
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.adapters.tokens.fantalab_store import FantalabStore
     from fantabot.application.asta_copilot import CopilotWorker, briefs_for
+    from fantabot.application.asta_format import choose_shape
     from fantabot.application.asta_room import (
         RoomFrame,
         RoomRefused,
@@ -775,10 +837,18 @@ def asta_room(
         min_others=resolved.min_others,
         classic_band=resolved.players_settings_data,
     )
+    # The header printed `resolved.num_teams` raw while the plan below was priced off
+    # `... or 8` — so a room that stated neither said "None teams x None credits" and was
+    # then priced 8x500. One resolution, printed and used, with a provenance that says
+    # which of those two happened. `asta room` takes no --teams/--credits: there is a room
+    # in hand and a flag the operator would have to remember is the footgun the format
+    # detection already argues against.
+    room_shape = choose_shape(None, None, resolved.num_teams, resolved.num_credits)
     console.print(
         f"[bold]{resolved.fantaleague_id}[/bold] · shard {resolved.db} · "
         f"{resolved.asta_mode}/{resolved.raise_mode} · "
-        f"{resolved.num_teams} teams x {resolved.num_credits} credits · "
+        f"{room_shape.teams} teams x {room_shape.credits} credits "
+        f"({room_shape.teams_from}) · "
         f"seat {resolved.seat.team_name or resolved.seat.fantateam_id} · "
         f"roster {rules.size} ({rules_provenance})"
     )
@@ -810,8 +880,8 @@ def asta_room(
         world = read_plan_inputs(
             session, season=season, sentiment=readings, as_of=_today(), tilt_k=tilt_k,
             callable_ids={str(fid) for fid in bridge.values()},
-            num_teams=resolved.num_teams or 8,
-            num_credits=int(resolved.num_credits or 500),
+            num_teams=room_shape.teams,
+            num_credits=room_shape.credits,
             # `resolved.asta_type`, not `... or "mantra"`. `resolve_room` refuses a room
             # that declares no format, so there is nothing left to coerce — and the
             # coercion was what hid it: it turned an unanswered question into Mantra
