@@ -21,6 +21,7 @@ from fantabot_app.api.v1.endpoints import (
     news,
     pricing,
     room,
+    scrape,
     system,
     teams,
 )
@@ -42,3 +43,4 @@ api_router.include_router(lineup.router)
 api_router.include_router(actions.router)
 api_router.include_router(system.router)
 api_router.include_router(teams.router)
+api_router.include_router(scrape.router)
