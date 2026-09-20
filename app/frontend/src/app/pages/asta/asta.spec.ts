@@ -1187,16 +1187,66 @@ describe('AstaComponent', () => {
         fixture.componentInstance.watchRoom();
         httpMock.expectOne(`${environment.apiUrl}asta/room/watch`).flush({ job_id: 'W1' });
         await vi.advanceTimersByTimeAsync(0);
+        // Two rows, and they are lines **7 and 8** of a file that was already six rows
+        // long. The count and the position are deliberately different numbers: when the
+        // watch joins an evening in progress they always are, and a test in which they
+        // agree cannot tell a viewer that resumes from the server's index from one that
+        // resumes from its own tally.
         httpMock
           .expectOne((r) => r.url.includes('asta/journal'))
-          .flush(tail({ rows: [cycle({ index: 1 }), cycle({ index: 2 })], next_index: 2 }));
+          .flush(tail({ rows: [cycle({ index: 7 }), cycle({ index: 8 })], next_index: 8 }));
         await vi.advanceTimersByTimeAsync(0);
 
         await vi.advanceTimersByTimeAsync(2100);
         const second = httpMock.expectOne((r) => r.url.includes('asta/journal'));
-        expect(second.request.params.get('since')).toBe('2');
-        second.flush(tail({ next_index: 2 }));
+        expect(second.request.params.get('since')).toBe('8');
+        second.flush(tail({ next_index: 8 }));
         await vi.advanceTimersByTimeAsync(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('takes the newest row of a tail, not the first', async () => {
+      // The tail arrives oldest first — that is what makes it appendable — so the frame
+      // is its *last* row. A catch-up poll after a backgrounded tab brings a hundred of
+      // them, and showing the oldest would draw a lot that closed three minutes ago.
+      const fixture = await ready([watching()]);
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(
+          tail({
+            rows: [
+              cycle({ index: 1, name: 'Holm' }),
+              cycle({ index: 2, name: 'Dimarco' }),
+              cycle({ index: 3, name: 'Zaccagni' }),
+            ],
+            next_index: 3,
+          }),
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.liveRow()?.name).toBe('Zaccagni');
+    });
+
+    it('leaves the frame alone when a poll brings no row', async () => {
+      // A quiet poll is not a new frame of nothing. Overwriting on every response would
+      // blank the walk-away two seconds after the last cycle — and a room between lots
+      // is quiet for far longer than that.
+      vi.useFakeTimers();
+      try {
+        const fixture = await ready([watching()]);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle()], next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail({ next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(fixture.componentInstance.liveRow()?.name).toBe('Zaccagni');
       } finally {
         vi.useRealTimers();
       }
@@ -1392,6 +1442,17 @@ describe('AstaComponent', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(fixture.componentInstance.quietPolls()).toBe(2);
+
+        // And a row clears it. Without this the counter only ever climbs, so a run that
+        // never reset it would read as a room that has been silent since it opened — the
+        // alarm this exists to raise, raised permanently, which is the same as not at all.
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle({ index: 2 })], next_index: 2 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(fixture.componentInstance.quietPolls()).toBe(0);
       } finally {
         vi.useRealTimers();
       }
