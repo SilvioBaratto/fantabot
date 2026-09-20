@@ -189,6 +189,16 @@ class TestBothCommandsDeclareTheSameDefault:
 
     @staticmethod
     def _default(command: str) -> object:
+        """The declared default of `--format`, found by the flag it declares.
+
+        **Not by index arithmetic.** The first version computed
+        `names.index("fmt") - (len(names) - len(defaults))`, which is right only while every
+        parameter has a default, and indexes from the *end* when it goes negative — so it
+        could read a neighbouring option's default and report it as this one's, silently.
+        Matching on the `"--format"` literal inside the `typer.Option` call is
+        self-verifying: it cannot pick a different option, and it fails loudly if the flag
+        is ever renamed.
+        """
         import ast
 
         from _paths import module_file
@@ -197,11 +207,25 @@ class TestBothCommandsDeclareTheSameDefault:
         fn = next(
             n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == command
         )
-        names = [a.arg for a in fn.args.args]
-        index = names.index("fmt") - (len(names) - len(fn.args.defaults))
-        call = fn.args.defaults[index]
-        # `typer.Option(<default>, "--format", ...)`
-        return ast.literal_eval(call.args[0])
+        options = [
+            node
+            for node in ast.walk(fn.args)
+            if isinstance(node, ast.Call)
+            and any(
+                isinstance(arg, ast.Constant) and arg.value == "--format"
+                for arg in node.args
+            )
+        ]
+        assert len(options) == 1, f"{command} declares {len(options)} --format options"
+        return ast.literal_eval(options[0].args[0])
+
+    def test_the_helper_reads_the_option_it_names(self) -> None:
+        """The meta-check. Index arithmetic over a parameter list is exactly the shape that
+        reports a neighbour's value and looks right; this asserts the three commands give
+        three answers that are not all the same, so a helper returning one constant fails."""
+        assert self._default("asta_bid") == ""
+        assert self._default("asta_live") == "mantra"
+        assert len({self._default(c) for c in ("asta_bid", "asta_live")}) == 2
 
     def test_asta_bid_detects_like_asta_optimize(self) -> None:
         assert self._default("asta_bid") == self._default("asta_optimize") == "", (
