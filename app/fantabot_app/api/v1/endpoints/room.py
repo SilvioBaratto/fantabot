@@ -25,10 +25,14 @@ fetcher will use.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from fantabot_app.api.infrastructure import processes
+from fantabot_app.api.infrastructure.jobs import registry
 
 router = APIRouter()
 
@@ -173,3 +177,97 @@ def stored_connect() -> tuple[str, Callable[[str], Any]]:
 @router.get("/asta/room", response_model=RoomCheck, tags=["asta"])
 def room_check(url: str) -> RoomCheck:
     return check_room(url, connect=stored_connect)
+
+
+# -- watching one, supervised ---------------------------------------------------------
+
+
+class WatchRequest(BaseModel):
+    """A room link, or its fantaleague id. Nothing else, and that is the design.
+
+    No `arm`, and no number from the value model. The first is the lock the operator
+    opens deliberately, for one room, at the keyboard — 3.9b is where the app learns to
+    send it, behind `application/arming`'s contract. The second is the child's own option
+    set: `--lam`, `--budget` and the three alphas are declared once, in
+    `interface/asta.py`, and a copy here is the second value model that
+    `application/asta_planner.py` exists to prevent — three commands once held three, and
+    `asta bid` planned on plain `fvm` for a week after `asta optimize` had stopped.
+    """
+
+    url: str
+
+
+class JobStarted(BaseModel):
+    job_id: str
+
+
+def watch_flag(fantaleague_id: str) -> Path:
+    """`room-<id>.watch.stop`, beside the journal. One flag per room.
+
+    A watch takes no landing-zone role, so `ProcessJob` needs a flag of its own, and
+    `stop_path` refuses any role but `collector` and `loader` — rightly: its two are a
+    contract about who may hold a landing zone. Derived from the room rather than fixed,
+    for `stop_path`'s own reason: a flag shared between two rooms would let a stop aimed
+    at either stop the other.
+
+    Beside the journal because that is the artefact the run is about, the same way a
+    harvest flag sits beside its landing zone. `journal_path()` is resolved, so the flag
+    does not move when the working directory does.
+    """
+    from fantabot.config import journal_path
+
+    # Annotated, not returned bare: `fantabot` ships no `py.typed`, so this venv's mypy
+    # reads every symbol from it as `Any` — `processes._request_stop`'s reason for the
+    # same shape.
+    journal: Path = journal_path()
+    return journal.with_name(f"room-{fantaleague_id}.watch.stop")
+
+
+@router.post("/asta/room/watch", response_model=JobStarted, tags=["asta"])
+def room_watch(request: WatchRequest) -> JobStarted:
+    """Watch a live room, supervised as a child process. It reads; it never bids.
+
+    **A subprocess, not a thread**, and that is what makes the accept criterion true:
+    closing the tab does not stop the watch, because the run was never the request's to
+    own. A reopened tab finds it again through `GET /jobs`, which is also what stops it
+    starting a second one.
+
+    **The journal is the channel, not stdout.** `asta room` paints a Rich `Live`, and a
+    `Live` on a pipe renders to nobody — so the child's own screen stays in the terminal
+    and the app reads `GET /asta/journal?follow=1`, the file both live commands already
+    append a row to per cycle. That is what 3.6's lift bought: one function produces the
+    row, whichever surface is driving.
+
+    **The copilot is off.** Its pane is drawn into that same unread screen, and every
+    brief is a real model call — cost with no reader. The CLI keeps it on by default
+    because there someone is looking.
+
+    The link is parsed here rather than left to the child, for `harvest collect`'s reason:
+    a refusal at the moment of the click is a thing an operator reads, and "started, then
+    died two seconds later" is not. Everything the child alone can refuse — a missing
+    FantaLab session, a room that says no — stays the child's and lands in the job log by
+    name.
+
+    **Stopping.** On POSIX the first stop is a `SIGINT`, and a run that was never armed
+    has nothing to disarm, so it exits. On Windows no signal is sent and `asta room` does
+    not poll the flag, so the first stop is silent and the second kills after the grace —
+    ungraceful and, for a watch, harmless: the journal flushes per line. Teaching the CLI
+    to poll the flag is 3.9b's, where the child being stopped is one that spends credits.
+    """
+    from fantabot.domain.asta.live import parse_room_url
+
+    try:
+        fantaleague_id = parse_room_url(request.url)
+    except ValueError as exc:
+        # `InvitationLink` is a ValueError and is caught by the same clause on purpose:
+        # its message already names what to paste instead, which is exactly what an admin
+        # sends. Same reading as `check_room`'s.
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    job = processes.ProcessJob(
+        # The parsed id, not the pasted string: one spelling reaches the child, the flag
+        # and the job log, and a query string never becomes an argv token.
+        processes.fantabot_command("asta", "room", fantaleague_id, "--no-copilot"),
+        flag=watch_flag(fantaleague_id),
+    )
+    return JobStarted(job_id=registry.start(job.run, kind="asta-watch", stop=job.stop))
