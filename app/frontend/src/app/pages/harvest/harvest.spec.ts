@@ -523,8 +523,11 @@ describe('HarvestComponent', () => {
     const live = shown.find((el) => el.getAttribute('data-log') === 'live.jsonl');
     const recorded = shown.find((el) => el.getAttribute('data-log') === 'events_2026-08-26.jsonl');
 
-    expect(live?.textContent?.toLowerCase()).toContain('live');
-    expect(recorded?.textContent?.toLowerCase()).not.toContain('live');
+    // `landing zone`, not `live`: the live option's own filename is `live.jsonl`, so an
+    // assertion on that word passes on the name and says nothing about the label. The
+    // battery caught it by deleting the label and staying green.
+    expect(live?.textContent?.toLowerCase()).toContain('landing zone');
+    expect(recorded?.textContent?.toLowerCase()).not.toContain('landing zone');
   });
 
   it("shows each seed's auction count beside its name", async () => {
