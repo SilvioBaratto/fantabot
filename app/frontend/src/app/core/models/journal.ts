@@ -54,6 +54,19 @@ export interface JournalPage {
   skipped: number;
   offset: number;
   limit: number;
+  /**
+   * Where to resume a **follow** from — sent straight back as `?since=`.
+   *
+   * The last row *parsed*, never the file's line count: the journal flushes per line, so
+   * a line caught mid-flush is skipped and counted this poll and parses the next one. A
+   * viewer that counted its own rows instead would step over the cycle that line belongs
+   * to and drop it from the evening's only record, silently.
+   *
+   * Zero in page mode, deliberately: a page does not tail, and one field with two
+   * meanings is how a paging client comes to send back a position that means something
+   * else.
+   */
+  next_index: number;
   rows: JournalRow[];
   error: string | null;
 }

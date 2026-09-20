@@ -291,6 +291,202 @@
   </aside>
 </div>
 
+<!-- The live room. The four panes the CLI draws, fed by the one channel a supervised
+     child has: the journal it appends a row to per cycle. `asta room` paints a Rich
+     `Live`, which on a pipe renders to nobody, so this is not a second copy of that
+     screen — it is the same file, read from the growing end.
+
+     Nothing here bids. The watch is started without `--arm` and there is no control on
+     this page that could add one; 3.9c is where arming arrives, behind its own locks. -->
+<section class="live" aria-labelledby="live-heading">
+  <mat-card class="panel" appearance="outlined">
+    <div class="panel-body live-head">
+      <div>
+        <h2 id="live-heading" class="panel-title">Live room</h2>
+        <p class="panel-sub">
+          Watch a room from the link above. It reads the room and writes the journal; it never bids.
+        </p>
+      </div>
+      <div class="live-actions">
+        @if (watchJobId(); as job) {
+          <span class="tag" aria-live="polite">Watching · {{ job }}</span>
+          <button matButton="outlined" type="button" (click)="stopWatch()">
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [size]="18"
+              name="x"
+              aria-hidden="true"
+            />
+            Stop
+          </button>
+        } @else {
+          <button
+            matButton="filled"
+            type="button"
+            [disabled]="watchStarting() || !roomUrl().trim()"
+            (click)="watchRoom()"
+          >
+            <lucide-icon
+              matButtonIcon
+              class="lucide-slot"
+              [class.is-spinning]="watchStarting()"
+              [size]="18"
+              [name]="watchStarting() ? 'loader-2' : 'monitor'"
+              aria-hidden="true"
+            />
+            Watch room
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (watchError(); as refusal) {
+      <div class="panel-body" role="alert">
+        <p class="state-body is-error">{{ refusal }}</p>
+      </div>
+    }
+
+    @if (liveRow(); as frame) {
+      <mat-divider />
+      <!-- Stale is still the right thing to keep drawing — blanking it would take the
+           walk-away away at the exact moment the operator has to bid by hand instead — so
+           this banner is the only thing that says the frame below it is stale. -->
+      @if (tailError(); as down) {
+        <div class="panel-body live-stale" role="alert">
+          <p class="state-body">Link down — {{ down }} The frame below is the last one read.</p>
+        </div>
+      }
+
+      <div class="panel-body live-panes">
+        <!-- LOT — who is on the block, at what, and what the next raise costs. -->
+        <section class="live-pane live-lot" aria-labelledby="live-lot-heading">
+          <h3 id="live-lot-heading" class="live-pane-title">Lot</h3>
+          @if (frame.name || frame.lot) {
+            <p class="live-lot-name">{{ frame.name ?? frame.lot }}</p>
+            <dl class="facts">
+              <div class="fact">
+                <dt>Price</dt>
+                <dd class="num is-strong">
+                  {{ frame.price === null ? '—' : (frame.price | number: '1.0-0') }}
+                </dd>
+              </div>
+              <div class="fact">
+                <dt>Next raise</dt>
+                <dd class="num">
+                  {{ frame.price === null ? '—' : (frame.price + 1 | number: '1.0-0') }}
+                </dd>
+              </div>
+              <div class="fact">
+                <dt>Node</dt>
+                <dd>{{ frame.node ?? '—' }}</dd>
+              </div>
+            </dl>
+          } @else {
+            <p class="state-body is-muted">Waiting for a lot.</p>
+          }
+        </section>
+
+        <!-- MODEL — the decision, and the walk-away with its provenance beside it. -->
+        <section class="live-pane live-model" aria-labelledby="live-model-heading">
+          <h3 id="live-model-heading" class="live-pane-title">Model</h3>
+          <p class="live-decision" [class.is-bid]="frame.decision === 'bid'">
+            {{ (frame.decision ?? 'waiting').toUpperCase() }}
+          </p>
+          @if (frame.reason) {
+            <!-- Which guard bound. A hold with no named guard is a hold nobody can argue
+                 with at 21:47, which is the same as one nobody can correct. -->
+            <p class="prov live-note">Refused by: {{ frame.reason }}</p>
+          }
+          <dl class="facts">
+            <div class="fact fact-wide">
+              <dt>Walk-away</dt>
+              <!-- Null on 4,501 of the 5,192 recorded rows — that is what defect B2 looks
+                   like in the file, so it stays a null and never becomes a zero. -->
+              <dd class="num is-strong" [class.is-absent]="frame.walk_away === null">
+                {{ frame.walk_away === null ? '—' : (frame.walk_away | number: '1.0-0') }}
+                @if (frame.provenance) {
+                  <span class="prov">{{ frame.provenance }}</span>
+                }
+              </dd>
+            </div>
+            <div class="fact">
+              <dt>MAX cap</dt>
+              <dd class="num">
+                {{ frame.max_cap === null ? '—' : (frame.max_cap | number: '1.0-0') }}
+              </dd>
+            </div>
+          </dl>
+          @if (frame.error) {
+            <p class="prov live-note is-error">Poll raised: {{ frame.error }}</p>
+          }
+        </section>
+
+        <!-- ROSA — the count, not the ids: the row is a decision, not an inventory. -->
+        <section class="live-pane live-rosa" aria-labelledby="live-rosa-heading">
+          <h3 id="live-rosa-heading" class="live-pane-title">Rosa</h3>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owned</dt>
+              <dd class="num is-strong">
+                {{ frame.owned_count === null ? '—' : frame.owned_count }}
+              </dd>
+            </div>
+            <div class="fact">
+              <dt>Credits left</dt>
+              <dd class="num is-strong">
+                {{ frame.credits_left === null ? '—' : (frame.credits_left | number: '1.0-0') }}
+              </dd>
+            </div>
+            <div class="fact fact-wide">
+              <dt>Bargains</dt>
+              <!-- Credits already gone on lots the plan never named, over the evening's
+                   ceiling for them. An aggregate cap the operator cannot see is one they
+                   find out about by not understanding why a bid was held. -->
+              <dd class="num">
+                {{ frame.bargain_spent === null ? '—' : frame.bargain_spent }} /
+                {{ frame.bargain_allowance === null ? '—' : frame.bargain_allowance }}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <!-- The loop's own timing, as an element and not a detail. A slow loop that says
+             it is slow is survivable; a silent one is not. -->
+        <section
+          class="live-pane live-cycle"
+          [class.is-slow]="cycleSlow()"
+          aria-labelledby="live-cycle-heading"
+        >
+          <h3 id="live-cycle-heading" class="live-pane-title">Cycle</h3>
+          @if (frame.cycle_ms === null) {
+            <!-- `cycle_ms` postdates the 2026-09-01 evening and is null across every
+                 recorded row. Rendered as 0 ms it would report a stall as its opposite. -->
+            <p class="live-cycle-value is-absent">Not timed</p>
+          } @else {
+            <p class="live-cycle-value">
+              {{ frame.cycle_ms | number: '1.0-0' }}<span class="unit">ms</span>
+            </p>
+          }
+          @if (cycleSlow()) {
+            <p class="prov live-note is-error">Slower than the room's own 2 s poll.</p>
+          }
+          @if (quietPolls() > 0) {
+            <p class="prov live-note">No new row in {{ quietPolls() }} poll(s).</p>
+          }
+        </section>
+      </div>
+    } @else if (watchJobId()) {
+      <mat-divider />
+      <div class="panel-body">
+        <p class="state-body is-muted" aria-live="polite">
+          Watching. The first row lands when the room's next cycle ends.
+        </p>
+      </div>
+    }
+  </mat-card>
+</section>
+
 <!-- The targets, full width and below both panes: three columns need the whole pane at
      840px+, and at compact the room check must not sit behind a thirty-row list.
      `plan()` is null while a fetch is in flight and after a failed one, so `?.found` is
@@ -305,7 +501,15 @@
     @if (compact()) {
       <ul class="target-list" role="list">
         @for (player of players(); track player.player_id) {
-          <li class="target-card">
+          <!-- The join between the plan and the room: the journal carries one lot per
+               row and the listone lives only in the child's `RoomTracker`, so this pane
+               is the plan's targets and the mark is which of them is up. -->
+          <li
+            class="target-card"
+            [class.is-on-the-block]="
+              onTheBlock() !== null && player.nome.trim().toLowerCase() === onTheBlock()
+            "
+          >
             <p class="target-name">{{ player.nome }}</p>
             <dl class="target-figures">
               <div class="figure">
@@ -360,7 +564,13 @@
           </ng-container>
 
           <tr mat-header-row *matHeaderRowDef="playerColumns; sticky: true"></tr>
-          <tr mat-row *matRowDef="let row; columns: playerColumns"></tr>
+          <tr
+            mat-row
+            *matRowDef="let row; columns: playerColumns"
+            [class.is-on-the-block]="
+              onTheBlock() !== null && row.nome.trim().toLowerCase() === onTheBlock()
+            "
+          ></tr>
         </table>
       </mat-card>
     }

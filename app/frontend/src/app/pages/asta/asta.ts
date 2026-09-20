@@ -22,19 +22,53 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTableModule } from '@angular/material/table';
 import { LucideAngularModule } from 'lucide-angular';
+import { EMPTY, catchError, interval, startWith, switchMap, takeWhile } from 'rxjs';
 
 import { AstaService } from '../../core/api/asta.service';
 import { ExclusionsService } from '../../core/api/exclusions.service';
+import { JobsService } from '../../core/api/jobs.service';
 import { LegaService } from '../../core/api/lega.service';
 import { AstaPlan } from '../../core/models/asta-plan';
 import { Exclusion } from '../../core/models/exclusion';
-import { JournalPage } from '../../core/models/journal';
+import { JournalPage, JournalRow } from '../../core/models/journal';
 import { LegaOverview } from '../../core/models/lega';
 import { RoomCheck } from '../../core/models/room';
 import { WindowSizeClassService } from '../../core/window-size-class';
 
 /** One page of the journal. The server bounds it too; this is the client's request. */
 const JOURNAL_PAGE = 100;
+
+/**
+ * The supervised child's kind, spelled as `room.py` spells it on `registry.start`.
+ *
+ * A second spelling here would never match and the page would silently never reattach —
+ * which looks exactly like "no watch is running" and is how a second watch gets started
+ * on a room that already has one.
+ */
+const WATCH_KIND = 'asta-watch';
+
+/**
+ * How often the tail is read. The room's own poll is 2 s (`interface/asta.py:518`), so a
+ * faster tail re-reads a file nothing has appended to; a slower one shows a lot after the
+ * raise timer has run out on it.
+ */
+const TAIL_MS = 2000;
+
+/**
+ * Rows per tail. One row per cycle at 2 s, so this is about three minutes of catch-up —
+ * enough to survive a tab that was backgrounded, bounded well below the server's 500.
+ */
+const TAIL_LIMIT = 100;
+
+/**
+ * Over this, the cycle is reported as slow rather than merely printed.
+ *
+ * It is the room's own poll interval, not a taste: a cycle whose *work* takes longer than
+ * the gap it was supposed to leave is one whose cadence is now set by the work. The
+ * measured case is the per-lot re-solve, which stalled the loop up to 72 s at lot changes
+ * — and on screen a stalled loop and a calm room are the same picture.
+ */
+const SLOW_CYCLE_MS = 2000;
 
 /**
  * The server's refusal, or a sentence saying the server never answered.
@@ -47,17 +81,22 @@ const JOURNAL_PAGE = 100;
  *
  * `status === 0` is the API being unreachable, which is not a refusal at all and must
  * not be reported as one.
+ *
+ * `fallback` is a parameter rather than one sentence baked in. Three surfaces now share
+ * this — the two exclusion writes and the room watch — and a refusal that named the wrong
+ * one of them would be a screen telling the operator about an act they did not perform.
  */
-function refusalOf(err: unknown): string {
+function refusalOf(err: unknown, fallback: string): string {
   const response = err as { status?: number; error?: { detail?: unknown } };
   if (response?.status === 0) {
     return 'Could not reach the API. Make sure fantabot-app is running.';
   }
   const detail = response?.error?.detail;
-  return typeof detail === 'string' && detail
-    ? detail
-    : 'The exclusion was refused and the reason did not come back.';
+  return typeof detail === 'string' && detail ? detail : fallback;
 }
+
+/** The two exclusion writes share one, because they are refused by one function. */
+const EXCLUSION_FALLBACK = 'The exclusion was refused and the reason did not come back.';
 
 @Component({
   selector: 'app-asta',
@@ -81,6 +120,7 @@ export class AstaComponent implements OnInit {
   private readonly lega = inject(LegaService);
   private readonly asta = inject(AstaService);
   private readonly exclusionsApi = inject(ExclusionsService);
+  private readonly jobs = inject(JobsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
@@ -155,6 +195,41 @@ export class AstaComponent implements OnInit {
   readonly journalError = signal<string | null>(null);
 
   /**
+   * The live room — the same journal, read from the other end while it is still growing.
+   *
+   * **The journal is the channel, not stdout.** `asta room` paints a Rich `Live`, and a
+   * `Live` on a pipe renders to nobody, so the supervised child says what it is doing
+   * only by appending a row per cycle to the file this tails. Nothing here bids: the
+   * watch is started without `--arm` and the page has no control that could add it.
+   */
+  readonly watchJobId = signal<string | null>(null);
+  readonly watchStarting = signal(false);
+  /** The server's refusal, verbatim — `parse_room_url`'s own sentence on a 400. */
+  readonly watchError = signal<string | null>(null);
+
+  /**
+   * The newest row the tail has seen. One slot, not a list: the panes are a frame, and
+   * the evening's list is the journal section below.
+   *
+   * It is **kept after the watch ends**, and that is `error_overlay`'s trade: blanking
+   * the screen would take the walk-away away at the exact moment the operator has to bid
+   * by hand instead.
+   */
+  readonly liveRow = signal<JournalRow | null>(null);
+  /** Where the next tail resumes. The server's `next_index`, never a count kept here. */
+  readonly liveSince = signal(0);
+  /**
+   * Consecutive polls that brought no new row.
+   *
+   * The other half of `cycle_ms`: that one says the last cycle was slow, this says there
+   * has not been a cycle. A stopped loop and a quiet room are the same picture on screen,
+   * and only one of them is still bidding.
+   */
+  readonly quietPolls = signal(0);
+  /** A poll that did not answer. The frame below it is stale, and this is what says so. */
+  readonly tailError = signal<string | null>(null);
+
+  /**
    * The players kept out of every plan.
    *
    * Fetched on arrival rather than behind a toggle, unlike the journal below. The
@@ -201,6 +276,29 @@ export class AstaComponent implements OnInit {
     [...(this.plan()?.players ?? [])].sort((a, b) => b.price - a.price),
   );
 
+  /**
+   * The lot on the block, folded for comparison — or null when no row names one.
+   *
+   * The join between the two halves of this view, and the only one available: the journal
+   * carries one lot per row and the listone lives in the child's `RoomTracker`, which is
+   * written down nowhere. So the LISTONE pane is the *plan's* targets, and this is what
+   * marks which of them is up.
+   *
+   * Matched on the name because the ids do not meet: the journal's `lot` is a FantaLab
+   * uuid and the plan's `player_id` is a fantacalcio id — defect B1 is exactly that
+   * mismatch, and it cost a whole evening of "not a target, hold".
+   */
+  readonly onTheBlock = computed(() => {
+    const name = this.liveRow()?.name;
+    return name ? name.trim().toLowerCase() : null;
+  });
+
+  /** Slower than the poll it was supposed to fit inside. Null timing is not slow. */
+  readonly cycleSlow = computed(() => {
+    const ms = this.liveRow()?.cycle_ms;
+    return ms !== null && ms !== undefined && ms > SLOW_CYCLE_MS;
+  });
+
   /** `101–200 of 5,192`, computed from the page the server actually answered with. */
   readonly journalRange = computed(() => {
     const page = this.journal();
@@ -218,6 +316,7 @@ export class AstaComponent implements OnInit {
   ngOnInit(): void {
     this.loadLeagues();
     this.loadExclusions();
+    this.reattachWatch();
   }
 
   private loadExclusions(): void {
@@ -297,7 +396,7 @@ export class AstaComponent implements OnInit {
           this.excluding.set(false);
         },
         error: (err: unknown) => {
-          this.excludeError.set(refusalOf(err));
+          this.excludeError.set(refusalOf(err, EXCLUSION_FALLBACK));
           this.excluding.set(false);
         },
       });
@@ -331,7 +430,7 @@ export class AstaComponent implements OnInit {
           this.withdrawing.set(null);
         },
         error: (err: unknown) => {
-          this.withdrawError.set(refusalOf(err));
+          this.withdrawError.set(refusalOf(err, EXCLUSION_FALLBACK));
           this.withdrawing.set(null);
         },
       });
@@ -392,6 +491,131 @@ export class AstaComponent implements OnInit {
           });
           this.roomChecking.set(false);
         },
+      });
+  }
+
+  // -- the live room ------------------------------------------------------------------
+
+  /**
+   * Start a watch over the room in the link field, and begin tailing it.
+   *
+   * The same field the room check reads, deliberately: one link on the page, and an
+   * operator who has just checked a room does not paste it again to watch it.
+   *
+   * **A subprocess, not a request.** The run outlives the tab, which is what makes
+   * closing it harmless and is also why `reattachWatch` exists — the page must find a
+   * live watch rather than offer a second one.
+   */
+  watchRoom(): void {
+    const url = this.roomUrl().trim();
+    if (!url || this.watchStarting() || this.watchJobId() !== null) return;
+    this.watchStarting.set(true);
+    this.watchError.set(null);
+    this.asta
+      .watchRoom(url)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (started) => {
+          this.watchStarting.set(false);
+          this.attach(started.job_id);
+        },
+        error: (err: unknown) => {
+          // The 400's `detail` is `parse_room_url`'s own sentence and already names what
+          // to paste instead. A message composed here would be a second opinion about a
+          // link the server has already ruled on.
+          this.watchError.set(
+            refusalOf(err, 'The watch was refused and the reason did not come back.'),
+          );
+          this.watchStarting.set(false);
+        },
+      });
+  }
+
+  /**
+   * Ask the watch to stop. The frame it left stays on screen.
+   *
+   * A 409 is the server saying the job has no way to be stopped — not that stopping
+   * failed — so it is reported and the job stays attached, because it is still running.
+   */
+  stopWatch(): void {
+    const jobId = this.watchJobId();
+    if (jobId === null) return;
+    this.jobs
+      .stop(jobId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        // Clearing the id is what ends the tail: `takeWhile` below reads it every tick.
+        next: () => this.watchJobId.set(null),
+        error: (err: unknown) =>
+          this.watchError.set(refusalOf(err, 'The job would not stop and did not say why.')),
+      });
+  }
+
+  /**
+   * Pick up a watch that was already running when this page loaded.
+   *
+   * `GET /jobs` is the source of truth, the same way the harvest page reattaches its
+   * three children. A listing that cannot be read is not an error worth showing: nothing
+   * the operator asked for has failed, and a red banner on arrival would be about the
+   * poll rather than about them.
+   */
+  private reattachWatch(): void {
+    this.jobs
+      .list()
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((list) => {
+        // `running`, not merely present: `GET /jobs` lists everything this session has
+        // ever run, and tailing a `done` row would show a room that closed hours ago and
+        // call it live.
+        const live = list.jobs.find((job) => job.kind === WATCH_KIND && job.status === 'running');
+        if (live) this.attach(live.id);
+      });
+  }
+
+  /**
+   * Hold the job and start the tail.
+   *
+   * The first read is **synchronous on subscribe**, not one interval late: an evening
+   * already under way has rows to show now, and two seconds of blank panes is the state
+   * this view exists to prevent.
+   */
+  private attach(jobId: string): void {
+    this.watchJobId.set(jobId);
+    interval(TAIL_MS)
+      .pipe(
+        startWith(0),
+        // Read per tick, never captured: this is what a stop switches off, and a
+        // predicate bound at subscribe time would keep polling a job that ended.
+        takeWhile(() => this.watchJobId() !== null),
+        switchMap(() =>
+          this.asta.followJournal(this.liveSince(), TAIL_LIMIT).pipe(
+            catchError(() => {
+              // One failed read is not the end of the evening, so the tick survives it.
+              // What must not survive it is the impression that the frame below is
+              // current — stale is still the right thing to draw, and this banner is the
+              // only thing that says it is stale.
+              this.tailError.set('Could not reach the API.');
+              return EMPTY;
+            }),
+          ),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((page) => {
+        this.tailError.set(null);
+        // The server's position, not a count kept here: `next_index` is the last row
+        // *parsed*, which a torn line makes smaller than the file's length.
+        this.liveSince.set(page.next_index);
+        if (page.rows.length) {
+          // Oldest first, so the last one is the newest cycle.
+          this.liveRow.set(page.rows[page.rows.length - 1]);
+          this.quietPolls.set(0);
+        } else {
+          this.quietPolls.update((count) => count + 1);
+        }
       });
   }
 

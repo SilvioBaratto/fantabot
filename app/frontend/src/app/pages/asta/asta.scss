@@ -171,6 +171,7 @@
 }
 
 /* Full width and below both panes. */
+.live,
 .targets,
 .exclusions {
   display: block;
@@ -753,4 +754,121 @@ code {
    the sentence is the one that needs the room, so only the id narrows. */
 .exclude-id {
   max-inline-size: 20ch;
+}
+
+// ---------------------------------------------------------------- live room
+//
+// `//` rather than `/* */` from here down, and that is not a style drift: sass keeps a
+// block comment and strips a line one. Nothing here declares what an existing class
+// already declares either — `.tag`, `.prov`, `.is-error` and `.state-body` are reused
+// from the template — because this file was already 389 bytes over the 10 kB
+// per-component budget before the section existed, and the budget is a real gate.
+
+// The heading and the one control that starts or stops the watch. Wrapped rather than
+// held on one line: the job id is the reattach handle and must not be clipped.
+.live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+// The banner over a stale frame. Error-coloured because what is below it is not wrong,
+// it is *old* — and those are the two states an operator most needs to tell apart, since
+// in one of them the bot is still bidding and in the other it is not.
+.live-stale {
+  background: var(--mat-sys-error-container);
+}
+
+.live-stale .state-body {
+  color: var(--mat-sys-on-error-container);
+}
+
+// Four panes. One column at compact — the lot has to be readable at a glance and a
+// quarter of 360px is not a glance — and as many as fit from 600 up.
+.live-panes {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 600px) {
+  .live-panes {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+}
+
+.live-pane {
+  display: block;
+  padding: 12px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+}
+
+.live-pane-title {
+  margin: 0 0 8px;
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  color: var(--mat-sys-on-surface-variant);
+  text-transform: uppercase;
+}
+
+// The two numbers that have to be readable across a room: who is on the block, and how
+// long the loop took to say so.
+.live-lot-name,
+.live-cycle-value {
+  margin: 0 0 8px;
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface);
+}
+
+.live-decision {
+  margin: 0;
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+  color: var(--mat-sys-on-surface);
+}
+
+// Amber on a bid, and only on a bid: a hold is the ordinary case, and colouring both
+// would train the operator to stop reading the colour.
+.live-decision.is-bid {
+  color: var(--mat-sys-tertiary);
+}
+
+// Spacing only. The type is `.prov`'s and the alarm is `.is-error`'s, both already here.
+.live-note {
+  margin: 4px 0 0;
+}
+
+.live-cycle-value .unit {
+  margin-inline-start: 4px;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// A slow loop that says it is slow is survivable; a silent one is not. The outline
+// carries the alarm, so the number stays legible rather than becoming the alarm.
+.live-cycle.is-slow {
+  border-color: var(--mat-sys-error);
+}
+
+// The planned target the room is on right now. A left rule, not a fill: the row is not a
+// state the operator set, and a highlight that looked like a selection would invite a
+// click that does nothing.
+.target-card.is-on-the-block,
+tr.is-on-the-block td:first-child {
+  border-inline-start: 3px solid var(--mat-sys-tertiary);
+}
+
+.target-card.is-on-the-block {
+  padding-inline-start: 13px;
 }

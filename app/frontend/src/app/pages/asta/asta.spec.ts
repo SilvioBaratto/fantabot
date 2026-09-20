@@ -8,6 +8,7 @@ import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
 import { AstaPlan } from '../../core/models/asta-plan';
 import { Exclusion, Exclusions } from '../../core/models/exclusion';
+import { JobSummary } from '../../core/models/job';
 import { JournalPage, JournalRow } from '../../core/models/journal';
 import { RoomCheck } from '../../core/models/room';
 import { WINDOW_SIZE_QUERIES, WindowSizeClass } from '../../core/window-size-class';
@@ -82,6 +83,16 @@ describe('AstaComponent', () => {
       .flush({ exclusions: [], error: null, ...body });
   }
 
+  /**
+   * The third request `ngOnInit` fires, and the one that reattaches the live room.
+   *
+   * A listing that cannot be read is not an error worth showing — harvest's reasoning —
+   * but it is still a request, and an outstanding one fails `httpMock.verify()`.
+   */
+  function flushJobs(jobs: JobSummary[] = []): void {
+    httpMock.expectOne(`${environment.apiUrl}jobs`).flush({ jobs });
+  }
+
   function overview(id: number) {
     return {
       league_id: id,
@@ -133,6 +144,7 @@ describe('AstaComponent', () => {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
     flushExclusions();
+    flushJobs();
     httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
     fixture.detectChanges();
     await fixture.whenStable();
@@ -146,6 +158,7 @@ describe('AstaComponent', () => {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
     flushExclusions();
+    flushJobs();
 
     httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
     fixture.detectChanges();
@@ -231,6 +244,7 @@ describe('AstaComponent', () => {
       const fixture = TestBed.createComponent(AstaComponent);
       fixture.detectChanges();
       flushExclusions();
+      flushJobs();
       httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
       fixture.detectChanges();
       await fixture.whenStable();
@@ -342,6 +356,7 @@ describe('AstaComponent', () => {
       const fixture = TestBed.createComponent(AstaComponent);
       fixture.detectChanges();
       flushExclusions();
+      flushJobs();
       httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
       fixture.detectChanges();
       await fixture.whenStable();
@@ -357,6 +372,8 @@ describe('AstaComponent', () => {
         skipped: 0,
         offset: 0,
         limit: 100,
+        // Zero in page mode, and that is the answer: a page does not tail.
+        next_index: 0,
         rows: [],
         error: null,
         ...over,
@@ -691,6 +708,7 @@ describe('AstaComponent', () => {
     const fixture = TestBed.createComponent(AstaComponent);
     fixture.detectChanges();
     flushExclusions();
+    flushJobs();
 
     httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
     fixture.detectChanges();
@@ -817,6 +835,7 @@ describe('AstaComponent', () => {
       const fixture = TestBed.createComponent(AstaComponent);
       fixture.detectChanges();
       flushExclusions(body);
+      flushJobs();
       httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
       fixture.detectChanges();
       await fixture.whenStable();
@@ -1053,6 +1072,391 @@ describe('AstaComponent', () => {
 
         expect(fixture.nativeElement.textContent).toContain('Could not reach the API');
       });
+    });
+  });
+  /**
+   * The live room view — T18's fourth surface, and the first one on this page that watches
+   * something still happening.
+   *
+   * **The journal is the channel, not stdout.** `asta room` paints a Rich `Live`, which
+   * renders to nobody on a pipe, so a supervised watch says what it is doing only by
+   * appending a row per cycle to the file `GET /asta/journal?follow=1` tails. Everything
+   * below therefore asserts against journal rows, never against job log lines.
+   */
+  describe('live room', () => {
+    async function ready(jobs: JobSummary[] = []) {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions();
+      httpMock.expectOne(`${environment.apiUrl}jobs`).flush({ jobs });
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    function watching(over: Partial<JobSummary> = {}): JobSummary {
+      return {
+        id: 'W1',
+        kind: 'asta-watch',
+        status: 'running',
+        started_at: '2026-09-20T19:31:00Z',
+        line_count: 0,
+        ok: null,
+        stoppable: true,
+        ...over,
+      };
+    }
+
+    function tail(over: Partial<JournalPage> = {}): JournalPage {
+      return {
+        ok: true,
+        path: '/Volumes/External SSD/fantabot/data/room_journal.jsonl',
+        exists: true,
+        total: 0,
+        skipped: 0,
+        offset: 0,
+        limit: 100,
+        next_index: 0,
+        rows: [],
+        error: null,
+        ...over,
+      };
+    }
+
+    function cycle(over: Partial<JournalRow> = {}): JournalRow {
+      return {
+        index: 1,
+        at_ms: 1788304436211,
+        node: 'auction',
+        lot: 'b894b38e',
+        name: 'Zaccagni',
+        price: 40,
+        walk_away: 44,
+        provenance: 're-solved with this lot forced in',
+        decision: 'bid',
+        reason: null,
+        credits_left: 312,
+        max_cap: 96,
+        owned_count: 7,
+        bargain_spent: 12,
+        bargain_allowance: 50,
+        error: null,
+        cycle_ms: 180.4,
+        ...over,
+      };
+    }
+
+    it('starts a watch from the pasted room link and tails the journal', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.setRoomUrl('https://app.fantalab.it/asta?asta=abc');
+
+      fixture.componentInstance.watchRoom();
+      const started = httpMock.expectOne(`${environment.apiUrl}asta/room/watch`);
+      // The link, and nothing else. No `arm`, and no number from the value model — both
+      // are the child's, and a second copy of either here is what `asta_planner` exists
+      // to prevent.
+      expect(started.request.body).toEqual({ url: 'https://app.fantalab.it/asta?asta=abc' });
+      started.flush({ job_id: 'W1' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      // The first tail is immediate, not one poll late: an evening already under way has
+      // rows to show now, and six seconds of a blank screen at 21:47 is the failure the
+      // whole pane exists to prevent.
+      const first = httpMock.expectOne((r) => r.url.includes('asta/journal'));
+      expect(first.request.params.get('follow')).toBe('1');
+      expect(first.request.params.get('since')).toBe('0');
+      first.flush(tail({ rows: [cycle()], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.watchJobId()).toBe('W1');
+      expect(fixture.componentInstance.liveRow()?.name).toBe('Zaccagni');
+    });
+
+    it('resumes from the position the server returned, never the one it asked for', async () => {
+      // `next_index` is the last row *parsed*, which a torn line makes smaller than the
+      // file's length. A viewer that counted its own rows would step over the cycle that
+      // line belongs to and drop it from the evening's only record.
+      vi.useFakeTimers();
+      try {
+        const fixture = await ready();
+        fixture.componentInstance.setRoomUrl('abc');
+        fixture.componentInstance.watchRoom();
+        httpMock.expectOne(`${environment.apiUrl}asta/room/watch`).flush({ job_id: 'W1' });
+        await vi.advanceTimersByTimeAsync(0);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle({ index: 1 }), cycle({ index: 2 })], next_index: 2 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(2100);
+        const second = httpMock.expectOne((r) => r.url.includes('asta/journal'));
+        expect(second.request.params.get('since')).toBe('2');
+        second.flush(tail({ next_index: 2 }));
+        await vi.advanceTimersByTimeAsync(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('reattaches to a watch that was already running', async () => {
+      // The run is a subprocess and outlives the tab. A page that re-enabled the button
+      // instead would offer a second watch on the same room.
+      const fixture = await ready([watching()]);
+
+      expect(fixture.componentInstance.watchJobId()).toBe('W1');
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(tail({ rows: [cycle({ name: 'Holm' })], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('Holm');
+    });
+
+    it('ignores a finished watch and a job of another kind', async () => {
+      // `GET /jobs` lists everything the server has ever run this session. Reattaching to
+      // a `done` row would tail a room that closed hours ago and call it live.
+      const fixture = await ready([
+        watching({ id: 'W0', status: 'done' }),
+        watching({ id: 'H3', kind: 'harvest-collect' }),
+      ]);
+
+      expect(fixture.componentInstance.watchJobId()).toBeNull();
+      httpMock.expectNone((r) => r.url.includes('asta/journal') && r.params.get('follow') === '1');
+    });
+
+    it('shows the server refusal for a link the room cannot be reached through', async () => {
+      // The 400's `detail` is `parse_room_url`'s own sentence, which already names what to
+      // paste instead. A message composed here would be a second opinion about the link.
+      const fixture = await ready();
+      fixture.componentInstance.setRoomUrl('https://example.com/nope');
+
+      fixture.componentInstance.watchRoom();
+      httpMock
+        .expectOne(`${environment.apiUrl}asta/room/watch`)
+        .flush(
+          { detail: 'that is an invitation link, not a room link' },
+          { status: 400, statusText: 'Bad Request' },
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('not a room link');
+      expect(fixture.componentInstance.watchJobId()).toBeNull();
+    });
+
+    it('draws the lot, the decision with its walk-away, and the rosa', async () => {
+      const fixture = await ready([watching()]);
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(tail({ rows: [cycle()], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const text = fixture.nativeElement.textContent as string;
+      // LOT: who is on the block, at what, and what the next raise costs.
+      expect(text).toContain('Zaccagni');
+      expect(text).toContain('40');
+      // MODEL: the decision, and the walk-away with the provenance beside it — never
+      // fused into it. A number nobody can argue with is one nobody can correct at 21:47.
+      expect(text).toContain('BID');
+      expect(text).toContain('44');
+      expect(text).toContain('re-solved with this lot forced in');
+      // ROSA: the count, the credits, and the bargain pair that caps the unplanned lots.
+      expect(text).toContain('312');
+      expect(text).toContain('7');
+      expect(text).toContain('12');
+      expect(text).toContain('50');
+    });
+
+    it('renders a null walk-away as one, never as a zero', async () => {
+      // 4,501 of the 5,192 recorded rows are null here — that is what defect B2 looks
+      // like in the file, and a zero would read as "walk away at any price".
+      const fixture = await ready([watching()]);
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(tail({ rows: [cycle({ walk_away: null, provenance: null })], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const pane = fixture.nativeElement.querySelector('.live-model') as HTMLElement;
+      expect(pane.textContent).toContain('—');
+      expect(pane.textContent).not.toContain('0 credits');
+    });
+
+    it('names the guard that refused when the decision was to hold', async () => {
+      const fixture = await ready([watching()]);
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(
+          tail({
+            rows: [cycle({ decision: 'hold', reason: 'max_cap' })],
+            next_index: 1,
+          }),
+        );
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.textContent).toContain('max_cap');
+    });
+
+    it('marks the planned target that is on the block', async () => {
+      // The listone pane is the plan's, not the room's: the journal carries one lot per
+      // row and the listone lives only in the child's `RoomTracker`. Saying which target
+      // is up is the whole join between the two.
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions();
+      httpMock.expectOne(`${environment.apiUrl}jobs`).flush({ jobs: [watching()] });
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([overview(4103937)]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/plan'))
+        .flush(
+          plan({
+            players: [
+              {
+                player_id: '1',
+                nome: 'Zaccagni',
+                price: 41,
+                walk_away: 44,
+                walk_away_provenance: 're-solved',
+              },
+            ],
+          }),
+        );
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(tail({ rows: [cycle({ name: 'Zaccagni' })], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.onTheBlock()).toBe('zaccagni');
+      expect(fixture.nativeElement.querySelector('.is-on-the-block')).not.toBeNull();
+    });
+
+    it('renders cycle_ms as a first-class number and says when it is slow', async () => {
+      // A slow loop that says it is slow is survivable; a silent one is not. The room's
+      // own poll is 2 s (`interface/asta.py:518`), so a cycle slower than that is one
+      // whose work now sets the cadence — the 72 s solve stall is what that looks like.
+      const fixture = await ready([watching()]);
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(tail({ rows: [cycle({ cycle_ms: 72000 })], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.cycleSlow()).toBe(true);
+      const pane = fixture.nativeElement.querySelector('.live-cycle') as HTMLElement;
+      expect(pane.textContent).toContain('72,000');
+    });
+
+    it('says a cycle was never timed rather than showing it as instant', async () => {
+      // `cycle_ms` postdates the 2026-09-01 evening and is null across every recorded row.
+      // Rendering that as 0 ms would report the stall it exists to expose as its opposite.
+      const fixture = await ready([watching()]);
+      httpMock
+        .expectOne((r) => r.url.includes('asta/journal'))
+        .flush(tail({ rows: [cycle({ cycle_ms: null })], next_index: 1 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const pane = fixture.nativeElement.querySelector('.live-cycle') as HTMLElement;
+      expect(pane.textContent).toContain('Not timed');
+      expect(fixture.componentInstance.cycleSlow()).toBe(false);
+    });
+
+    it('counts the polls that brought nothing, because a quiet loop looks like a calm one', async () => {
+      // The other half of the same problem: `cycle_ms` says the last cycle was slow, and
+      // this says there has not been a cycle. On screen a stopped loop and a quiet room
+      // are the same picture, and only one of them still bids.
+      vi.useFakeTimers();
+      try {
+        const fixture = await ready([watching()]);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle()], next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fixture.componentInstance.quietPolls()).toBe(0);
+
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail({ next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail({ next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(fixture.componentInstance.quietPolls()).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops the watch and stops tailing', async () => {
+      vi.useFakeTimers();
+      try {
+        const fixture = await ready([watching()]);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle()], next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        fixture.componentInstance.stopWatch();
+        httpMock.expectOne(`${environment.apiUrl}jobs/W1/stop`).flush({ ok: true });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(fixture.componentInstance.watchJobId()).toBeNull();
+        // The last frame stays on screen. Blanking it would take the walk-away away at
+        // the exact moment the operator has to bid by hand instead — `error_overlay`'s
+        // reasoning, and the same trade.
+        expect(fixture.componentInstance.liveRow()?.name).toBe('Zaccagni');
+
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock.expectNone((r) => r.url.includes('asta/journal'));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the last frame under a banner when a poll fails', async () => {
+      // Stale is still the right thing to keep drawing, and the banner is the only thing
+      // that says it is stale: a failed poll leaves the previous frame indistinguishable,
+      // on screen, from a quiet room where nothing has happened.
+      vi.useFakeTimers();
+      try {
+        const fixture = await ready([watching()]);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle()], next_index: 1 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+        await vi.advanceTimersByTimeAsync(0);
+        fixture.detectChanges();
+
+        expect(fixture.componentInstance.liveRow()?.name).toBe('Zaccagni');
+        expect(fixture.componentInstance.tailError()).not.toBeNull();
+
+        // And it keeps polling: one failed read is not the end of the evening.
+        await vi.advanceTimersByTimeAsync(2100);
+        httpMock
+          .expectOne((r) => r.url.includes('asta/journal'))
+          .flush(tail({ rows: [cycle({ name: 'Holm' })], next_index: 2 }));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(fixture.componentInstance.liveRow()?.name).toBe('Holm');
+        expect(fixture.componentInstance.tailError()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

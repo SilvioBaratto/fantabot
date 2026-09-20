@@ -30,4 +30,35 @@ export class AstaService {
     const params = new HttpParams().set('offset', offset).set('limit', limit);
     return this.http.get<JournalPage>(`${environment.apiUrl}asta/journal`, { params });
   }
+
+  /**
+   * The tail of the same file — the rows written after line `since`, oldest first.
+   *
+   * `since` rather than a reused `offset`, because they mean different things: `offset`
+   * is how many rows to skip from the newest, `since` is a row's own 1-based line number.
+   * A client that sent its tail position back as `offset` would page from the wrong end
+   * and be told nothing was wrong.
+   *
+   * Oldest first is the server's doing and the reason this is a separate call at all: a
+   * tail is appended to a list on a screen while the room is still running, and a viewer
+   * that reversed each response before appending it would draw the evening inside out
+   * every two seconds.
+   */
+  followJournal(since: number, limit: number): Observable<JournalPage> {
+    const params = new HttpParams().set('follow', '1').set('since', since).set('limit', limit);
+    return this.http.get<JournalPage>(`${environment.apiUrl}asta/journal`, { params });
+  }
+
+  /**
+   * Watch a live room, supervised as a child process. It reads; it never bids.
+   *
+   * The link and nothing else. No `arm` — that is the lock the operator opens
+   * deliberately, at the keyboard, and 3.9b is where the app learns to send it. And no
+   * number from the value model: `--lam`, `--budget` and the three alphas are declared
+   * once in `interface/asta.py`, and a copy here is the second value model that
+   * `application/asta_planner.py` exists to prevent.
+   */
+  watchRoom(url: string): Observable<{ job_id: string }> {
+    return this.http.post<{ job_id: string }>(`${environment.apiUrl}asta/room/watch`, { url });
+  }
 }
