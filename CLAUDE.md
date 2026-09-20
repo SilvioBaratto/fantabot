@@ -472,6 +472,15 @@ src/fantabot/
   a decision.** `voti.py:57` and `statistiche.py:54` both stop their `DEFAULT_SEASONS` at
   2025/26 — correct when written (the season was preseason, all zeros) and wrong now that
   it is being played. Pass `--season 2026/27` explicitly, or fix the default.
+  **Since T23 the trap is visible on both surfaces rather than silent**, which is not the
+  same as fixed. `application/scrape.py` reads each scraper's own list *live* and compares
+  it against a **derived** current season: `db scrape voti` with no `--season` prints the
+  four it is about to take and warns that they stop before the season being played, and
+  the app's Scrape card defaults its field to that season rather than inheriting the list.
+  Reported rather than patched on purpose — a copy of the list in a second place is the
+  defect, not a report of it — so **fixing `voti.py:57` turns the warning off with nothing
+  else edited**, and a test in `tests/application/test_scrape_inputs.py` proves that by
+  moving the scraper's list and watching `default_is_stale` flip.
 - **Archive `SPEC.md`, `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
   `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:23`
   ignores it, which is how the token-store spec came to survive only in git history. Repoint that phase's spec
