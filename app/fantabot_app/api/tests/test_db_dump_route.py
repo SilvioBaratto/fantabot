@@ -1,6 +1,6 @@
 """`GET /db/dump/target` and `POST /db/dump` (T26).
 
-**The path is the deliverable, and that is a rule rather than a style.** `SPEC.md` §8
+**The path is the deliverable, and that is a rule rather than a style.** `tasks/archive/parity-spec.md` §8
 Never #4 — *no browser download of a database dump* — is the one thing this route must
 not grow. A dump carries the `league_tokens` rows, encrypted but still credentials, and
 handing over the bytes puts the file wherever the browser puts downloads: a directory
@@ -170,7 +170,7 @@ def test_the_outcomes_are_exactly_the_two_declared() -> None:
 
 
 def test_the_route_never_hands_over_the_bytes(quick_child, frozen_day) -> None:
-    """`SPEC.md` §8 Never #4, as a test rather than as a sentence in a docstring.
+    """`tasks/archive/parity-spec.md` §8 Never #4, as a test rather than as a sentence in a docstring.
 
     Structural on purpose. A response assertion only proves that *this* call returned
     JSON; what the rule forbids is the route ever learning to stream the file, and the

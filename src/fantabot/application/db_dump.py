@@ -6,7 +6,7 @@ roughly 750 GETs per season against a site under no obligation to keep serving 2
 So the dump matters, and where it lands matters more than it looks.
 
 **The path is the deliverable, which is why it is derived here rather than in a Typer
-body.** `SPEC.md` §8 Never #4 forbids the app from offering a browser download of a dump:
+body.** `tasks/archive/parity-spec.md` §8 Never #4 forbids the app from offering a browser download of a dump:
 handing over the bytes puts the file wherever the browser puts downloads, a directory
 neither of the two guards covers. What the app offers instead is the path — and a path
 named by a surface that did not derive it is how two surfaces come to disagree about

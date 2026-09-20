@@ -1,6 +1,6 @@
 """`asta optimize` and `GET /asta/plan`, on one database, at one frozen date.
 
-This is the divergence the whole phase is named for. `SPEC.md` §11.1 counts **ten**
+This is the divergence the whole phase is named for. `tasks/archive/parity-spec.md` §11.1 counts **ten**
 inputs that differ, and the two that matter most are a pair: the endpoint passes
 `sentiment=None` and `tilt_k=1.0`. `sentiment=None` **is the ablation control** — the
 experiment's other arm, plain `fvm`, which on the 2026-08-28 data chases a player with a

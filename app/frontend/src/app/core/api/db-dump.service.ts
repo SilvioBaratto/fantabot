@@ -11,7 +11,7 @@ import { DumpStarted, DumpTarget } from '../models/db-dump';
  * A job, like `ScrapeService` and unlike `TeamsService`: the database is ~1.9 GB and
  * `pg_dump` streams all of it, so the page starts a supervised child and polls.
  *
- * There is no `download()` here and there must never be one — `SPEC.md` §8 Never #4.
+ * There is no `download()` here and there must never be one — `tasks/archive/parity-spec.md` §8 Never #4.
  * What the page offers is the path.
  */
 @Injectable({ providedIn: 'root' })

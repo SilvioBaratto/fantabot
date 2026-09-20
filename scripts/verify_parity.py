@@ -1,8 +1,9 @@
 """Every success criterion of the parity phase, as a measurement.
 
-The spec is `SPEC.md` §12 while this phase is in flight, and `tasks/archive/parity-spec.md`
-once it closes. Run it: `python scripts/verify_parity.py`. It prints what it measured against
-what was expected and exits non-zero if any live check fails.
+The criteria are §12 of `tasks/archive/parity-spec.md` — `SPEC.md` while the phase was in
+flight, archived by the closing ritual, which is why this docstring names the archive and
+not the reused filename. Run it: `python scripts/verify_parity.py`. It prints what it
+measured against what was expected and exits non-zero if any live check fails.
 
 **Why this is a script and not a list of greps in a document.** §12 lists seventeen criteria
 and nothing produced them — each was a sentence somebody would have had to re-check by hand,
@@ -166,7 +167,7 @@ COVERAGE: dict[str, str] = {
 }
 
 #: The commands with no route, and why. §12 expected exactly one entry; there are three, and
-#: the other two are the same kind of thing `SPEC.md` T20 already rules CLI-only.
+#: the other two are the same kind of thing `tasks/archive/parity-spec.md` T20 already rules CLI-only.
 CLI_ONLY: dict[str, str] = {
     "mantra-grid": "T27 — a one-off collection into package data; nothing reads it per run",
     "asta bench": "developer machinery: replays a recorded JSONL a browser cannot hand over",

@@ -1,7 +1,7 @@
 """Asta plan — the optimal roster for a lega, on its real (snapshotted) roster rules.
 
 **It calls the CLI's planner rather than mirroring it.** It used to assemble its own
-inputs and they had drifted in ten of them (`SPEC.md` §11.1). Three were wrong rather than
+inputs and they had drifted in ten of them (`tasks/archive/parity-spec.md` §11.1). Three were wrong rather than
 merely narrower: `sentiment=None` is not "no opinion" but the sentiment model's **ablation
 control** — plain `fvm`, which on the 2026-08-28 data chases a player with a metatarsal
 fracture to 62 credits — so the page was showing an operator the control arm of an
@@ -51,7 +51,7 @@ router = APIRouter()
 
 #: How many plan members get a walk-away. **An explicit bound, never `None`.**
 #:
-#: `tasks/plan.md:357` says "choose the target count deliberately and say so in the docstring
+#: `tasks/archive/parity-plan.md:357` says "choose the target count deliberately and say so in the docstring
 #: **rather than defaulting to `None`**", and an earlier version of this file set exactly the
 #: sentinel it forbade. 40 sits above the largest roster the platform has declared (32, per
 #: the 2026-09-02 settings drift), so in practice the whole plan is priced — but it is a
@@ -579,7 +579,7 @@ def asta_advisory(
 
     The fold, the id resolution and the world read are `application/asta_advisory`'s; this
     is a serialiser and a choice of screen per outcome. `--replay` is deliberately absent:
-    `SPEC.md` T20 keeps it as developer machinery, and it is the one input this surface has
+    `tasks/archive/parity-spec.md` T20 keeps it as developer machinery, and it is the one input this surface has
     no way to hand over.
     """
     from fantabot.adapters.persistence import database_manager

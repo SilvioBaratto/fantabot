@@ -1,6 +1,6 @@
 """`RosterRules`, derived from what a room actually declares, with a stated provenance.
 
-Reading the room too literally is the named risk (`tasks/plan.md` §2): a room under
+Reading the room too literally is the named risk (`tasks/archive/parity-plan.md` §2): a room under
 `"no-limit-per-role"` has no per-role floor to read at all, and `min_player`/`max_player`
 alone say only "at least this many total" — never how many must be goalkeepers. Deriving a
 zero-keeper floor from that silence would be a room-declared rule no room actually stated.

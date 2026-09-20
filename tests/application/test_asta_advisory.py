@@ -8,7 +8,7 @@ differing from `asta optimize`'s in ten inputs — and this one would have diffe
 place, because `callable_ids` and the corpus shape are exactly the arguments a second caller
 forgets.
 
-**The replay path stays in the CLI, and that is why `events` is a parameter.** `SPEC.md` T20
+**The replay path stays in the CLI, and that is why `events` is a parameter.** `tasks/archive/parity-spec.md` T20
 calls `--replay` developer machinery; making the fold take events rather than read them keeps
 one fold over two sources instead of two folds. What the app supplies is a live ledger, what
 the terminal supplies is either.

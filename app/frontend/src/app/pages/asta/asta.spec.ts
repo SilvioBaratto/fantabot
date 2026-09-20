@@ -176,7 +176,7 @@ describe('AstaComponent', () => {
 
   it('says what the plan was built on', async () => {
     // The page showed a number and none of the inputs behind it, and those inputs
-    // differed from the command's in ten places (SPEC.md §11.1).
+    // differed from the command's in ten places (`tasks/archive/parity-spec.md` §11.1).
     const fixture = await readyWithPlan(plan({ lam: 0.3, owned: ['9'], callable_pool: 529 }));
 
     const text = fixture.nativeElement.textContent as string;

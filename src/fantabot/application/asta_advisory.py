@@ -10,7 +10,7 @@ inputs. The two arguments a second caller forgets are exactly the two this modul
 called, and the corpus shape, without which a 10x650 room is priced against somebody else's
 8x500 game.
 
-**`events` is a parameter, not a read.** `SPEC.md` T20 keeps `--replay` as developer
+**`events` is a parameter, not a read.** `tasks/archive/parity-spec.md` T20 keeps `--replay` as developer
 machinery and CLI-only; taking events rather than fetching them is what makes that one fold
 over two sources instead of two folds. The terminal supplies either a recorded file or the
 live `purchases/<fl>` ledger; the app supplies the ledger.

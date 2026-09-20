@@ -7,7 +7,7 @@ golden test pins.
 
 Numbers below are measured, not copied from `SPEC.md`'s narrative — its "Vicario taken at ≤ 9"
 read an intermediate rung as the clearing price; the real, final price was 58, and §8 was
-corrected to match this file's own measurement (see `SPEC.md` §8 items 2 and 3).
+corrected to match this file's own measurement (see `tasks/archive/parity-spec.md` §8 items 2 and 3).
 """
 
 from __future__ import annotations

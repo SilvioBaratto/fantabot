@@ -443,7 +443,7 @@ def asta_live(
 
     # FantaLab identifies players by UUID; everything downstream is keyed by fantacalcio id.
     # Fetched here because the two event sources differ and the bridge does not: `--replay`
-    # is developer machinery and stays CLI-only (`SPEC.md` T20), which is exactly why
+    # is developer machinery and stays CLI-only (`tasks/archive/parity-spec.md` T20), which is exactly why
     # `build_advisory` takes `events` rather than reading them — one fold over two sources
     # instead of two folds.
     from fantabot.adapters.http.fantalab import listone
@@ -866,7 +866,7 @@ def asta_calibrate(
     `lot_ceiling`'s own re-solved number, and it is hand-set; this replays it against auctions
     that really happened and prints what each value would have spent. Pick the alpha whose
     spend lands near the budget with a rosa that can still field a schema, and paste the table
-    into `tasks/todo.md`.
+    into `tasks/archive/parity-todo.md`.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
@@ -1234,8 +1234,8 @@ def asta_bench(
     `test_asta_bench.py` read them. This is `SPEC.md`'s acceptance gate for the asta-fixes
     phase — proof, from one command, that Vicario is never a target, Ostigard holds for free
     on the pre-gate, and Malen prices above the floor and refuses his real clearing price
-    (`SPEC.md` §8 items 2 and 3; the exact numbers were measured building this command, not
-    copied from the spec's own first draft — see `tasks/todo.md` Task 6.2/6.3).
+    (`tasks/archive/parity-spec.md` §8 items 2 and 3; the exact numbers were measured building this command, not
+    copied from the spec's own first draft — see `tasks/archive/parity-todo.md` Task 6.2/6.3).
 
     Exits non-zero, one line per failed invariant, if a change to `asta_room`/`reservation`
     regresses any of the three.

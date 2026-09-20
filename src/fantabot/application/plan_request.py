@@ -1,7 +1,7 @@
 """What a plan is built from, said once — and the one function that builds it.
 
 **The defect this closes.** `asta optimize` and `GET /asta/plan` each assembled their own
-inputs, and they had drifted apart in ten of them (`SPEC.md` §11.1). Two are a pair and
+inputs, and they had drifted apart in ten of them (`tasks/archive/parity-spec.md` §11.1). Two are a pair and
 the rest follow from it: the endpoint passed `sentiment=None`, which is not "no opinion"
 but the sentiment model's **ablation control** — plain `fvm`, the arm of the experiment
 that on the 2026-08-28 data chases a player with a metatarsal fracture to 62 credits — and

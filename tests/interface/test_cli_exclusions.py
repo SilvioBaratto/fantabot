@@ -164,7 +164,7 @@ class TestRecordingOne:
 class TestRemovingOne:
     """`db unexclude` is the remedy for a typo'd id, which until now was `psql`.
 
-    Left open by T24 and built here CLI-first, per `SPEC.md` §8 Never #4: the app gets
+    Left open by T24 and built here CLI-first, per `tasks/archive/parity-spec.md` §8 Never #4: the app gets
     no power the CLI lacks, so the command has to exist before the button can.
     """
 
