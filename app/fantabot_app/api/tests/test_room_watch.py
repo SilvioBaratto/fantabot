@@ -140,11 +140,23 @@ def test_the_copilot_is_off_because_nothing_reads_its_pane(quick_child) -> None:
     assert "--no-copilot" in " ".join(_job(client, job_id)["lines"])
 
 
-def test_a_link_that_is_not_a_room_is_refused_before_anything_is_spawned(quick_child) -> None:
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "https://leghe.fantacalcio.it/legamiallerotaie2",  # the other platform, pasted
+        # No slash and no scheme, on purpose. The URL above also fails a route that
+        # forgot to refuse — but on `Path.with_name`, which rejects a separator, so the
+        # assertion below would never be what caught it.
+        "legamiallerotaie2",
+    ],
+)
+def test_a_link_that_is_not_a_room_is_refused_before_anything_is_spawned(
+    quick_child, pasted: str
+) -> None:
     client = TestClient(app)
     before = _watches(client)
 
-    response = _watch(client, "https://leghe.fantacalcio.it/legamiallerotaie2")
+    response = _watch(client, pasted)
 
     assert response.status_code == 400
     assert "app.fantalab.it/asta?asta=" in response.json()["detail"]
