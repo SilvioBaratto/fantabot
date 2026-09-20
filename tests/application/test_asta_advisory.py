@@ -124,6 +124,24 @@ class TestTheWorldIsReadTheWayEveryOtherPlanReadsIt:
 
         assert seen["read"]["callable_ids"] == frozenset({"7"})
 
+    def test_an_empty_bridge_disables_the_filter_rather_than_emptying_the_pool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`None`, never `frozenset()`. `read_plan_inputs` reads an empty collection as a
+        real, total exclusion — so an unreachable listone would not degrade the advisory,
+        it would empty it, and a blank screen reads as a quiet room. `PlanRequest` carries
+        the same warning in a comment; this is the assertion behind it.
+
+        Survivor 2 of this slice's battery: `frozenset(...)` without the `or None` passed
+        every other test in the file, because they all supply a bridge.
+        """
+        from fantabot.application.asta_advisory import build_advisory
+
+        seen = _patched(monkeypatch, pool=[object()], walkaways={})
+        build_advisory(object(), _request(), events=[], bridge={})
+
+        assert seen["read"]["callable_ids"] is None
+
     def test_the_corpus_shape_is_the_rooms_own_never_the_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
