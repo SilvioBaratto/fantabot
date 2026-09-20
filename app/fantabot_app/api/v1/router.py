@@ -12,6 +12,7 @@ from fantabot_app.api.v1.endpoints import (
     asta,
     auth,
     db,
+    dump,
     exclusions,
     harvest,
     jobs,
@@ -44,3 +45,4 @@ api_router.include_router(actions.router)
 api_router.include_router(system.router)
 api_router.include_router(teams.router)
 api_router.include_router(scrape.router)
+api_router.include_router(dump.router)
