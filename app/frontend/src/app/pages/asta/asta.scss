@@ -38,6 +38,59 @@
   }
 }
 
+// ------------------------------------------------------------- M3 type scale
+//
+// One placeholder per role, `@extend`ed rather than repeated. Sass merges the extenders
+// into a single selector group, so a role costs its two declarations once and each user
+// a selector — against `font:` plus `letter-spacing:` written out at every one of them.
+// That is most of what brought this file back under the 10 kB per-component budget it
+// had been over since before the live-room section existed.
+//
+// They sit at the top on purpose. `@extend` emits the group where the placeholder is, so
+// every extended rule's type moves *earlier* in the cascade: it can be overridden by
+// more, never by less, which is the direction that cannot silently win an argument it
+// used to lose. One case changes and the change is the fix — `.live-cycle-value` is a
+// `font:` shorthand and was resetting `font-style` to normal after `.is-absent` had set
+// it to italic.
+//
+// Roles whose `-tracking` token is `0` in the M3 theme carry no `letter-spacing` at all
+// (headline-small, title-large, display-small). The declaration was a no-op.
+
+%body-medium {
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+%body-small {
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+%label-large {
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+%label-medium {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+}
+
+%label-small {
+  font: var(--mat-sys-label-small);
+  letter-spacing: var(--mat-sys-label-small-tracking);
+}
+
+%title-medium {
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+}
+
+%title-small {
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+}
+
 /* ---------------------------------------------------------------- page head */
 
 .page-head {
@@ -47,15 +100,17 @@
 .page-title {
   margin: 0;
   font: var(--mat-sys-headline-small);
-  letter-spacing: var(--mat-sys-headline-small-tracking);
   color: var(--mat-sys-on-surface);
 }
 
-.page-lede {
+/* The page lede and a state body are the same block, so they are one rule. They were two
+   identical ones: a cost in the per-component budget, and two places for one decision to
+   drift apart. */
+.page-lede,
+.state-body {
   margin: 4px 0 0;
   max-inline-size: 60ch;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
+  @extend %body-medium;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -142,18 +197,18 @@
   text-align: center;
 }
 
-.panel-title {
+.panel-title,
+.state-title,
+.exclude-form-title {
   margin: 0;
-  font: var(--mat-sys-title-medium);
-  letter-spacing: var(--mat-sys-title-medium-tracking);
+  @extend %title-medium;
   color: var(--mat-sys-on-surface);
 }
 
 .panel-sub {
   margin: 4px 0 0;
   max-inline-size: 60ch;
-  font: var(--mat-sys-body-small);
-  letter-spacing: var(--mat-sys-body-small-tracking);
+  @extend %body-small;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -171,45 +226,28 @@
 }
 
 /* Full width and below both panes. */
+/* All three are `<section>`, so no `display` is needed — only the rhythm between them. */
 .live,
 .targets,
 .exclusions {
-  display: block;
   margin-block-start: 24px;
 }
 
 .section-title {
   margin: 0 0 12px;
-  font: var(--mat-sys-title-medium);
-  letter-spacing: var(--mat-sys-title-medium-tracking);
+  @extend %title-medium;
   color: var(--mat-sys-on-surface);
 }
 
 /* ------------------------------------------------------------ state blocks */
 
-.state-title,
-.exclude-form-title {
-  margin: 0;
-  font: var(--mat-sys-title-medium);
-  letter-spacing: var(--mat-sys-title-medium-tracking);
-  color: var(--mat-sys-on-surface);
-}
-
-/* 40–60 characters per line (`layout/breakpoints.md:101`). The block is only centred inside
-   a centred state panel; anywhere else `auto` would float it away from its heading. */
-.state-body {
-  margin: 4px 0 0;
-  max-inline-size: 60ch;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
-  color: var(--mat-sys-on-surface-variant);
-}
-
+/* `.state-title` and `.exclude-form-title` are declared with `.panel-title`, above. */
+/* `.state-body` is declared with `.page-lede`, at the top. It is only centred inside a
+   centred state panel; anywhere else `auto` would float it away from its heading. */
 .state-hint {
   margin: 8px 0 0;
   max-inline-size: 60ch;
-  font: var(--mat-sys-body-small);
-  letter-spacing: var(--mat-sys-body-small-tracking);
+  @extend %body-small;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -227,10 +265,11 @@
   gap: 12px;
 }
 
-.loading-text {
+/* The loading line and the journal's range read the same and are declared once. */
+.loading-text,
+.journal-range {
   margin: 0;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
+  @extend %body-medium;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -251,7 +290,6 @@
 .stat-value {
   margin: 0;
   font: var(--mat-sys-display-small);
-  letter-spacing: var(--mat-sys-display-small-tracking);
   color: var(--mat-sys-on-surface);
 }
 
@@ -261,21 +299,18 @@
 
 .stat-of {
   font: var(--mat-sys-headline-small);
-  letter-spacing: var(--mat-sys-headline-small-tracking);
   color: var(--mat-sys-on-surface-variant);
 }
 
 .stat-label {
   margin: 4px 0 0;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
+  @extend %body-medium;
   color: var(--mat-sys-on-surface-variant);
 }
 
 .stat-note {
   margin: 2px 0 0;
-  font: var(--mat-sys-body-small);
-  letter-spacing: var(--mat-sys-body-small-tracking);
+  @extend %body-small;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -297,23 +332,23 @@
   }
 }
 
-.fact dt {
-  font: var(--mat-sys-label-medium);
-  letter-spacing: var(--mat-sys-label-medium-tracking);
+/* A fact's term, a journal row's index and an exclusion's id are all the same label. */
+.fact dt,
+.journal-index,
+.exclusion-id {
+  @extend %label-medium;
   color: var(--mat-sys-on-surface-variant);
 }
 
 .fact dd {
   margin: 2px 0 0;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
+  @extend %body-medium;
   color: var(--mat-sys-on-surface);
 }
 
 .facts-title {
   margin: 0;
-  font: var(--mat-sys-label-medium);
-  letter-spacing: var(--mat-sys-label-medium-tracking);
+  @extend %label-medium;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -327,8 +362,7 @@
 }
 
 .fallback {
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
+  @extend %body-medium;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -362,8 +396,7 @@
 
 .prov {
   display: block;
-  font: var(--mat-sys-body-small);
-  letter-spacing: var(--mat-sys-body-small-tracking);
+  @extend %body-small;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -373,8 +406,7 @@
   padding: 1px 8px;
   border: 1px solid var(--mat-sys-outline);
   border-radius: var(--mat-sys-corner-full);
-  font: var(--mat-sys-label-small);
-  letter-spacing: var(--mat-sys-label-small-tracking);
+  @extend %label-small;
   color: var(--mat-sys-on-surface-variant);
 }
 
@@ -439,8 +471,7 @@ code {
 
 .data-table thead th {
   background: var(--mat-sys-surface-container-low);
-  font: var(--mat-sys-label-large);
-  letter-spacing: var(--mat-sys-label-large-tracking);
+  @extend %label-large;
   color: var(--mat-sys-on-surface-variant);
   white-space: nowrap;
 }
@@ -511,8 +542,7 @@ code {
 
 .target-name {
   margin: 0;
-  font: var(--mat-sys-title-small);
-  letter-spacing: var(--mat-sys-title-small-tracking);
+  @extend %title-small;
   color: var(--mat-sys-on-surface);
 }
 
@@ -525,15 +555,13 @@ code {
 }
 
 .figure dt {
-  font: var(--mat-sys-label-small);
-  letter-spacing: var(--mat-sys-label-small-tracking);
+  @extend %label-small;
   color: var(--mat-sys-on-surface-variant);
 }
 
 .figure dd {
   margin: 0;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
+  @extend %body-medium;
   color: var(--mat-sys-on-surface);
 }
 
@@ -571,13 +599,6 @@ code {
   gap: 8px 16px;
 }
 
-.journal-range {
-  margin: 0;
-  font: var(--mat-sys-body-medium);
-  letter-spacing: var(--mat-sys-body-medium-tracking);
-  color: var(--mat-sys-on-surface-variant);
-}
-
 .journal-range .is-error {
   margin-inline-start: 8px;
 }
@@ -602,8 +623,7 @@ code {
   border-radius: var(--mat-sys-corner-full);
   background: var(--mat-sys-surface-container-highest);
   color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-label-medium);
-  letter-spacing: var(--mat-sys-label-medium-tracking);
+  @extend %label-medium;
   white-space: nowrap;
 }
 
@@ -630,8 +650,7 @@ code {
 .journal-table .lot-note,
 .journal-table .lot-fault {
   display: block;
-  font: var(--mat-sys-body-small);
-  letter-spacing: var(--mat-sys-body-small-tracking);
+  @extend %body-small;
 }
 
 .journal-table .lot-note {
@@ -670,24 +689,16 @@ code {
   gap: 12px;
 }
 
-.journal-index {
-  font: var(--mat-sys-label-medium);
-  letter-spacing: var(--mat-sys-label-medium-tracking);
-  color: var(--mat-sys-on-surface-variant);
-}
-
 .journal-lot {
   margin: 6px 0 0;
-  font: var(--mat-sys-title-small);
-  letter-spacing: var(--mat-sys-title-small-tracking);
+  @extend %title-small;
   color: var(--mat-sys-on-surface);
 }
 
 .journal-reason,
 .journal-fault {
   margin: 2px 0 0;
-  font: var(--mat-sys-body-small);
-  letter-spacing: var(--mat-sys-body-small-tracking);
+  @extend %body-small;
 }
 
 .journal-reason {
@@ -731,8 +742,7 @@ code {
 }
 
 .exclusion-name {
-  font: var(--mat-sys-title-small);
-  letter-spacing: var(--mat-sys-title-small-tracking);
+  @extend %title-small;
   color: var(--mat-sys-on-surface);
 }
 
@@ -742,12 +752,6 @@ code {
 .exclusion-name.is-unknown {
   color: var(--mat-sys-on-surface-variant);
   font-style: italic;
-}
-
-.exclusion-id {
-  font: var(--mat-sys-label-medium);
-  letter-spacing: var(--mat-sys-label-medium-tracking);
-  color: var(--mat-sys-on-surface-variant);
 }
 
 /* A number, a sentence and a URL. Side by side each would get a third of the pane, and
@@ -806,7 +810,6 @@ code {
 }
 
 .live-pane {
-  display: block;
   padding: 12px;
   border: 1px solid var(--mat-sys-outline-variant);
   border-radius: var(--mat-sys-corner-medium);
@@ -814,8 +817,7 @@ code {
 
 .live-pane-title {
   margin: 0 0 8px;
-  font: var(--mat-sys-label-large);
-  letter-spacing: var(--mat-sys-label-large-tracking);
+  @extend %label-large;
   color: var(--mat-sys-on-surface-variant);
   text-transform: uppercase;
 }
@@ -826,7 +828,6 @@ code {
 .live-cycle-value {
   margin: 0 0 8px;
   font: var(--mat-sys-headline-small);
-  letter-spacing: var(--mat-sys-headline-small-tracking);
   font-variant-numeric: tabular-nums;
   color: var(--mat-sys-on-surface);
 }
@@ -834,7 +835,6 @@ code {
 .live-decision {
   margin: 0;
   font: var(--mat-sys-title-large);
-  letter-spacing: var(--mat-sys-title-large-tracking);
   color: var(--mat-sys-on-surface);
 }
 
