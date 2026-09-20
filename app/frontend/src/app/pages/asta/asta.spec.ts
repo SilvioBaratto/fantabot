@@ -1607,6 +1607,50 @@ describe('AstaComponent', () => {
       };
     }
 
+    it('has the run tag in the DOM, empty, before a run is started', async () => {
+      // A live region inserted together with its first message is announced unreliably by
+      // NVDA and JAWS — the region has to be there first and then fill. `news.spec.ts` has
+      // the same test for the same reason; this one was gated by `@if (watchJobId())`, so
+      // "Bidding · <id>" was the region's own birth and was lost every time.
+      const fixture = await ready();
+
+      const tag = (fixture.nativeElement as HTMLElement).querySelector('.live .tag');
+      expect(tag).not.toBeNull();
+      expect(tag?.getAttribute('aria-live')).toBe('polite');
+      // Genuinely `:empty` — a stray whitespace node would leave an empty pill on the card.
+      expect(tag?.matches(':empty')).toBe(true);
+    });
+
+    it('has the disarm status region in the DOM, empty, before the first stop', async () => {
+      // The disarm note is the one message on this page an operator most needs announced:
+      // it is what tells them the first Ctrl-C landed and the run is still drawing.
+      const fixture = await bidding();
+      const host = fixture.nativeElement as HTMLElement;
+
+      const region = host.querySelector('.live [role="status"]');
+      expect(region).not.toBeNull();
+      expect(region?.matches(':empty')).toBe(true);
+      expect(host.querySelector('[data-testid="disarm-note"]')).toBeNull();
+    });
+
+    it('names the disarm note only once it has something to announce', async () => {
+      // The other half of the region test. The testid rides on the *text*, not on the host
+      // that is now always present, so "disarm-note in the DOM <=> disarmed" stays a true
+      // statement — leave it on the host and it reads as permanently disarmed.
+      const fixture = await bidding();
+      fixture.componentInstance.stopRun();
+      httpMock.expectOne((r) => r.url.includes('/stop')).flush({ ok: true });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const note = host.querySelector('[data-testid="disarm-note"]');
+      expect(note).not.toBeNull();
+      expect(note?.textContent).toContain('Disarm requested');
+      expect(host.querySelector('.live [role="status"]')?.matches(':empty')).toBe(false);
+    });
+
     /** Start a bid and flush its first tail. Returns the fixture. */
     async function bidding(body: Partial<BidStarted> = {}, arm = true) {
       const fixture = await ready();

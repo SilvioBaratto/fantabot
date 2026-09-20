@@ -417,10 +417,17 @@
         </p>
       </div>
       <div class="live-actions">
-        @if (watchJobId(); as job) {
-          <span class="tag" aria-live="polite">
+        <!-- The host is unconditional and the `@if` is inside it. A live region created
+             together with its first message is announced unreliably by NVDA and JAWS — the
+             region has to exist first, then fill. This one used to be gated, so the run
+             announcement was the region's own birth and was lost every time. Same pattern
+             as `news.html`'s job-status slot; `.tag:empty` hides the pill. -->
+        <span class="tag" aria-live="polite">
+          @if (watchJobId(); as job) {
             {{ runKind() === 'bid' ? 'Bidding' : 'Watching' }} · {{ job }}
-          </span>
+          }
+        </span>
+        @if (watchJobId()) {
           <!-- Two stages, and the label says which one this click is. The first stop on an
                armed run disarms it and leaves it drawing; only the second ends it. A run
                with nothing to disarm leaves on the first, which is why the view waits for
@@ -519,13 +526,15 @@
       </div>
     }
 
-    @if (stopsAsked() === 1) {
-      <div class="panel-body" data-testid="disarm-note" role="status">
-        <p class="state-body">
+    <!-- Unconditional host, `@if` inside — see the run tag above. The testid moves inward
+         with the text so "disarm-note present <=> disarmed" stays true. -->
+    <div class="panel-body live-status" role="status">
+      @if (stopsAsked() === 1) {
+        <p class="state-body" data-testid="disarm-note">
           Disarm requested — the run keeps watching and deciding. Stop again to end it.
         </p>
-      </div>
-    }
+      }
+    </div>
 
     @if (liveRow(); as frame) {
       <mat-divider />
@@ -659,7 +668,11 @@
     } @else if (watchJobId()) {
       <mat-divider />
       <div class="panel-body">
-        <p class="state-body is-muted" aria-live="polite">
+        <!-- No `aria-live`: this is a static placeholder inside `@else if (watchJobId())`,
+             so it can only ever be inserted already-populated and can never announce a
+             change. The run tag above carries the announcement. A live region that cannot
+             fire is a promise the DOM does not keep. -->
+        <p class="state-body is-muted">
           Watching. The first row lands when the room's next cycle ends.
         </p>
       </div>

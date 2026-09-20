@@ -361,6 +361,12 @@ mat-card-actions.submit-actions {
   display: none;
 }
 
+/* The same shape, and deliberately beside its precedent: the saved-lineup refusal region
+   is now an unconditional host with the `@if` inside, so it needs the same hiding rule. */
+.saved-status:empty {
+  display: none;
+}
+
 .feedback-block {
   padding: 0 16px 16px;
 }

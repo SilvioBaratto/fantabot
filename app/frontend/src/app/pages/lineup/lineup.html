@@ -307,12 +307,18 @@
           What the platform currently holds for this competition. Read-only — nothing here submits.
         </p>
 
-        @if (currentError(); as refusal) {
-          <!-- `status`, not `alert`: "no lineup has been saved yet" is the ordinary state
-               before a matchday's first submit, and announcing it as an alert is a claim
-               about the roster rather than about the save. -->
-          <p class="state-text saved-note" role="status">{{ refusal }}</p>
-        }
+        <!-- `status`, not `alert`: "no lineup has been saved yet" is the ordinary state
+             before a matchday's first submit, and announcing it as an alert is a claim
+             about the roster rather than about the save.
+             The host is unconditional with the `@if` inside it, because a live region
+             created together with its content is announced unreliably — `.submit-feedback`
+             above already has that shape, and `.submit-feedback:empty` in the stylesheet
+             is why. -->
+        <div class="saved-status" role="status" aria-live="polite">
+          @if (currentError(); as refusal) {
+            <p class="state-text saved-note">{{ refusal }}</p>
+          }
+        </div>
 
         @if (currentNamed(); as saved) {
           <p class="state-text saved-note">Module {{ saved.module }}</p>

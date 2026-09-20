@@ -831,6 +831,24 @@ describe('LineupComponent', () => {
       return fixture;
     }
 
+    it('has the saved status region in the DOM, empty, when there is nothing to say', async () => {
+      // Same rule as `news.spec.ts`: the refusal region was created with its own text, so
+      // "nothing saved yet" announced unreliably. It is the ordinary state before a
+      // matchday's first submit, which is why it stays `status` and does not become `alert`.
+      const fixture = await ready(12);
+      httpMock
+        .expectOne((r) => r.url.includes('lineup/current'))
+        .flush({ outcome: 'read', reason: '', module: '343', starters: [], bench: [] });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const region = fixture.nativeElement.querySelector(
+        '[data-testid="saved-lineup"] [role="status"]',
+      );
+      expect(region).not.toBeNull();
+      expect(region?.matches(':empty')).toBe(true);
+    });
+
     it('reads the competition the plan resolved, never one of its own', async () => {
       // The two screens are only comparable when both name the same competition — and a
       // page that picked one would be answering a question nobody asked.

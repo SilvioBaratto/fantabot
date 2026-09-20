@@ -192,6 +192,12 @@
   padding: 16px;
 }
 
+/* Same reason as `.live-actions .tag:empty`. `.panel-body` is 16px of padding all round,
+   so an unhidden empty one would add 32px of dead space to the card for ever. */
+.panel-body.live-status:empty {
+  display: none;
+}
+
 .panel-body.is-centered {
   padding-block: 40px;
   text-align: center;
@@ -784,6 +790,14 @@ code {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
+
+  /* The run tag is in the DOM before there is a run to name — a live region has to exist
+     before it fills or it announces unreliably. Scoped to `.live-actions` rather than a
+     bare `.tag:empty`, which would also match the static "Not narrowed" pill. A
+     `display: none` flex child produces no gap, so the button row is pixel-identical. */
+  .tag:empty {
+    display: none;
+  }
 }
 
 // The banner over a stale frame. Error-coloured because what is below it is not wrong,
