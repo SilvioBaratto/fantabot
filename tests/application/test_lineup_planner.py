@@ -103,3 +103,46 @@ def test_tid_comes_from_the_argument_not_the_empty_dto() -> None:
 
     assert inputs.tid == 999  # authoritative team id, never 0 from the empty DTO
     assert inputs.mday == 0 and inputs.cmday == 0  # missing coords surface as 0 (submit refuses)
+
+
+def test_every_built_plan_passes_the_positional_guard() -> None:
+    """The builder lays out natural roles in the platform's order, so the guard is silent."""
+    assert all(plan.guard == "" for plan in plan_lineups(INPUTS))
+
+
+def test_a_plan_the_guard_refuses_carries_the_reason(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The guard is a second opinion on the builder, so it is injected here to disagree."""
+    from fantabot.application import lineup_planner
+
+    monkeypatch.setattr(
+        lineup_planner.positional, "refusal", lambda module, _roles: "[6] C: M -1"
+    )
+
+    assert {plan.guard for plan in plan_lineups(INPUTS)} == {"[6] C: M -1"}
+
+
+def test_a_classic_plan_is_not_judged_by_the_mantra_matrix(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Classic's P/D/C/A are one role per player, and legality there is counting."""
+    from fantabot.application import lineup_planner
+
+    def boom(*_a: object) -> str:
+        raise AssertionError("a Classic plan was judged by the Mantra matrix")
+
+    monkeypatch.setattr(lineup_planner.positional, "refusal", boom)
+    classic = LineupInputs(
+        roster_ids=list(range(1, 26)),
+        roles_by_id={
+            i: ["P"] if i <= 3 else ["D"] if i <= 11 else ["C"] if i <= 19 else ["A"]
+            for i in range(1, 26)
+        },
+        fvmma_by_id={i: float(i) for i in range(1, 26)},
+        modules=["343", "442"],
+        competition=1,
+        mday=1,
+        cmday=3,
+        tid=1,
+        bench_size=12,
+        fmt="classic",
+    )
+
+    assert all(plan.guard == "" for plan in plan_lineups(classic))

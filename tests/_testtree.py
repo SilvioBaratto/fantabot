@@ -53,6 +53,7 @@ TREE: dict[str, str] = {
     # -- domain/lega: the platform's own JSON, translated
     "test_lega_parse.py": "domain/lega",
     "test_schema.py": "domain/lineup",
+    "test_positional.py": "domain/lineup",
     "test_value.py": "domain/lineup",
     "test_build.py": "domain/lineup",
     "test_bench.py": "domain/lineup",

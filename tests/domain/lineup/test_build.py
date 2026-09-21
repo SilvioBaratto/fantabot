@@ -12,6 +12,7 @@ import pytest
 
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.roles import MantraPlayer
+from fantabot.domain.lineup import positional
 from fantabot.domain.lineup.build import best_lineup, lineup_for_module, ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.models import RosterPlayer
@@ -109,3 +110,29 @@ def test_the_built_starts_are_confirmed_fieldable_by_legality(code: str) -> None
     pool = [MantraPlayer(id=str(pid), roles=_ROLES_BY_ID[pid]) for pid in starts]
     nome = "-".join(code)
     assert nome in fieldable_schemi(pool, _LEGALITY)
+
+
+# Single-role specialists, three per role: every slot is filled by a player who fits it and
+# little else, so a slot sent to the wrong position has nowhere to hide.
+_ROLES = ("POR", "DD", "DS", "DC", "B", "E", "M", "C", "T", "W", "A", "PC")
+SPECIALISTS = [
+    _p(1000 + 10 * r + k, float((37 * (10 * r + k)) % 101), role)
+    for r, role in enumerate(_ROLES)
+    for k in range(3)
+]
+SPECIALIST_VALUE = {p.id: p.fvmma for p in SPECIALISTS}
+
+
+@pytest.mark.parametrize("code", MODULES)
+def test_the_built_starts_pass_the_positional_check(code: str) -> None:
+    """Beside the set-based check above, which stays: that one cannot see order.
+
+    Legality over a *set* passes an XI the platform refuses, or scores with a malus, once
+    the players are sent in the wrong positions. This one judges each starter at the
+    platform's own slot i.
+    """
+    starts = lineup_for_module(SPECIALISTS, code, value=SPECIALIST_VALUE)
+
+    assert starts is not None
+    roles = {p.id: p.roles for p in SPECIALISTS}
+    assert positional.violations(code, [roles[pid] for pid in starts]) == ()

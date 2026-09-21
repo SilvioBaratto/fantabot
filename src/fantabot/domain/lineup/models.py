@@ -46,6 +46,9 @@ class PlannedLineup:
     mday: int
     cmday: int
     tid: int
+    #: Why the positional guard refuses this XI (`positional.refusal`), or `""` when it
+    #: passes. Not part of the payload: the submit walk skips a guarded plan before POSTing.
+    guard: str = ""
 
 
 def assemble_roster(

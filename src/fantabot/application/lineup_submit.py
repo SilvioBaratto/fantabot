@@ -50,6 +50,9 @@ if TYPE_CHECKING:
 NO_MATCHDAY = "no-matchday"
 NOT_ARMED = "not-armed"
 ALL_MODULES_REFUSED = "all-modules-refused"
+#: The code a plan skipped by the positional guard is recorded under in `rejected`, beside
+#: the platform's own `LUP0xx`: ours, raised before any POST, with the cell that failed.
+GUARD = "GUARD"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,10 +88,14 @@ class SubmitOutcome:
 
     @property
     def plan(self) -> PlannedLineup | None:
-        """The module this run is about: what was submitted, or what would have been."""
+        """The module this run is about: what was submitted, or what would have been.
+
+        "Would have been" skips a plan the positional guard refuses, because the armed walk
+        skips it too: a dry run that showed it would rehearse a lineup nobody sends.
+        """
         if self.submitted is not None:
             return self.submitted
-        return self.plans[0] if self.plans else None
+        return next((p for p in self.plans if not p.guard), self.plans[0] if self.plans else None)
 
 
 def build_plans(
@@ -195,6 +202,11 @@ def submit_lineup(
     # the platform said so live on 2026-09-02.
     rejected: list[tuple[str, str]] = []
     for plan in plans:
+        # The positional guard, **before** the POST. A `-1` cell is accepted by the platform
+        # and scored as a malus, so its answer cannot be the check for one.
+        if plan.guard:
+            rejected.append((plan.module, f"{GUARD} {plan.guard}"))
+            continue
         try:
             sent = apileague.teamLineup_submit(
                 league_id, payload_module.build(plan), store=store

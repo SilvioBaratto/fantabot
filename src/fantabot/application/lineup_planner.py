@@ -17,7 +17,7 @@ from typing import Any
 from fantabot.domain.asta.roles import normalize_roles
 from fantabot.domain.classic.roles import normalize_roles as classic_normalize_roles
 from fantabot.domain.classic.roles import role_from_fcrle
-from fantabot.domain.lineup import schema
+from fantabot.domain.lineup import positional, schema
 from fantabot.domain.lineup.bench import GK_ROLE, order_bench
 from fantabot.domain.lineup.build import ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
@@ -118,6 +118,14 @@ def plan_lineups(inputs: LineupInputs) -> list[PlannedLineup]:
     scores = score(roster)
     slots_provider = schema.classic_slots if classic else schema.slots
     gk_role = CLASSIC_GK_ROLE if classic else GK_ROLE
+    roles = {player.id: player.roles for player in roster}
+
+    def guard(module: str, starts: list[int]) -> str:
+        """The positional second opinion, Mantra only: Classic legality is counting."""
+        if classic:
+            return ""
+        return positional.refusal(module, [roles[pid] for pid in starts])
+
     plans = [
         PlannedLineup(
             module=module,
@@ -129,6 +137,7 @@ def plan_lineups(inputs: LineupInputs) -> list[PlannedLineup]:
             mday=inputs.mday,
             cmday=inputs.cmday,
             tid=inputs.tid,
+            guard=guard(module, starts),
         )
         for module, starts in ranked_lineups(
             roster, inputs.modules, value=scores, slots_provider=slots_provider

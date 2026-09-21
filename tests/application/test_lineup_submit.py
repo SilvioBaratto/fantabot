@@ -24,6 +24,7 @@ import pytest
 from fantabot.application.arming import ARM, AUTO_ACT
 from fantabot.application.lineup_submit import (
     ALL_MODULES_REFUSED,
+    GUARD,
     NO_MATCHDAY,
     NOT_ARMED,
     submit_lineup,
@@ -38,10 +39,11 @@ NOW = datetime(2026, 9, 5, 12, 0, 0)
 class _Plan:
     """A `PlannedLineup` in the shape this module reads it."""
 
-    def __init__(self, module: str, *, mday: int = 3, cmday: int = 4) -> None:
+    def __init__(self, module: str, *, mday: int = 3, cmday: int = 4, guard: str = "") -> None:
         self.module = module
         self.mday = mday
         self.cmday = cmday
+        self.guard = guard
         self.starts: list[int] = [1]
         self.bench: list[int] = [2]
 
@@ -239,6 +241,40 @@ class TestTheWalkDown:
         wired(_Api(), [_Plan("343"), _Plan("352")])
 
         assert _run().rejected == ()
+
+
+class TestThePositionalGuard:
+    """A plan the positional guard refuses is skipped **before** it is POSTed. A `-1` cell is
+    accepted by the platform, so the platform's answer cannot be the check for it."""
+
+    def test_a_guarded_plan_is_never_posted(self, wired) -> None:  # type: ignore[no-untyped-def]
+        api = wired(_Api(), [_Plan("442", guard="[6] C: M -1"), _Plan("3412")])
+
+        outcome = _run()
+
+        assert api.submitted == ["3412"]
+        assert outcome.submitted is not None and outcome.submitted.module == "3412"
+
+    def test_the_skip_is_recorded_with_its_slot_role_and_cell(self, wired) -> None:  # type: ignore[no-untyped-def]
+        wired(_Api(), [_Plan("442", guard="[6] C: M -1"), _Plan("3412")])
+
+        assert _run().rejected == (("442", f"{GUARD} [6] C: M -1"),)
+
+    def test_every_plan_guarded_is_every_module_refused(self, wired) -> None:  # type: ignore[no-untyped-def]
+        api = wired(_Api(), [_Plan("442", guard="[6] C: M -1")])
+
+        outcome = _run()
+
+        assert outcome.refused == ALL_MODULES_REFUSED
+        assert api.submitted == []
+
+    def test_a_dry_run_shows_the_plan_the_armed_run_would_send(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """A dry run that printed the guarded plan would rehearse the wrong lineup."""
+        wired(_Api(), [_Plan("442", guard="[6] C: M -1"), _Plan("3412")])
+
+        outcome = _run(arm=False)
+
+        assert outcome.plan is not None and outcome.plan.module == "3412"
 
 
 class TestTheReportComesFromTheReadBack:
