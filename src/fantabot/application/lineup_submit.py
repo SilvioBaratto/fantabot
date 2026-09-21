@@ -53,6 +53,19 @@ ALL_MODULES_REFUSED = "all-modules-refused"
 #: The code a plan skipped by the positional guard is recorded under in `rejected`, beside
 #: the platform's own `LUP0xx`: ours, raised before any POST, with the cell that failed.
 GUARD = "GUARD"
+#: The model this path plans with: the platform's own `indexCompare` value. Written into
+#: every run record, so a line says which model chose it.
+INDEXCOMPARE = "indexcompare"
+
+
+@dataclass(frozen=True, slots=True)
+class Rejection:
+    """One plan the walk did not keep, and why: the platform's `LUP0xx`, or our guard."""
+
+    plan: PlannedLineup
+    code: str
+    #: The platform's own sentence; `""` for a guard skip and when it sent none.
+    message: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,9 +82,9 @@ class SubmitOutcome:
     #: The `mstr` the platform reported when it looks past kickoff — a **warning**, carried
     #: alongside a successful submit rather than instead of one.
     past_deadline: str | None = None
-    #: `(module, code)` for each module the platform refused before one stuck. Empty on a
-    #: first-try success, and the record of a `LUP009` walk-down otherwise.
-    rejected: tuple[tuple[str, str], ...] = ()
+    #: Each plan refused before one stuck, in walk order. Empty on a first-try success, and
+    #: the record of a `LUP009` walk-down otherwise.
+    rejections: tuple[Rejection, ...] = ()
     submitted: PlannedLineup | None = None
     #: The lineup **read back** after submitting — the evidence, not the request. Falls back
     #: to what the POST echoed when the confirming read could not be had; `unconfirmed` is
@@ -85,6 +98,11 @@ class SubmitOutcome:
     #: The sentence behind a scheduled run's refusal (`domain.lineup.deadline`'s codes) — the
     #: start, the matchday, and why that meant not acting. Empty everywhere else.
     detail: str = ""
+
+    @property
+    def rejected(self) -> tuple[tuple[str, str], ...]:
+        """`(module, code)` for each refusal — what both surfaces print."""
+        return tuple((r.plan.module, r.code) for r in self.rejections)
 
     @property
     def plan(self) -> PlannedLineup | None:
@@ -200,19 +218,19 @@ def submit_lineup(
 
     # Best-first, walking down on a refusal: `mantra_schemi.json`'s 4-1-4-1 was wrong and
     # the platform said so live on 2026-09-02.
-    rejected: list[tuple[str, str]] = []
+    rejected: list[Rejection] = []
     for plan in plans:
         # The positional guard, **before** the POST. A `-1` cell is accepted by the platform
         # and scored as a malus, so its answer cannot be the check for one.
         if plan.guard:
-            rejected.append((plan.module, f"{GUARD} {plan.guard}"))
+            rejected.append(Rejection(plan, f"{GUARD} {plan.guard}"))
             continue
         try:
             sent = apileague.teamLineup_submit(
                 league_id, payload_module.build(plan), store=store
             )
         except LineupRejected as exc:
-            rejected.append((plan.module, str(exc.code)))
+            rejected.append(Rejection(plan, str(exc.code), exc.message))
             continue
 
         # Past this line the lineup **is on the platform**, and nothing after it may say
@@ -240,14 +258,14 @@ def submit_lineup(
 
         return outcome(
             past_deadline=past,
-            rejected=tuple(rejected),
+            rejections=tuple(rejected),
             submitted=plan,
             saved=saved,
             unconfirmed=unconfirmed,
         )
 
     return outcome(
-        refused=ALL_MODULES_REFUSED, past_deadline=past, rejected=tuple(rejected)
+        refused=ALL_MODULES_REFUSED, past_deadline=past, rejections=tuple(rejected)
     )
 
 
@@ -272,6 +290,7 @@ def run_record(
         SKIPPED,
         SUBMITTED,
         UNCONFIRMED,
+        LineupRejection,
         LineupRun,
     )
     from fantabot.application.arming import CLI_SENTENCES
@@ -293,6 +312,21 @@ def run_record(
         starters=named(plan.starts) if plan else (),
         bench=named(plan.bench) if plan else (),
         rejected=tuple(f"{module} ({code})" for module, code in outcome.rejected),
+        starter_ids=tuple(plan.starts) if plan else (),
+        bench_ids=tuple(plan.bench) if plan else (),
+        competition=outcome.competition,
+        tid=plan.tid if plan else None,
+        model=INDEXCOMPARE,
+        rejections=tuple(
+            LineupRejection(
+                module=r.plan.module,
+                code=r.code,
+                message=r.message,
+                starter_ids=tuple(r.plan.starts),
+                starters=named(r.plan.starts),
+            )
+            for r in outcome.rejections
+        ),
     )
 
     if outcome.refused is None:
@@ -340,14 +374,17 @@ def failed_run(code: str, detail: str, *, league_id: int, scheduled: bool, at: s
     from fantabot.adapters.files.lineup_runs import FAILED, LineupRun
 
     return LineupRun(
-        at=at, league=league_id, scheduled=scheduled, status=FAILED, code=code, detail=detail
+        at=at, league=league_id, scheduled=scheduled, status=FAILED, code=code, detail=detail,
+        model=INDEXCOMPARE,
     )
 
 
 __all__ = [
     "ALL_MODULES_REFUSED",
+    "INDEXCOMPARE",
     "NOT_ARMED",
     "NO_MATCHDAY",
+    "Rejection",
     "SubmitOutcome",
     "build_plans",
     "failed_run",

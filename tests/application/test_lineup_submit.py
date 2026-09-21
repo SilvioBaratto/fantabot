@@ -46,6 +46,7 @@ class _Plan:
         self.guard = guard
         self.starts: list[int] = [1]
         self.bench: list[int] = [2]
+        self.tid = 5921
 
 
 class _Api:
@@ -77,7 +78,7 @@ class _Api:
         module = str(body.get("mdl", "?"))
         self.submitted.append(module)
         if module in self.refuse:
-            raise LineupRejected("LUP009")
+            raise LineupRejected("LUP009", "The formation module is not allowed.")
         # The real one returns "200 and the saved DTO on success" (`apileague.py`). It is
         # what we sent rather than what was kept, so it is not evidence — but it is the only
         # thing left when the confirming read cannot be had.
@@ -528,3 +529,57 @@ class TestEveryRunBecomesARecord:
 
         assert run.status == FAILED and run.code == "TokenMissing"
         assert run.detail == "no stored token for lega 4103937"
+
+
+class TestTheRecordCarriesItsEvidence:
+    """Record v2: ids beside the names, the coordinates, the model, and for each plan the
+    walk did not keep, what it laid out and what the platform said. Names are for the eye
+    and two players can share one; the next `LUP009` is diagnosed from this or not at all."""
+
+    def test_a_submit_records_ids_coordinates_and_its_model(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.application.lineup_submit import INDEXCOMPARE, run_record
+
+        wired(_Api(), [_Plan("343")])
+
+        run = run_record(_run(), league_id=4103937, scheduled=True, at="t")
+
+        assert run.starter_ids == (1,) and run.bench_ids == (2,)
+        assert run.competition == 7 and run.tid == 5921
+        assert run.model == INDEXCOMPARE == "indexcompare"
+
+    def test_each_refusal_carries_its_starts_and_the_platform_message(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.adapters.files.lineup_runs import LineupRejection
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(refuse=("343",)), [_Plan("343"), _Plan("352")])
+
+        run = run_record(_run(), league_id=4103937, scheduled=True, at="t")
+
+        assert run.rejections == (
+            LineupRejection(
+                module="343",
+                code="LUP009",
+                message="The formation module is not allowed.",
+                starter_ids=(1,),
+                starters=("Svilar",),
+            ),
+        )
+        assert run.rejected == ("343 (LUP009)",), "the display line is unchanged"
+
+    def test_a_guard_skip_is_recorded_with_what_it_would_have_sent(self, wired) -> None:  # type: ignore[no-untyped-def]
+        from fantabot.application.lineup_submit import run_record
+
+        wired(_Api(), [_Plan("442", guard="[6] C: M -1"), _Plan("3412")])
+
+        (skip,) = run_record(_run(), league_id=4103937, scheduled=True, at="t").rejections
+
+        assert skip.module == "442" and skip.code == f"{GUARD} [6] C: M -1"
+        assert skip.message == "" and skip.starter_ids == (1,)
+
+    def test_a_run_that_raised_still_names_its_model(self) -> None:
+        from fantabot.application.lineup_submit import INDEXCOMPARE, failed_run
+
+        run = failed_run("TokenMissing", "no token", league_id=4103937, scheduled=True, at="t")
+
+        assert run.model == INDEXCOMPARE
+        assert run.starter_ids == () and run.competition is None
