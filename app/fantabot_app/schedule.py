@@ -94,6 +94,29 @@ def _platform() -> str:
     return sys.platform
 
 
+def _uid() -> int:
+    """This user's uid, as the second seam — and it refuses rather than raising.
+
+    `domain_target` and `bootstrap_line` called `os.getuid()` directly, which does not
+    exist on Windows. Every test in this suite simulates macOS by moving `_platform`, so
+    `require_darwin` was satisfied and the next line raised `AttributeError: module 'os'
+    has no attribute 'getuid'` — 22 of `app-ci`'s 23 Windows failures, every one of them an
+    internal error from a module whose whole design is to refuse by name.
+
+    A seam rather than a conditional, for the reason `_platform` is one: the suite has to
+    be able to *complete* its simulation. Faking the platform and not the platform's API is
+    what made this invisible until a Windows runner ran the suite.
+    """
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        raise ScheduleRefused(
+            f"launchd addresses a job as gui/<uid>/<label>, and {_platform()} has no uids. "
+            "launchd is macOS only; on another platform use that platform's scheduler to "
+            "run `fantabot lineup submit --arm --scheduled` from the repository."
+        )
+    return int(getuid())
+
+
 def require_darwin() -> None:
     """launchd is macOS's, and says so rather than failing three calls later.
 
@@ -368,12 +391,12 @@ def install(job: Job, *, launchctl: Launchctl, uid: int | None = None) -> Instal
 
 def domain_target(label: str = LABEL, *, uid: int | None = None) -> str:
     """The per-user domain launchd addresses a job in: ``gui/<uid>/<label>``."""
-    return f"gui/{os.getuid() if uid is None else uid}/{label}"
+    return f"gui/{_uid() if uid is None else uid}/{label}"
 
 
 def bootstrap_line(path: Path, *, uid: int | None = None) -> str:
     """The line the operator runs to make the job live. Printed, never executed here."""
-    return f"launchctl bootstrap gui/{os.getuid() if uid is None else uid} {path}"
+    return f"launchctl bootstrap gui/{_uid() if uid is None else uid} {path}"
 
 
 @dataclass(frozen=True)

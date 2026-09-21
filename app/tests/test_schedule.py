@@ -15,6 +15,7 @@ dead SSD leaves a message rather than silence.
 
 from __future__ import annotations
 
+import os
 import plistlib
 import sys
 from pathlib import Path
@@ -46,6 +47,11 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(paths, "home", lambda: tmp_path / ".fantabot")
     monkeypatch.setattr(paths, "launch_agents", lambda: tmp_path / "Library" / "LaunchAgents")
     monkeypatch.setattr(schedule, "_platform", lambda: "darwin")
+    # **Both** seams, or the simulation is half a macOS. Moving `_platform` alone satisfied
+    # `require_darwin` and then hit the real `os.getuid`, which Windows does not have —
+    # 22 of app-ci's Windows failures. `TestPlatform` pins the set so a third seam cannot
+    # be added without this line noticing.
+    monkeypatch.setattr(schedule, "_uid", lambda: 501)
     return tmp_path
 
 
@@ -234,6 +240,69 @@ class TestPlatform:
             schedule.require_darwin()
         assert "win32" in str(caught.value)
         assert "launchd" in str(caught.value)
+
+    def test_the_domain_target_refuses_where_there_are_no_uids(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`os.getuid` does not exist on Windows, and `domain_target` called it directly.
+
+        Everything in this suite simulates macOS by moving `_platform`, so `require_darwin`
+        was satisfied and the *next* line raised `AttributeError: module 'os' has no
+        attribute 'getuid'` — 22 of `app-ci`'s 23 Windows failures, all of them an internal
+        error where this module's whole design is to refuse by name. The simulation faked
+        the platform and not the platform's API.
+
+        `os.getuid` is deleted here rather than the test being skipped on Windows, so the
+        refusal is checked on the machine the operator actually develops on.
+        """
+        monkeypatch.setattr(schedule, "_platform", lambda: "win32")
+        monkeypatch.delattr(os, "getuid", raising=False)
+
+        with pytest.raises(schedule.ScheduleRefused) as caught:
+            schedule.domain_target()
+
+        assert "win32" in str(caught.value)
+
+    def test_the_bootstrap_line_refuses_the_same_way(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other caller. One of the two would have left the crash in place."""
+        monkeypatch.setattr(schedule, "_platform", lambda: "win32")
+        monkeypatch.delattr(os, "getuid", raising=False)
+
+        with pytest.raises(schedule.ScheduleRefused):
+            schedule.bootstrap_line(Path("x.plist"))
+
+    def test_a_stated_uid_needs_no_platform_at_all(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The seam is only consulted when nobody said. Every test above passes `uid=501`,
+        which is why they reached the plist logic at all — the refusal must not break that.
+        """
+        monkeypatch.delattr(os, "getuid", raising=False)
+
+        assert schedule.domain_target(uid=501) == f"gui/501/{schedule.LABEL}"
+
+    def test_every_platform_seam_is_moved_by_the_suite(self) -> None:
+        """The meta-guard, and the one that would have prevented this.
+
+        `home` simulated macOS by moving `_platform` and nothing else, so a *second*
+        platform-dependent seam was invisible to it — and stayed invisible until a Windows
+        runner ran the suite. Pinning the set means a third seam fails here, on a developer
+        machine, rather than in CI on a platform nobody runs.
+        """
+        import inspect
+
+        seams = {
+            name
+            for name, obj in vars(schedule).items()
+            if name.startswith("_") and inspect.isfunction(obj) and obj.__module__ == schedule.__name__
+        }
+
+        assert seams == {"_platform", "_uid"}, (
+            f"the platform seams changed: {seams}. Teach the `home` fixture to move any "
+            "new one, or this suite simulates a platform it is not on."
+        )
 
 
 class TestTheTwoRunners:
