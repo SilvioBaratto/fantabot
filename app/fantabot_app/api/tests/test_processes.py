@@ -117,6 +117,51 @@ def _run_in_thread(job: ProcessJob, reporter: BufferingReporter) -> object:
     return done
 
 
+@pytest.fixture(autouse=True)
+def _no_child_outlives_its_test():
+    """Kill anything this file spawned that is still alive when the test ends.
+
+    **Not belt-and-braces: a test here that forgets stage two leaks a process that cannot
+    be signalled.** `FLAG_POLLER`'s second line is `signal.signal(SIGINT, SIG_IGN)` — it is
+    supposed to be, that is the child the two-stage stop exists for — so a test that sends
+    only stage one leaves a poller running at 20 Hz for ever, reparented to init, polling a
+    `tmp_path` pytest has already deleted. On 2026-09-21 there were **151** of them, the
+    oldest two days old, together burning 15.6% of a core, all from the one test below that
+    stopped once.
+
+    Nothing announced it: the test passed, the suite passed, and `tmp_path` cleanup does not
+    touch processes. So the guard is here rather than in that one test — the next test
+    written the same way would leak in the same silence.
+
+    It wraps `Popen` rather than tracking `ProcessJob`s, because what has to die is the
+    child, and a job that failed before assigning `self._process` would have no handle to
+    offer.
+    """
+    import subprocess as _sp
+
+    spawned: list[_sp.Popen] = []
+    real = _sp.Popen
+
+    class _Tracked(real):  # type: ignore[misc,valid-type]
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            spawned.append(self)
+
+    _sp.Popen = _Tracked  # type: ignore[misc]
+    try:
+        yield
+    finally:
+        _sp.Popen = real  # type: ignore[misc]
+        for child in spawned:
+            if child.poll() is not None:
+                continue
+            child.kill()
+            # `wait` is not wrapped: a child that survives SIGKILL for five seconds is
+            # either uninterruptibly blocked or not ours, and `TimeoutExpired` reaching the
+            # test is the point. Swallowing it would restore the quiet leak this exists for.
+            child.wait(timeout=5)
+
+
 def test_the_command_names_the_interpreter_and_the_module_not_the_console_script() -> None:
     """`fantabot` is on `PATH` only while the CLI's venv is active; the app's is another.
 
@@ -345,6 +390,16 @@ def test_the_stop_is_announced_as_a_flag_write(tmp_path: Path) -> None:
     assert _wait(lambda: "saw disarm" in reporter.lines), reporter.lines
 
     assert any("disarm" in line and "stopping" in line for line in reporter.lines), reporter.lines
+
+    # Stage two, and it is not tidiness. This test is about what stage *one* writes, so it
+    # used to stop once and return — leaving a child that had been asked to disarm and never
+    # asked to exit. `FLAG_POLLER` exits only on `exit` and ignores `SIGINT` by design, so
+    # that child polled at 20 Hz for ever. Every sibling in this file already stops twice;
+    # this was the only one that did not, and it accounted for all 151 orphans found on
+    # 2026-09-21. The autouse reaper above would now catch it, which is why this line is
+    # about the *contract* — a stop that stops is two stops — rather than about cleanup.
+    job.stop()
+    assert _wait(lambda: not job.running), reporter.lines
 
 
 def test_the_flag_is_named_for_the_role_and_holds_only_the_stage(tmp_path: Path) -> None:
