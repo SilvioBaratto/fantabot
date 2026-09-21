@@ -1,14 +1,17 @@
 """What submitting a lineup can raise that is neither a token nor a transport problem.
 
-The platform validates the formation **positionally** against the chosen module's schema
-and refuses one it cannot field with a `LUP0xx` code — `LUP009` "the formation module is
-not allowed" is the one observed live 2026-09-02, returned even for a role-for-role swap
-whose ordering broke the schema. That is a lineup problem, not a credential problem, so it
-is its own family rather than a `TokenError`: the fix is to rebuild `starts[]`, never to
-re-authenticate.
+The platform reads `starts[i]` against **its own** slot i (`S.schemes.mantra`, pinned in
+`mantra_starts_order.json`) and refuses a `no` or `-1*` cell with a `LUP0xx` code —
+`LUP009` "the formation module is not allowed", observed live 2026-09-02. Those refusals
+were ours: `starts[]` went out in the PDF table's row order, not the platform's. A `-1`
+cell is not refused at all — it is accepted and scored as a malus, so a refusal is never
+the check for one (`positional.py` is). That is a lineup problem, not a credential
+problem, so it is its own family rather than a `TokenError`: the fix is to rebuild
+`starts[]`, never to re-authenticate.
 
-No message carries a token, and the response body is never echoed verbatim — the code
-alone names the failure, in the style of `domain/tokens/errors`.
+No message carries a token, and the response body is never echoed verbatim — a refusal
+carries the body's `code` and `message` fields and nothing else, in the style of
+`domain/tokens/errors`.
 """
 
 from __future__ import annotations
@@ -98,14 +101,18 @@ class LineupRejected(LineupError):
     """The platform refused the formation (`LUP0xx`).
 
     `code` is kept for the caller; the common case is `LUP009`, returned when `starts[]`
-    does not positionally satisfy the module's slots. Rebuild from the schema and
-    revalidate with `domain/asta/legality` before resubmitting.
+    does not positionally satisfy the module's slots. `message` is the platform's own
+    sentence, `""` when it sent none — the code says *that* it refused, only the message
+    can say what it read. Rebuild from `schema.slots` and recheck with `positional`, not
+    `asta.legality`, which is set-based and cannot see order.
     """
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, message: str = "") -> None:
+        said = f": {message}" if message else ""
         super().__init__(
-            f"apileague refused the formation ({code}). The lineup is not fieldable as "
-            "sent — rebuild starts[] positionally from the schema and revalidate with "
-            "legality before resubmitting."
+            f"apileague refused the formation ({code}{said}). The lineup is not fieldable "
+            "as sent — rebuild starts[] positionally from the schema and recheck it with "
+            "the positional guard before resubmitting."
         )
         self.code = code
+        self.message = message

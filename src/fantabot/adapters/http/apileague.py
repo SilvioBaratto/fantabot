@@ -100,6 +100,16 @@ def _error_code(response: httpx.Response) -> str:
     return str(body.get("code", "")) if isinstance(body, dict) else ""
 
 
+def _error_message(response: httpx.Response) -> str:
+    """The body's `message` field when it is a string, or `""`. Never the body itself."""
+    try:
+        body = response.json()
+    except (ValueError, TypeError):
+        return ""
+    said = body.get("message") if isinstance(body, dict) else None
+    return said if isinstance(said, str) else ""
+
+
 def _raise_for(response: httpx.Response, league_id: int) -> None:
     """Map a failure onto a sentence with an action attached.
 
@@ -199,12 +209,13 @@ def _raise_for_lineup(response: httpx.Response, league_id: int) -> None:
 
     The lineup submit answers an unfieldable formation with a `400` and a `LUP` code
     (`LUP009` observed) — a lineup problem, not a token or server fault, so it maps to a
-    `LineupRejected` before the generic 4xx handling ever runs.
+    `LineupRejected` before the generic 4xx handling ever runs. The platform's `message`
+    rides along: the body holds no token, and it is the only account of what was refused.
     """
     if response.status_code == 400:
         code = _error_code(response)
         if code.startswith("LUP"):
-            raise LineupRejected(code)
+            raise LineupRejected(code, _error_message(response))
     _raise_for(response, league_id)
 
 

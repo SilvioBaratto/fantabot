@@ -202,6 +202,37 @@ def test_a_lup009_rejection_becomes_a_named_lineup_error() -> None:
     assert "LUP009" in str(caught.value)
 
 
+def test_a_lup009_rejection_carries_the_platform_message() -> None:
+    """The code says *that* the platform refused; only its message says *what* it read, and
+    the next refusal is diagnosed offline from the run record or not at all."""
+    transport, _ = transport_returning(
+        400, {"code": "LUP009", "message": "The formation module is not allowed."}
+    )
+
+    with pytest.raises(LineupRejected) as caught:
+        apileague.teamLineup_submit(
+            _tokens.LEGA_MANTRA, PAYLOAD, store=a_store(), transport=transport
+        )
+
+    assert caught.value.code == "LUP009"
+    assert caught.value.message == "The formation module is not allowed."
+    assert "The formation module is not allowed." in str(caught.value)
+
+
+@pytest.mark.parametrize("body", [{"code": "LUP009"}, {"code": "LUP009", "message": None}])
+def test_a_rejection_without_a_string_message_carries_an_empty_one(
+    body: dict[str, object],
+) -> None:
+    transport, _ = transport_returning(400, body)
+
+    with pytest.raises(LineupRejected) as caught:
+        apileague.teamLineup_submit(
+            _tokens.LEGA_MANTRA, PAYLOAD, store=a_store(), transport=transport
+        )
+
+    assert caught.value.message == ""
+
+
 def test_a_non_json_body_becomes_a_named_error_not_a_parse_traceback() -> None:
     """A 200 with a non-JSON body (e.g. an intercepting proxy's HTML) must not let
     `response.json()`'s ValueError escape with the token live on the frame."""
