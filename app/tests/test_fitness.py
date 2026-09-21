@@ -112,7 +112,10 @@ ARM_FLAG = "--arm"
 def _app_trees() -> list[tuple[str, ast.Module]]:
     root = _package_root()
     return [
-        (str(py.relative_to(root)), ast.parse(py.read_text(encoding="utf-8")))
+        # `as_posix`, never `str`: the two consumers compare this against `REQUEST_SURFACE`,
+        # and on Windows a backslash path matches no prefix at all. See
+        # `_on_request_surface` for what each of them did about that.
+        (py.relative_to(root).as_posix(), ast.parse(py.read_text(encoding="utf-8")))
         for py in _source_files(under=root)
     ]
 
@@ -161,6 +164,29 @@ ARM_INTENT = ("arm", "armed")
 #: reloaded, restored by the session manager, or left open overnight, so the field has to be
 #: combined with the ambient lock and the answer reported. That is what `decide_arming` is.
 REQUEST_SURFACE = "api/"
+
+
+def _on_request_surface(where: str) -> bool:
+    """Is this module part of the request surface, on **any** platform?
+
+    A predicate rather than a bare `where.startswith(REQUEST_SURFACE)`, because that
+    comparison is a separator assumption and the separator is not the same everywhere.
+    `_app_trees` used `str(py.relative_to(root))`, which on Windows is
+    `api\\v1\\endpoints\\room_bid.py` — so the prefix never matched, and the two
+    consumers failed in opposite directions:
+
+    * `test_the_arming_contract_is_actually_exercised` went **red**, saying no route arms a
+      child. Loud, and correct: that is the meta-guard, and it caught this.
+    * `test_a_request_that_arms_asks_decide_arming_and_a_keystroke_does_not_have_to` went
+      **green over nothing** — its loop `continue`s on every file, so `offenders` stays
+      empty and the arming contract on the request surface was unchecked on Windows. Silent,
+      and exactly the failure this file's own docstrings are about: a guard over a feature
+      nobody scanned reassures.
+
+    This file already knew: the `/api/` filter below carried a `.replace("\\", "/")` and
+    was later retired in favour of `as_posix()`. Three sites kept the bare `str`.
+    """
+    return where.replace("\\", "/").startswith(REQUEST_SURFACE)
 
 
 def _arm_writes(fn: ast.FunctionDef) -> list[ast.Constant]:
@@ -238,7 +264,7 @@ def test_a_request_that_arms_asks_decide_arming_and_a_keystroke_does_not_have_to
     """
     offenders: list[str] = []
     for where, tree in _app_trees():
-        if not where.startswith(REQUEST_SURFACE):
+        if not _on_request_surface(where):
             continue
         for fn in ast.walk(tree):
             if not isinstance(fn, ast.FunctionDef) or not _arm_writes(fn):
@@ -293,7 +319,7 @@ def test_the_arming_contract_is_actually_exercised() -> None:
         for fn in ast.walk(tree)
         if isinstance(fn, ast.FunctionDef) and _arm_writes(fn)
     ]
-    from_a_request = [where for where in arming if where.startswith(REQUEST_SURFACE)]
+    from_a_request = [where for where in arming if _on_request_surface(where)]
     deciding = [
         where
         for where, tree in _app_trees()
@@ -342,6 +368,32 @@ def test_the_boundary_names_the_functions_that_actually_act() -> None:
     # route, and a flag spelled anything else is a literal nothing writes.
     assert set(ARM_INTENT) == {"arm", "armed"}, f"the intent vocabulary moved: {ARM_INTENT}"
     assert REQUEST_SURFACE == "api/", f"the request surface moved: {REQUEST_SURFACE!r}"
+
+    # The separator is part of the contract, and the only platform that disagrees is the
+    # one nobody here develops on — `app-ci`'s Windows job is the sole evidence, which is
+    # why this is asserted rather than left to it.
+    assert _on_request_surface("api/v1/endpoints/room_bid.py")
+    assert _on_request_surface("api\\v1\\endpoints\\room_bid.py"), (
+        "the request-surface check is a separator assumption: on Windows it matches nothing, "
+        "which fails one guard loudly and leaves its sibling scanning an empty set"
+    )
+    assert not _on_request_surface("cli.py")
+    assert not _on_request_surface("infrastructure/jobs.py")
+
+    # And the walk must hand it paths that check out on either platform. Asserted from the
+    # **source**, not from a run: on macOS and Linux `str(path)` and `path.as_posix()`
+    # return the same string, so a runtime check cannot tell the two apart and the one that
+    # breaks Windows passes here. That is the same shape as the `--format` defaults on the
+    # CLI side, pinned the same way.
+    import inspect
+
+    walk = inspect.getsource(_app_trees)
+
+    assert "as_posix()" in walk, "`_app_trees` stopped normalising its separators"
+    assert "str(py.relative_to" not in walk, (
+        "`_app_trees` is building a native-separator path again; on Windows it matches no "
+        "prefix, which fails one guard and silently empties another"
+    )
     assert ARM_FLAG == "--arm", "a lock spelled any other way is one edit from open"
 
 
