@@ -1,9 +1,11 @@
 """Module code -> ordered slot role-sets, GK first. The shape the builder lays `starts[]` into.
 
-The platform sends `mdl` as a dashless code (`"343"`) and `starts[]` as 11 ids in slot order
-with the goalkeeper first. The shipped `mantra_schemi.json` describes each schema by name
-(`"3-4-3"`) and its 10 outfield slots. This module joins the two: strip the dashes to key by
-code, canonicalise the roles (uppercase, via `asta.roles`), and prepend the implicit GK slot.
+The platform sends `mdl` as a dashless code (`"343"`) and `starts[]` as 11 ids, and it judges
+`starts[i]` against **its own** slot i. The order is read from `mantra_starts_order.json`,
+which pins the platform's `S.schemes.mantra` verbatim (SPEC A22). It is deliberately not
+`mantra_schemi.json`'s slot order: that is the PDF table's rows, and laying `starts[]` out in
+it drew `LUP009` on 7 of 11 modules and could have taken a `-1` on the rest without a word.
+The gate `mantra.gates.check_starts_order` holds the file to a permutation of the schemi.
 
 Reading the packaged JSON is the same "thin data-load edge" `asta.legality.load_compat` uses
 — package data, deterministic, no database and no network — so it stays inside `domain`.
@@ -16,24 +18,22 @@ from functools import lru_cache
 
 from fantabot.domain.asta.roles import normalize_role
 from fantabot.domain.classic.formations import FORMATIONS
-from fantabot.domain.shared.resources import SCHEMI_FILENAME, data_dir
+from fantabot.domain.shared.resources import STARTS_ORDER_FILENAME, data_dir
 
-#: The goalkeeper slot, always `starts[0]`, implicit in `mantra_schemi.json`.
-GK_ROLE = "POR"
 #: The Classic goalkeeper role — its `starts[0]`, the counterpart to Mantra's `POR`.
 CLASSIC_GK_ROLE = "P"
 
 
 @lru_cache(maxsize=1)
 def _by_code() -> dict[str, tuple[frozenset[str], ...]]:
-    raw = json.loads((data_dir() / SCHEMI_FILENAME).read_text(encoding="utf-8"))
+    raw = json.loads((data_dir() / STARTS_ORDER_FILENAME).read_text(encoding="utf-8"))
     table: dict[str, tuple[frozenset[str], ...]] = {}
-    for entry in raw["schemi"]:
+    for entry in raw["moduli"]:
         code = str(entry["nome"]).replace("-", "")
-        outfield = tuple(
-            frozenset(normalize_role(role) for role in slot) for slot in entry["slots"]
+        table[code] = tuple(
+            frozenset(normalize_role(role) for role in label.split("/"))
+            for label in entry["order"]
         )
-        table[code] = (frozenset({GK_ROLE}), *outfield)
     return table
 
 
@@ -43,7 +43,7 @@ def modules() -> frozenset[str]:
 
 
 def slots(module_code: str) -> tuple[frozenset[str], ...]:
-    """The 11 ordered slot role-sets for a Mantra module, GK first — `starts[]` order.
+    """The 11 ordered slot role-sets for a Mantra module, GK first — the platform's order.
 
     Raises `ValueError` for a code that is not one of the 11, rather than returning an empty
     schema that would silently accept any assignment.

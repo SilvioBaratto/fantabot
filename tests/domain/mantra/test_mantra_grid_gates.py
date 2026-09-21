@@ -13,14 +13,17 @@ import json
 import pytest
 from _paths import pkg
 
-from fantabot.domain.mantra.gates import check_compat, check_schemi
+from fantabot.domain.mantra.gates import check_compat, check_schemi, check_starts_order
 from fantabot.domain.mantra.models import (
     ROLE_ORDER,
     CompatMatrix,
     FormationCompat,
     MantraSchema,
+    ModuleOrder,
+    OrderSource,
     SchemaGrid,
     SlotCompat,
+    StartsOrder,
 )
 
 # 5 defensive-profile (Dd Ds Dc B E M) + 5 offensive-profile (C T W A Pc).
@@ -355,6 +358,96 @@ def test_rows_that_do_not_match_the_grids_slots_are_rejected() -> None:
     assert any("do not match" in p for p in check_compat(matrix, _grid()))
 
 
+# --- starts order ----------------------------------------------------------
+#
+# The platform judges `starts[i]` against its own slot i, in an order the PDF rows do not
+# follow. The order file is a permutation of each schema's slots, or it is wrong.
+
+
+def _order(
+    nome: str = "4-3-3", labels: list[str] | None = None, provenance: str = "bundle"
+) -> ModuleOrder:
+    """GK first, then the fixture's ten slots **reversed** — a permutation, not the identity."""
+    default = ["Por", *("/".join(slot) for slot in reversed(_WELL_FORMED_SLOTS))]
+    return ModuleOrder(nome=nome, provenance=provenance, order=labels or default)
+
+
+def _orders(*modules: ModuleOrder) -> StartsOrder:
+    return StartsOrder(
+        fonte=OrderSource(
+            url="https://leghe.fantacalcio.it/resources/chunk-x.js",
+            simbolo="S.schemes.mantra",
+            letto="2026-09-21",
+            sha256="0" * 64,
+        ),
+        moduli=list(modules) or [_order()],
+    )
+
+
+def test_a_permuted_order_passes() -> None:
+    assert check_starts_order(_orders(), _grid(["4-3-3"])) == []
+
+
+def test_an_order_with_a_duplicated_label_is_rejected() -> None:
+    labels = _order().order
+    labels[2] = labels[1]  # two of one slot, none of another
+
+    problems = check_starts_order(_orders(_order(labels=labels)), _grid(["4-3-3"]))
+
+    assert any("permutation" in p for p in problems), problems
+
+
+def test_an_order_missing_a_label_is_rejected() -> None:
+    labels = _order().order[:-1]
+
+    problems = check_starts_order(_orders(_order(labels=labels)), _grid(["4-3-3"]))
+
+    assert any("11 positions" in p for p in problems), problems
+    assert any("permutation" in p for p in problems), problems
+
+
+def test_an_order_whose_first_position_is_not_the_keeper_is_rejected() -> None:
+    labels = _order().order
+    labels[0], labels[1] = labels[1], labels[0]
+
+    problems = check_starts_order(_orders(_order(labels=labels)), _grid(["4-3-3"]))
+
+    assert any("keeper" in p for p in problems), problems
+
+
+def test_an_unknown_provenance_is_rejected() -> None:
+    problems = check_starts_order(_orders(_order(provenance="guess")), _grid(["4-3-3"]))
+
+    assert any("provenance" in p for p in problems), problems
+
+
+def test_a_schema_with_no_order_is_rejected() -> None:
+    problems = check_starts_order(_orders(), _grid(["4-3-3", "4-4-2"]))
+
+    assert any("4-4-2" in p for p in problems), problems
+
+
+def test_an_order_for_a_schema_the_grid_lacks_is_rejected() -> None:
+    problems = check_starts_order(
+        _orders(_order(), _order(nome="9-9-9")), _grid(["4-3-3"])
+    )
+
+    assert any("9-9-9" in p for p in problems), problems
+
+
+def test_a_module_ordered_twice_is_rejected() -> None:
+    problems = check_starts_order(_orders(_order(), _order()), _grid(["4-3-3"]))
+
+    assert any("duplicate" in p for p in problems), problems
+
+
+def test_an_order_that_cannot_say_where_it_came_from_is_rejected() -> None:
+    orders = _orders()
+    orders.fonte.url = ""
+
+    assert any("fonte" in p for p in check_starts_order(orders, _grid(["4-3-3"])))
+
+
 # --- purity --------------------------------------------------------------
 
 
@@ -494,3 +587,13 @@ def test_the_shipped_matrix_blocks_the_4_1_4_1_swap_and_only_there() -> None:
                 f"{entry.schema_nome}: W and T are interchangeable with a malus "
                 f"everywhere except 4-1-4-1, got {values}"
             )
+
+
+def test_the_shipped_starts_order_passes_its_gate_and_is_all_bundle() -> None:
+    """SPEC A22: all 11 read from the platform's own bundle, none inferred from the PDF."""
+    grid = SchemaGrid.model_validate(_load("mantra_schemi.json"))
+    orders = StartsOrder.model_validate(_load("mantra_starts_order.json"))
+
+    assert check_starts_order(orders, grid) == []
+    assert {m.provenance for m in orders.moduli} == {"bundle"}
+    assert orders.fonte.url.endswith("chunk-Dc2l8Fqx.js")

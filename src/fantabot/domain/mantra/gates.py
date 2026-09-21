@@ -13,13 +13,18 @@ silently rejects or penalises, every week, for a season.
 
 from __future__ import annotations
 
+from collections import Counter
+
 from fantabot.domain.mantra.models import (
     CELL_VALUES,
+    PROVENANCES,
     ROLE_ORDER,
     CompatMatrix,
     FormationCompat,
     MantraSchema,
+    ModuleOrder,
     SchemaGrid,
+    StartsOrder,
 )
 from fantabot.domain.news.mantra import MANTRA_CODES
 
@@ -27,6 +32,8 @@ _ROLE_INDEX = {code.upper(): i for i, code in enumerate(ROLE_ORDER)}
 
 EXPECTED_SCHEMI = 11
 OUTFIELD_SLOTS = 10
+#: `starts[]` positions: the keeper, then the ten outfield slots.
+STARTS_POSITIONS = OUTFIELD_SLOTS + 1
 # rules/sistema-mantra.md speaks of slots listing "two roles", and this gate
 # turned that phrasing into a ceiling of two. It is not one: the published table
 # gives 4-3-1-2 a slot of three, `T/A/Pc`, and the cap silently truncated it to
@@ -172,6 +179,71 @@ def _check_formation(entry: FormationCompat, schema: MantraSchema | None) -> lis
                 f"    grid:   {want}\n"
                 f"    matrix: {got}"
             )
+    return problems
+
+
+def check_starts_order(orders: StartsOrder, grid: SchemaGrid) -> list[str]:
+    """Every problem with the positional order file, judged against the grid.
+
+    The platform judges `starts[i]` against its own slot i. An order may put the grid's
+    slots anywhere, but it must be exactly those slots: a duplicated label sends two
+    players to one kind of slot and none to another, which the builder cannot see and the
+    platform refuses or penalises.
+    """
+    problems: list[str] = []
+
+    names = [module.nome for module in orders.moduli]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        problems.append(f"duplicate orders for: {', '.join(duplicates)}")
+
+    expected = {schema.nome for schema in grid.schemi}
+    for missing in sorted(expected - set(names)):
+        problems.append(f"no starts order for schema {missing!r}")
+    for unknown in sorted(set(names) - expected):
+        problems.append(f"starts order names schema {unknown!r}, which the grid lacks")
+
+    if not orders.fonte.url.strip():
+        problems.append(
+            "starts order carries no `fonte` url: without what was read, the pin cannot be "
+            "re-checked once the platform's chunk name rotates"
+        )
+
+    by_name = {schema.nome: schema for schema in grid.schemi}
+    for module in orders.moduli:
+        if module.provenance not in PROVENANCES:
+            problems.append(
+                f"{module.nome}: provenance {module.provenance!r} is not one of "
+                f"{sorted(PROVENANCES)}"
+            )
+        schema = by_name.get(module.nome)
+        if schema is not None:
+            problems.extend(_check_order(module, schema))
+    return problems
+
+
+def _check_order(module: ModuleOrder, schema: MantraSchema) -> list[str]:
+    problems: list[str] = []
+    name = module.nome
+
+    if len(module.order) != STARTS_POSITIONS:
+        problems.append(
+            f"{name}: {len(module.order)} labels, expected {STARTS_POSITIONS} positions"
+        )
+    if not module.order or _slot_codes(module.order[0]) != {"POR"}:
+        problems.append(f"{name}: position 0 is {module.order[:1]!r}; the keeper comes first")
+
+    want = Counter(
+        frozenset(_slot_codes(label)) for label in ["Por", *("/".join(s) for s in schema.slots)]
+    )
+    got = Counter(frozenset(_slot_codes(label)) for label in module.order)
+    if want != got:
+        missing = sorted("/".join(sorted(slot)) for slot in (want - got).elements())
+        extra = sorted("/".join(sorted(slot)) for slot in (got - want).elements())
+        problems.append(
+            f"{name}: order is not a permutation of the grid's slots; "
+            f"missing {missing}, extra {extra}"
+        )
     return problems
 
 

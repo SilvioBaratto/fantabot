@@ -1,0 +1,197 @@
+{
+  "fonte": {
+    "url": "https://leghe.fantacalcio.it/resources/chunk-Dc2l8Fqx.js",
+    "simbolo": "S.schemes.mantra",
+    "letto": "2026-09-21",
+    "sha256": "421ca5952970224ead95c4953786b83241941e9d64d09ff3bcbf021941698d71"
+  },
+  "moduli": [
+    {
+      "nome": "3-4-3",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Dc/B",
+        "Dc",
+        "Dc",
+        "E",
+        "C",
+        "M/C",
+        "E",
+        "W/A",
+        "A/Pc",
+        "W/A"
+      ]
+    },
+    {
+      "nome": "3-4-1-2",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Dc/B",
+        "Dc",
+        "Dc",
+        "E",
+        "C",
+        "M/C",
+        "E",
+        "T",
+        "A/Pc",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "3-4-2-1",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Dc/B",
+        "Dc",
+        "Dc",
+        "E",
+        "M/C",
+        "M",
+        "E/W",
+        "T/A",
+        "T",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "3-5-2",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Dc/B",
+        "Dc",
+        "Dc",
+        "E",
+        "C",
+        "M",
+        "M/C",
+        "E/W",
+        "A/Pc",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "4-4-2",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Ds",
+        "Dc",
+        "Dc",
+        "Dd",
+        "E",
+        "C",
+        "M/C",
+        "E/W",
+        "A/Pc",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "4-3-3",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Ds",
+        "Dc",
+        "Dc",
+        "Dd",
+        "C",
+        "M",
+        "M/C",
+        "W/A",
+        "A/Pc",
+        "W/A"
+      ]
+    },
+    {
+      "nome": "4-3-1-2",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Ds",
+        "Dc",
+        "Dc",
+        "Dd",
+        "C",
+        "M",
+        "M/C",
+        "T",
+        "A/Pc",
+        "T/A/Pc"
+      ]
+    },
+    {
+      "nome": "3-5-1-1",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Dc/B",
+        "Dc",
+        "Dc",
+        "E/W",
+        "M",
+        "C",
+        "M",
+        "E/W",
+        "T/A",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "4-1-4-1",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Ds",
+        "Dc",
+        "Dc",
+        "Dd",
+        "M",
+        "W",
+        "T",
+        "C/T",
+        "E/W",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "4-4-1-1",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Ds",
+        "Dc",
+        "Dc",
+        "Dd",
+        "E/W",
+        "C",
+        "M",
+        "E/W",
+        "T/A",
+        "A/Pc"
+      ]
+    },
+    {
+      "nome": "4-2-3-1",
+      "provenance": "bundle",
+      "order": [
+        "Por",
+        "Ds",
+        "Dc",
+        "Dc",
+        "Dd",
+        "M/C",
+        "M",
+        "W/A",
+        "T",
+        "T/W",
+        "A/Pc"
+      ]
+    }
+  ]
+}

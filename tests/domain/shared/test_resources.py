@@ -16,15 +16,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fantabot.domain.shared.resources import COMPAT_FILENAME, SCHEMI_FILENAME, data_dir
+from fantabot.domain.shared.resources import (
+    COMPAT_FILENAME,
+    SCHEMI_FILENAME,
+    STARTS_ORDER_FILENAME,
+    data_dir,
+)
 
 
-def test_both_artefacts_live_inside_the_package() -> None:
+def test_every_artefact_lives_inside_the_package() -> None:
     """Beside the code, not beside the repository. A wheel carries one and not the other."""
     import fantabot
 
     package = Path(fantabot.__file__).resolve().parent
-    for name in (SCHEMI_FILENAME, COMPAT_FILENAME):
+    for name in (SCHEMI_FILENAME, COMPAT_FILENAME, STARTS_ORDER_FILENAME):
         path = (data_dir() / name).resolve()
         assert path.is_file(), f"{name} is not where resources.data_dir() says it is"
         assert package in path.parents, f"{name} is outside the package: {path}"

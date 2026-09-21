@@ -1,8 +1,9 @@
 """Where the data files that ship with the package live.
 
-Two artefacts are code in every sense that matters: `mantra_compat.json` is the 11 x 11 x
-12 legality matrix `asta_engine.legality` matches against, and `mantra_schemi.json` is the
-schema list it is aligned to. A wrong cell builds lineups the platform rejects.
+Three artefacts are code in every sense that matters: `mantra_compat.json` is the 11 x 11 x
+12 legality matrix `asta_engine.legality` matches against, `mantra_schemi.json` is the
+schema list it is aligned to, and `mantra_starts_order.json` is the position the platform
+judges each `starts[]` entry in. A wrong cell builds lineups the platform rejects.
 
 They used to sit in the repository's `data/` directory and were reached two different
 ways: `legality.py` climbed four levels out of its own module path, and `mantra-grid
@@ -29,6 +30,10 @@ from pathlib import Path
 SCHEMI_FILENAME = "mantra_schemi.json"
 #: The out-of-position matrix: 11 schemi x 11 slots x 12 roles.
 COMPAT_FILENAME = "mantra_compat.json"
+#: The platform's positional `starts[]` order per schema, read from its own JS bundle.
+#: Not `mantra_schemi.json`'s slot order: that is the PDF table's rows, and sending
+#: `starts[]` in it is what drew LUP009 (SPEC A22).
+STARTS_ORDER_FILENAME = "mantra_starts_order.json"
 
 
 def data_dir() -> Path:

@@ -92,3 +92,41 @@ class CompatMatrix(BaseModel):
         default_factory=list,
         description="Gli URL che hai letto davvero per compilare la tabella.",
     )
+
+
+#: Where a module's positional order was read. `bundle`: the platform's own JS
+#: (`S.schemes.mantra`); `evidence`: confirmed by a calculated round with no malus;
+#: `p3`: inferred from the PDF's pitch diagrams, which no module needs today.
+PROVENANCES: frozenset[str] = frozenset({"bundle", "evidence", "p3"})
+
+
+class OrderSource(BaseModel):
+    """What was read, so the pin can be re-checked once the chunk name has rotated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    simbolo: str
+    letto: str
+    sha256: str
+
+
+class ModuleOrder(BaseModel):
+    """One schema's 11 slot labels in the platform's `starts[]` order, keeper first.
+
+    Labels are as the platform prints them (`Dc/B`, `T/W`); a label is a set of
+    interchangeable roles, so `T/W` and the schemi's `W/T` are the same slot.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    nome: str
+    provenance: str
+    order: list[str]
+
+
+class StartsOrder(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fonte: OrderSource
+    moduli: list[ModuleOrder]
