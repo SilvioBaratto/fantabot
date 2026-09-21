@@ -23,6 +23,8 @@ from fastapi.testclient import TestClient
 from fantabot_app.api.main import app
 from fantabot_app.api.v1.endpoints.lineup import STALE_AFTER_HOURS, read_lineup_runs
 
+from .conftest import redirect_home
+
 CEST = timezone(timedelta(hours=2))
 NOW = datetime(2026, 9, 12, 20, 0, tzinfo=CEST)
 
@@ -134,11 +136,33 @@ class TestNoRunAtAllIsAFailureToo:
         assert page.last_age_hours == pytest.approx(1.0, abs=0.1)
 
 
+def test_the_home_redirect_works_under_both_resolvers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The helper below is a platform assumption if it only satisfies this platform.
+
+    `ntpath.expanduser` is a pure function and runs fine here, so Windows' answer is
+    checkable from macOS — which is the only reason this defect is fixable without a
+    Windows machine. Setting `HOME` alone leaves it returning a literal `~`.
+    """
+    import ntpath
+    import posixpath
+
+    redirect_home(monkeypatch, tmp_path)
+
+    assert posixpath.expanduser("~") == str(tmp_path), "POSIX reads HOME"
+    assert ntpath.expanduser("~") == str(tmp_path), (
+        "Windows reads USERPROFILE and ignores HOME, so a redirect that sets only HOME "
+        "points the route at the operator's real home"
+    )
+    assert Path.home() == tmp_path
+
+
 def test_the_route_reads_the_home_derived_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """End to end through the router, at the path the CLI writes to."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    redirect_home(monkeypatch, tmp_path)
     append_run(
         tmp_path / ".fantabot" / "lineup_runs.jsonl",
         _run(NOW, status=SKIPPED, code="matchday-started", detail="matchday 4 started"),

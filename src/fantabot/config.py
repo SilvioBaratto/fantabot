@@ -157,7 +157,14 @@ def lineup_runs_path() -> Path:
     launcher was, so a relative path here would put the record where the app never looks —
     the silent failure the record exists to prevent. `harvest_dir` is the precedent.
 
-    Read at call time rather than bound at import, so a test that repoints `HOME` sees it.
+    Read at call time rather than bound at import, so a test that repoints the home
+    directory sees it.
+
+    ⚠ "repoints `HOME`" is what this said, and it is only true on POSIX. `Path.home()` is
+    `os.path.expanduser("~")`, and `ntpath` reads **`USERPROFILE`** and ignores `HOME`
+    entirely — so a test that set one variable redirected nothing on Windows, read the
+    operator's real home and found no record. The app's test suite redirects through one
+    helper that sets both; see `api/tests/conftest.redirect_home`.
     """
     return Path.home() / ".fantabot" / LINEUP_RUNS_FILE
 

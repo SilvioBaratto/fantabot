@@ -31,6 +31,8 @@ from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
 
+from .conftest import redirect_home
+
 
 def _wait(predicate, timeout: float = 5.0) -> bool:
     deadline = time.monotonic() + timeout
@@ -55,7 +57,7 @@ def quick_child(monkeypatch, tmp_path):
         "fantabot_command",
         lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
     )
-    monkeypatch.setenv("HOME", str(tmp_path))
+    redirect_home(monkeypatch, tmp_path)
     return tmp_path
 
 

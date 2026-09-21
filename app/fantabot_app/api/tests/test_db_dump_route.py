@@ -30,6 +30,8 @@ from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
 
+from .conftest import redirect_home
+
 skip_on_windows = pytest.mark.skipif(
     sys.platform == "win32",
     reason="`/Volumes/` is where macOS mounts external volumes; Windows mounts nothing there",
@@ -59,8 +61,7 @@ def quick_child(monkeypatch, tmp_path):
         "fantabot_command",
         lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
     )
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    redirect_home(monkeypatch, tmp_path)
     return tmp_path
 
 
@@ -104,7 +105,7 @@ def test_a_dump_already_taken_today_is_reported_with_its_size(quick_child, froze
 @skip_on_windows
 def test_a_home_on_an_external_volume_offers_no_path_at_all(monkeypatch) -> None:
     """Not a disabled button beside a path: there is no path, and the reason is the answer."""
-    monkeypatch.setenv("HOME", "/Volumes/External SSD/home")
+    redirect_home(monkeypatch, "/Volumes/External SSD/home")
 
     body = TestClient(app).get("/api/v1/db/dump/target").json()
 
@@ -150,7 +151,7 @@ def test_the_job_is_stoppable(quick_child, frozen_day) -> None:
 @skip_on_windows
 def test_a_refused_target_spawns_nothing(monkeypatch) -> None:
     """The refusal is the whole point of deriving the path before the child is started."""
-    monkeypatch.setenv("HOME", "/Volumes/External SSD/home")
+    redirect_home(monkeypatch, "/Volumes/External SSD/home")
     client = TestClient(app)
     before = len(client.get("/api/v1/jobs").json()["jobs"])
 

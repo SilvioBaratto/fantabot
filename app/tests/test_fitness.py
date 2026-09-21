@@ -636,3 +636,33 @@ def test_the_app_holds_no_second_hand_written_league_read() -> None:
                         offenders.append(f"{where}:{node.lineno}: SQL naming {table}")
 
     assert offenders == [], f"a second hand-written league read is back: {offenders}"
+
+
+def test_no_api_test_redirects_the_home_by_hand() -> None:
+    """`Path.home()` is redirected in exactly one place, and the reason is a platform split.
+
+    `posixpath.expanduser` reads `HOME`; `ntpath.expanduser` reads `USERPROFILE` and
+    ignores `HOME`. A test that sets one of them redirects nothing on the other platform —
+    it reads the operator's real home, finds nothing there, and fails with a number instead
+    of an explanation. That was app-ci's last Windows failure.
+
+    Why a source scan and not a behavioural test: the hand-rolled version **passes** on
+    macOS and Linux, so nothing here can fail on it. A mutation restoring
+    `monkeypatch.setenv("HOME", ...)` survived the battery for exactly that reason — the
+    same shape as `_app_trees`' separator, where only the source can tell the right version
+    from the one that breaks a platform nobody here runs.
+    """
+    import fantabot_app
+
+    api_tests = Path(fantabot_app.__file__).parent / "api" / "tests"
+    offenders = [
+        f"{py.relative_to(api_tests).as_posix()}:{n}"
+        for py in sorted(api_tests.rglob("test_*.py"))
+        for n, line in enumerate(py.read_text(encoding="utf-8").splitlines(), start=1)
+        if 'setenv("HOME"' in line or 'setenv("USERPROFILE"' in line
+    ]
+
+    assert offenders == [], (
+        f"a test redirects the home by hand: {offenders}. Use `redirect_home` from "
+        "`conftest`, which sets both variables — neither one alone covers both platforms."
+    )
