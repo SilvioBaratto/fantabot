@@ -13,14 +13,18 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
+import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'rxjs';
 
 import { ActionsService } from '../../core/api/actions.service';
 import { JobsService } from '../../core/api/jobs.service';
+import { LegaService } from '../../core/api/lega.service';
 import { ScrapeService } from '../../core/api/scrape.service';
 import { TeamsService } from '../../core/api/teams.service';
+import { LegaOverview } from '../../core/models/lega';
 import { ScrapeTable } from '../../core/models/scrape';
 import { BackfillResult, TeamSnapshotResult } from '../../core/models/teams';
 import { IconName } from '../../icons';
@@ -104,7 +108,9 @@ const UNREACHABLE_BACKFILL: BackfillResult = {
     MatFormFieldModule,
     MatInputModule,
     MatProgressBarModule,
+    MatRadioModule,
     MatSelectModule,
+    RouterLink,
   ],
   templateUrl: './synchronize.html',
   styleUrl: './synchronize.scss',
@@ -113,11 +119,21 @@ const UNREACHABLE_BACKFILL: BackfillResult = {
 export class SynchronizeComponent {
   private readonly actions = inject(ActionsService);
   private readonly jobs = inject(JobsService);
+  private readonly lega = inject(LegaService);
   private readonly scrape = inject(ScrapeService);
   private readonly teams = inject(TeamsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly leagueId = signal<number | null>(null);
+  /**
+   * Every lega a sync can target, by name. The id used to be typed into a number field,
+   * although `GET /lega` already lists every connected lega: a mistyped digit syncs — and,
+   * for a team snapshot, appends a row under — a lega nobody chose, and a number field's
+   * spinner arrows change the value too.
+   */
+  readonly leagues = signal<LegaOverview[]>([]);
+  readonly leaguesLoaded = signal(false);
+  readonly leaguesUnreadable = signal(false);
   readonly running = signal(false);
   readonly lines = signal<string[]>([]);
   readonly jobStatus = signal<string>('');
@@ -225,7 +241,34 @@ export class SynchronizeComponent {
 
   constructor() {
     this.reattach();
+    this.readLeagues();
     this.readScrapeTables();
+  }
+
+  /**
+   * The leghe to choose from, the first preselected — the Asta page's rule.
+   *
+   * A listing that cannot be read leaves the picker empty and says so in the card; it is
+   * not an error banner, for the same reason `readScrapeTables` gives. It is also not
+   * "no lega connected", which would send the operator to Accounts for nothing.
+   */
+  private readLeagues(): void {
+    this.lega
+      .getLeagues()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (leagues) => {
+          this.leagues.set(leagues);
+          this.leaguesLoaded.set(true);
+          if (this.leagueId() === null && leagues.length) {
+            this.leagueId.set(leagues[0].league_id);
+          }
+        },
+        error: () => {
+          this.leaguesUnreadable.set(true);
+          this.leaguesLoaded.set(true);
+        },
+      });
   }
 
   /**
@@ -310,9 +353,8 @@ export class SynchronizeComponent {
       .subscribe();
   }
 
-  setLeagueId(value: string): void {
-    const parsed = Number(value);
-    this.leagueId.set(Number.isFinite(parsed) && value.trim() !== '' ? parsed : null);
+  selectLeague(leagueId: number): void {
+    this.leagueId.set(leagueId);
   }
 
   runLegaSync(): void {
@@ -322,7 +364,7 @@ export class SynchronizeComponent {
   }
 
   /**
-   * Capture our own team's credits and roster ids — `fantabot db snapshot-team`.
+   * Capture your own team's credits and roster ids — `fantabot db snapshot-team`.
    *
    * Gated on the league id the page already has. The server requires it too, but the
    * button is the first place to refuse: `league_team_snapshot` is append-only, so a row

@@ -12,7 +12,7 @@ import _tokens
 import pytest
 from cryptography.fernet import Fernet
 
-from fantabot.domain.tokens.crypto import FINGERPRINT_LENGTH, TokenCipher
+from fantabot.domain.tokens.crypto import FINGERPRINT_LENGTH, TokenCipher, fingerprint_of
 from fantabot.domain.tokens.errors import KeyMalformed, KeyMissing, TokenUndecryptable
 
 PLAINTEXT = _tokens.make_token(l_id=_tokens.LEGA_MANTRA, t_id=_tokens.TEAM_MANTRA)
@@ -189,3 +189,11 @@ def test_no_error_message_contains_the_plaintext_token() -> None:
         if PLAINTEXT[i : i + 8] in message
     ]
     assert leaked == []
+
+
+def test_the_standalone_fingerprint_is_the_one_the_cipher_stamps() -> None:
+    """The app's launcher compares a `.env` key with a key file through this function, so
+    it must be the formula the rows were written with, not a copy that can drift."""
+    key = a_key()
+
+    assert fingerprint_of(key) == TokenCipher(key).fingerprint

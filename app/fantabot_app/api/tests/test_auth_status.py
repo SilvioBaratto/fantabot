@@ -117,3 +117,35 @@ def test_no_key_configured_still_renders_the_plaintext_expiry() -> None:
     assert states[1].startswith("ok")
     assert states[2].startswith("EXPIRED")
     assert not any("KEY MISMATCH" in s for s in states.values())
+
+
+def test_a_fantalab_session_under_another_key_reads_as_key_mismatch() -> None:
+    """The card had no state, so a session nobody can decrypt looked like a working one.
+
+    Measured 2026-09-21: the session was stamped `aa695c77` by the app's key file while the
+    lega rows and `.env` held `ef341176`, and the Accounts page showed it as connected.
+    """
+    status = build_auth_status(
+        [],
+        [("user9", NOW, None), ("user8", NOW, None)],
+        now=NOW,
+        has_key=True,
+        key_fingerprint="ef341176",
+        fantalab_fingerprints={"user9": "aa695c77", "user8": "ef341176"},
+    )
+
+    states = {f.user_id: f.state for f in status.fantalab}
+    assert states == {"user9": "KEY MISMATCH (row aa695c77, .env ef341176)", "user8": "ok"}
+
+
+def test_a_fantalab_session_with_no_key_configured_is_not_called_a_mismatch() -> None:
+    status = build_auth_status(
+        [],
+        [("user9", NOW, None)],
+        now=NOW,
+        has_key=False,
+        key_fingerprint=None,
+        fantalab_fingerprints={"user9": "aa695c77"},
+    )
+
+    assert status.fantalab[0].state == "ok"

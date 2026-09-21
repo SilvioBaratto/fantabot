@@ -246,6 +246,32 @@
   color: var(--mat-sys-on-surface);
 }
 
+/* Each walk-away kind, once. The row carries only the kind. */
+.legend {
+  margin: 0 0 12px;
+  @extend %body-small;
+  color: var(--mat-sys-on-surface-variant);
+
+  dt {
+    display: inline;
+    font-weight: var(--mat-sys-label-large-weight);
+    color: var(--mat-sys-on-surface);
+  }
+
+  dd {
+    display: inline;
+    margin: 0 0 0 4px;
+  }
+}
+
+.state-actions {
+  padding: 0 16px 16px;
+}
+
+.state-link {
+  margin-block-start: 16px;
+}
+
 /* ------------------------------------------------------------ state blocks */
 
 /* `.state-title` and `.exclude-form-title` are declared with `.panel-title`, above. */
@@ -800,6 +826,14 @@ code {
   }
 }
 
+// The arm and the bid it arms stay one unit when the row wraps.
+.bid-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 // The banner over a stale frame. Error-coloured because what is below it is not wrong,
 // it is *old* — and those are the two states an operator most needs to tell apart, since
 // in one of them the bot is still bidding and in the other it is not.
@@ -834,7 +868,6 @@ code {
   margin: 0 0 8px;
   @extend %label-large;
   color: var(--mat-sys-on-surface-variant);
-  text-transform: uppercase;
 }
 
 // The two numbers that have to be readable across a room: who is on the block, and how

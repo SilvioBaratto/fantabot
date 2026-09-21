@@ -22,6 +22,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTableModule } from '@angular/material/table';
+import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, catchError, interval, startWith, switchMap, takeWhile } from 'rxjs';
 
@@ -126,6 +127,7 @@ const EXCLUSION_FALLBACK = 'The exclusion was refused and the reason did not com
     MatInputModule,
     MatProgressBarModule,
     MatTableModule,
+    RouterLink,
   ],
   templateUrl: './asta.html',
   styleUrl: './asta.scss',
@@ -141,6 +143,8 @@ export class AstaComponent implements OnInit {
 
   /** Where focus goes when a page turn takes away the button that asked for it. */
   private readonly journalBody = viewChild<ElementRef<HTMLElement>>('journalBody');
+  /** Where focus goes when a "Try again" removes itself by starting the load it retries. */
+  private readonly pageHeading = viewChild<ElementRef<HTMLElement>>('pageHeading');
 
   /**
    * Which button asked for the page currently in flight.
@@ -186,6 +190,12 @@ export class AstaComponent implements OnInit {
   readonly plan = signal<AstaPlan | null>(null);
   readonly loading = signal(true);
   readonly planLoading = signal(false);
+  /**
+   * The plan request itself failed. Its own state because nothing else says it: `plan()`
+   * stays null and `planLoading()` goes false, which the template used to render as an
+   * empty pane — no card, no message, under a lega that looked selected and fine.
+   */
+  readonly planError = signal(false);
   readonly errorMsg = signal<string | null>(null);
 
   /**
@@ -383,6 +393,23 @@ export class AstaComponent implements OnInit {
   );
 
   /**
+   * What each walk-away kind means, once, in the order the targets first use it.
+   *
+   * The provenance is one of a closed set of `kind: explanation` strings
+   * (`application/plan_request.py`), and it was printed whole under every row — thirty
+   * copies of two sentences, which buried the one number per row that matters. The row
+   * keeps the kind; the sentence is said here.
+   */
+  readonly provenanceLegend = computed(() => {
+    const seen = new Map<string, string>();
+    for (const player of this.players()) {
+      const { kind, meaning } = splitProvenance(player.walk_away_provenance);
+      if (meaning && !seen.has(kind)) seen.set(kind, meaning);
+    }
+    return [...seen].map(([kind, meaning]) => ({ kind, meaning }));
+  });
+
+  /**
    * The lot on the block, folded for comparison — or null when no row names one.
    *
    * The join between the two halves of this view, and the only one available: the journal
@@ -540,6 +567,32 @@ export class AstaComponent implements OnInit {
           this.withdrawing.set(null);
         },
       });
+  }
+
+  /** The short half of a walk-away provenance, sentence-cased for the row. */
+  provenanceKind(provenance: string): string {
+    return splitProvenance(provenance).kind;
+  }
+
+  /** `bid` → `Bid`. The journal writes lower case; the pane reads it as a label. */
+  decisionLabel(decision: string | null): string {
+    return sentenceCase(decision ?? 'waiting');
+  }
+
+  retryLeagues(): void {
+    this.focusHeading();
+    this.loadLeagues();
+  }
+
+  retryPlan(): void {
+    const id = this.selectedId();
+    if (id === null) return;
+    this.focusHeading();
+    this.select(id);
+  }
+
+  private focusHeading(): void {
+    this.pageHeading()?.nativeElement.focus();
   }
 
   loadLeagues(): void {
@@ -994,6 +1047,7 @@ export class AstaComponent implements OnInit {
     this.room.set(null);
     this.advisory.set(null);
     this.advisoryError.set(null);
+    this.planError.set(false);
     this.planLoading.set(true);
     this.asta
       .getPlan(leagueId)
@@ -1006,7 +1060,28 @@ export class AstaComponent implements OnInit {
           this.plan.set(plan);
           this.planLoading.set(false);
         },
-        error: () => this.planLoading.set(false),
+        // Guarded like `next`, and for the same reason: a late failure for the lega the
+        // operator has left used to switch off the spinner of the one they are waiting on.
+        error: () => {
+          if (this.selectedId() !== leagueId) return;
+          this.planLoading.set(false);
+          this.planError.set(true);
+        },
       });
   }
+}
+
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** `"hold: a substitute exists …"` → `{ kind: 'Hold', meaning: 'a substitute exists …' }`.
+ * A provenance with no colon is all kind, so an unforeseen string is shown, never dropped. */
+function splitProvenance(provenance: string): { kind: string; meaning: string | null } {
+  const at = provenance.indexOf(': ');
+  if (at < 0) return { kind: sentenceCase(provenance), meaning: null };
+  return {
+    kind: sentenceCase(provenance.slice(0, at)),
+    meaning: provenance.slice(at + 2),
+  };
 }

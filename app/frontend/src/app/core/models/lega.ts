@@ -1,7 +1,13 @@
+/** `sroles=1` is Classic, `sroles=2` is Mantra; null when the lega stated neither. */
+export type LegaFormat = 'classic' | 'mantra';
+
 export interface LegaOverview {
   league_id: number;
   league_name: string | null;
   captured_at: string | null;
+  /** Optional so fixtures written before the field existed still type-check; the API
+   * always sends it, and a missing value reads as unknown, never as Mantra. */
+  format?: LegaFormat | null;
   matchday: number | null;
   budget: number | null;
   roster_size: number | null;

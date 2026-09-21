@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
 import { LucideIconConfig } from 'lucide-angular';
 
@@ -49,6 +50,7 @@ describe('AstaComponent', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideRouter([]),
         ICON_PROVIDER,
         {
           provide: LucideIconConfig,
@@ -532,8 +534,12 @@ describe('AstaComponent', () => {
       expect(text).toContain('Holm');
       expect(text).toContain('Zaccagni');
       expect(text).toContain('5192');
-      // The label, not a docstring: this is what the CLI decided, not what the app did.
-      expect(text.toLowerCase()).toContain('cli');
+      // The label, not a docstring: the record is the run's own — a CLI command, whichever
+      // surface started it — and never something the app process wrote.
+      expect(text).toContain('written by the run itself');
+      expect(text).toContain('fantabot asta bid');
+      // It used to say "The app never bids", which stopped being true when Bid in room shipped.
+      expect(text).not.toContain('The app never bids');
     });
 
     it('asks for the next page by offset, and never re-asks for the first', async () => {
@@ -727,7 +733,7 @@ describe('AstaComponent', () => {
       expect(text).toContain('Corpus price');
       expect(text).toContain('Walk-away');
       expect(text).toContain('34');
-      expect(text).toContain('re-solved');
+      expect(text).toContain('Re-solved');
     });
 
     it('draws the targets as a table from 600px up', async () => {
@@ -740,8 +746,8 @@ describe('AstaComponent', () => {
         Array.from(table.querySelectorAll('thead th')).map((h) => h.textContent?.trim()),
       ).toEqual(['Player', 'Corpus price', 'Walk-away']);
       expect(table.textContent).toContain('Svilar');
-      // The provenance stays beside the number it explains, never behind a hover.
-      expect(table.textContent).toContain('re-solved');
+      // The provenance's kind stays beside the number it explains, never behind a hover.
+      expect(table.textContent).toContain('Re-solved');
     });
   });
 
@@ -785,7 +791,9 @@ describe('AstaComponent', () => {
     expect(text).toContain('Corpus price');
     expect(text).toContain('Walk-away');
     expect(text).toContain('34');
-    expect(text).toContain('re-solved');
+    expect(text).toContain('Re-solved');
+    // The explanation is on the page once, in the legend, not under every row.
+    expect(text).toContain('the most this rosa would pay before it is no better off');
   });
 
   it('renders an unpriced walk-away as absent and never as zero', async () => {
@@ -1354,7 +1362,10 @@ describe('AstaComponent', () => {
       expect(text).toContain('40');
       // MODEL: the decision, and the walk-away with the provenance beside it — never
       // fused into it. A number nobody can argue with is one nobody can correct at 21:47.
-      expect(text).toContain('BID');
+      // Sentence case, not the CLI's capitals (`style_guide.md:295`); the colour says bid.
+      const decision = fixture.nativeElement.querySelector('.live-decision') as HTMLElement;
+      expect(decision.textContent?.trim()).toBe('Bid');
+      expect(decision.classList).toContain('is-bid');
       expect(text).toContain('44');
       expect(text).toContain('re-solved with this lot forced in');
       // ROSA: the count, the credits, and the bargain pair that caps the unplanned lots.
@@ -1726,7 +1737,10 @@ describe('AstaComponent', () => {
 
       const banner = fixture.nativeElement.querySelector('[data-testid="armed-banner"]');
       expect(banner).not.toBeNull();
-      expect(banner.textContent).toContain('ARMED');
+      // Unmissable by role, colour and weight — not by capitals a screen reader may spell.
+      expect(banner.getAttribute('role')).toBe('alert');
+      expect(banner.querySelector('.is-error strong')?.textContent).toBe('Armed');
+      expect(banner.textContent).toContain('this run places real bids');
     });
 
     it('shows no armed banner over a dry run', async () => {
@@ -2064,6 +2078,25 @@ describe('AstaComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('2 sale');
     });
 
+    it('counts one sale as a sale, not as "sale(s)"', async () => {
+      const fixture = await ready();
+      await advise(fixture, {
+        outcome: 'advised',
+        reason: '',
+        targets: [],
+        opponents: [],
+        sales: 1,
+        dropped_sales: 1,
+        total_cost: 0,
+        objective: 0,
+      });
+
+      const text = (fixture.nativeElement.textContent as string).replace(/\s+/g, ' ');
+      expect(text).toContain('1 sale folded');
+      expect(text).toContain('1 sale dropped');
+      expect(text).not.toContain('(s)');
+    });
+
     it('names the refusal instead of drawing an empty advisory', async () => {
       // An outage rendered as "no targets" is a false statement, not a missing one — and it
       // is the state in which an operator decides they have nothing to chase.
@@ -2093,6 +2126,211 @@ describe('AstaComponent', () => {
       fixture.componentInstance.loadAdvisory();
 
       httpMock.expectNone((r) => r.url.includes('asta/advisory'));
+    });
+  });
+
+  /**
+   * The M3 pass over this page: one primary action, states that say what failed and offer
+   * the way back, controls grouped with what they affect, and copy that stays true.
+   */
+  describe('states, hierarchy and copy', () => {
+    async function withLeagues(ids: number[]) {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions();
+      flushJobs();
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush(ids.map((id) => overview(id)));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      return fixture;
+    }
+
+    function buttonNamed(root: HTMLElement, name: string): HTMLButtonElement {
+      const match = Array.from(root.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === name,
+      );
+      if (!match) throw new Error(`no button named ${name}`);
+      return match;
+    }
+
+    it('says a failed plan read failed, and retries it with focus on the heading', async () => {
+      // It used to render nothing at all: `plan()` null, `planLoading()` false, and the pane
+      // under a selected lega simply empty.
+      const fixture = await withLeagues([4103937]);
+      httpMock
+        .expectOne(`${environment.apiUrl}asta/plan?league_id=4103937`)
+        .error(new ProgressEvent('error'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('.overview-main [role="alert"]')?.textContent).toContain(
+        "Couldn't load the plan",
+      );
+
+      const retry = buttonNamed(root, 'Try again');
+      retry.focus();
+      retry.click();
+      fixture.detectChanges();
+      // The button removed itself by starting the load; focus did not fall to <body>.
+      expect(document.activeElement).toBe(root.querySelector('h1'));
+
+      httpMock.expectOne(`${environment.apiUrl}asta/plan?league_id=4103937`).flush(plan());
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(root.textContent).toContain('Svilar');
+      expect(root.querySelector('.overview-main [role="alert"]')).toBeNull();
+    });
+
+    it('keeps waiting on the lega it is on when the one it left fails late', async () => {
+      const fixture = await withLeagues([1, 2]);
+      const left = httpMock.expectOne(`${environment.apiUrl}asta/plan?league_id=1`);
+      fixture.componentInstance.select(2);
+      const current = httpMock.expectOne(`${environment.apiUrl}asta/plan?league_id=2`);
+
+      left.error(new ProgressEvent('error'));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.planLoading()).toBe(true);
+      expect(fixture.componentInstance.planError()).toBe(false);
+
+      current.flush(plan());
+      fixture.detectChanges();
+      expect(fixture.componentInstance.plan()?.found).toBe(true);
+    });
+
+    it('offers a retry when the leghe cannot be read, and a way to sync when there are none', async () => {
+      const fixture = TestBed.createComponent(AstaComponent);
+      fixture.detectChanges();
+      flushExclusions();
+      flushJobs();
+      httpMock.expectOne(`${environment.apiUrl}lega`).error(new ProgressEvent('error'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('[role="alert"]')?.textContent).toContain(
+        "Couldn't load your leghe",
+      );
+      buttonNamed(root, 'Try again').click();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(root.querySelector('h1'));
+
+      httpMock.expectOne(`${environment.apiUrl}lega`).flush([]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(root.textContent).toContain('No leagues yet');
+      expect(root.querySelector('a[href="/synchronize"]')?.textContent?.trim()).toBe(
+        'Go to Synchronize',
+      );
+    });
+
+    it('explains each walk-away kind once and keeps only the kind on the row', async () => {
+      stubSizeClass('medium');
+      const resolvedWhy = 're-solved: the most this rosa would pay before it is no better off';
+      const holdWhy = 'hold: a substitute exists — the rosa does not improve by buying him';
+      const fixture = await readyWithPlan(
+        plan({
+          players: [
+            {
+              player_id: '1',
+              nome: 'A',
+              price: 30,
+              walk_away: 34,
+              walk_away_provenance: resolvedWhy,
+            },
+            { player_id: '2', nome: 'B', price: 20, walk_away: 0, walk_away_provenance: holdWhy },
+            {
+              player_id: '3',
+              nome: 'C',
+              price: 10,
+              walk_away: 12,
+              walk_away_provenance: resolvedWhy,
+            },
+          ],
+        }),
+      );
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(
+        Array.from(root.querySelectorAll('.legend dt')).map((d) => d.textContent?.trim()),
+      ).toEqual(['Re-solved', 'Hold']);
+      expect(
+        Array.from(root.querySelectorAll('table.targets-table tbody .prov')).map((p) =>
+          p.textContent?.trim(),
+        ),
+      ).toEqual(['Re-solved', 'Hold', 'Re-solved']);
+      // Each sentence is on the page exactly once.
+      const text = root.textContent ?? '';
+      expect(text.split('a substitute exists').length - 1).toBe(1);
+      expect(text.split('no better off').length - 1).toBe(1);
+    });
+
+    it('shows a provenance it does not recognise whole, with nothing to put in the legend', async () => {
+      stubSizeClass('compact');
+      const fixture = await readyWithPlan(
+        plan({
+          players: [
+            { player_id: '1', nome: 'A', price: 30, walk_away: 34, walk_away_provenance: 'manual' },
+          ],
+        }),
+      );
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(root.querySelector('.legend')).toBeNull();
+      expect(root.querySelector('.target-card .prov')?.textContent?.trim()).toBe('Manual');
+    });
+
+    it('groups the arm with the bid it arms, apart from Watch room', async () => {
+      const fixture = await withLeagues([]);
+      const group = (fixture.nativeElement as HTMLElement).querySelector(
+        '.bid-group[role="group"]',
+      ) as HTMLElement;
+
+      expect(group).not.toBeNull();
+      expect(group.querySelector('[data-testid="arm-checkbox"]')).not.toBeNull();
+      expect(group.querySelector('[data-testid="bid-button"]')).not.toBeNull();
+      expect(group.textContent).not.toContain('Watch room');
+    });
+
+    it('has one filled button once a plan is on screen', async () => {
+      // One primary action per view (`usability/overview.md:105`). Check room is it: it
+      // gates the watch, the bid and the advisory.
+      stubSizeClass('expanded');
+      const fixture = await readyWithPlan(plan());
+      const filled = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('.mat-mdc-unelevated-button'),
+      ).map((b) => b.textContent?.trim());
+
+      expect(filled).toEqual(['Check room']);
+    });
+
+    it('gives examples as hints, never as placeholders that read as typed values', async () => {
+      const fixture = await withLeagues([]);
+      const root = fixture.nativeElement as HTMLElement;
+
+      for (const id of ['room-url', 'exclude-player', 'exclude-reason', 'exclude-source']) {
+        const field = root.querySelector(`#${id}`)?.closest('mat-form-field');
+        expect(field?.classList).not.toContain('mat-mdc-form-field-label-always-float');
+      }
+      for (const id of ['exclude-player', 'exclude-reason', 'exclude-source']) {
+        expect(root.querySelector(`#${id}`)?.getAttribute('placeholder')).toBeNull();
+      }
+      expect(
+        Array.from(root.querySelectorAll('.exclude-form mat-hint')).map((h) =>
+          h.textContent?.trim(),
+        ),
+      ).toEqual([
+        'For example, 4344',
+        'For example, left Serie A 2026-08-30',
+        'Where you read it, for example goal.com',
+      ]);
+    });
+
+    it('labels a decision in sentence case, not the CLI capitals', () => {
+      // No `detectChanges`, so `ngOnInit` never runs and no request is made.
+      const component = TestBed.createComponent(AstaComponent).componentInstance;
+      expect(component.decisionLabel('bid')).toBe('Bid');
+      expect(component.decisionLabel(null)).toBe('Waiting');
     });
   });
 });

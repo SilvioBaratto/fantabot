@@ -8,18 +8,21 @@ default. Both endpoints degrade open (empty on DB error).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter()
 
+LegaFormat = Literal["classic", "mantra"]
+
 
 class LegaOverview(BaseModel):
     league_id: int
     league_name: str | None = None
     captured_at: datetime | None = None
+    format: LegaFormat | None = None
     matchday: int | None = None
     budget: int | None = None
     roster_size: int | None = None
@@ -45,6 +48,20 @@ class TeamRoster(BaseModel):
     roster: list[RosterSlot]
 
 
+def format_of(role_groups: int | None) -> LegaFormat | None:
+    """`sroles=1` is Classic and `sroles=2` is Mantra; anything else is unknown.
+
+    Deliberately stricter than `lega_reads.rules_for_league`, which reads every non-1 as
+    Mantra: a planner must pick a band to plan on, but the dashboard only labels the band
+    the lega declared, and a label for a format nobody stated would be an invented fact.
+    """
+    if role_groups == 1:
+        return "classic"
+    if role_groups == 2:
+        return "mantra"
+    return None
+
+
 def build_overview(
     league_id: int, snapshot: Any, team_count: int, league_name: str | None = None
 ) -> LegaOverview:
@@ -61,6 +78,7 @@ def build_overview(
         league_id=league_id,
         league_name=league_name,
         captured_at=snapshot.captured_at,
+        format=format_of(snapshot.role_groups),
         matchday=snapshot.matchday,
         budget=snapshot.budget,
         roster_size=snapshot.roster_size,

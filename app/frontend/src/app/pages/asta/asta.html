@@ -1,6 +1,8 @@
 <header class="page-head">
-  <h1 class="page-title">Asta plan</h1>
-  <p class="page-lede">The roster the optimizer would buy, on the lega's rules.</p>
+  <!-- Focusable, never a tab stop: a "Try again" below removes itself by starting the load
+       it retries, and focus lands here instead of on <body>. -->
+  <h1 class="page-title" #pageHeading tabindex="-1">Asta plan</h1>
+  <p class="page-lede">The roster the optimizer would buy, on the lega's rules</p>
 </header>
 
 <!-- One lega at a time. A segmented button rather than chips: a chip listbox deselects on a
@@ -34,18 +36,22 @@
           <mat-progress-bar mode="indeterminate" aria-label="Loading the plan" />
         </div>
       </mat-card>
-    } @else if (errorMsg(); as message) {
+    } @else if (errorMsg()) {
       <mat-card class="panel" appearance="outlined">
-        <div class="panel-body">
-          <h2 class="state-title is-error">API unreachable</h2>
-          <p class="state-body">{{ message }} Make sure fantabot-app is running.</p>
+        <div class="panel-body" role="alert">
+          <h2 class="state-title is-error">Couldn't load your leghe</h2>
+          <p class="state-body">Check that fantabot-app is running, then try again</p>
         </div>
+        <mat-card-actions class="state-actions">
+          <button matButton="outlined" type="button" (click)="retryLeagues()">Try again</button>
+        </mat-card-actions>
       </mat-card>
     } @else if (!leagues().length) {
       <mat-card class="panel" appearance="outlined">
         <div class="panel-body is-centered">
           <h2 class="state-title">No leagues yet</h2>
-          <p class="state-body">Run a lega sync first.</p>
+          <p class="state-body">Sync your leghe first, so there's a lega to plan for</p>
+          <a matButton="filled" class="state-link" routerLink="/synchronize">Go to Synchronize</a>
         </div>
       </mat-card>
     } @else if (planLoading()) {
@@ -54,6 +60,16 @@
           <p class="loading-text">Loading the plan…</p>
           <mat-progress-bar mode="indeterminate" aria-label="Loading the plan" />
         </div>
+      </mat-card>
+    } @else if (planError()) {
+      <mat-card class="panel" appearance="outlined">
+        <div class="panel-body" role="alert">
+          <h2 class="state-title is-error">Couldn't load the plan</h2>
+          <p class="state-body">Check that fantabot-app is running, then try again</p>
+        </div>
+        <mat-card-actions class="state-actions">
+          <button matButton="outlined" type="button" (click)="retryPlan()">Try again</button>
+        </mat-card-actions>
       </mat-card>
     } @else if (plan(); as p) {
       @if (p.found) {
@@ -119,7 +135,7 @@
                 @for (f of p.fallbacks; track $index) {
                   <li class="fallback num">
                     <span class="fallback-rank">{{ $index + 1 }}</span>
-                    cost {{ f.total_cost | number: '1.0-0' }} · obj
+                    {{ f.total_cost | number: '1.0-0' }} credits · objective
                     {{ f.objective | number: '1.0-0' }}
                   </li>
                 }
@@ -173,8 +189,8 @@
     }
   </div>
 
-  <!-- Room check. A read of a room's configuration — the app never bids (app/CLAUDE.md),
-       and this pane deliberately offers no control that could. It is also the only surface
+  <!-- Room check. A read of a room's configuration — this pane never bids, and deliberately
+       offers no control that could; bidding is Live room's, behind its arm. It is also the only surface
        that says whether the stored FantaLab credential still authenticates. -->
   <aside class="overview-side" aria-labelledby="room-check-heading">
     <mat-card class="panel" appearance="outlined">
@@ -186,12 +202,7 @@
         </p>
 
         <div class="room-form">
-          <mat-form-field
-            class="room-field"
-            appearance="outline"
-            floatLabel="always"
-            subscriptSizing="dynamic"
-          >
+          <mat-form-field class="room-field" appearance="outline" subscriptSizing="dynamic">
             <mat-label>Room link</mat-label>
             <input
               matInput
@@ -341,15 +352,16 @@
             <mat-divider />
             <div class="panel-body">
               <p class="prov">
-                {{ read.sales }} sale(s) folded · target roster costs {{ read.total_cost }} ·
-                objective {{ read.objective | number: '1.0-1' }}
+                {{ read.sales }} {{ read.sales === 1 ? 'sale' : 'sales' }} folded · target roster
+                costs {{ read.total_cost }} · objective {{ read.objective | number: '1.0-1' }}
               </p>
               <!-- Each dropped sale is a purchase nobody subtracted, so a rival's budget and
                    that player's availability are both wrong until it is explained. -->
               @if (read.dropped_sales) {
                 <p class="prov is-error">
-                  {{ read.dropped_sales }} sale(s) dropped — the listone cannot name those players,
-                  so they are valued nowhere and subtracted from nobody.
+                  {{ read.dropped_sales }} {{ read.dropped_sales === 1 ? 'sale' : 'sales' }}
+                  dropped — the listone can't name those players, so they're valued nowhere and
+                  subtracted from nobody.
                 </p>
               }
             </div>
@@ -413,7 +425,9 @@
       <div>
         <h2 id="live-heading" class="panel-title">Live room</h2>
         <p class="panel-sub">
-          Watch a room from the link above. It reads the room and writes the journal; it never bids.
+          Both runs use the room link above. Watch reads the room and never bids. Bid in room places
+          real bids only when you arm it here and <code>FANTABOT_AUTO_ACT</code> is on; otherwise
+          it's a dry run.
         </p>
       </div>
       <div class="live-actions">
@@ -443,18 +457,10 @@
             {{ stopsAsked() === 0 ? 'Stop' : 'Stop run' }}
           </button>
         } @else {
-          <!-- Off on arrival, always. A reload, a restored session or a tab left open
-               overnight must not carry an arming decision forward, so this is restated on
-               every request that could act and the server refuses one that does not say. -->
-          <mat-checkbox
-            data-testid="arm-checkbox"
-            [checked]="armRequested()"
-            (change)="setArmRequested($event.checked)"
-          >
-            Arm — real credits
-          </mat-checkbox>
+          <!-- Tonal, not filled: Check room is this view's one primary action, and a watch
+               is what follows it (`usability/overview.md:105`). -->
           <button
-            matButton="filled"
+            matButton="tonal"
             type="button"
             [disabled]="liveBusy() || !roomUrl().trim()"
             (click)="watchRoom()"
@@ -469,23 +475,38 @@
             />
             Watch room
           </button>
-          <button
-            matButton="outlined"
-            type="button"
-            data-testid="bid-button"
-            [disabled]="liveBusy() || !roomUrl().trim()"
-            (click)="bidRoom()"
-          >
-            <lucide-icon
-              matButtonIcon
-              class="lucide-slot"
-              [class.is-spinning]="bidStarting()"
-              [size]="18"
-              [name]="bidStarting() ? 'loader-2' : 'gavel'"
-              aria-hidden="true"
-            />
-            Bid in room
-          </button>
+          <!-- The arm and the one run it arms, as one group. The checkbox used to sit before
+               Watch room, which it never affects, and at compact Bid in room wrapped away
+               from it onto a line of its own. -->
+          <div class="bid-group" role="group" aria-label="Bidding">
+            <!-- Off on arrival, always. A reload, a restored session or a tab left open
+                 overnight must not carry an arming decision forward, so this is restated on
+                 every request that could act and the server refuses one that does not say. -->
+            <mat-checkbox
+              data-testid="arm-checkbox"
+              [checked]="armRequested()"
+              (change)="setArmRequested($event.checked)"
+            >
+              Arm — real credits
+            </mat-checkbox>
+            <button
+              matButton="outlined"
+              type="button"
+              data-testid="bid-button"
+              [disabled]="liveBusy() || !roomUrl().trim()"
+              (click)="bidRoom()"
+            >
+              <lucide-icon
+                matButtonIcon
+                class="lucide-slot"
+                [class.is-spinning]="bidStarting()"
+                [size]="18"
+                [name]="bidStarting() ? 'loader-2' : 'gavel'"
+                aria-hidden="true"
+              />
+              Bid in room
+            </button>
+          </div>
         }
       </div>
     </div>
@@ -502,8 +523,10 @@
     @if (watchJobId() && runArmed()) {
       <div class="panel-body" data-testid="armed-banner" role="alert">
         <p class="state-body is-error">
-          <span aria-hidden="true">●</span> ARMED — this run places real bids. Stop once to disarm
-          and keep watching; twice to end it.
+          <!-- Sentence case (`style_guide.md:295`); the alarm is the error colour, the bold
+               and `role="alert"`, not capitals a screen reader may spell out. -->
+          <span aria-hidden="true">●</span> <strong>Armed</strong> — this run places real bids. Stop
+          once to disarm and keep watching; twice to end it.
         </p>
       </div>
     }
@@ -580,7 +603,7 @@
         <section class="live-pane live-model" aria-labelledby="live-model-heading">
           <h3 id="live-model-heading" class="live-pane-title">Model</h3>
           <p class="live-decision" [class.is-bid]="frame.decision === 'bid'">
-            {{ (frame.decision ?? 'waiting').toUpperCase() }}
+            {{ decisionLabel(frame.decision) }}
           </p>
           @if (frame.reason) {
             <!-- Which guard bound. A hold with no named guard is a hold nobody can argue
@@ -661,7 +684,9 @@
             <p class="prov live-note is-error">Slower than the room's own 2 s poll.</p>
           }
           @if (quietPolls() > 0) {
-            <p class="prov live-note">No new row in {{ quietPolls() }} poll(s).</p>
+            <p class="prov live-note">
+              No new row in {{ quietPolls() }} {{ quietPolls() === 1 ? 'poll' : 'polls' }}
+            </p>
           }
         </section>
       </div>
@@ -691,6 +716,19 @@
   <section class="targets" aria-labelledby="targets-heading">
     <h2 id="targets-heading" class="section-title">Targets</h2>
 
+    <!-- Each walk-away kind explained once, here. Every row used to carry the whole
+         sentence, which buried the one number per row an operator bids against. -->
+    @if (provenanceLegend().length) {
+      <dl class="legend">
+        @for (entry of provenanceLegend(); track entry.kind) {
+          <div class="legend-entry">
+            <dt>{{ entry.kind }}</dt>
+            <dd>{{ entry.meaning }}</dd>
+          </div>
+        }
+      </dl>
+    }
+
     @if (compact()) {
       <ul class="target-list" role="list">
         @for (player of players(); track player.player_id) {
@@ -715,10 +753,10 @@
                      "a substitute exists at this price", which is a real answer. -->
                 <dd class="num is-strong" [class.is-absent]="player.walk_away === null">
                   {{ player.walk_away === null ? '—' : (player.walk_away | number: '1.0-0') }}
+                  <span class="prov">{{ provenanceKind(player.walk_away_provenance) }}</span>
                 </dd>
               </div>
             </dl>
-            <p class="prov">{{ player.walk_away_provenance }}</p>
           </li>
         }
       </ul>
@@ -752,7 +790,7 @@
                 [class.is-absent]="player.walk_away === null"
                 >{{ player.walk_away === null ? '—' : (player.walk_away | number: '1.0-0') }}</span
               >
-              <span class="prov">{{ player.walk_away_provenance }}</span>
+              <span class="prov">{{ provenanceKind(player.walk_away_provenance) }}</span>
             </td>
           </ng-container>
 
@@ -783,10 +821,7 @@
   <mat-card class="panel" appearance="outlined">
     <div class="panel-body panel-head">
       <div class="panel-head-text">
-        <h2 id="exclusions-heading" class="panel-title">
-          <lucide-icon class="lucide-slot" [size]="18" name="circle-minus" aria-hidden="true" />
-          Excluded players
-        </h2>
+        <h2 id="exclusions-heading" class="panel-title">Excluded players</h2>
         <p class="panel-sub">
           Kept out of every plan above. For a player the listone still carries but who cannot be
           bought &mdash; a transfer out of Serie A, most often. Nothing else in the engine can do
@@ -800,7 +835,7 @@
 
     <div class="panel-body" aria-live="polite">
       @if (exclusionsLoading()) {
-        <mat-progress-bar mode="indeterminate" />
+        <mat-progress-bar mode="indeterminate" aria-label="Loading the exclusions" />
       } @else if (exclusionsError(); as err) {
         <!-- Not the same screen as an empty table, deliberately. An empty list with no
              error means every player on the listone is buyable. -->
@@ -867,10 +902,11 @@
     <div class="panel-body">
       <h3 class="exclude-form-title">Exclude a player</h3>
       <div class="exclude-form">
+        <!-- Examples are hints, not placeholders. `floatLabel="always"` kept each placeholder
+             on screen at rest, where "4344" and "goal.com" read as values already typed. -->
         <mat-form-field
           class="exclude-field exclude-id"
           appearance="outline"
-          floatLabel="always"
           subscriptSizing="dynamic"
         >
           <mat-label>Player id</mat-label>
@@ -880,15 +916,14 @@
             type="text"
             inputmode="numeric"
             autocomplete="off"
-            placeholder="4344"
             [value]="excludePlayerId()"
             (input)="setExcludePlayerId($any($event.target).value)"
           />
+          <mat-hint>For example, 4344</mat-hint>
         </mat-form-field>
         <mat-form-field
           class="exclude-field exclude-reason"
           appearance="outline"
-          floatLabel="always"
           subscriptSizing="dynamic"
         >
           <mat-label>Reason</mat-label>
@@ -897,16 +932,15 @@
             id="exclude-reason"
             type="text"
             autocomplete="off"
-            placeholder="left Serie A 2026-08-30"
             [value]="excludeReason()"
             (input)="setExcludeReason($any($event.target).value)"
             (keyup.enter)="exclude()"
           />
+          <mat-hint>For example, left Serie A 2026-08-30</mat-hint>
         </mat-form-field>
         <mat-form-field
           class="exclude-field exclude-source"
           appearance="outline"
-          floatLabel="always"
           subscriptSizing="dynamic"
         >
           <mat-label>Source (optional)</mat-label>
@@ -915,14 +949,14 @@
             id="exclude-source"
             type="text"
             autocomplete="off"
-            placeholder="goal.com"
             [value]="excludeSource()"
             (input)="setExcludeSource($any($event.target).value)"
             (keyup.enter)="exclude()"
           />
+          <mat-hint>Where you read it, for example goal.com</mat-hint>
         </mat-form-field>
         <button
-          matButton="filled"
+          matButton="tonal"
           type="button"
           class="exclude-submit"
           [disabled]="excluding()"
@@ -949,8 +983,8 @@
   </mat-card>
 </section>
 
-<!-- The room journal. The CLI's record of a live evening, read back — the app writes
-     nothing here and bids nothing (app/CLAUDE.md). It is a section of this page rather
+<!-- The room journal. A live evening's record, read back — the app process writes nothing
+     here; the run does, whether a terminal started it or Live room did. A section of this page rather
      than a tenth nav entry (§7 of the archived phase spec,
      tasks/archive/fantalab-in-the-app-spec.md), and it loads on open rather than on
      arrival: the recorded evening is 5,192 rows and 1.6 MB. -->
@@ -960,8 +994,9 @@
       <div class="panel-head-text">
         <h2 id="journal-heading" class="panel-title">Room journal</h2>
         <p class="panel-sub">
-          The <strong>CLI's</strong> record of a live room — one line per cycle, written by
-          <code>fantabot asta room</code> and <code>fantabot asta bid</code>. The app never bids.
+          One line per cycle of a live room, written by the run itself —
+          <code>fantabot asta room</code> or <code>fantabot asta bid</code>, whether started in a
+          terminal or from Live room above.
         </p>
       </div>
       <button
@@ -1017,8 +1052,8 @@
               <h3 class="state-title">No journal yet</h3>
               <p class="state-body">
                 Nothing at <code class="path">{{ j.path }}</code
-                >. It is written by <code>fantabot asta room &lt;url&gt;</code> or
-                <code>fantabot asta bid</code>, in the terminal.
+                >. A watch or bid run writes it — from Live room above, or
+                <code>fantabot asta room &lt;url&gt;</code> in a terminal.
               </p>
             </div>
           } @else {

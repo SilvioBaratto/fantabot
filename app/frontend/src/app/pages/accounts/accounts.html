@@ -214,9 +214,34 @@
                   <div class="row-id">
                     <p class="row-title">{{ f.user_id }}</p>
                     <p class="row-sub">Captured {{ f.captured_at | date: 'd MMM y' }}</p>
+                    @if (f.state && tone(f.state) === 'bad') {
+                      <!-- The remedy beside the cause. A session saved under another key is
+                           unreadable by anything, and it used to look exactly like a working
+                           one here. -->
+                      <p class="row-sub row-remedy">
+                        Saved with a different key, so the bot can't use it. Reconnect FantaLab to
+                        save it again.
+                      </p>
+                    }
                   </div>
 
                   <div class="row-meta">
+                    @if (f.state) {
+                      <!-- The lega rows' chip, for the same reason: the words carry the state
+                           and the icon repeats it, so nothing rests on colour alone. -->
+                      <span
+                        class="state"
+                        [class.state-ok]="tone(f.state) === 'ok'"
+                        [class.state-warn]="tone(f.state) === 'warn'"
+                        [class.state-bad]="tone(f.state) === 'bad'"
+                      >
+                        <lucide-icon
+                          [size]="16"
+                          [name]="tone(f.state) === 'ok' ? 'check-circle' : 'triangle-alert'"
+                        />
+                        <span class="sr-only">Session state:&nbsp;</span>{{ f.state }}
+                      </span>
+                    }
                     <button
                       matButton
                       type="button"

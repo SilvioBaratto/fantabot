@@ -138,6 +138,20 @@
   }
 }
 
+/* The two control cards are one pane, and a pane's children are spaced like panes are:
+   they used to sit edge to edge, border on border. */
+.pane-control {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+@media (min-width: 600px) {
+  .pane-control {
+    gap: 24px;
+  }
+}
+
 /* The log holds unbroken paths and ids, and a grid item's `min-width: auto` lets those
    push past their track — which here would squeeze the fixed control pane rather than
    wrap. The control pane has no such content, so only the outcome needs the floor. */
@@ -206,12 +220,38 @@
   letter-spacing: var(--mat-sys-body-medium-tracking);
 }
 
-.league-field {
-  inline-size: 100%;
-  max-inline-size: 18rem;
+/* The lega picker. One row per lega, name over nothing and the id beside it in the
+   secondary role, so two leghe with near-identical names stay tellable apart. */
+.lega-picker-label {
+  margin: 8px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
 }
 
-.league-field input {
+.lega-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.lega-option {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+}
+
+.lega-option-name {
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-large);
+  letter-spacing: var(--mat-sys-body-large-tracking);
+}
+
+.lega-option-id {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
   font-variant-numeric: tabular-nums;
 }
 

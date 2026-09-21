@@ -510,6 +510,17 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
         assert "ciphertext" not in sql
         assert "key_fingerprint" not in sql
 
+    def test_key_fingerprints_selects_the_fingerprint_and_no_ciphertext(self) -> None:
+        """The Accounts page's mismatch check needs the stamp, never the secret."""
+        session = _session([])
+        from fantabot.adapters.persistence.repositories.tokens import FantalabSessionRepository
+
+        FantalabSessionRepository(session).key_fingerprints()
+
+        sql = session.statements[0]
+        assert "key_fingerprint" in sql
+        assert "ciphertext" not in sql
+
     def test_describe_orders_newest_first(self) -> None:
         """`load()` with no user_id promises the most recent row wins."""
         session = _session([])

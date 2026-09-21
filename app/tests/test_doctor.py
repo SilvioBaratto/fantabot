@@ -24,11 +24,51 @@ def test_every_check_has_the_expected_shape() -> None:
         assert isinstance(check.detail, str) and check.detail
 
 
-def test_reports_the_encryption_key_present_when_set(monkeypatch) -> None:
+def _isolate_keys(monkeypatch, tmp_path) -> None:
+    """No real home and no real `.env`: the check compares the two, so both must be ours."""
+    from fantabot_app import keyfile, paths
+
+    monkeypatch.setattr(paths, "home", lambda: tmp_path)
+    monkeypatch.setattr(keyfile, "dotenv_key", lambda: None)
+
+
+def test_reports_the_encryption_key_present_when_set(monkeypatch, tmp_path) -> None:
+    _isolate_keys(monkeypatch, tmp_path)
     monkeypatch.setenv("FANTABOT_ENCRYPTION_KEY", "some-key")
     key_check = next(c for c in run_checks() if c.name == "encryption key")
     assert key_check.ok is True
     assert "some-key" not in key_check.detail  # never leak the key
+
+
+def test_a_key_in_the_dotenv_alone_counts_as_present(monkeypatch, tmp_path) -> None:
+    from fantabot_app import keyfile
+
+    _isolate_keys(monkeypatch, tmp_path)
+    monkeypatch.delenv("FANTABOT_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setattr(keyfile, "dotenv_key", lambda: "dotenv-key")
+
+    key_check = next(c for c in run_checks() if c.name == "encryption key")
+    assert key_check.ok is True
+
+
+def test_fails_when_the_key_file_is_not_the_key_in_use(monkeypatch, tmp_path) -> None:
+    """Two keys: whatever the key file's key saved is unreadable, and nothing else says so."""
+    from fantabot.domain.tokens.crypto import fingerprint_of
+
+    from fantabot_app import keyfile
+
+    _isolate_keys(monkeypatch, tmp_path)
+    monkeypatch.delenv("FANTABOT_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setattr(keyfile, "dotenv_key", lambda: "dotenv-key")
+    keyfile.key_path().parent.mkdir(parents=True, exist_ok=True)
+    keyfile.key_path().write_text("key-file-key", encoding="utf-8")
+
+    key_check = next(c for c in run_checks() if c.name == "encryption key")
+
+    assert key_check.ok is False
+    assert fingerprint_of("dotenv-key") in key_check.detail
+    assert fingerprint_of("key-file-key") in key_check.detail
+    assert "dotenv-key" not in key_check.detail and "key-file-key" not in key_check.detail
 
 
 def test_doctor_command_prints_a_report() -> None:

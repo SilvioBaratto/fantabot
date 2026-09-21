@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { LucideIconConfig } from 'lucide-angular';
 
 import { ScrapeTables } from '../../core/models/scrape';
@@ -49,6 +50,7 @@ describe('SynchronizeComponent', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideRouter([]),
         ICON_PROVIDER,
         {
           provide: LucideIconConfig,
@@ -78,9 +80,12 @@ describe('SynchronizeComponent', () => {
    * down every later spec file with *"Cannot configure the test module"*.
    */
   const drainScrapeTables = () => httpMock.match((r) => r.url.includes('db/scrape/tables'));
+  /** The lega picker's read — the third boot request, drained for the same reason. */
+  const drainLeagues = () => httpMock.match((r) => r.url.endsWith('/lega'));
 
   afterEach(() => {
     drainScrapeTables();
+    drainLeagues();
     httpMock.verify();
   });
 
@@ -88,12 +93,12 @@ describe('SynchronizeComponent', () => {
   const bootScrape = (tables: ScrapeTables = TABLES) =>
     httpMock.expectOne((r) => r.url.includes('db/scrape/tables')).flush(tables);
 
-  it('starts a lega sync job for the entered league id', () => {
+  it('starts a lega sync job for the selected lega', () => {
     const fixture = TestBed.createComponent(SynchronizeComponent);
     fixture.detectChanges();
     httpMock.expectOne((r) => r.url.endsWith('jobs')).flush({ jobs: [] });
 
-    fixture.componentInstance.setLeagueId('4103937');
+    fixture.componentInstance.selectLeague(4103937);
     fixture.componentInstance.runLegaSync();
 
     httpMock
@@ -106,7 +111,7 @@ describe('SynchronizeComponent', () => {
     fixture.destroy();
   });
 
-  it('does not start when no league id is entered', () => {
+  it('does not start when no lega is selected', () => {
     const fixture = TestBed.createComponent(SynchronizeComponent);
     fixture.detectChanges();
     httpMock.expectOne((r) => r.url.endsWith('jobs')).flush({ jobs: [] });
@@ -282,11 +287,11 @@ describe('SynchronizeComponent', () => {
   // outcome, never into the lega-sync run log, which belongs to a job that is running.
   // ---------------------------------------------------------------------------------
 
-  it('captures a team snapshot for the league id already on the page', () => {
-    // One field, not two. The page has a league id because lega sync needs one, and a
-    // second box for the same number is a second thing to get wrong.
+  it('captures a team snapshot for the lega already selected on the page', () => {
+    // One picker, not two. The page has a lega because lega sync needs one, and a second
+    // control for the same choice is a second thing to get wrong.
     const fixture = idlePage();
-    fixture.componentInstance.setLeagueId('4103937');
+    fixture.componentInstance.selectLeague(4103937);
 
     fixture.componentInstance.captureSnapshot();
 
@@ -329,7 +334,7 @@ describe('SynchronizeComponent', () => {
     // Verbatim, never composed here: the operator reading this on a page and the one
     // reading it in a terminal are the same person, and the remedy is in the wording.
     const fixture = idlePage();
-    fixture.componentInstance.setLeagueId('4103937');
+    fixture.componentInstance.selectLeague(4103937);
 
     fixture.componentInstance.captureSnapshot();
     httpMock
@@ -351,7 +356,7 @@ describe('SynchronizeComponent', () => {
     // A transport failure and a named outcome are one state on this control, so the page
     // has one branch to render rather than two that can disagree.
     const fixture = idlePage();
-    fixture.componentInstance.setLeagueId('4103937');
+    fixture.componentInstance.selectLeague(4103937);
 
     fixture.componentInstance.captureSnapshot();
     httpMock
@@ -418,7 +423,7 @@ describe('SynchronizeComponent', () => {
     // The log is a job's, polled from `GET /jobs/{id}`. A request/response result
     // appended to it would read as a read that landed during a sync that never ran.
     const fixture = idlePage();
-    fixture.componentInstance.setLeagueId('4103937');
+    fixture.componentInstance.selectLeague(4103937);
 
     fixture.componentInstance.captureSnapshot();
     httpMock
@@ -660,5 +665,147 @@ describe('SynchronizeComponent', () => {
 
     expect(fixture.componentInstance.scrapeTables()).toEqual([]);
     expect(fixture.componentInstance.errorMsg()).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------------
+  // The lega is picked by name, never typed. It was a `type="number"` field: a mistyped
+  // digit synced — and for a snapshot, appended a row under — a lega nobody chose.
+  // ---------------------------------------------------------------------------------
+
+  describe('lega picker', () => {
+    const LEGHE = [
+      { league_id: 3584692, league_name: 'Legamiallerotaie' },
+      { league_id: 4103937, league_name: 'Legamiallerotaie2' },
+    ].map((l) => ({
+      ...l,
+      captured_at: null,
+      matchday: null,
+      budget: null,
+      roster_size: null,
+      min_roles: null,
+      max_roles: null,
+      modules: null,
+      bench_size: null,
+      team_count: 0,
+    }));
+
+    function withLeagues(answer: 'ok' | 'none' | 'error' = 'ok') {
+      const fixture = idlePage();
+      const read = httpMock.expectOne((r) => r.url.endsWith('/lega'));
+      if (answer === 'error') read.error(new ProgressEvent('error'));
+      else read.flush(answer === 'none' ? [] : LEGHE);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('lists every connected lega by name, the first preselected', () => {
+      const fixture = withLeagues();
+      const root = fixture.nativeElement as HTMLElement;
+
+      const options = Array.from(root.querySelectorAll('mat-radio-button')).map((o) =>
+        o.textContent?.replace(/\s+/g, ' ').trim(),
+      );
+      expect(options).toEqual(['Legamiallerotaie #3584692', 'Legamiallerotaie2 #4103937']);
+      expect(fixture.componentInstance.leagueId()).toBe(3584692);
+      expect(root.querySelector('input[type="number"]')).toBeNull();
+      expect(root.querySelector('mat-radio-group')?.getAttribute('aria-labelledby')).toBe(
+        'lega-picker-label',
+      );
+    });
+
+    it('syncs the lega that was picked, not the preselected one', () => {
+      const fixture = withLeagues();
+      const second = fixture.nativeElement.querySelector(
+        '[data-lega="4103937"] input',
+      ) as HTMLInputElement;
+
+      second.click();
+      fixture.detectChanges();
+      fixture.componentInstance.runLegaSync();
+
+      httpMock
+        .expectOne((r) => r.url.includes('actions/lega-sync') && r.url.includes('4103937'))
+        .flush({ job_id: 'J1' });
+      fixture.destroy();
+    });
+
+    it('sends a person with no lega to Accounts', () => {
+      const fixture = withLeagues('none');
+      const note = fixture.nativeElement.querySelector('[data-lega-note="none"]') as HTMLElement;
+
+      expect(note.querySelector('a[href="/accounts"]')?.textContent?.trim()).toBe(
+        'Connect your account',
+      );
+      expect(fixture.componentInstance.leagueId()).toBeNull();
+    });
+
+    it('does not call an unreadable listing "no lega connected"', () => {
+      const fixture = withLeagues('error');
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(root.querySelector('[data-lega-note="unreadable"]')).not.toBeNull();
+      expect(root.querySelector('[data-lega-note="none"]')).toBeNull();
+    });
+
+    it('locks the picker while a sync runs, so the log cannot change lega under it', () => {
+      const fixture = withLeagues();
+      fixture.componentInstance.runLegaSync();
+      httpMock.expectOne((r) => r.url.includes('actions/lega-sync')).flush({ job_id: 'J1' });
+      fixture.detectChanges();
+
+      const radios = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('mat-radio-button input'),
+      ) as HTMLInputElement[];
+      expect(radios.every((r) => r.disabled)).toBe(true);
+      fixture.destroy();
+    });
+  });
+
+  describe('buttons and announcements', () => {
+    it('keeps a running button labelled, focusable and without an ellipsis', () => {
+      const fixture = idlePage();
+      fixture.componentInstance.selectLeague(4103937);
+      fixture.detectChanges();
+      const run = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+      ).find((b) => b.textContent?.includes('Run lega sync')) as HTMLButtonElement;
+
+      run.focus();
+      run.click();
+      httpMock.expectOne((r) => r.url.includes('actions/lega-sync')).flush({ job_id: 'J1' });
+      fixture.detectChanges();
+
+      expect(run.textContent?.trim()).toBe('Run lega sync');
+      expect(run.getAttribute('aria-disabled')).toBe('true');
+      expect(run.disabled).toBe(false);
+      expect(document.activeElement).toBe(run);
+      fixture.destroy();
+    });
+
+    it("announces a command's answer and never its button", () => {
+      const fixture = idlePage();
+      const root = fixture.nativeElement as HTMLElement;
+
+      // Both answers have their own region...
+      expect(root.querySelectorAll('.one-shot-answer[aria-live]').length).toBe(2);
+      // ...and no live region anywhere on the page holds a control, whose label changes
+      // would be read out as if they were results.
+      for (const region of Array.from(root.querySelectorAll('[aria-live]'))) {
+        expect(region.querySelector('button')).toBeNull();
+      }
+    });
+
+    it('counts one club name as a name', () => {
+      const fixture = idlePage();
+      fixture.componentInstance.resolveClubNames();
+      httpMock
+        .expectOne(`${environment.apiUrl}db/backfill-teams`)
+        .flush({ outcome: 'resolved', reason: '', changed: 1 });
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement.textContent as string).replace(/\s+/g, ' ');
+      expect(text).toContain('Resolved 1 club name.');
+      expect(text).not.toContain('(s)');
+    });
   });
 });

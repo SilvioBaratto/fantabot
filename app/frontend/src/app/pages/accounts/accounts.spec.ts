@@ -750,4 +750,57 @@ describe('AccountsComponent', () => {
 
     httpMock.expectNone((r) => r.url.includes('jobs/J6'));
   });
+
+  /**
+   * The FantaLab card had no state. Measured 2026-09-21: the session was stamped by the
+   * app's key file (`aa695c77`) while everything else ran on `.env`'s (`ef341176`), so
+   * nothing could decrypt it — and this card showed it exactly like a working one.
+   */
+  describe('FantaLab session state', () => {
+    function withSession(state?: string) {
+      return {
+        ...ONE_LEAGUE,
+        fantalab: [
+          {
+            user_id: 'user9',
+            captured_at: '2026-09-05T00:00:00Z',
+            last_used_at: null,
+            ...(state === undefined ? {} : { state }),
+          },
+        ],
+      };
+    }
+
+    function fantalabCard(fixture: { nativeElement: HTMLElement }): HTMLElement {
+      return fixture.nativeElement
+        .querySelector('#fantalab-heading')
+        ?.closest('mat-card') as HTMLElement;
+    }
+
+    it('names a key mismatch in the chip the lega rows use, with the remedy beside it', async () => {
+      const fixture = await rendered(withSession('KEY MISMATCH (row aa695c77, .env ef341176)'));
+      const card = fantalabCard(fixture);
+
+      const chip = card.querySelector('.state') as HTMLElement;
+      expect(chip.classList).toContain('state-bad');
+      expect(chip.textContent).toContain('KEY MISMATCH (row aa695c77, .env ef341176)');
+      expect(chip.querySelector('.sr-only')?.textContent).toContain('Session state');
+      expect(card.querySelector('.row-remedy')?.textContent).toContain('Reconnect FantaLab');
+    });
+
+    it('marks a readable session ok, with no remedy to act on', async () => {
+      const fixture = await rendered(withSession('ok'));
+      const card = fantalabCard(fixture);
+
+      expect(card.querySelector('.state')?.classList).toContain('state-ok');
+      expect(card.querySelector('.row-remedy')).toBeNull();
+    });
+
+    it('claims nothing when the server sent no state', async () => {
+      // An older server: a chip reading "ok" would be the false statement this fixes.
+      const fixture = await rendered(withSession(undefined));
+
+      expect(fantalabCard(fixture).querySelector('.state')).toBeNull();
+    });
+  });
 });

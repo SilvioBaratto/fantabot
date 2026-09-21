@@ -12,6 +12,9 @@ export interface FantalabSessionStatus {
   user_id: string;
   captured_at: string;
   last_used_at: string | null;
+  /** `ok`, or `KEY MISMATCH (row …, .env …)` — the lega rows' wording. Optional so older
+   * fixtures still type-check; a missing state renders no chip rather than a false `ok`. */
+  state?: string;
 }
 
 export interface AuthStatus {

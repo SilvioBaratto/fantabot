@@ -21,6 +21,18 @@ from fantabot.domain.tokens.errors import KeyMalformed, KeyMissing, TokenUndecry
 FINGERPRINT_LENGTH = 8
 
 
+def fingerprint_of(key: str) -> str:
+    """The fingerprint `TokenCipher` stamps on every row it encrypts with *key*.
+
+    A hash prefix of the *key*, never of the plaintext, so it reveals nothing about any
+    token. 8 hex characters; the column is varchar(16), which is headroom rather than a
+    mismatch. A function of its own so a caller comparing two keys — the app's launcher,
+    holding a `.env` key and a key file — uses the formula the rows were stamped with
+    rather than a copy of it.
+    """
+    return hashlib.sha256(key.encode()).hexdigest()[:FINGERPRINT_LENGTH]
+
+
 class TokenCipher:
     """One key, and the two operations performed with it."""
 
@@ -35,10 +47,7 @@ class TokenCipher:
             self._fernet = Fernet(key.encode())
         except (ValueError, TypeError) as exc:
             raise KeyMalformed() from exc
-        # A hash prefix of the *key*, never of the plaintext, so it reveals
-        # nothing about any token. 8 hex characters; the column is varchar(16),
-        # which is headroom rather than a mismatch.
-        self.fingerprint: str = hashlib.sha256(key.encode()).hexdigest()[:FINGERPRINT_LENGTH]
+        self.fingerprint: str = fingerprint_of(key)
 
     def __repr__(self) -> str:
         # Explicit, though this class keeps no `key` attribute and the default

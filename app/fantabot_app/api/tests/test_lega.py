@@ -8,12 +8,13 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
-from fantabot_app.api.v1.endpoints.lega import build_overview, build_rosters
+from fantabot_app.api.v1.endpoints.lega import build_overview, build_rosters, format_of
 
 
 def test_build_overview_maps_snapshot() -> None:
     snapshot = SimpleNamespace(
         captured_at=datetime(2026, 9, 2, tzinfo=UTC),
+        role_groups=2,
         matchday=3,
         budget=500,
         roster_size=25,
@@ -29,6 +30,33 @@ def test_build_overview_maps_snapshot() -> None:
     assert overview.team_count == 8
 
 
+
+def test_build_overview_reports_the_format_the_lega_declares() -> None:
+    """The dashboard labels the role band per format, so the overview must carry it."""
+    mantra = SimpleNamespace(
+        captured_at=None,
+        role_groups=2,
+        matchday=None,
+        budget=None,
+        roster_size=None,
+        min_roles=[2, 23],
+        max_roles=[4, 28],
+        modules=None,
+        bench_size=None,
+    )
+    classic = SimpleNamespace(**{**vars(mantra), "role_groups": 1})
+    assert build_overview(4103937, mantra, team_count=8).format == "mantra"
+    assert build_overview(3584692, classic, team_count=6).format == "classic"
+    assert build_overview(999, None, team_count=0).format is None
+
+
+def test_format_of_never_invents_a_format() -> None:
+    """Unlike the planner, a label has no reason to assume Mantra for an unknown `sroles`."""
+    assert format_of(1) == "classic"
+    assert format_of(2) == "mantra"
+    assert format_of(None) is None
+    assert format_of(3) is None
+
 def test_build_overview_handles_missing_snapshot() -> None:
     overview = build_overview(999, None, team_count=0)
     assert overview.league_id == 999
@@ -40,6 +68,7 @@ def test_build_overview_carries_the_league_name() -> None:
     """The name comes from the token row; the dashboard titles the card with it."""
     snapshot = SimpleNamespace(
         captured_at=datetime(2026, 9, 4, tzinfo=UTC),
+        role_groups=1,
         matchday=3,
         budget=500,
         roster_size=25,

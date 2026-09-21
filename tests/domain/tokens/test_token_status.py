@@ -12,7 +12,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from fantabot.domain.tokens.status import TokenStatus, orphaned, render_state
+from fantabot.domain.tokens.status import (
+    TokenStatus,
+    key_mismatch,
+    orphaned,
+    render_state,
+    session_state,
+)
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 FINGERPRINT = "4f2a1c8e"
@@ -161,3 +167,23 @@ def test_the_day_count_is_the_whole_days_remaining(days: int) -> None:
 
 def test_a_token_expiring_exactly_now_is_expired() -> None:
     assert render_state(a_row(expires_at=NOW), now=NOW, key_fingerprint=None).startswith("EXPIRED")
+
+
+# --- one wording for every credential ---------------------------------------
+
+
+def test_a_fantalab_session_under_the_held_key_is_ok() -> None:
+    assert session_state(FINGERPRINT, key_fingerprint=FINGERPRINT) == "ok"
+
+
+def test_a_fantalab_session_under_another_key_says_so_as_a_lega_row_does() -> None:
+    """It rendered like a working session: the card had no state at all."""
+    state = session_state("aa695c77", key_fingerprint="ef341176")
+
+    assert state == "KEY MISMATCH (row aa695c77, .env ef341176)"
+    assert state == render_state(a_row(key_fingerprint="aa695c77"), now=NOW, key_fingerprint="ef341176")
+
+
+def test_no_key_is_not_a_mismatch() -> None:
+    assert key_mismatch("aa695c77", None) is None
+    assert session_state("aa695c77", key_fingerprint=None) == "ok"

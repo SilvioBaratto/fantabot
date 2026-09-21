@@ -83,13 +83,36 @@ def render_state(
     columns are plaintext precisely so this function still works then. That is
     SC 11, satisfied by construction rather than by remembering to test it.
     """
-    if key_fingerprint is not None and row.key_fingerprint != key_fingerprint:
-        return f"KEY MISMATCH (row {row.key_fingerprint}, .env {key_fingerprint})"
+    mismatch = key_mismatch(row.key_fingerprint, key_fingerprint)
+    if mismatch is not None:
+        return mismatch
     if now >= row.expires_at:
         return f"EXPIRED {row.expires_at:%Y-%m-%d}"
     if is_orphaned:
         return f"ORPHANED — last seen {row.last_seen_at:%Y-%m-%d}"
     return f"ok ({(row.expires_at - now).days}d)"
+
+
+def key_mismatch(row_fingerprint: str, key_fingerprint: str | None) -> str | None:
+    """The KEY MISMATCH cell, or `None` when the row can be read with the configured key.
+
+    One wording for every stored credential. The FantaLab session had no state at all, so
+    a session saved under another key — unreadable by anything — rendered exactly like a
+    working one on the Accounts page. `None` for `key_fingerprint` means no key is
+    configured, which is not a mismatch: there is nothing to compare against.
+    """
+    if key_fingerprint is not None and row_fingerprint != key_fingerprint:
+        return f"KEY MISMATCH (row {row_fingerprint}, .env {key_fingerprint})"
+    return None
+
+
+def session_state(row_fingerprint: str, *, key_fingerprint: str | None) -> str:
+    """One FantaLab session's status cell: `ok`, or the same KEY MISMATCH a lega row gets.
+
+    No expiry branch: the session row carries no expiry of its own, so the only thing this
+    screen can know without a decrypt is whether the key that wrote it is the one we hold.
+    """
+    return key_mismatch(row_fingerprint, key_fingerprint) or "ok"
 
 
 

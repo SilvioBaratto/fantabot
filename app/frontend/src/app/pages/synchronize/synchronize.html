@@ -1,6 +1,6 @@
 <header class="page-header">
   <h1 class="page-title">Synchronize</h1>
-  <p class="page-lede">Pull a lega from fantacalcio.it and watch each read land.</p>
+  <p class="page-lede">Pull a lega from fantacalcio.it and watch each read land</p>
 </header>
 
 @if (errorMsg(); as error) {
@@ -26,22 +26,54 @@
           write is an upsert.
         </p>
 
-        <mat-form-field appearance="outline" class="league-field">
-          <mat-label>League id</mat-label>
-          <input
-            matInput
-            type="number"
-            inputmode="numeric"
-            (input)="setLeagueId($any($event.target).value)"
-          />
-          <mat-hint>For example 4103937</mat-hint>
-        </mat-form-field>
+        <!-- Picked by name from the leghe the app already knows, never typed. A radio group
+             rather than a segmented button: this pane is 360px, and two full lega names
+             side by side overflow a segmented group; one tab stop, arrows inside. -->
+        @if (leagues().length) {
+          <p class="lega-picker-label" id="lega-picker-label">Lega</p>
+          <mat-radio-group
+            class="lega-picker"
+            aria-labelledby="lega-picker-label"
+            [value]="leagueId()"
+            [disabled]="running()"
+            (change)="selectLeague($event.value)"
+          >
+            @for (l of leagues(); track l.league_id) {
+              <mat-radio-button [value]="l.league_id" [attr.data-lega]="l.league_id">
+                <span class="lega-option">
+                  <!-- The trailing space is the radio's accessible name keeping its words:
+                       Angular drops whitespace-only nodes between elements. -->
+                  <span class="lega-option-name"
+                    >{{ l.league_name ?? 'Lega ' + l.league_id }}
+                  </span>
+                  <span class="lega-option-id">#{{ l.league_id }}</span>
+                </span>
+              </mat-radio-button>
+            }
+          </mat-radio-group>
+        } @else if (leaguesUnreadable()) {
+          <p class="control-note" data-lega-note="unreadable">
+            The connected leghe could not be read. Check that fantabot-app is running, then reload
+            the page.
+          </p>
+        } @else if (leaguesLoaded()) {
+          <p class="control-note" data-lega-note="none">
+            No lega connected yet. <a routerLink="/accounts">Connect your account</a> first, then
+            sync it here.
+          </p>
+        }
       </mat-card-content>
 
       <mat-card-actions class="control-actions">
+        <!-- A static label: the spinner and the run status carry "running", and an ellipsis
+             never goes inside a button (`style_guide.md:209`).
+             `disabledInteractive` on every button here that disables itself on click: a
+             plain `disabled` drops keyboard focus to <body> the moment it is pressed. Each
+             handler already refuses a second call, so staying focusable costs nothing. -->
         <button
           matButton="filled"
           type="button"
+          disabledInteractive
           (click)="runLegaSync()"
           [disabled]="!leagueId() || running()"
         >
@@ -53,7 +85,7 @@
             [name]="running() ? 'Loader2' : 'RefreshCw'"
             aria-hidden="true"
           />
-          {{ running() ? 'Running…' : 'Run lega sync' }}
+          Run lega sync
         </button>
       </mat-card-actions>
     </mat-card>
@@ -72,14 +104,17 @@
           Two one-shot commands. Neither is a long run — each answers straight away.
         </p>
 
-        <div class="one-shot" aria-live="polite">
+        <!-- Each command's live region holds its answer only. It used to wrap the button
+             too, so every label change was read out as if it were the result. -->
+        <div class="one-shot">
           <p class="one-shot-lede">
-            <strong>Team snapshot.</strong> Capture our own credits and roster ids for the league id
-            above. Every run appends a new row, so an earlier capture is never overwritten.
+            <strong>Team snapshot.</strong> Capture your team's credits and roster ids in the lega
+            selected above. Every run adds a new row, so an earlier capture is never overwritten.
           </p>
           <button
             matButton="tonal"
             type="button"
+            disabledInteractive
             (click)="captureSnapshot()"
             [disabled]="!leagueId() || snapshotting()"
           >
@@ -91,39 +126,42 @@
               [name]="snapshotting() ? 'Loader2' : 'Camera'"
               aria-hidden="true"
             />
-            {{ snapshotting() ? 'Capturing…' : 'Capture team snapshot' }}
+            Capture team snapshot
           </button>
 
-          @if (snapshot(); as result) {
-            @if (result.outcome === 'saved') {
-              <p class="one-shot-result" data-snapshot-outcome="saved">
-                Saved <strong>{{ result.nome }}</strong> (team {{ result.team_id }}) —
-                {{ result.credits_spent }}/{{ result.credits_initial }} credits spent,
-                {{ result.credits_remaining }} left.
-              </p>
-            } @else {
-              <!-- The server's sentence, verbatim. It carries the remedy, and the person
+          <div class="one-shot-answer" aria-live="polite">
+            @if (snapshot(); as result) {
+              @if (result.outcome === 'saved') {
+                <p class="one-shot-result" data-snapshot-outcome="saved">
+                  Saved <strong>{{ result.nome }}</strong> (team {{ result.team_id }}) —
+                  {{ result.credits_spent }}/{{ result.credits_initial }} credits spent,
+                  {{ result.credits_remaining }} left.
+                </p>
+              } @else {
+                <!-- The server's sentence, verbatim. It carries the remedy, and the person
                    reading it here is the person who would otherwise read it in a terminal. -->
-              <p
-                class="one-shot-refusal"
-                [attr.data-snapshot-outcome]="result.outcome"
-                role="alert"
-              >
-                {{ result.reason }}
-              </p>
+                <p
+                  class="one-shot-refusal"
+                  [attr.data-snapshot-outcome]="result.outcome"
+                  role="alert"
+                >
+                  {{ result.reason }}
+                </p>
+              }
             }
-          }
+          </div>
         </div>
 
-        <div class="one-shot" aria-live="polite">
+        <div class="one-shot">
           <p class="one-shot-lede">
             <strong>Club names.</strong> Resolve the three-letter codes a listone-first scrape
-            leaves in <code>teams</code> to full names. No league id — these are Serie A's clubs,
+            leaves in <code>teams</code> to full names. No lega needed — these are Serie A's clubs,
             not a lega's.
           </p>
           <button
             matButton="tonal"
             type="button"
+            disabledInteractive
             (click)="resolveClubNames()"
             [disabled]="backfilling()"
           >
@@ -135,30 +173,32 @@
               [name]="backfilling() ? 'Loader2' : 'Tags'"
               aria-hidden="true"
             />
-            {{ backfilling() ? 'Resolving…' : 'Resolve club names' }}
+            Resolve club names
           </button>
 
-          @if (backfill(); as result) {
-            @if (result.outcome === 'resolved') {
-              <p class="one-shot-result" data-backfill-outcome="resolved">
-                Resolved {{ result.changed }} club name(s).
-                @if (result.changed === 0) {
-                  <span class="one-shot-note">
-                    Nothing needed resolving — either every code already has its name, or no
-                    season's voti have been scraped for the names to come from.
-                  </span>
-                }
-              </p>
-            } @else {
-              <p
-                class="one-shot-refusal"
-                [attr.data-backfill-outcome]="result.outcome"
-                role="alert"
-              >
-                {{ result.reason }}
-              </p>
+          <div class="one-shot-answer" aria-live="polite">
+            @if (backfill(); as result) {
+              @if (result.outcome === 'resolved') {
+                <p class="one-shot-result" data-backfill-outcome="resolved">
+                  Resolved {{ result.changed }} club {{ result.changed === 1 ? 'name' : 'names' }}.
+                  @if (result.changed === 0) {
+                    <span class="one-shot-note">
+                      Nothing needed resolving — either every code already has its name, or no
+                      season's voti have been scraped for the names to come from.
+                    </span>
+                  }
+                </p>
+              } @else {
+                <p
+                  class="one-shot-refusal"
+                  [attr.data-backfill-outcome]="result.outcome"
+                  role="alert"
+                >
+                  {{ result.reason }}
+                </p>
+              }
             }
-          }
+          </div>
         </div>
       </mat-card-content>
     </mat-card>
@@ -206,8 +246,7 @@
 
         @if (outcome() === 'idle') {
           <p class="outcome-empty">
-            No sync has run yet. Enter a league id and run a sync — each read reports here as it
-            lands.
+            No sync has run yet. Pick a lega and run a sync — each read reports here as it lands.
           </p>
         } @else if (lines().length) {
           <!-- One row per reported read, never one collapsed summary: a sync ends with a
@@ -328,6 +367,7 @@
             matButton="tonal"
             type="button"
             data-control="scrape-run"
+            disabledInteractive
             (click)="runScrape()"
             [disabled]="!canScrape()"
           >
@@ -339,7 +379,7 @@
               [name]="scrapeRunning() ? 'Loader2' : 'RefreshCw'"
               aria-hidden="true"
             />
-            {{ scrapeRunning() ? 'Scraping…' : 'Scrape' }}
+            Scrape
           </button>
 
           @if (scrapeRunning()) {

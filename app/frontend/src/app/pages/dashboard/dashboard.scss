@@ -123,6 +123,10 @@
   color: var(--mat-sys-on-error-container);
 }
 
+.state-card .state-actions {
+  padding: 0 16px 16px;
+}
+
 /* -------------------------------------------------------------------- feed */
 
 /* One column up to 1199px: each card carries a four-column roster table, so the two 50%
@@ -213,11 +217,34 @@
   grid-column: 1 / -1;
 }
 
-.figure-wide dd {
+/* Each group is a label over nothing and a range beside it, so the list wraps group by
+ * group rather than mid-group when text is enlarged. */
+.band {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.band-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.band-label {
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.band-range {
   font: var(--mat-sys-title-medium);
   letter-spacing: var(--mat-sys-title-medium-tracking);
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  color: var(--mat-sys-on-surface);
 }
 
 .lega-card .lega-actions {
@@ -230,6 +257,12 @@
 
 .chevron-open {
   transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
 }
 
 /* ------------------------------------------------------------ roster table */
@@ -289,6 +322,16 @@
   letter-spacing: var(--mat-sys-body-small-tracking);
   color: var(--mat-sys-on-surface-variant);
   overflow-wrap: anywhere;
+}
+
+/* The message and its one action share a row, and wrap under each other when they must. */
+.teams-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 8px;
+  padding-inline-end: 8px;
 }
 
 .teams-note {

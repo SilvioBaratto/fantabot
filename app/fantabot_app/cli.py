@@ -52,6 +52,26 @@ def _provisioner() -> PostgresProvisioner:
     return PostgresProvisioner()
 
 
+def _warn_on_key_split() -> None:
+    """Say so when the key file is not the key in use. Fingerprints only, never a key.
+
+    Survivable and invisible: every page renders, and only the credentials the other key
+    wrote read KEY MISMATCH. Printed on every launch, because the fix is the operator's —
+    this never rewrites a key file that may be the only thing able to read a session.
+    """
+    from fantabot_app import keyfile
+
+    split = keyfile.key_file_split()
+    if split is None:
+        return
+    typer.echo(
+        f"Warning: the encryption key in use ({split.in_use}) is not the one in "
+        f"{keyfile.key_path()} ({split.key_file}). Anything saved with {split.key_file} "
+        "can't be read: reconnect it from Accounts, or make the two keys the same.",
+        err=True,
+    )
+
+
 @app.callback(invoke_without_command=True)
 def _default(ctx: typer.Context) -> None:
     """Run ``up`` when invoked with no subcommand (the everyday launch)."""
@@ -71,6 +91,7 @@ def setup() -> None:
     typer.echo(f"Postgres ready at {_redact(url)}")
     typer.echo("Preparing the encryption key...")
     keyfile.load_or_create_key(create=True)  # mint once; never echo the key itself
+    _warn_on_key_split()
     typer.echo("Running migrations (alembic upgrade head)...")
     migrate.upgrade_head()
     typer.echo("Installing chromium for headed login...")
@@ -88,6 +109,7 @@ def up() -> None:
     # Load (or mint, if setup was skipped) the encryption key into the environment before
     # the app starts, so connecting an account just works — no manual configuration.
     keyfile.load_or_create_key(create=True)
+    _warn_on_key_split()
     typer.echo("Serving fantabot-app at http://127.0.0.1:8000 (Ctrl-C to stop)...")
     server.serve()
 

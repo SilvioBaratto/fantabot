@@ -141,8 +141,21 @@ def _chromium() -> Check:
 def _encryption_key() -> Check:
     from fantabot_app import keyfile
 
-    if os.environ.get(keyfile.ENV_ENCRYPTION_KEY) or keyfile.key_path().exists():
-        return Check("encryption key", True, "present")  # never report the key itself
+    # Fingerprints at most, never the key itself.
+    split = keyfile.key_file_split()
+    if split is not None:
+        return Check(
+            "encryption key",
+            False,
+            f"two keys - {split.in_use} is in use, {keyfile.key_path()} holds {split.key_file}; "
+            f"anything saved with {split.key_file} can't be read",
+        )
+    if (
+        os.environ.get(keyfile.ENV_ENCRYPTION_KEY)
+        or keyfile.dotenv_key()
+        or keyfile.key_path().exists()
+    ):
+        return Check("encryption key", True, "present")
     return Check("encryption key", False, "not set - run `fantabot-app setup`")
 
 

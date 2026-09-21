@@ -22,10 +22,10 @@ anyway — storing whatever happened to be in the browser.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 
-from fantabot.domain.tokens.status import TokenStatus, orphaned, render_state
+from fantabot.domain.tokens.status import TokenStatus, orphaned, render_state, session_state
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -95,6 +95,9 @@ class FantalabSessionStatus(BaseModel):
     user_id: str
     captured_at: datetime
     last_used_at: datetime | None = None
+    #: `ok`, or the KEY MISMATCH a lega row gets. The card had no state, so a session saved
+    #: under another key — unreadable by anything — looked exactly like a working one.
+    state: str = "ok"
 
 
 class AuthStatus(BaseModel):
@@ -136,6 +139,7 @@ def build_auth_status(
     now: datetime,
     has_key: bool,
     key_fingerprint: str | None = None,
+    fantalab_fingerprints: Mapping[str, str] | None = None,
 ) -> AuthStatus:
     """Assemble the response from TokenStatus rows and FantaLab describe() tuples (pure).
 
@@ -167,8 +171,18 @@ def build_auth_status(
         )
         for row in token_rows
     ]
+    stamps = fantalab_fingerprints or {}
     fantalab = [
-        FantalabSessionStatus(user_id=user_id, captured_at=captured_at, last_used_at=last_used_at)
+        FantalabSessionStatus(
+            user_id=user_id,
+            captured_at=captured_at,
+            last_used_at=last_used_at,
+            state=(
+                session_state(stamps[user_id], key_fingerprint=key_fingerprint)
+                if user_id in stamps
+                else "ok"
+            ),
+        )
         for (user_id, captured_at, last_used_at) in fantalab_rows
     ]
     return AuthStatus(leagues=leagues, fantalab=fantalab, has_key=has_key)
@@ -185,13 +199,16 @@ def auth_status() -> AuthStatus:
     try:
         with database_manager.get_session() as session:
             token_rows = TokenStore(session).status()
-            fantalab_rows = FantalabSessionRepository(session).describe()
+            fantalab_repo = FantalabSessionRepository(session)
+            fantalab_rows = fantalab_repo.describe()
+            fantalab_fingerprints = fantalab_repo.key_fingerprints()
         return build_auth_status(
             token_rows,
             fantalab_rows,
             now=datetime.now(UTC),
             has_key=has_key,
             key_fingerprint=_configured_fingerprint(),
+            fantalab_fingerprints=fantalab_fingerprints,
         )
     except Exception:  # noqa: BLE001 — degrade open: no DB / no rows -> "not connected"
         return AuthStatus(leagues=[], fantalab=[], has_key=has_key)

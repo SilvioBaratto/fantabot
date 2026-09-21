@@ -246,3 +246,16 @@ class FantalabSessionRepository(RepositoryBase):
             ).order_by(FantalabSession.captured_at.desc())
         ).all()
         return [(r.user_id, r.captured_at, r.last_used_at) for r in rows]
+
+    def key_fingerprints(self) -> dict[str, str]:
+        """`user_id -> key_fingerprint` per stored session. No ciphertext.
+
+        Separate from `describe()`, which three callers unpack as a 3-tuple and which a
+        test pins to selecting no fingerprint. This is the other half a status screen
+        needs: whether the key that wrote a session is the one we hold — the lega rows
+        have always carried it, and the Accounts page could not say it for FantaLab.
+        """
+        rows = self.session.execute(
+            select(FantalabSession.user_id, FantalabSession.key_fingerprint)
+        ).all()
+        return {r.user_id: r.key_fingerprint for r in rows}

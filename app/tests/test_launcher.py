@@ -241,6 +241,41 @@ def test_up_does_not_stop_the_server_on_exit(monkeypatch, tmp_path) -> None:
     assert stopped == []
 
 
+def test_bare_fantabot_app_runs_up_and_nothing_else(monkeypatch) -> None:
+    """The everyday launch is the bare command. A helper inserted between `@app.callback`
+    and `_default` once took the decorator, and every other test here still passed."""
+    ran: list[str] = []
+    monkeypatch.setattr("fantabot_app.cli.up", lambda: ran.append("up"))
+    monkeypatch.setattr(
+        "fantabot_app.keyfile.key_file_split",
+        lambda **kw: (_ for _ in ()).throw(AssertionError("the callback checked keys")),
+    )
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    assert ran == ["up"]
+
+
+def test_up_warns_when_the_key_file_is_not_the_key_in_use(monkeypatch, tmp_path) -> None:
+    """Printed on every launch, fingerprints only: the fix is the operator's to make."""
+    from fantabot_app import keyfile
+
+    _install(monkeypatch, tmp_path, env={ENV_DATABASE_URL: DSN})
+    monkeypatch.setattr("fantabot_app.keyfile.load_or_create_key", lambda **kw: "k")
+    monkeypatch.setattr(
+        "fantabot_app.keyfile.key_file_split",
+        lambda **kw: keyfile.KeySplit(in_use="ef341176", key_file="aa695c77"),
+    )
+    monkeypatch.setattr("fantabot_app.server.serve", lambda: None)
+
+    result = runner.invoke(app, ["up"])
+
+    assert result.exit_code == 0
+    assert "ef341176" in result.stderr and "aa695c77" in result.stderr
+    assert "reconnect it from Accounts" in result.stderr
+
+
 def test_pgdata_lives_under_fantabot_home() -> None:
     directory = paths.pgdata()
     assert directory.name == "pgdata"

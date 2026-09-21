@@ -1,10 +1,12 @@
 <header class="page-header">
   <div class="page-heading">
     <h1 class="page-title">Leagues</h1>
-    <p class="page-subtitle">Your leghe as of the last sync</p>
+    <p class="page-subtitle">Your leghe as of each one's last sync</p>
   </div>
 
-  <button matButton="filled" type="button" (click)="load()">
+  <!-- Outlined, not filled: Refresh re-reads what the last sync stored and changes
+       nothing, so it is not this view's primary task (`usability/overview.md:105`). -->
+  <button matButton="outlined" type="button" (click)="load()">
     <lucide-icon
       matButtonIcon
       class="lucide-slot"
@@ -23,28 +25,48 @@
   }
 </div>
 
-@if (loading() && !loaded()) {
-  <p class="state-note">Loading your leghe…</p>
-} @else if (errorMsg(); as message) {
+@if (loadFailed()) {
+  <!-- No retry button of its own: Refresh above is the same action, and a button inside
+       this card would drop focus to <body> when a successful retry removes the card. -->
   <mat-card class="state-card state-card-error" appearance="outlined" role="alert">
     <mat-card-content>
-      <h2 class="state-title">API unreachable</h2>
-      <p class="state-body">{{ message }}</p>
-      <p class="state-body">Make sure fantabot-app is running</p>
+      @if (loaded()) {
+        <h2 class="state-title">Couldn't refresh your leghe</h2>
+        <p class="state-body">
+          Showing what was loaded earlier. Check that fantabot-app is running, then refresh.
+        </p>
+      } @else {
+        <h2 class="state-title">Couldn't load your leghe</h2>
+        <p class="state-body">Check that fantabot-app is running, then refresh</p>
+      }
     </mat-card-content>
   </mat-card>
+}
+
+@if (!loaded()) {
+  @if (loading()) {
+    <p class="state-note">Loading your leghe…</p>
+  }
 } @else if (leagues().length) {
   <div class="feed">
     @for (lega of leagues(); track lega.league_id) {
+      @let open = isExpanded(lega.league_id);
+      @let name = lega.league_name ?? 'Lega ' + lega.league_id;
       <mat-card class="lega-card">
         <mat-card-header>
-          <h2 mat-card-title class="lega-title">
-            {{ lega.league_name ?? 'Lega ' + lega.league_id }}
-          </h2>
+          <h2 mat-card-title class="lega-title">{{ name }}</h2>
           <p mat-card-subtitle class="lega-meta">
             #{{ lega.league_id }}
             @if (lega.matchday !== null) {
               · Matchday {{ lega.matchday }}
+            }
+            @if (lega.captured_at) {
+              ·
+              <time [attr.datetime]="lega.captured_at">
+                Synced {{ lega.captured_at | date: 'd MMM y, HH:mm' }}
+              </time>
+            } @else {
+              · Never synced
             }
           </p>
         </mat-card-header>
@@ -69,8 +91,25 @@
             </div>
             @if (roleBand(lega); as band) {
               <div class="figure figure-wide">
-                <dt>Role band</dt>
-                <dd>{{ band }}</dd>
+                <dt>Players per role</dt>
+                <dd>
+                  <!-- `list-style: none` drops list semantics in WebKit; the role restores it. -->
+                  <ul class="band" role="list">
+                    @for (group of band; track $index) {
+                      <!-- The trailing space inside each label is load-bearing: Angular drops
+                           whitespace-only nodes, and without it the group reads "Outfield23–28". -->
+                      <li class="band-group">
+                        @if (group.spoken) {
+                          <span class="band-label" aria-hidden="true">{{ group.label }}</span>
+                          <span class="sr-only">{{ group.spoken }} </span>
+                        } @else if (group.label) {
+                          <span class="band-label">{{ group.label }} </span>
+                        }
+                        <span class="band-range">{{ group.range }}</span>
+                      </li>
+                    }
+                  </ul>
+                </dd>
               </div>
             }
           </dl>
@@ -78,13 +117,14 @@
 
         <mat-card-actions class="lega-actions">
           <button
+            #toggle
             matButton="outlined"
             type="button"
-            [attr.aria-expanded]="expandedId() === lega.league_id"
-            [attr.aria-controls]="'teams-' + lega.league_id"
+            [attr.aria-expanded]="open"
+            [attr.aria-controls]="open ? 'teams-' + lega.league_id : null"
             (click)="toggleTeams(lega.league_id)"
           >
-            @if (expandedId() === lega.league_id) {
+            @if (open) {
               Hide teams
             } @else if (lega.team_count === 1) {
               Show 1 team
@@ -95,7 +135,7 @@
               matButtonIcon
               iconPositionEnd
               class="lucide-slot-end chevron"
-              [class.chevron-open]="expandedId() === lega.league_id"
+              [class.chevron-open]="open"
               [size]="18"
               name="chevron-down"
               aria-hidden="true"
@@ -103,63 +143,76 @@
           </button>
         </mat-card-actions>
 
-        @if (expandedId() === lega.league_id) {
+        @if (open) {
           <div class="teams" [id]="'teams-' + lega.league_id">
-            @if (rostersLoading()) {
+            @if (rosterState(lega.league_id)?.kind === 'error') {
+              <div class="teams-error">
+                <p class="teams-note" role="alert">Couldn't load the teams</p>
+                <button matButton type="button" (click)="retryRosters(lega.league_id, toggle)">
+                  Try again
+                </button>
+              </div>
+            } @else if (rostersOf(lega.league_id); as rosters) {
+              @if (rosters.length) {
+                <!-- Focusable so the table can be scrolled by keyboard once text is
+                     enlarged past the card's width (WCAG 2.1.1 with 1.4.10). -->
+                <div
+                  class="table-scroll"
+                  role="region"
+                  tabindex="0"
+                  [attr.aria-label]="'Teams in ' + name"
+                >
+                  <table mat-table [dataSource]="rosters" class="teams-table">
+                    <caption class="sr-only">
+                      Each team with the credits it has spent, the credits it has left and the
+                      number of players on its roster
+                    </caption>
+
+                    <ng-container matColumnDef="team">
+                      <th mat-header-cell *matHeaderCellDef scope="col">Team</th>
+                      <td mat-cell *matCellDef="let team">
+                        <span class="team-name">{{ team.nome }}</span>
+                        <span class="team-owner">{{ team.owner }}</span>
+                      </td>
+                    </ng-container>
+
+                    <ng-container matColumnDef="spent">
+                      <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
+                        Spent
+                      </th>
+                      <td mat-cell *matCellDef="let team" class="cell-number">
+                        {{ team.credits_spent ?? '—' }}
+                      </td>
+                    </ng-container>
+
+                    <ng-container matColumnDef="left">
+                      <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
+                        Left
+                      </th>
+                      <td mat-cell *matCellDef="let team" class="cell-number">
+                        {{ team.credits_remaining ?? '—' }}
+                      </td>
+                    </ng-container>
+
+                    <ng-container matColumnDef="players">
+                      <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
+                        Players
+                      </th>
+                      <td mat-cell *matCellDef="let team" class="cell-number">
+                        {{ team.roster.length }}
+                      </td>
+                    </ng-container>
+
+                    <tr mat-header-row *matHeaderRowDef="teamColumns"></tr>
+                    <tr mat-row *matRowDef="let team; columns: teamColumns"></tr>
+                  </table>
+                </div>
+              } @else {
+                <p class="teams-note">No roster data for this lega</p>
+              }
+            } @else {
               <mat-progress-bar mode="indeterminate" aria-label="Loading teams" />
               <p class="teams-note">Loading teams…</p>
-            } @else if (rosters().length) {
-              <!-- Focusable so the table can be scrolled by keyboard once text is
-                   enlarged past the card's width (WCAG 2.1.1 with 1.4.10). -->
-              <div
-                class="table-scroll"
-                role="region"
-                tabindex="0"
-                [attr.aria-label]="'Teams in ' + (lega.league_name ?? 'lega ' + lega.league_id)"
-              >
-                <table mat-table [dataSource]="rosters()" class="teams-table">
-                  <caption class="sr-only">
-                    Each team with the credits it has spent, the credits it has left and the number
-                    of players on its roster
-                  </caption>
-
-                  <ng-container matColumnDef="team">
-                    <th mat-header-cell *matHeaderCellDef scope="col">Team</th>
-                    <td mat-cell *matCellDef="let team">
-                      <span class="team-name">{{ team.nome }}</span>
-                      <span class="team-owner">{{ team.owner }}</span>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="spent">
-                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">Spent</th>
-                    <td mat-cell *matCellDef="let team" class="cell-number">
-                      {{ team.credits_spent ?? '—' }}
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="left">
-                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">Left</th>
-                    <td mat-cell *matCellDef="let team" class="cell-number">
-                      {{ team.credits_remaining ?? '—' }}
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="players">
-                    <th mat-header-cell *matHeaderCellDef scope="col" class="cell-number">
-                      Players
-                    </th>
-                    <td mat-cell *matCellDef="let team" class="cell-number">
-                      {{ team.roster.length }}
-                    </td>
-                  </ng-container>
-
-                  <tr mat-header-row *matHeaderRowDef="teamColumns"></tr>
-                  <tr mat-row *matRowDef="let team; columns: teamColumns"></tr>
-                </table>
-              </div>
-            } @else {
-              <p class="teams-note">No roster data for this lega</p>
             }
           </div>
         }
@@ -170,7 +223,10 @@
   <mat-card class="state-card" appearance="outlined">
     <mat-card-content>
       <h2 class="state-title">No leagues yet</h2>
-      <p class="state-body">Run a lega sync to read your leghe — rosters, credits and settings</p>
+      <p class="state-body">Sync your leghe to read their rosters, credits and settings</p>
     </mat-card-content>
+    <mat-card-actions class="state-actions">
+      <a matButton="filled" routerLink="/synchronize">Go to Synchronize</a>
+    </mat-card-actions>
   </mat-card>
 }
