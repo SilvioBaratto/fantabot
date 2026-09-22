@@ -113,6 +113,36 @@ def transport_returning(
     return httpx.MockTransport(handler), handler
 
 
+# --- one match's detail: the per-player scores, once a round is calculated ------------
+
+
+MATCH_BODY = {"cal": True, "mday": 1, "cmday": 3, "home": {"tot": 82.0}, "away": {"tot": 73.0}}
+
+
+def test_match_detail_requests_the_match_path_with_both_teams() -> None:
+    transport, handler = transport_returning(json_body=MATCH_BODY)
+
+    apileague.match_detail(
+        _tokens.LEGA_MANTRA, COMPETITION, mday=1, cmday=3, home=18774379, away=19131109,
+        store=a_store(), transport=transport,
+    )
+
+    request = handler.requests[0]
+    assert request.method == "GET"
+    assert request.url.path == f"/gaming/v1/teamLineup/{COMPETITION}/1/3/18774379/19131109"
+
+
+def test_match_detail_returns_the_body_whole() -> None:
+    transport, _ = transport_returning(json_body=MATCH_BODY)
+
+    body = apileague.match_detail(
+        _tokens.LEGA_MANTRA, COMPETITION, mday=1, cmday=3, home=18774379, away=19131109,
+        store=a_store(), transport=transport,
+    )
+
+    assert body == MATCH_BODY
+
+
 # --- read -----------------------------------------------------------------
 
 

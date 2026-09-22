@@ -12,10 +12,22 @@ missed, -1 a goal conceded. There is no clean-sheet term in it.
 has said what the halves mean; while they agree it cannot matter, and the day they
 differ, choosing one is a guess, so `from_settings` refuses instead. The three assist
 fields (`bmasf`, `bmass`, `bmasg`) must agree for the same reason: `match_grain` has one
-`assist` column. `bmcsh` (1) and `bmdg` ([1, 1]) are **held at 0**: their meanings are
-assumed, and T12's reconciliation against the platform's own per-player scores (`lply`)
-is what confirms or wires them. `bmcg`, `bmeg` and `bmycsv` read 0 and are not applied.
-Nor are `stbdf` or the null `smod*` modifiers, which this lega leaves off.
+`assist` column. `bmcg`, `bmeg` and `bmycsv` read 0 and are not applied. Nor are `stbdf`
+or the null `smod*` modifiers, which this lega leaves off.
+
+**Pinned against the platform (T12, 2026-09-22)**, over all 12 calculated matches of
+rounds 1-3 (`tests/domain/lineup/test_scoring_reconcile.py`):
+
+* the vote is **`voto_fc`** (`sourcev: 1`): equal for 153 of 153 players in round 1;
+* **`bmcsh` is a keeper's clean sheet**, +1 to every keeper with a vote and no goal
+  conceded (7 of 7, never anyone else). `lega_fantavoto` applies it;
+* **`bmdg` is a decisive goal**, +1 once to a scorer whose goal decided the match. It is
+  read, and `platform_fantavoto` counts it, but `lega_fantavoto` cannot: `match_grain`
+  has no column for it, so a score recomputed from history is short by exactly that —
+  5 players of 153 in round 1.
+
+The platform's own per-player scores are not in `lply` (null even once calculated) but in
+each side's `starts`/`bench` lines, read by `PlatformLine`.
 
 **`mvp` exists only from 2024/25.** Before that, a 0 means "not recorded", not "no", and
 reading it as "no" would put older seasons a fraction of a point below newer ones. They
@@ -71,6 +83,10 @@ class ScoringRules:
     penalty_saved: float
     conceded: float
     motm: float
+    #: `bmcsh`: a keeper with a vote who conceded nothing.
+    clean_sheet: float
+    #: `bmdg`: once, to a scorer whose goal decided the match. Not in `match_grain`.
+    decisive_goal: float
     #: `step.stlmt`: the total worth the first goal.
     threshold: float
     #: `step.stgoal`: each further goal, as points above `threshold`.
@@ -98,6 +114,8 @@ class ScoringRules:
             penalty_saved=_weight(bn_mls, "bmpsa"),
             conceded=_weight(bn_mls, "bmgc"),
             motm=_weight(bn_mls, "motm"),
+            clean_sheet=_weight(bn_mls, "bmcsh"),
+            decisive_goal=_weight(bn_mls, "bmdg"),
             threshold=float(step["stlmt"]),
             steps=tuple(float(s) for s in step["stgoal"]),
         )
@@ -119,8 +137,9 @@ def _weight(bn_mls: Mapping[str, Any], key: str) -> float:
 def lega_fantavoto(
     appearance: Appearance, *, rules: ScoringRules, season: str, role: str
 ) -> float:
-    """One appearance's fantavoto under `rules`. `role` is the Classic P/D/C/A letter, used
-    only before 2024/25 to look up the expected MVP rate — an unknown one raises."""
+    """One appearance's fantavoto under `rules`, short of the decisive goal (see the module
+    docstring). `role` is the Classic P/D/C/A letter: `P` takes the clean sheet, and before
+    2024/25 it looks up the expected MVP rate — an unknown one raises there."""
     a = appearance
     score = (
         a.voto_fc
@@ -134,12 +153,100 @@ def lega_fantavoto(
         + rules.penalty_missed * a.rigori_sbagliati
         + rules.conceded * a.gol_subiti
     )
+    if role == "P" and a.gol_subiti == 0:
+        score += rules.clean_sheet
     if season >= MVP_SINCE:
         return score + rules.motm * a.mvp
     try:
         return score + rules.motm * MVP_RATE_BEFORE_2024_25[role]
     except KeyError:
         raise ValueError(f"no MVP rate for role {role!r} before {MVP_SINCE}") from None
+
+
+#: What each of a platform line's sixteen `b` counts is worth, by `ScoringRules` field.
+#: Solved from 454 voted lines of rounds 1-3 and exact on every one; 12, 13 and 14 are the
+#: three assist kinds, and their sum is `match_grain.assist`.
+EVENT_WEIGHTS: Mapping[int, str] = {
+    0: "yellow",
+    1: "red",
+    2: "goal",
+    3: "conceded",
+    4: "penalty_saved",
+    5: "penalty_missed",
+    6: "penalty_scored",
+    8: "decisive_goal",
+    10: "clean_sheet",
+    12: "assist",
+    13: "assist",
+    14: "assist",
+    15: "motm",
+}
+#: How many counts a line carries.
+EVENTS = 16
+#: `scr` for a player with no vote (`cscr` is then 100). Two codes; the difference between
+#: them is not established.
+NO_VOTE = frozenset({55.0, 56.0})
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformLine:
+    """One player's line in a calculated match: the platform's own score, and its parts."""
+
+    pid: int
+    #: `scr`; `None` for no vote.
+    vote: float | None
+    #: `b`, the sixteen event counts. Positions 7, 9 and 11 never fired in rounds 1-3;
+    #: the own goal is one of them.
+    events: tuple[int, ...]
+    #: `cscr`, the platform's fantavoto; `None` with no vote.
+    score: float | None
+    #: `m`: 1 when the player took the positional malus (-1) in the slot he was fielded in.
+    malus: int
+    #: `ptype`: `-`, `U` substituted out, `E` came on.
+    sub: str
+
+    @classmethod
+    def parse(cls, raw: Mapping[str, Any]) -> PlatformLine:
+        vote = None if float(raw["scr"]) in NO_VOTE else float(raw["scr"])
+        return cls(
+            pid=int(raw["pid"]),
+            vote=vote,
+            events=tuple(int(n) for n in str(raw["b"]).split(";")),
+            score=None if vote is None else float(raw["cscr"]),
+            malus=int(raw.get("m") or 0),
+            sub=str(raw.get("ptype") or "-"),
+        )
+
+
+def platform_fantavoto(line: PlatformLine, *, rules: ScoringRules) -> float:
+    """A line's fantavoto recomputed from its own parts: the vote, each count at its weight,
+    less the malus. Raises on a line with no vote, and on a count at a position whose weight
+    has never been measured — scoring it as 0 would hide exactly the event not understood.
+    """
+    if line.vote is None:
+        raise ValueError(f"player {line.pid} has no vote")
+    if len(line.events) != EVENTS:
+        raise ValueError(f"player {line.pid}: {len(line.events)} counts, not {EVENTS}")
+    unmeasured = [i for i, n in enumerate(line.events) if n and i not in EVENT_WEIGHTS]
+    if unmeasured:
+        raise ValueError(
+            f"player {line.pid}: b position(s) {unmeasured} fired and their weight is unknown"
+        )
+    counted = sum(
+        float(getattr(rules, EVENT_WEIGHTS[i])) * n for i, n in enumerate(line.events) if n
+    )
+    return line.vote + counted - line.malus
+
+
+def malus_starters(side: Mapping[str, Any]) -> tuple[int, ...]:
+    """The starters on one side of a calculated match who took the positional malus.
+
+    SPEC A18's check, read off the platform's own flag rather than inferred from a score
+    one point short: `m` weighs exactly -1 in every voted line of rounds 1-3.
+    """
+    return tuple(
+        line.pid for line in map(PlatformLine.parse, side.get("starts") or ()) if line.malus
+    )
 
 
 def goals(points: float, *, threshold: float, steps: Sequence[float]) -> int:

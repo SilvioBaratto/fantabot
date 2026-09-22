@@ -456,6 +456,29 @@ def teamLineup_read(
     return _get(path, league_id, store=store, transport=transport, timeout=timeout, now=now)
 
 
+def match_detail(
+    league_id: int,
+    competition_id: int,
+    *,
+    mday: int,
+    cmday: int,
+    home: int,
+    away: int,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /gaming/v1/teamLineup/{comp}/{mday}/{cmday}/{home}/{away}` — one match, both
+    sides: `tot`, `mdl`, the lineup and bench, and `lply`, the platform's own per-player
+    scores, which are null until the round is calculated (`docs/leghe-api.md`). A read.
+
+    `mday` is the lega's matchday and `cmday` Serie A's; they differ.
+    """
+    path = f"/gaming/v1/teamLineup/{competition_id}/{mday}/{cmday}/{home}/{away}"
+    return _get(path, league_id, store=store, transport=transport, timeout=timeout, now=now)
+
+
 def teamLineup_submit(
     league_id: int,
     payload: Mapping[str, Any],
@@ -493,6 +516,7 @@ __all__ = [
     "custom_roles",
     "league_status",
     "lineup_settings",
+    "match_detail",
     "my_team",
     "players",
     "roster_settings",

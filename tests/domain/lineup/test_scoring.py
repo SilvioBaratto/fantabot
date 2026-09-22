@@ -85,6 +85,7 @@ def test_the_rules_parse_from_today_s_payload() -> None:
     assert (RULES.yellow, RULES.red, RULES.own_goal) == (-0.5, -1.0, -2.0)
     assert (RULES.penalty_scored, RULES.penalty_missed, RULES.penalty_saved) == (3.0, -3.0, 3.0)
     assert RULES.conceded == -1.0
+    assert (RULES.clean_sheet, RULES.decisive_goal) == (1.0, 1.0)
     assert RULES.threshold == 66.0
     assert RULES.steps == (6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0)
 
@@ -106,8 +107,9 @@ def test_assist_variants_that_disagree_are_refused() -> None:
 
 # -- the per-appearance fantavoto -------------------------------------------------------
 
-#: The default fantacalcio.it weights `fantavoto_fc` is computed with: the lega's, less MVP.
-FC_DEFAULT = replace(RULES, motm=0.0)
+#: The default fantacalcio.it weights `fantavoto_fc` is computed with: the lega's, less MVP
+#: and less the clean sheet — neither is in `fantavoto_fc`.
+FC_DEFAULT = replace(RULES, motm=0.0, clean_sheet=0.0)
 
 #: (stagione, name, role, the appearance, fantavoto_fc) — literal `match_grain` rows.
 ROWS = [
@@ -145,8 +147,12 @@ def test_the_formula_reproduces_fantavoto_fc(
 def test_the_lega_adds_its_mvp_bonus_where_one_was_recorded(
     season: str, name: str, role: str, row: Appearance, fc: float
 ) -> None:
-    """`motm` +1 is this lega's, and `fantavoto_fc` has no MVP term at all."""
-    assert lega_fantavoto(row, rules=RULES, season=season, role=role) == fc + row.mvp
+    """`motm` +1 is this lega's, and `fantavoto_fc` has no MVP term at all; nor the
+    keeper's clean sheet, which the lega pays +1."""
+    clean_sheet = 1.0 if role == "P" and row.gol_subiti == 0 else 0.0
+    assert lega_fantavoto(row, rules=RULES, season=season, role=role) == (
+        fc + row.mvp + clean_sheet
+    )
 
 
 def test_before_2024_25_the_mvp_is_an_expected_rate_by_role() -> None:
@@ -166,10 +172,22 @@ def test_an_unknown_role_before_2024_25_is_refused() -> None:
         lega_fantavoto(Appearance(voto_fc=6.0), rules=RULES, season="2023/24", role="ALL")
 
 
-def test_the_unconfirmed_fields_are_held_at_zero() -> None:
-    """`bmcsh` reads 1 and `bmdg` reads [1, 1], and neither meaning is confirmed; T12's
-    reconciliation against the platform's own per-player scores decides them. Until then
-    a clean-sheet keeper scores exactly his `fantavoto_fc`."""
+def test_a_keeper_who_concedes_nothing_takes_the_clean_sheet() -> None:
+    """`bmcsh`, pinned by T12: +1 to every keeper with a vote and no goal conceded — 7 of 7
+    in rounds 1-3, and never to an outfield player or a keeper who conceded."""
     butez = Appearance(voto_fc=6.0)
 
-    assert lega_fantavoto(butez, rules=RULES, season="2025/26", role="P") == 6.0
+    assert lega_fantavoto(butez, rules=RULES, season="2025/26", role="P") == 7.0
+    assert lega_fantavoto(butez, rules=RULES, season="2025/26", role="D") == 6.0
+    conceded = Appearance(voto_fc=6.5, gol_subiti=1)
+    assert lega_fantavoto(conceded, rules=RULES, season="2025/26", role="P") == 5.5
+
+
+def test_the_decisive_goal_is_read_but_not_recomputed() -> None:
+    """`bmdg`, pinned by T12: +1 once to a scorer whose goal decided the match. It is read
+    into the rules because the platform's own lines count it, and it cannot be recomputed
+    from `match_grain`, which has no column for it — so a history score is short of it."""
+    scorer = Appearance(voto_fc=7.0, gol_segnati=1)
+
+    assert RULES.decisive_goal == 1.0
+    assert lega_fantavoto(scorer, rules=RULES, season="2025/26", role="A") == 10.0
