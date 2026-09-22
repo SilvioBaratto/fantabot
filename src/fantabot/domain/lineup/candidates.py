@@ -305,18 +305,15 @@ def k_best_assignments(
             if spent >= node_budget:
                 break
             spent += 1
-            child = _constrained(cost, tuple(prefix), banned | {(row, assignment[row])})
+            # One name, deliberately. Written twice — once for the solve, once for the node —
+            # the two can disagree, and the disagreement is invisible: a mutation that dropped
+            # the ban from the *solve* alone left it in the pushed node, so every child still
+            # explored correctly and only its own cached optimum went stale, into a set already
+            # seen. Correct answers, three times the work, and nothing red. Bind them together.
+            blocked = banned | {(row, assignment[row])}
+            child = _constrained(cost, tuple(prefix), blocked)
             if child is not None:
-                heapq.heappush(
-                    heap,
-                    (
-                        child[0],
-                        next(order),
-                        tuple(prefix),
-                        banned | {(row, assignment[row])},
-                        child[1],
-                    ),
-                )
+                heapq.heappush(heap, (child[0], next(order), tuple(prefix), blocked, child[1]))
             prefix.append((row, assignment[row]))
 
     return found
