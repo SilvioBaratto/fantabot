@@ -21,6 +21,12 @@ dependencies = [
     "pyjwt>=2.9",
     "httpx>=0.27",
     "truststore>=0.10",
+    # The lineup projection's math (SPEC Decision 3). Reached **only** lazily from the
+    # projection branch: `tests/domain/lineup/test_lineup_imports.py` proves the default
+    # lineup path and the hourly job never load either. The floors are what CPython 3.11
+    # still gets — the hourly job's interpreter — and 3.12 resolves a minor above both.
+    "numpy>=2.4",
+    "scipy>=1.17",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +37,8 @@ dev = [
     # promise. Bump these deliberately (Dependabot), not implicitly.
     "ruff~=0.16.5",
     "mypy~=2.3.1",
+    # `mypy --strict` over scipy. Its versions track scipy's own, so no band of its own.
+    "scipy-stubs>=1.17",
 ]
 
 [project.scripts]

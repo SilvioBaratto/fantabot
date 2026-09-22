@@ -54,6 +54,9 @@ TREE: dict[str, str] = {
     "test_lega_parse.py": "domain/lega",
     "test_schema.py": "domain/lineup",
     "test_positional.py": "domain/lineup",
+    # About the default lineup path's imports and `domain/lineup`'s randomness, though it
+    # reads the graph from `interface/` down: the claim is about the lineup, not a layer.
+    "test_lineup_imports.py": "domain/lineup",
     "test_value.py": "domain/lineup",
     "test_build.py": "domain/lineup",
     "test_bench.py": "domain/lineup",

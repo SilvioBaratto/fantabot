@@ -46,12 +46,18 @@ def tree(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
 
         monkeypatch.setattr(G, "SRC", tmp_path)
         monkeypatch.setattr(G, "PACKAGE", root)
-        G.direct_imports.cache_clear()
-        G.reachable.cache_clear()
+        _clear_caches()
 
     yield build
-    G.direct_imports.cache_clear()
-    G.reachable.cache_clear()
+    _clear_caches()
+
+
+def _clear_caches() -> None:
+    """Every cached walker function, found rather than listed: a list is what a new
+    `@cache` is forgotten from, and then leaks one test's tree into the next."""
+    for value in vars(G).values():
+        if callable(getattr(value, "cache_clear", None)):
+            value.cache_clear()
 
 
 class TestTheImportsThatHide:
@@ -124,6 +130,71 @@ class TestResolution:
         tree(**{"a": "from pkg import b", "b": "from pkg import a"})
         assert G.reaches("pkg.a", "pkg.b")
         assert G.reaches("pkg.b", "pkg.a")
+
+
+class TestWhatRunsAtImport:
+    """`module_scope_*` answers a different question from `reachable`: not what a module
+    *depends on*, but what importing it *executes*. A lazy import inside a function is the
+    very thing the numpy guard permits, and `if TYPE_CHECKING:` never runs."""
+
+    def test_a_top_level_import_runs(self, tree) -> None:  # type: ignore[no-untyped-def]
+        tree(**{"eager": "import numpy"})
+        assert G.loads_at_import("pkg.eager", "numpy")
+
+    def test_an_import_inside_a_function_body_does_not(self, tree) -> None:  # type: ignore[no-untyped-def]
+        tree(**{"lazy": "def go():\n    import numpy\n    return numpy"})
+        assert not G.loads_at_import("pkg.lazy", "numpy")
+        assert G.reaches("pkg.lazy", "numpy"), "the design graph still sees it"
+
+    def test_a_type_checking_block_does_not_but_its_else_does(self, tree) -> None:  # type: ignore[no-untyped-def]
+        tree(**{"typed": """
+            import typing
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                import numpy
+            if typing.TYPE_CHECKING:
+                import scipy
+            else:
+                import json
+        """})
+        assert not G.loads_at_import("pkg.typed", "numpy")
+        assert not G.loads_at_import("pkg.typed", "scipy")
+        assert G.loads_at_import("pkg.typed", "json")
+
+    def test_a_class_body_and_both_arms_of_a_try_run(self, tree) -> None:  # type: ignore[no-untyped-def]
+        """A class body executes at import; a `try` may take either arm."""
+        tree(**{"shaped": """
+            class Holder:
+                import numpy
+            try:
+                import scipy
+            except ImportError:
+                import json
+        """})
+        assert G.loads_at_import("pkg.shaped", "numpy")
+        assert G.loads_at_import("pkg.shaped", "scipy")
+        assert G.loads_at_import("pkg.shaped", "json")
+
+    def test_it_follows_our_modules_transitively(self, tree) -> None:  # type: ignore[no-untyped-def]
+        tree(**{"caller": "from pkg import middle", "middle": "import numpy"})
+        assert G.loads_at_import("pkg.caller", "numpy")
+        assert G.why("pkg.caller", "numpy", edges=G.module_scope_edges) == [
+            "pkg.caller",
+            "pkg.middle",
+            "numpy",
+        ]
+
+    def test_importing_a_submodule_runs_every_parent_package(self, tree) -> None:  # type: ignore[no-untyped-def]
+        """`import pkg.sub.leaf` executes `pkg/sub/__init__.py` first. Neither the import
+        statement nor `leaf` names `pkg.sub`, so a walk of named modules alone misses it."""
+        tree(**{"sub.__init__": "import numpy", "sub.leaf": "", "caller": "import pkg.sub.leaf"})
+        assert G.loads_at_import("pkg.caller", "numpy")
+        assert G.loads_at_import("pkg.sub.leaf", "numpy"), "importing the leaf itself runs it too"
+
+    def test_resolves_tells_our_modules_from_everyone_else_s(self, tree) -> None:  # type: ignore[no-untyped-def]
+        tree(**{"here": ""})
+        assert G.resolves("pkg.here")
+        assert not G.resolves("json")
 
 
 def test_why_returns_an_empty_path_when_there_is_none(tree) -> None:  # type: ignore[no-untyped-def]

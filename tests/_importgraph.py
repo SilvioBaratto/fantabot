@@ -22,7 +22,7 @@ three as clean, which is precisely the reassurance nobody needs.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import cache
 from pathlib import Path
 
@@ -63,27 +63,34 @@ def direct_imports(module: str) -> frozenset[str]:
     if path is None:
         return frozenset()
 
-    package = module if (SRC.joinpath(*module.split("."))).is_dir() else module.rpartition(".")[0]
+    package = _package_of(module)
     found: set[str] = set()
-
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:
-                owner = package.split(".")
-                base = owner[: len(owner) - node.level + 1]
-                root = ".".join([*base, node.module] if node.module else base)
-            else:
-                root = node.module or ""
-            if not root:
-                continue
-            found.add(root)
-            # `from x import y` may name a module rather than an attribute; include
-            # both readings, and let the resolver drop the one that is not a file.
-            found.update(f"{root}.{alias.name}" for alias in node.names)
-
+        found.update(_imported(node, package))
     return frozenset(found)
+
+
+def _package_of(module: str) -> str:
+    return module if (SRC.joinpath(*module.split("."))).is_dir() else module.rpartition(".")[0]
+
+
+def _imported(node: ast.AST, package: str) -> set[str]:
+    """The modules one `import` statement names; empty for any other node."""
+    if isinstance(node, ast.Import):
+        return {alias.name for alias in node.names}
+    if not isinstance(node, ast.ImportFrom):
+        return set()
+    if node.level:
+        owner = package.split(".")
+        base = owner[: len(owner) - node.level + 1]
+        root = ".".join([*base, node.module] if node.module else base)
+    else:
+        root = node.module or ""
+    if not root:
+        return set()
+    # `from x import y` may name a module rather than an attribute; include both
+    # readings, and let the resolver drop the one that is not a file.
+    return {root, *(f"{root}.{alias.name}" for alias in node.names)}
 
 
 @cache
@@ -118,11 +125,19 @@ def reaches(module: str, target: str) -> bool:
     return any(name == target or name.startswith(f"{target}.") for name in reachable(module))
 
 
-def why(module: str, target: str) -> list[str]:
+def resolves(module: str) -> bool:
+    """Is `module` ours — a file under `SRC` — rather than a third-party or stdlib leaf?"""
+    return _path_of(module) is not None
+
+
+def why(
+    module: str, target: str, *, edges: Callable[[str], frozenset[str]] = direct_imports
+) -> list[str]:
     """A shortest import path from `module` to `target`, for a failure message.
 
     A rule that says only "this module reaches sqlalchemy" sends the reader hunting.
-    A path says which edge to cut.
+    A path says which edge to cut. `edges` picks the graph: the design graph by default,
+    `module_scope_edges` for what an import actually executes.
     """
     from collections import deque
 
@@ -131,7 +146,7 @@ def why(module: str, target: str) -> list[str]:
     while queue:
         path = queue.popleft()
         current = path[-1]
-        for name in sorted(direct_imports(current)) if _path_of(current) else ():
+        for name in sorted(edges(current)) if _path_of(current) else ():
             if name == target or name.startswith(f"{target}."):
                 return [*path, name]
             if name in seen or _path_of(name) is None:
@@ -139,6 +154,86 @@ def why(module: str, target: str) -> list[str]:
             seen.add(name)
             queue.append([*path, name])
     return []
+
+
+@cache
+def module_scope_imports(module: str) -> frozenset[str]:
+    """Only the modules that importing `module` **executes** — the other half of the story.
+
+    `direct_imports` is the design graph and counts everything, on purpose. This is the
+    runtime one, for a rule about what gets *loaded*: the numpy guard permits a lazy import
+    inside a function, which is exactly what `direct_imports` is built to see. So it reads
+    the module body and every block that runs at import — `if`/`else`, both arms of a
+    `try`, `with`, loops, a class body — and skips function bodies and `if TYPE_CHECKING:`
+    (whose `else` does run). A dynamic `importlib.import_module` is invisible to any AST
+    walk; `test_lineup_imports.py` catches that one at runtime instead.
+    """
+    path = _path_of(module)
+    if path is None:
+        return frozenset()
+    package = _package_of(module)
+    found: set[str] = set()
+    for node in _executed(ast.parse(path.read_text(encoding="utf-8")).body):
+        found.update(_imported(node, package))
+    return frozenset(found)
+
+
+def _executed(body: list[ast.stmt]) -> Iterator[ast.stmt]:
+    for node in body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        yield node
+        if isinstance(node, ast.If) and _is_type_checking(node.test):
+            yield from _executed(node.orelse)
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(node, field, None)
+            if isinstance(block, list):
+                yield from _executed(block)
+        for arm in (*getattr(node, "handlers", ()), *getattr(node, "cases", ())):
+            yield from _executed(arm.body)
+
+
+def _is_type_checking(test: ast.expr) -> bool:
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def _parents(name: str) -> set[str]:
+    parts = name.split(".")
+    return {".".join(parts[:i]) for i in range(1, len(parts))}
+
+
+@cache
+def module_scope_edges(module: str) -> frozenset[str]:
+    """What must run for `module` to be imported: its module-scope imports, and the parent
+    packages of those and of `module` itself — `import a.b.c` executes `a/__init__.py` and
+    `a/b/__init__.py` first, and neither is named by the statement."""
+    names = set(module_scope_imports(module))
+    return frozenset(names.union(*map(_parents, names), _parents(module)))
+
+
+@cache
+def module_scope_reachable(module: str) -> frozenset[str]:
+    """Everything importing `module` executes, transitively, including itself."""
+    seen: set[str] = set()
+    stack = [module]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if _path_of(current) is not None:
+            stack.extend(module_scope_edges(current))
+    return frozenset(seen)
+
+
+def loads_at_import(module: str, target: str) -> bool:
+    """Does importing `module` load `target`, or anything under it? Prefix-aware."""
+    return any(
+        name == target or name.startswith(f"{target}.") for name in module_scope_reachable(module)
+    )
 
 
 def module_source(module: str) -> str:
