@@ -52,8 +52,11 @@ DEFAULT_PATH = (
 
 #: `(importer, imported)` for every edge from the default path into the projection branch:
 #: the lazy imports the projection is *allowed* to be reached through. Empty until the
-#: branch exists; T18 adds the first. Exact equality, like `test_layers.py`'s ratchets.
-EXPECTED_PROJECTION_EDGES: frozenset[tuple[str, str]] = frozenset()
+#: branch exists; T18 added the first, `plan --model projection`'s own import. Exact
+#: equality, like `test_layers.py`'s ratchets.
+EXPECTED_PROJECTION_EDGES: frozenset[tuple[str, str]] = frozenset(
+    {("fantabot.interface.lineup", "fantabot.application.lineup_projection")}
+)
 
 
 def _is_heavy(name: str) -> bool:

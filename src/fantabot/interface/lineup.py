@@ -23,6 +23,8 @@ from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadlin
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:
+    from fantabot.application.lineup_projection import ProjectionReport
+    from fantabot.domain.lineup.freshness import Freshness
     from fantabot.domain.lineup.models import PlannedLineup
 
 
@@ -64,6 +66,39 @@ def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
         "XI:    " + ", ".join(nm(p) for p in plan.starts),
         "bench: " + ", ".join(nm(p) for p in plan.bench),
     ]
+
+
+#: The two value models `plan` can rank on. `indexcompare` is the platform's own rating and
+#: the default everywhere; `projection` is phase `lineup-theory`'s μ/p model, which no submit
+#: path uses yet — `plan --model projection` is a preview, and T36 is what wires it.
+INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
+
+
+def format_projection_rows(report: ProjectionReport) -> list[tuple[str, ...]]:
+    """The μ/p/sigma_tilde table as strings, header first. Pure."""
+    rows: list[tuple[str, ...]] = [("player", "role", "mu", "p", "sigma~", "value", "XI")]
+    starting = set(report.projection.plans[0].starts) if report.projection.plans else set()
+    for line in report.projection.lines:
+        rows.append(
+            (
+                report.names.get(line.player_id, str(line.player_id)),
+                line.role,
+                f"{line.mu:.2f}",
+                f"{line.p:.2f}",
+                f"{line.sigma_tilde:.2f}",
+                f"{line.value:.2f}",
+                "XI" if line.player_id in starting else "",
+            )
+        )
+    return rows
+
+
+def format_freshness(freshness: Freshness) -> list[str]:
+    """The staleness verdict (T25) as the operator reads it. Pure."""
+    head = "fresh" if freshness.fresh else "STALE"
+    lines = [f"data: {head}" + ("" if freshness.fresh else ": " + "; ".join(freshness.reasons))]
+    lines += [f"  warning: {warning}" for warning in freshness.warnings]
+    return lines
 
 
 def _resolve_league(league: int) -> int:
@@ -116,6 +151,11 @@ def _plan(
     competition: int = typer.Option(
         0, "--competition", help="Competition id. Auto-resolved when omitted."
     ),
+    model: str = typer.Option(
+        INDEXCOMPARE,
+        "--model",
+        help=f"Value model: {INDEXCOMPARE} (the default) or {PROJECTION} (preview).",
+    ),
 ) -> None:
     """Build and print the best legal formation for the current matchday. **No submit.**"""
     from sqlalchemy.exc import SQLAlchemyError
@@ -129,6 +169,12 @@ def _plan(
     from fantabot.domain.tokens.errors import TokenError
 
     league_id = _resolve_league(league)
+    if model not in (INDEXCOMPARE, PROJECTION):
+        console.print(f"[red]unknown model {model!r}: {INDEXCOMPARE} or {PROJECTION}[/red]")
+        raise typer.Exit(code=1)
+    if model == PROJECTION:
+        _plan_projection(league_id, competition)
+        return
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
@@ -150,6 +196,66 @@ def _plan(
 
     for line in format_plan(plans[0], names):
         console.print(line)
+
+
+def _plan_projection(league_id: int, competition: int) -> None:
+    """Both plans, the μ/p/sigma_tilde table and the staleness verdict. Read-only.
+
+    The one import of the projection branch on this path, and the edge
+    `tests/domain/lineup/test_lineup_imports.py` declares: numpy and scipy load here and
+    nowhere the hourly `indexcompare` submit can reach.
+    """
+    from rich.table import Table
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_projection import projection_for_league
+    from fantabot.config import settings
+    from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    try:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            report = projection_for_league(
+                TokenStore(session, cipher),
+                league_id=league_id,
+                competition=competition,
+                as_of=_now().date(),
+            )
+    except (TokenError, LineupError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except ValueError as exc:
+        # The projection refuses rather than guessing when the history cannot carry it
+        # (`project`: no rows, or nobody with two appearances to vary between).
+        console.print(f"[red]no projection: {exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    outcome = report.projection
+    console.print(
+        f"as of {outcome.as_of} over {outcome.seasons[0]}..{outcome.seasons[-1]}, "
+        f"replacement level {outcome.replacement:.2f}"
+    )
+    for line in format_freshness(outcome.freshness):
+        console.print(line)
+    console.print(f"\n[bold]{INDEXCOMPARE}[/bold] (what a submit would field today)")
+    for line in format_plan(report.baseline[0], report.names):
+        console.print(line)
+    console.print(f"\n[bold]{PROJECTION}[/bold]")
+    for line in format_plan(outcome.plans[0], report.names):
+        console.print(line)
+
+    header, *rows = format_projection_rows(report)
+    table = Table(*header, title=None)
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
 
 
 def _submit(

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from fantabot.adapters.files.lineup_runs import LineupRun
     from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_planner import LineupInputs
     from fantabot.domain.lineup.models import PlannedLineup
 
 #: Why a submit did not happen. Names, not sentences — see the module docstring.
@@ -119,20 +120,22 @@ class SubmitOutcome:
         return next((p for p in self.plans if not p.guard), self.plans[0] if self.plans else None)
 
 
-def build_plans(
+def build_inputs(
     store: TokenStore, league_id: int, competition: int
-) -> tuple[list[PlannedLineup], dict[int, str], int]:
-    """Roster, settings and coordinates, composed into ranked `PlannedLineup`s.
+) -> tuple[LineupInputs, dict[int, str], int]:
+    """The reads behind a plan: roster, settings and coordinates, as `LineupInputs`.
 
     Lifted out of `interface/lineup.py` as a **third** call site, not a second:
     `GET /lineup/plan` already reimplemented it by hand, which is how the app came to read
-    the format from a different place than the command did.
+    the format from a different place than the command did. `application/lineup_projection`
+    is the fourth, and takes these inputs rather than reading them again — a second copy
+    that merely detected the format differently would be that same defect once more.
 
     The format is detected, never configured — `sroles=1` is Classic, `sroles=2` is Mantra.
     This is the cron path, so a flag the operator must remember per lega is a footgun.
     """
     from fantabot.adapters.http import apileague
-    from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
+    from fantabot.application.lineup_planner import inputs_from_lineup
     from fantabot.domain.lineup.competition import resolve_competition
 
     # `my_team` is the authoritative team id — the submit payload's `tid` (the lineup DTO is
@@ -150,6 +153,16 @@ def build_plans(
         body.get("teamLineupDto", {}), body.get("lineUpInfo", []), lineup_conf, comp,
         tid=tid, fmt=fmt,
     )
+    return inputs, names, comp
+
+
+def build_plans(
+    store: TokenStore, league_id: int, competition: int
+) -> tuple[list[PlannedLineup], dict[int, str], int]:
+    """`build_inputs`, ranked by the platform's own `indexCompare` — the default model."""
+    from fantabot.application.lineup_planner import plan_lineups
+
+    inputs, names, comp = build_inputs(store, league_id, competition)
     return plan_lineups(inputs), names, comp
 
 

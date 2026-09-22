@@ -7,7 +7,7 @@ pure formatter is tested directly; the command is a thin wrapper around it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,13 @@ from typer.testing import CliRunner
 
 from fantabot.domain.lineup.models import PlannedLineup
 from fantabot.interface.app import app
-from fantabot.interface.lineup import format_lineup, format_plan, is_past_deadline
+from fantabot.interface.lineup import (
+    format_freshness,
+    format_lineup,
+    format_plan,
+    format_projection_rows,
+    is_past_deadline,
+)
 
 runner = CliRunner()
 
@@ -168,6 +174,18 @@ def _fakes_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     # sroles=2 -> Mantra, the format these fixtures are in (marle-coded lineUpInfo).
     monkeypatch.setattr(apileague, "roster_settings", lambda *a, **k: {"sroles": 2})
+    monkeypatch.setattr(
+        apileague,
+        "calculate_settings",
+        lambda *a, **k: {
+            "bnMls": {
+                "bmgs": 3.0, "bmass": 1.0, "bmass2": 1.0, "bmass3": 1.0, "bmyc": -0.5,
+                "bmrc": -1.0, "bmog": -2.0, "bmpsc": 3.0, "bmpns": -3.0, "bmpsa": 3.0,
+                "bmgc": -1.0, "motm": 1.0, "bmcsh": 0.0, "bmdg": 0.0,
+            },
+            "step": {"stlmt": 66.0, "stgoal": [6.0, 6.0, 6.0, 6.0]},
+        },
+    )
 
 
 def test_plan_builds_and_prints_a_legal_formation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -612,3 +630,124 @@ def test_the_record_is_stamped_by_the_lineup_clock(
 
     [run] = read_runs(log)[0]
     assert run.at.startswith("2026-09-12T10:00")
+
+
+# --- plan --model projection: the preview, and only the preview ------------
+
+
+def _projection_report() -> Any:
+    """What `projection_for_league` returns, canned: the heavy read is its own test's."""
+    from fantabot.application.lineup_projection import (
+        PlayerLine,
+        ProjectionOutcome,
+        ProjectionReport,
+    )
+    from fantabot.domain.lineup.freshness import Freshness
+
+    plan = PlannedLineup(
+        module="343", starts=tuple(DTO["starts"]), bench=tuple(DTO["bench"]),
+        competition=311681, mday=1, cmday=3, tid=10000003,
+    )
+    lines = (
+        PlayerLine(6482, "GK", "P", 6.10, 0.98, 1.20, 6.05),
+        PlayerLine(4179, "ATT", "A", 7.40, 0.60, 2.10, 6.30),
+        # On the bench in `DTO`: the column has to tell them apart.
+        PlayerLine(4360, "GK", "P", 5.20, 0.40, 1.80, 4.90),
+    )
+    return ProjectionReport(
+        baseline=(plan,),
+        projection=ProjectionOutcome(
+            plans=(plan,),
+            lines=lines,
+            freshness=Freshness(False, ("no voti refresh recorded after g2 was calculated",), ()),
+            replacement=5.5,
+            as_of=date(2026, 9, 22),
+            seasons=("2022/23", "2023/24", "2024/25", "2025/26", "2026/27"),
+        ),
+        names={6482: "Sommer", 4179: "Lautaro"},
+        competition=311681,
+    )
+
+
+def test_plan_projection_prints_both_models_the_table_and_the_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot.application import lineup_projection
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection, "projection_for_league", lambda *a, **k: _projection_report()
+    )
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 0, result.output
+    assert "indexcompare" in result.output and "projection" in result.output
+    assert "STALE" in result.output and "no voti refresh" in result.output
+    assert "Sommer" in result.output and "Lautaro" in result.output
+    assert "sigma~" in result.output and "5.50" in result.output  # the replacement level
+
+
+def test_plan_projection_says_so_when_the_history_cannot_carry_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`project` refuses thin history rather than guessing; the command prints its reason."""
+    from fantabot.application import lineup_projection
+
+    _fakes_plan(monkeypatch)
+
+    def _refuse(*a: Any, **k: Any) -> Any:
+        raise ValueError("history too thin: no player has two appearances to vary between")
+
+    monkeypatch.setattr(lineup_projection, "projection_for_league", _refuse)
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 1
+    assert "no projection" in result.output and "too thin" in result.output
+
+
+def test_plan_refuses_a_model_it_does_not_have(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fakes_plan(monkeypatch)
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "vibes"])
+
+    assert result.exit_code == 1
+    assert "unknown model" in result.output
+
+
+def test_the_default_model_is_the_platform_s_own(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--model indexcompare` is the default path, unchanged: no projection import, no
+    numpy, and the same output as no flag at all."""
+    from fantabot.application import lineup_projection
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection,
+        "projection_for_league",
+        lambda *a, **k: pytest.fail("the default model must not reach the projection"),
+    )
+
+    bare = runner.invoke(app, ["lineup", "plan"])
+    named = runner.invoke(app, ["lineup", "plan", "--model", "indexcompare"])
+
+    assert bare.exit_code == 0 and named.exit_code == 0
+    assert bare.output == named.output
+
+
+def test_the_table_marks_the_xi_and_rounds_to_two_places() -> None:
+    header, *rows = format_projection_rows(_projection_report())
+
+    assert header == ("player", "role", "mu", "p", "sigma~", "value", "XI")
+    assert rows[0] == ("Sommer", "P", "6.10", "0.98", "1.20", "6.05", "XI")
+    assert rows[1][-1] == "XI"  # 4179 starts too
+    assert rows[2] == ("4360", "P", "5.20", "0.40", "1.80", "4.90", "")  # benched, unnamed
+
+
+def test_a_fresh_verdict_carries_no_reasons() -> None:
+    from fantabot.domain.lineup.freshness import Freshness
+
+    assert format_freshness(Freshness(True, (), ("g16 6/10 (postponed?)",))) == [
+        "data: fresh",
+        "  warning: g16 6/10 (postponed?)",
+    ]
