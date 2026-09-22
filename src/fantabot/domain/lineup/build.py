@@ -32,8 +32,10 @@ SlotsProvider = Callable[[str], tuple[frozenset[str], ...]]
 
 #: Cost of placing a player in a slot his roles do not cover. Large enough to dominate any
 #: real score, so the matcher uses such an edge only when no feasible assignment exists — a
-#: state the caller then detects and rejects.
-_INELIGIBLE = 1e9
+#: state the caller then detects and rejects. Public because that detection is the *caller's*:
+#: `candidates.k_best_assignments` reads a total `>= INELIGIBLE` as "this branch is infeasible",
+#: and a private copy of the threshold in each reader is a copy that can drift out of agreement.
+INELIGIBLE = 1e9
 
 
 def lineup_for_module(
@@ -61,12 +63,12 @@ def lineup_for_module(
 
     cost = [
         [
-            -value.get(players[j].id, 0.0) if (players[j].roles & slot_sets[i]) else _INELIGIBLE
+            -value.get(players[j].id, 0.0) if (players[j].roles & slot_sets[i]) else INELIGIBLE
             for j in range(m)
         ]
         for i in range(n)
     ]
-    assignment = _hungarian(cost)
+    assignment = solve_assignment(cost)
 
     starts: list[int] = []
     for slot_index, player_index in enumerate(assignment):
@@ -111,8 +113,8 @@ def place_all(
     engine asks (`substitution.py`): its tiers rank *which players* come on, never where the
     matcher puts them. Fewer players than slots is the man-short case and is allowed.
 
-    ⚠ **More players than slots must be refused here**, not left to the matcher: `_hungarian`
-    assumes rows <= columns, and with more rows its augmenting-path loop never terminates —
+    ⚠ **More players than slots must be refused here**, not left to the matcher:
+    `solve_assignment` assumes rows <= columns, and with more rows its loop never terminates —
     it hangs rather than returning something wrong. Measured 2026-09-22, when a mutation of
     this guard stopped a whole test run dead instead of failing it.
     """
@@ -121,10 +123,10 @@ def place_all(
     if not role_sets:
         return []
     cost = [
-        [0.0 if (roles & slot_sets[j]) else _INELIGIBLE for j in range(len(slot_sets))]
+        [0.0 if (roles & slot_sets[j]) else INELIGIBLE for j in range(len(slot_sets))]
         for roles in role_sets
     ]
-    assignment = _hungarian(cost)
+    assignment = solve_assignment(cost)
     if any(not (role_sets[i] & slot_sets[slot]) for i, slot in enumerate(assignment)):
         return None
     return assignment
@@ -145,11 +147,18 @@ def best_lineup(
     return ranked[0]
 
 
-def _hungarian(cost: list[list[float]]) -> list[int]:
+def solve_assignment(cost: list[list[float]]) -> list[int]:
     """Min-cost assignment of every row to a distinct column (`n` rows <= `m` cols).
 
     The standard O(n^2 m) Jonker-Volgenant/Hungarian shortest-augmenting-path form. Returns
     `assignment[row] = col`. Used here to *maximise* score by passing negated values as cost.
+
+    Public, and deliberately the **only** matcher in the phase: `candidates` runs Murty's
+    k-best on top of it, one constrained re-solve per branch. A second implementation there —
+    numpy's, say — would make the outer loop's optimum a different one from the builder's, so
+    the XI the model proposes and the XI the default path would build could disagree for no
+    reason anyone could name. It stays pure Python for the same reason `build` is on the
+    default path at all: nothing here may pull numpy in (AD3).
     """
     n = len(cost)
     m = len(cost[0])
