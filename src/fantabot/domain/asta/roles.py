@@ -39,3 +39,31 @@ class MantraPlayer:
 
     id: str
     roles: frozenset[str]
+
+
+#: The macro bucket for a goalkeeper, in both role systems.
+GOALKEEPER_MACRO = "GK"
+
+#: A Mantra code's macro bucket. Wingers and trequartisti get their own, `MID_ATT`, because
+#: they fade differently from a `C`. Keyed UPPERCASE, as `quotazioni` stores them.
+MANTRA_ROLE_TO_MACRO: dict[str, str] = {
+    "POR": GOALKEEPER_MACRO,
+    "DC": "DEF", "B": "DEF", "DD": "DEF", "DS": "DEF",
+    "M": "MID", "C": "MID", "E": "MID",
+    "W": "MID_ATT", "T": "MID_ATT",
+    "A": "ATT", "PC": "ATT",
+}
+#: A Classic letter's macro bucket, lowercase as `quotazioni` stores them.
+CLASSIC_ROLE_TO_MACRO: dict[str, str] = {
+    "p": GOALKEEPER_MACRO, "d": "DEF", "c": "MID", "a": "ATT",
+}
+
+
+def macro_role(role_code: str, system: str) -> str:
+    """The macro bucket of a `quotazioni` role code. Classic codes are one letter, used
+    as-is; a Mantra code may be compound (`DC;DD`) and its first component is the primary.
+    An unknown code raises `KeyError` rather than guessing a bucket."""
+    if system == "classic":
+        return CLASSIC_ROLE_TO_MACRO[role_code]
+    primary = role_code.split(";")[0]
+    return MANTRA_ROLE_TO_MACRO[primary]

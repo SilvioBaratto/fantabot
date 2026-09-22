@@ -60,8 +60,10 @@ def inputs_from_lineup(
     id->name map. Pure.
 
     The roster, roles and value all come from `lineUpInfo` (`docs/leghe-api.md`): `role` is
-    the numeric marle codes, `indexCompare` is the value signal, `plyr` the name. This is
-    the source of record because the scraped `quotazioni` ids do not join the league roster.
+    the numeric marle codes, `indexCompare` is the value signal, `plyr` the name. It is the
+    source of record because it is what the platform itself holds for this lega at submit
+    time — not because the scraped ids fail to join: `quotazioni`, `match_grain` and
+    `players` use the same player id (see `domain/lineup/value.py`).
 
     `tid` is passed in from `apileague.my_team` (authoritative) rather than read from `dto`,
     which is empty when the competition has no saved lineup — a state that would otherwise

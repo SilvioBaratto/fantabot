@@ -49,6 +49,7 @@ TREE: dict[str, str] = {
     "test_asta_max_cap.py": "domain/asta",
     "test_asta_unvaluable.py": "domain/asta",
     "test_asta_value.py": "domain/asta",
+    "test_asta_macro_roles.py": "domain/asta",
     "test_roster.py": "domain/lineup",
     # -- domain/lega: the platform's own JSON, translated
     "test_lega_parse.py": "domain/lega",

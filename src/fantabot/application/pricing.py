@@ -109,6 +109,7 @@ from dataclasses import dataclass
 
 from fantabot.adapters.persistence import scraping as _db
 from fantabot.adapters.persistence.models.reference import LISTONI
+from fantabot.domain.asta.roles import GOALKEEPER_MACRO, macro_role
 from fantabot.domain.shared.values import BiasRow, PlayerQuote, PriorStats
 
 TRAIN_SEASONS = ["2023/24", "2024/25", "2025/26"]
@@ -118,24 +119,6 @@ PRIOR_SEASON_FOR_TARGET = "2025/26"
 
 MIN_QI = 2  # floor-effect guard. Measured 2026 by the qi-bias analyses (since deleted):
             # below QI 2 the percentage delta is dominated by the divisor, not by the market.
-GOALKEEPER_MACRO = "GK"
-
-# classic: single-letter code, used as-is. mantra: compound code, first component mapped below.
-MANTRA_ROLE_TO_MACRO = {
-    "POR": GOALKEEPER_MACRO,
-    "DC": "DEF", "B": "DEF", "DD": "DEF", "DS": "DEF",
-    "M": "MID", "C": "MID", "E": "MID",
-    "W": "MID_ATT", "T": "MID_ATT",
-    "A": "ATT", "PC": "ATT",
-}
-CLASSIC_ROLE_TO_MACRO = {"p": GOALKEEPER_MACRO, "d": "DEF", "c": "MID", "a": "ATT"}
-
-
-def macro_role(role_code: str, system: str) -> str:
-    if system == "classic":
-        return CLASSIC_ROLE_TO_MACRO[role_code]
-    primary = role_code.split(";")[0]
-    return MANTRA_ROLE_TO_MACRO[primary]
 
 # regression-to-mean fade only validated for this appearance range (analyze_low_minutes_bias.py:
 # correlation -0.191 here vs -0.007 to -0.073 for thinner samples) — both training and application

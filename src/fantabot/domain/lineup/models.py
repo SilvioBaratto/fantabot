@@ -24,9 +24,9 @@ RoleNormalizer = Callable[[Sequence[str]], frozenset[str]]
 class RosterPlayer:
     """One owned player: id, canonical Mantra roles, and the value signal the matcher ranks on.
 
-    The `fvmma` field is that value signal; in this phase it carries the platform's
-    `indexCompare` rating (the data-source pivot — `quotazioni` ids do not join the roster),
-    not the Mantra fvm the name once meant.
+    The `fvmma` field is that value signal; it carries the platform's `indexCompare`
+    rating, not the Mantra fvm the name once meant. (Not because `quotazioni` ids fail to
+    join the roster, as this once said: they join by the same id — see `value.py`.)
     """
 
     id: int
