@@ -140,6 +140,33 @@ def test_auth_headers_alone_builds_no_request() -> None:
     assert set(headers) == {"app_key", "Authorization"}
 
 
+# --- calculate_settings: the lega's scoring rules, read and returned whole --------------
+
+
+CALCULATE_BODY = {"bnMls": {"bmgs": [3, 3]}, "step": {"stlmt": 66, "stgoal": [6, 12]}}
+
+
+def test_calculate_settings_requests_the_documented_path() -> None:
+    transport, handler = transport_returning(json_body=CALCULATE_BODY)
+
+    apileague.calculate_settings(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    assert handler.requests[0].method == "GET"
+    assert handler.requests[0].url.path == "/onboarding/v1/league/settings/calculate"
+
+
+def test_calculate_settings_returns_the_body_unparsed() -> None:
+    """Parsing is `domain/lineup/scoring.ScoringRules.from_settings`'s job, pure and tested
+    on a literal payload; the wrapper hands back what the platform said."""
+    transport, _ = transport_returning(json_body=CALCULATE_BODY)
+
+    body = apileague.calculate_settings(
+        _tokens.LEGA_MANTRA, store=a_store(), transport=transport
+    )
+
+    assert body == CALCULATE_BODY
+
+
 # --- my_team: shares _get with league_status, so only its own behaviour is new ------
 
 

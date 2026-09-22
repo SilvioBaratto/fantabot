@@ -59,6 +59,7 @@ TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 COMPETITIONS_PATH = "/onboarding/v1/league/competitions"
 LINEUP_SETTINGS_PATH = "/onboarding/v1/league/settings/lineup"
 ROSTER_SETTINGS_PATH = "/onboarding/v1/league/settings/rosters"
+CALCULATE_SETTINGS_PATH = "/onboarding/v1/league/settings/calculate"
 TEAMS_PATH = "/onboarding/v1/league/teams"
 PLAYERS_PATH = "/onboarding/v1/league/players"
 CUSTOM_ROLES_PATH = "/onboarding/v1/league/custom-roles"
@@ -325,6 +326,24 @@ def roster_settings(
     )
 
 
+def calculate_settings(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/settings/calculate` — the lega's scoring rules: `bnMls`
+    (bonus/malus per event), `step` (the goal ladder), `subst` (the auto-substitution
+    config). Returned whole; `domain/lineup/scoring.ScoringRules.from_settings` parses it,
+    because the field names are dense and several of their meanings are still assumed."""
+    return _get(
+        CALCULATE_SETTINGS_PATH, league_id, store=store, transport=transport,
+        timeout=timeout, now=now,
+    )
+
+
 def teams(
     league_id: int,
     *,
@@ -468,6 +487,7 @@ __all__ = [
     "TokenMissing",
     "TokenRejected",
     "auth_headers",
+    "calculate_settings",
     "calendar",
     "competitions",
     "custom_roles",
