@@ -6,11 +6,16 @@ so for a fixed module the best XI is a **max-weight bipartite matching** that sa
 ~30 players resolves in microseconds). `best_lineup` runs it for each allowed module and
 takes the argmax.
 
-Slots come from `schema.slots`, i.e. the natural ("ok") roles of `mantra_schemi.json`. That
-is a subset of what the platform accepts at submission (which also allows out-of-position
-`-1` cells with a malus), so a lineup built here never takes a malus and is always
-submission-legal — the guard against the live `LUP009`. `asta.legality`, which does admit
-the `-1` cells, therefore confirms every result (crossed-checked in the tests).
+Slots come from `schema.slots`: the natural ("ok") roles of `mantra_schemi.json`, laid out
+in the platform's own slot order (`mantra_starts_order.json`, pinned from its JS bundle).
+**Natural roles alone never made a lineup legal.** The matcher sees role *sets*, so they
+say each starter fits *a* slot; the platform judges `starts[i]` at *its* slot i. Laid out
+in the PDF's row order, a C-only player landed in a pure-M slot: on 2026-09-21 seven of the
+lega's eleven modules were refused with `LUP009` before one stuck, and a `-1` there is
+worse — accepted, and scored as a malus. So a lineup built here is malus-free and
+submission-legal only under the pinned order, and `domain/lineup/positional.py` checks it
+at every position before any POST rather than trusting it. `asta.legality`, which does
+admit the `-1` cells, confirms every result (cross-checked in the tests).
 """
 
 from __future__ import annotations
@@ -82,9 +87,9 @@ def ranked_lineups(
     """Every fieldable module's `(module, starts[])`, best `sum(value)` first.
 
     Infeasible modules are dropped. Ties keep the order of `modules` (stable sort). The
-    caller submits down this list, falling to the next module if the platform rejects one —
-    which is how a wrong schema (`mantra_schemi.json`'s 4-1-4-1 was, live 2026-09-02) is
-    survived rather than fatal.
+    caller submits down this list, falling to the next module if the platform rejects one,
+    so a refusal is survived rather than fatal. It was read on 2026-09-02 as a wrong
+    4-1-4-1 schema; the role sets were right, and the refusal was the slot order above.
     """
     scored: list[tuple[float, str, list[int]]] = []
     for code in modules:

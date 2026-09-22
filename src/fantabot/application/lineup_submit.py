@@ -14,8 +14,11 @@ and several are ordered against each other:
 * the **kickoff warning warns and never blocks**. `mstr` is not confirmed to be the lineup
   deadline, so the platform stays the authority — a guess that blocked would lose a matchday
   to our own caution;
-* the **`LUP009` walk-down** tries every fieldable module best-first, because
-  `mantra_schemi.json`'s 4-1-4-1 was wrong and the platform said so live on 2026-09-02;
+* the **`LUP009` walk-down** tries every fieldable module best-first, and the positional
+  guard skips a plan before its POST when a starter sits in a cell that is not `ok` at the
+  platform's own slot. Set-based legality never implied submission legality: on 2026-09-21
+  the walk had seven modules refused before one stuck, all of them from `starts[]` laid out
+  in the PDF's row order (2026-09-02's "4-1-4-1 is wrong" was the same defect, misread);
 * the **read-back is the report's source**. The submit response is what we sent; the
   read-back is what the platform kept, and only the second is evidence.
 
@@ -216,8 +219,8 @@ def submit_lineup(
     mstr = str(status.get("mstr", ""))
     past = mstr if mstr and is_past_deadline(mstr, now()) else None
 
-    # Best-first, walking down on a refusal: `mantra_schemi.json`'s 4-1-4-1 was wrong and
-    # the platform said so live on 2026-09-02.
+    # Best-first, walking down on a refusal: the platform is the authority on what it
+    # accepts, and the pinned slot order is our model of it, not a proof.
     rejected: list[Rejection] = []
     for plan in plans:
         # The positional guard, **before** the POST. A `-1` cell is accepted by the platform

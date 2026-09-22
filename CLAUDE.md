@@ -211,12 +211,22 @@ src/fantabot/
   `domain/lineup/build.py` runs Hungarian against each allowed module and takes the argmax;
   11 slots x ~30 players resolves in microseconds, so no dependency was added. Five things
   on that path are decisions, not plumbing.
-  **It builds only on natural roles** — the "ok" cells of `mantra_schemi.json`, never the
-  `-1` ones — so a lineup it emits cannot take a malus and is submission-legal by
-  construction. That is the standing guard against `LUP009`.
+  **It builds only on natural roles, in the platform's slot order** — the "ok" cells of
+  `mantra_schemi.json`, never the `-1` ones, laid into `starts[]` in the order pinned from
+  the platform's JS bundle (`data/mantra_starts_order.json`). ⚠ This bullet used to say
+  natural roles alone made a lineup malus-free and submission-legal. They did not: the
+  matcher sees role *sets*, the platform judges `starts[i]` at *its* slot i, and in the
+  PDF's row order a C-only player landed in a pure-M slot. On 2026-09-21 the walk had
+  seven of the lega's eleven modules refused with `LUP009` before one stuck — and a `-1`
+  at a wrong position is worse, because the platform accepts it and scores the malus. So
+  legality holds only under the pinned order, and `domain/lineup/positional.py` checks
+  every position before any POST instead of trusting it; a skipped plan is recorded as
+  `GUARD`.
   **A refused module is survived, not fatal.** `plan_lineups` returns every fieldable
-  module best-first and the submit walks down that list, because `mantra_schemi.json`'s
-  4-1-4-1 was wrong and the platform said so live on 2026-09-02.
+  module best-first and the submit walks down that list. It was added on 2026-09-02 for a
+  refused 4-1-4-1, read then as a wrong schema with the other ten modules reported fine —
+  neither was measured: one module was refused and the next accepted. The 4-1-4-1 schema
+  holds exactly the platform's eleven slots, in another order; the refusal was the order.
   **`tid` comes from `my_team`, not from the lineup DTO**, which is empty when a
   competition has no saved lineup — read there, it submits `tid=0`. The matchday
   coordinates do come from the DTO, and a missing one (0) refuses to POST rather than
