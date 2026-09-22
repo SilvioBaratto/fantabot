@@ -102,6 +102,30 @@ def ranked_lineups(
     return [(code, starts) for _total, code, starts in scored]
 
 
+def place_all(
+    role_sets: Sequence[frozenset[str]], slot_sets: Sequence[frozenset[str]]
+) -> list[int] | None:
+    """Each player's slot index, or `None` when they cannot all take distinct slots.
+
+    Feasibility only — every placement is worth the same, which is what the substitution
+    engine asks (`substitution.py`): its tiers rank *which players* come on, never where the
+    matcher puts them. Fewer players than slots is the man-short case and is allowed; more
+    players than slots never is.
+    """
+    if len(role_sets) > len(slot_sets):
+        return None
+    if not role_sets:
+        return []
+    cost = [
+        [0.0 if (roles & slot_sets[j]) else _INELIGIBLE for j in range(len(slot_sets))]
+        for roles in role_sets
+    ]
+    assignment = _hungarian(cost)
+    if any(not (role_sets[i] & slot_sets[slot]) for i, slot in enumerate(assignment)):
+        return None
+    return assignment
+
+
 def best_lineup(
     roster: Sequence[RosterPlayer],
     modules: Sequence[str],

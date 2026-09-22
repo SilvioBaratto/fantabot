@@ -13,7 +13,7 @@ import pytest
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.lineup import positional
-from fantabot.domain.lineup.build import best_lineup, lineup_for_module, ranked_lineups
+from fantabot.domain.lineup.build import best_lineup, lineup_for_module, place_all, ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.models import RosterPlayer
 
@@ -136,3 +136,38 @@ def test_the_built_starts_pass_the_positional_check(code: str) -> None:
     assert starts is not None
     roles = {p.id: p.roles for p in SPECIALISTS}
     assert positional.violations(code, [roles[pid] for pid in starts]) == ()
+
+
+# --- `place_all`: feasibility, the substitution engine's primitive ----------
+
+
+def test_place_all_seats_everyone_in_a_slot_his_roles_cover() -> None:
+    slots = (frozenset({"POR"}), frozenset({"DC"}), frozenset({"C", "M"}))
+
+    placement = place_all([frozenset({"C"}), frozenset({"POR"})], slots)
+
+    assert placement == [2, 0]
+
+
+def test_place_all_refuses_when_two_players_want_the_only_slot() -> None:
+    slots = (frozenset({"POR"}), frozenset({"DC"}))
+
+    assert place_all([frozenset({"POR"}), frozenset({"POR"})], slots) is None
+
+
+def test_place_all_allows_fewer_players_than_slots() -> None:
+    """The man-short case: ten players, eleven slots, one left empty."""
+    slots = (frozenset({"POR"}), frozenset({"DC"}), frozenset({"DC"}))
+
+    assert place_all([frozenset({"DC"})], slots) in ([1], [2])
+
+
+def test_place_all_refuses_more_players_than_slots() -> None:
+    """`_hungarian` needs rows <= columns, and an eleventh man has nowhere to stand."""
+    slots = (frozenset({"DC"}),)
+
+    assert place_all([frozenset({"DC"}), frozenset({"DC"})], slots) is None
+
+
+def test_place_all_seats_nobody_in_no_slots() -> None:
+    assert place_all([], (frozenset({"DC"}),)) == []
