@@ -42,6 +42,9 @@ Murty emits in cost order — is the first one seen.
 **Natural roles only**, exactly as `build.py`: an ineligible (slot, player) pair costs
 `INELIGIBLE`, so no candidate can carry a `-1` or `-1*` cell, and the pinned slot order (A22)
 means the positional guard passes at every position. That is the guard the live `LUP009` broke.
+`INELIGIBLE` has to dominate any real score for the matcher to *prefer* a feasible assignment
+at all, and even then the branch is judged edge by edge rather than by its total — see
+`_constrained`, where summing was wrong in a way no threshold fixes.
 
 Pure Python, and no numpy: it runs on `build.solve_assignment`, the same matcher the default
 path uses, so the shortlist's optimum is the builder's optimum (AD3, and see
@@ -209,9 +212,18 @@ def _constrained(
 
     `None` when there is none. Forcing shrinks the problem rather than penalising it — the
     forced rows and their columns are removed and the matcher runs on what is left — so the
-    deep nodes of the search are the cheap ones. Banning is by cost, and infeasibility is
-    read back the same way: a total at or above `INELIGIBLE` means some row could only be
-    filled by an edge that is not allowed.
+    deep nodes of the search are the cheap ones. Banning is by cost: a banned edge is handed
+    to the matcher at `INELIGIBLE`, exactly as an ineligible one already is.
+
+    ⚠ **Infeasibility is read back per edge, never off the total.** The obvious test — a
+    total at or above `INELIGIBLE` — is wrong, and silently: the surrogate is a score, so
+    every eligible edge costs `-w` and an eleven's real part is around -70. One ineligible
+    edge then totals `INELIGIBLE - 70`, which is *below* the threshold, and the branch is
+    accepted with a player in a slot his roles do not cover. Measured 2026-09-22 on a matrix
+    whose only assignment used an ineligible edge: it came back as a candidate. No magnitude
+    of `INELIGIBLE` repairs that, because the real part scales with it; only asking each
+    chosen edge does. `build.lineup_for_module` and `first_solve` already ask per edge — this
+    was the one place that summed instead.
     """
     rows, columns = len(cost), len(cost[0])
     fixed = dict(forced)
@@ -235,9 +247,11 @@ def _constrained(
             assignment[free_rows[index]] = free_columns[choice]
             total += sub[index][choice]
 
-    if total >= INELIGIBLE:
-        return None
-    return total, tuple(assignment[row] for row in range(rows))
+    chosen = tuple(assignment[row] for row in range(rows))
+    for row, column in enumerate(chosen):
+        if cost[row][column] >= INELIGIBLE or (row, column) in banned:
+            return None
+    return total, chosen
 
 
 def k_best_assignments(

@@ -169,6 +169,43 @@ def test_an_infeasible_matrix_is_detected_by_cost_and_yields_nothing() -> None:
     assert k_best_assignments(cost, k=5, node_budget=100) == []
 
 
+def test_an_infeasible_branch_is_refused_however_negative_its_real_part_is() -> None:
+    """The surrogate is a score, so every eligible edge costs `-w` and an eleven's real part
+    is deeply negative. A single ineligible edge then totals `INELIGIBLE - 70`, which is
+    *below* the threshold — so reading infeasibility off the **total** accepts a player in a
+    slot his roles do not cover, and no magnitude of `INELIGIBLE` repairs it. Measured
+    2026-09-22: this matrix came back as a candidate.
+    """
+    cost = [
+        [-500.0, -500.0, INELIGIBLE],
+        [-500.0, -500.0, INELIGIBLE],
+        [INELIGIBLE, INELIGIBLE, INELIGIBLE],  # no column is eligible for this row
+    ]
+
+    assert k_best_assignments(cost, k=3, node_budget=100) == []
+
+
+def test_ineligible_edges_must_be_dominated_or_a_fieldable_matrix_reads_as_infeasible() -> None:
+    """The other half of the same constant. Row 0 fits only column 0, and row 1 would rather
+    have column 0 by 99. `INELIGIBLE` has to outweigh that preference, or the matcher takes
+    the cheaper *ineligible* pairing and the one real assignment is never found.
+    """
+    cost = [[-1.0, INELIGIBLE], [-100.0, -1.0]]
+
+    found = k_best_assignments(cost, k=2, node_budget=100)
+
+    assert [a for _, a in found] == [(0, 1)]
+    assert found[0][0] == pytest.approx(-2.0)
+
+
+def test_more_rows_than_columns_is_refused_rather_than_hung() -> None:
+    """`solve_assignment` assumes rows <= columns and does not terminate otherwise — the
+    failure `place_all`'s own guard was measured hanging a whole run on 2026-09-22. Reached
+    through `module_family` the case cannot arise, but this is a public entry point.
+    """
+    assert k_best_assignments([[-1.0], [-2.0]], k=1, node_budget=10) == []
+
+
 def test_fewer_sets_than_k_returns_what_exists() -> None:
     cost = [[-1.0, -2.0], [-3.0, -4.0]]
 
