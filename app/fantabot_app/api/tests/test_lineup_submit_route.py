@@ -34,6 +34,7 @@ class _Plan:
     def __init__(self, module: str, *, mday: int = 3, cmday: int = 4) -> None:
         self.module, self.mday, self.cmday = module, mday, cmday
         self.starts, self.bench = [11, 12], [21]
+        self.guard = ""
 
 
 class _Platform:
