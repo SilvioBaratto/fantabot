@@ -29,7 +29,7 @@ lands, which is why the operator asked for the last run to be close to kickoff.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 
 def is_past_deadline(mstr: str, now: datetime) -> bool:
@@ -75,7 +75,7 @@ def scheduled_cutoff(
        matchday's clock would reshuffle this one mid-matchday.
     2. **The start cannot be read.** Fail closed: nothing known is not permission, and the
        refusal lands in the run record, where the operator looks.
-    3. **The matchday has started.** `now` at or past `mstr` read as Italian wall-clock time.
+    3. **The matchday has started.** `now` at or past `mstr`, read as UTC.
 
     A naive `now` is taken as this machine's local time (`astimezone`'s own rule), which is
     what `interface/lineup.py::_now` returns. The clock is not read here.
@@ -88,18 +88,13 @@ def scheduled_cutoff(
             "cannot say this one is not already in play",
         )
 
-    try:
-        start = datetime.fromisoformat(mstr)
-    except (ValueError, TypeError):
+    start = _kickoff(mstr)
+    if start is None:
         return Cutoff(
             NO_START_TIME,
             f"matchday {status_mday}'s start is unreadable ({mstr!r}) — nothing says the "
             "lineup is not already in play",
         )
-
-    # Zoneless means UTC, which is what the platform posts. A zone it carries itself is
-    # taken at its word.
-    start = start.replace(tzinfo=UTC) if start.tzinfo is None else start
     if now.astimezone(UTC) >= start:
         return Cutoff(
             MATCHDAY_STARTED,
@@ -107,6 +102,46 @@ def scheduled_cutoff(
             "does not touch a lineup in play",
         )
     return None
+
+
+def in_news_window(
+    *,
+    mstr: str,
+    status_mday: int,
+    plan_cmday: int,
+    now: datetime,
+    opens_before: float = 6,
+    closes_before: float = 2,
+) -> bool:
+    """Whether `now` is in the news step's window: from `opens_before` hours before the first
+    kickoff, up to but not including `closes_before` hours before it (SPEC A13). Pure.
+
+    Never open on a start that is not this lineup's (the MISMATCH rule of `scheduled_cutoff`)
+    or cannot be read: a news run on the wrong clock spends an agent run on a matchday that
+    is not the one being planned.
+    """
+    if not opens_before > closes_before >= 0:
+        raise ValueError(
+            f"the news window must open before it closes, and close by kickoff: opens "
+            f"{opens_before}h and closes {closes_before}h before it"
+        )
+    start = _kickoff(mstr)
+    if status_mday != plan_cmday or start is None:
+        return False
+    moment = now.astimezone(UTC)
+    return (
+        start - timedelta(hours=opens_before) <= moment < start - timedelta(hours=closes_before)
+    )
+
+
+def _kickoff(mstr: str) -> datetime | None:
+    """`mstr` as an aware instant, or `None` when it cannot be read. Zoneless means UTC,
+    which is what the platform posts; a zone it carries itself is taken at its word."""
+    try:
+        start = datetime.fromisoformat(mstr)
+    except (ValueError, TypeError):
+        return None
+    return start.replace(tzinfo=UTC) if start.tzinfo is None else start
 
 
 def _on_the_wall(start: datetime) -> str:
@@ -129,6 +164,7 @@ __all__ = [
     "MATCHDAY_STARTED",
     "NO_START_TIME",
     "Cutoff",
+    "in_news_window",
     "is_past_deadline",
     "scheduled_cutoff",
 ]

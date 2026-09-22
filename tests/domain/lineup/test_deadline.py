@@ -30,6 +30,7 @@ from fantabot.domain.lineup.deadline import (
     MATCHDAY_MISMATCH,
     MATCHDAY_STARTED,
     NO_START_TIME,
+    in_news_window,
     scheduled_cutoff,
 )
 
@@ -117,3 +118,63 @@ class TestNothingKnownIsNotPermission:
         assert cut is not None
         # Shown on the operator's wall clock (20:45 Rome), not in the UTC it was posted in.
         assert "20:45" in cut.reason and "4" in cut.reason
+
+
+class TestNewsWindow:
+    """SPEC A13: news runs in T-6h..T-2h before the first kickoff, `mstr` read as UTC.
+
+    For Monza-Sassuolo (18:45Z) that is 12:45Z to 16:45Z: open from its first minute, shut
+    from its last.
+    """
+
+    @pytest.mark.parametrize(
+        ("now", "inside"),
+        [
+            (_utc(12, 44), False),
+            (_utc(12, 45), True),
+            (_utc(16, 44), True),
+            (_utc(16, 45), False),
+            (_utc(18, 44), False),
+        ],
+    )
+    def test_the_window_is_six_to_two_hours_before_kickoff_in_utc(
+        self, now: datetime, inside: bool
+    ) -> None:
+        assert in_news_window(mstr=START, status_mday=4, plan_cmday=4, now=now) is inside
+
+    def test_the_operator_s_wall_clock_is_the_same_instant(self) -> None:
+        """14:45 in Rome (CEST) is 12:45Z: open."""
+        rome = datetime.fromisoformat("2026-09-18T14:45:00+02:00")
+        assert in_news_window(mstr=START, status_mday=4, plan_cmday=4, now=rome)
+
+    def test_a_naive_now_is_this_machine_s_local_time(self) -> None:
+        """`scheduled_cutoff`'s rule: 12:45Z as a naive local wall clock, whatever the zone."""
+        local = _utc(12, 45).astimezone().replace(tzinfo=None)
+        assert in_news_window(mstr=START, status_mday=4, plan_cmday=4, now=local)
+
+    def test_the_hours_are_the_caller_s(self) -> None:
+        """3h..1h is 15:45Z to 17:45Z: 17:30 is in it, and 14:00 — in the default — is not."""
+        late, early = _utc(17, 30), _utc(14, 0)
+        assert not in_news_window(mstr=START, status_mday=4, plan_cmday=4, now=late)
+        assert in_news_window(
+            mstr=START, status_mday=4, plan_cmday=4, now=late, opens_before=3, closes_before=1
+        )
+        assert not in_news_window(
+            mstr=START, status_mday=4, plan_cmday=4, now=early, opens_before=3, closes_before=1
+        )
+
+    def test_a_start_for_another_matchday_never_opens_it(self) -> None:
+        """MISMATCH: `mstr` is the next matchday's while the lineup is still this one's."""
+        assert not in_news_window(mstr=START, status_mday=5, plan_cmday=4, now=_utc(14, 0))
+
+    @pytest.mark.parametrize("mstr", ["", "not a date", "None"])
+    def test_an_unreadable_start_never_opens_it(self, mstr: str) -> None:
+        assert not in_news_window(mstr=mstr, status_mday=4, plan_cmday=4, now=_utc(14, 0))
+
+    @pytest.mark.parametrize(("opens", "closes"), [(2, 6), (2, 2), (6, -1)])
+    def test_a_window_that_is_not_one_is_refused(self, opens: float, closes: float) -> None:
+        with pytest.raises(ValueError, match="window"):
+            in_news_window(
+                mstr=START, status_mday=4, plan_cmday=4, now=_utc(14, 0),
+                opens_before=opens, closes_before=closes,
+            )
