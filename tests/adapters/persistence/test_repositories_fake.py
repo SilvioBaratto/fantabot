@@ -699,3 +699,69 @@ class TestCorpusSummaryAnswersForEveryFormat:
         filtered = [sql for sql in session.statements if "FILTER" in sql.upper()]
         assert filtered, "no FILTER-ed count was built for the planner's own filter"
         assert any("250" in sql and "10" in sql for sql in filtered)
+
+
+class TestLineupHistoryReads:
+    """The lineup history's three rules, visible in the SQL each read issues: coach rows
+    out, "before" cut by date, and the lega's scores taken from one capture only."""
+
+    def test_no_players_or_no_seasons_issues_no_statement(self) -> None:
+        from fantabot.adapters.persistence.repositories.lineup_history import (
+            LineupHistoryRepository,
+        )
+
+        session = _session()
+        repo = LineupHistoryRepository(session)
+
+        assert repo.appearances([], seasons=["2025/26"], before=date(2026, 1, 1)) == []
+        assert repo.appearances([1], seasons=[], before=date(2026, 1, 1)) == []
+        assert repo.latest_sentiment([]) == {}
+        assert session.statements == []
+
+    def test_appearances_filter_on_ids_and_cut_by_date_not_giornata(self) -> None:
+        from fantabot.adapters.persistence.repositories.lineup_history import (
+            LineupHistoryRepository,
+        )
+
+        session = _session([], literal=True)
+        LineupHistoryRepository(session).appearances(
+            [6482], seasons=["2025/26"], before=date(2025, 12, 27)
+        )
+
+        (sql,) = session.statements
+        assert "match_grain.player_id IN (6482)" in sql
+        assert "match_grain.data < '2025-12-27'" in sql
+        assert "giornata <" not in sql
+
+    def test_the_lega_s_scores_come_from_its_latest_capture_and_only_calculated_rounds(
+        self,
+    ) -> None:
+        """`league_competition` is append-only: one row per competition per sync. Joining it
+        without choosing a capture multiplies every score by the number of syncs."""
+        from fantabot.adapters.persistence.repositories.lineup_history import (
+            LineupHistoryRepository,
+        )
+
+        session = _session([])
+        LineupHistoryRepository(session).calculated_scores(4103937)
+
+        (sql,) = session.statements
+        assert "max(league_competition.captured_at)" in sql
+        assert "league_competition.deleted IS false" in sql
+        assert "league_fixture.calculated IS true" in sql
+
+    def test_latest_sentiment_keeps_only_the_players_asked_for(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One `DISTINCT ON` read of every player, then filtered: 600 rows is cheaper than
+        a round trip per roster player, and the ids come back as ints, not the reader's str."""
+        from fantabot.adapters.persistence.repositories import sentiment
+        from fantabot.adapters.persistence.repositories.lineup_history import (
+            LineupHistoryRepository,
+        )
+
+        monkeypatch.setattr(
+            sentiment.SentimentReadRepository, "all_latest", lambda self: {"1": "a", "2": "b"}
+        )
+
+        assert LineupHistoryRepository(_session()).latest_sentiment([2, 3]) == {2: "b"}
