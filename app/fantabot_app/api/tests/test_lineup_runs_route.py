@@ -13,15 +13,32 @@ its launcher was.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from fantabot.adapters.files.lineup_runs import FAILED, SKIPPED, SUBMITTED, LineupRun, append_run
+from fantabot.adapters.files.lineup_runs import (
+    FAILED,
+    SKIPPED,
+    SUBMITTED,
+    LineupRejection,
+    LineupRun,
+    LineupShadow,
+    append_run,
+)
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from fantabot_app.api.main import app
-from fantabot_app.api.v1.endpoints.lineup import STALE_AFTER_HOURS, read_lineup_runs
+from fantabot_app.api.v1.endpoints.lineup import (
+    STALE_AFTER_HOURS,
+    LineupRejectionRow,
+    LineupRunRow,
+    LineupShadowRow,
+    read_lineup_runs,
+)
 
 from .conftest import redirect_home
 
@@ -173,3 +190,74 @@ def test_the_route_reads_the_home_derived_record(
 
     assert body["ok"] is True and body["total"] == 1
     assert body["runs"][0]["status"] == SKIPPED and body["runs"][0]["code"] == "matchday-started"
+
+
+class TestRecordV2ReachesTheScreen:
+    """The row is built with `LineupRunRow(**asdict(run))`, and pydantic ignores a key the
+    model does not declare. So a field the writer gained and the row did not is dropped with
+    no error — the room journal's three lost keys, again — and the ids grading reads would
+    never leave the server."""
+
+    @pytest.mark.parametrize(
+        ("row", "record"),
+        [
+            (LineupRunRow, LineupRun),
+            (LineupShadowRow, LineupShadow),
+            (LineupRejectionRow, LineupRejection),
+        ],
+    )
+    def test_the_row_declares_exactly_the_record_s_fields(
+        self, row: type[BaseModel], record: type
+    ) -> None:
+        """Both directions: a field added on either side alone fails here."""
+        assert set(row.model_fields) == {f.name for f in dataclasses.fields(record)}
+
+    def test_every_v2_field_comes_back_as_it_was_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The written line is the oracle: the route must hand it back key for key. Every v2
+        field carries a non-default value, so a dropped one cannot hide behind its default."""
+        redirect_home(monkeypatch, tmp_path)
+        log = tmp_path / ".fantabot" / "lineup_runs.jsonl"
+        refused = LineupRejection(
+            module="4231",
+            code="LUP009",
+            message="Giocatore non schierabile nel ruolo",
+            starter_ids=(11, 12),
+            starters=("Mandas", "Bastoni"),
+        )
+        shadow = LineupShadow(
+            model="projection",
+            module="343",
+            starter_ids=(11, 14),
+            bench_ids=(13,),
+            starters=("Mandas", "Dimarco"),
+            bench=("Caprile",),
+            e_pts=1.72,
+            p_wdl=(0.45, 0.37, 0.18),
+            e_fp=72.5,
+            sd=6.1,
+            cuts=("M 64 -> 32",),
+        )
+        append_run(
+            log,
+            _run(
+                NOW,
+                rejected=("4231 (LUP009)",),
+                starter_ids=(11, 12),
+                bench_ids=(13,),
+                competition=77,
+                tid=5,
+                model="indexcompare",
+                fallback="projection: no history",
+                warnings=("roster rules drifted",),
+                rejections=(refused,),
+                shadow=shadow,
+            ),
+        )
+        written = json.loads(log.read_text(encoding="utf-8"))
+
+        with TestClient(app) as client:
+            body = client.get("/api/v1/lineup/runs").json()
+
+        assert body["runs"][0] == written

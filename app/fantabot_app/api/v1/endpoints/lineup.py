@@ -350,11 +350,44 @@ MAX_RUNS_LIMIT = 500
 STALE_AFTER_HOURS = 12.0
 
 
+class LineupRejectionRow(BaseModel):
+    """One plan the walk did not keep — `lineup_runs.LineupRejection`, field for field."""
+
+    module: str
+    #: `LUP0xx`, or `GUARD <slot> <role> <cell>` for a plan our own guard skipped.
+    code: str
+    message: str = ""
+    #: The XI that was refused, in the platform's slot order.
+    starter_ids: list[int] = []
+    starters: list[str] = []
+
+
+class LineupShadowRow(BaseModel):
+    """The other model's plan, logged beside the one sent — `lineup_runs.LineupShadow`."""
+
+    model: str
+    module: str
+    starter_ids: list[int]
+    bench_ids: list[int]
+    starters: list[str]
+    bench: list[str]
+    #: E[league points], `3·P(W) + P(D)`: the objective.
+    e_pts: float
+    #: P(win), P(draw), P(loss).
+    p_wdl: tuple[float, float, float]
+    e_fp: float
+    sd: float
+    cuts: list[str] = []
+
+
 class LineupRunRow(BaseModel):
     """One scheduled run — `adapters/files/lineup_runs.LineupRun`, field for field.
 
     Built with `LineupRunRow(**asdict(run))` rather than a hand-written mapping: that mapping
-    is the seam the room journal's three dropped keys came through.
+    is the seam the room journal's three dropped keys came through. That alone does not
+    close it — pydantic *ignores* a key the model does not declare, so a field the writer
+    gains is dropped here without a word. `test_lineup_runs_route` pins the field sets equal,
+    for this row and both nested ones.
     """
 
     at: str
@@ -371,6 +404,19 @@ class LineupRunRow(BaseModel):
     starters: list[str] = []
     bench: list[str] = []
     rejected: list[str] = []
+    # --- record v2: each defaults to what a v1 line did not record ---
+    #: The ids are what grading reads; the names above are for the eye.
+    starter_ids: list[int] = []
+    bench_ids: list[int] = []
+    competition: int | None = None
+    tid: int | None = None
+    #: The model that chose what was sent. `""` on a v1 line, which never said.
+    model: str = ""
+    #: Why the named model was not the one used, when it was not.
+    fallback: str = ""
+    warnings: list[str] = []
+    rejections: list[LineupRejectionRow] = []
+    shadow: LineupShadowRow | None = None
 
 
 class LineupRuns(BaseModel):

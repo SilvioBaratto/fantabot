@@ -88,7 +88,41 @@ export interface SubmitResult {
 /** A scheduled run's state — decided once, in `application/lineup_submit.run_record`. */
 export type LineupRunStatus = 'submitted' | 'unconfirmed' | 'skipped' | 'failed';
 
-/** One run of the scheduled lineup job, as `GET /lineup/runs` returns it. */
+/** One plan the walk did not keep: refused by the platform, or skipped by our own guard. */
+export interface LineupRejection {
+  module: string;
+  /** `LUP0xx`, or `GUARD <slot> <role> <cell>` for a plan skipped before its POST. */
+  code: string;
+  /** The platform's own sentence; empty for a guard skip. */
+  message: string;
+  /** The XI that was refused, in the platform's slot order. */
+  starter_ids: number[];
+  starters: string[];
+}
+
+/** The plan the other model would have sent, logged beside the one that went in. */
+export interface LineupShadow {
+  model: string;
+  module: string;
+  starter_ids: number[];
+  bench_ids: number[];
+  starters: string[];
+  bench: string[];
+  /** E[league points], `3·P(W) + P(D)`: the objective. */
+  e_pts: number;
+  /** P(win), P(draw), P(loss). */
+  p_wdl: [number, number, number];
+  e_fp: number;
+  sd: number;
+  cuts: string[];
+}
+
+/**
+ * One run of the scheduled lineup job, as `GET /lineup/runs` returns it.
+ *
+ * The record v2 fields are optional here although the server always sends them: nothing on
+ * the page reads them yet, and an optional field keeps every fixture that predates them valid.
+ */
 export interface LineupRun {
   /** ISO 8601 with its offset. */
   at: string;
@@ -104,7 +138,20 @@ export interface LineupRun {
   serie_a_matchday: number | null;
   starters: string[];
   bench: string[];
+  /** `module (code)` per refused module — the display line; `rejections` has the evidence. */
   rejected: string[];
+  /** The ids are what grading reads; the names are for the eye. */
+  starter_ids?: number[];
+  bench_ids?: number[];
+  competition?: number | null;
+  tid?: number | null;
+  /** The model that chose what was sent. Empty on a v1 line, which never said. */
+  model?: string;
+  /** Why the named model was not the one used, when it was not. */
+  fallback?: string;
+  warnings?: string[];
+  rejections?: LineupRejection[];
+  shadow?: LineupShadow | null;
 }
 
 /** The scheduled job's history. Read-only: the app writes nothing there and controls nothing. */
