@@ -109,8 +109,12 @@ def place_all(
 
     Feasibility only — every placement is worth the same, which is what the substitution
     engine asks (`substitution.py`): its tiers rank *which players* come on, never where the
-    matcher puts them. Fewer players than slots is the man-short case and is allowed; more
-    players than slots never is.
+    matcher puts them. Fewer players than slots is the man-short case and is allowed.
+
+    ⚠ **More players than slots must be refused here**, not left to the matcher: `_hungarian`
+    assumes rows <= columns, and with more rows its augmenting-path loop never terminates —
+    it hangs rather than returning something wrong. Measured 2026-09-22, when a mutation of
+    this guard stopped a whole test run dead instead of failing it.
     """
     if len(role_sets) > len(slot_sets):
         return None

@@ -163,7 +163,9 @@ def test_place_all_allows_fewer_players_than_slots() -> None:
 
 
 def test_place_all_refuses_more_players_than_slots() -> None:
-    """`_hungarian` needs rows <= columns, and an eleventh man has nowhere to stand."""
+    """`_hungarian` needs rows <= columns: with more rows its augmenting-path loop does not
+    terminate, so this guard is what stands between a twelfth man and a hung run — not
+    merely a wrong answer."""
     slots = (frozenset({"DC"}),)
 
     assert place_all([frozenset({"DC"}), frozenset({"DC"})], slots) is None

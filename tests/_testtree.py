@@ -67,6 +67,7 @@ TREE: dict[str, str] = {
     "test_dependence.py": "domain/lineup",
     "test_freshness.py": "domain/lineup",
     "test_substitution.py": "domain/lineup",
+    "test_opponent.py": "domain/lineup",
     "test_build.py": "domain/lineup",
     "test_bench.py": "domain/lineup",
     "test_marle.py": "domain/lineup",

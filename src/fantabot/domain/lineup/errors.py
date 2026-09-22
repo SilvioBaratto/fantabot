@@ -116,3 +116,19 @@ class LineupRejected(LineupError):
         )
         self.code = code
         self.message = message
+
+
+class OpponentUnavailable(LineupError):
+    """The lega's calculated scores cannot carry an opponent distribution.
+
+    Either too few rounds have been calculated to smooth at all, or every one of them read
+    the same total, which is a point mass rather than a distribution. The projection path
+    refuses and the run falls back to `indexCompare`, which needs no opponent: a KDE over
+    four scores would be a guess with a probability attached.
+    """
+
+    def __init__(self, scored: int, minimum: int, *, reason: str = "") -> None:
+        said = reason or f"only {scored} calculated round(s), and {minimum} are the floor"
+        super().__init__(f"no opponent distribution: {said}. Nothing was fitted.")
+        self.scored = scored
+        self.minimum = minimum
