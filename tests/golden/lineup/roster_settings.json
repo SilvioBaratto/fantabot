@@ -1,0 +1,24 @@
+{
+ "budg": 500,
+ "cmod": 0,
+ "count": 6,
+ "crole": null,
+ "cteam": null,
+ "fsltc": 0,
+ "hdslt": false,
+ "maxrl": [
+  4,
+  28
+ ],
+ "minrl": [
+  2,
+  23
+ ],
+ "mplys": false,
+ "msltc": 25,
+ "sroles": 2,
+ "tcap": 0,
+ "under": null,
+ "version": "v3",
+ "xsltc": 32
+}

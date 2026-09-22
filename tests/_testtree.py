@@ -155,6 +155,7 @@ TREE: dict[str, str] = {
     # from `test_cli_db_dump.py`, which is about the CLI's printing of it.
     "test_db_dump.py": "application",
     "test_lineup_submit.py": "application",
+    "test_lineup_golden.py": "application",
     "test_asta_room_tracker.py": "application",
     # T18-lift part 1: the composition of a live room — the twenty keywords `asta room`
     # and the app's room route must not each assemble, and the one poll both drive it

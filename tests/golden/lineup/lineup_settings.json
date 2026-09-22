@@ -1,0 +1,30 @@
+{
+ "assu": false,
+ "brdrs": [
+  1,
+  0
+ ],
+ "bseq": null,
+ "count": 8,
+ "elnp": 5,
+ "fbench": true,
+ "hlnp": false,
+ "lcap": 3,
+ "lswi": 3,
+ "mods": [
+  "3412",
+  "3421",
+  "343",
+  "3511",
+  "352",
+  "4141",
+  "4231",
+  "4312",
+  "433",
+  "4411",
+  "442"
+ ],
+ "rlnp": false,
+ "tbench": 12,
+ "version": "v3"
+}
