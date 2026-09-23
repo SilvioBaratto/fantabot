@@ -1,7 +1,11 @@
 __pycache__/
 *.pyc
 .venv/
-.env
+# `.env` and everything derived from it. `.env` alone left `.env.bak.*`, `.env.save`,
+# `.env.local` and an editor's `.env~` committable, and a backup of a secrets file is the
+# same secret. `.env.example` is tracked and documents the keys, so it is negated back in.
+.env*
+!.env.example
 # data/* and not data/ — git will not descend into an excluded directory, so a
 # `!data/keep-me.csv` under a plain `data/` rule is silently inert. Excluding the
 # contents instead is what makes the negations below actually work.
