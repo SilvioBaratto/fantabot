@@ -184,6 +184,7 @@ TREE: dict[str, str] = {
     "test_aste_load_windowing.py": "application",
     "test_aste_supervisor.py": "application",
     "test_aste_outage.py": "application",
+    "test_lineup_refresh.py": "application",
     "test_news_roster.py": "application",
     "test_news_pipeline.py": "application",
     "test_news_pipeline_limits.py": "application",

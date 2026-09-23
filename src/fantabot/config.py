@@ -169,6 +169,26 @@ def lineup_runs_path() -> Path:
     return Path.home() / ".fantabot" / LINEUP_RUNS_FILE
 
 
+#: The refresh marker: which source last succeeded, for which matchday, and when.
+LINEUP_REFRESH_FILE = "lineup_refresh.json"
+
+
+def lineup_refresh_path() -> Path:
+    """Where the hourly refresh records what it has already done.
+
+    Beside `lineup_runs.jsonl` and derived the same way, for the same reason: the `launchd`
+    job starts in the repository and the app starts wherever its launcher was, so a path
+    relative to `./data` would let the writer and a reader disagree about the one file that
+    says whether this hour's work is still owed. A marker nobody can find is a marker that
+    re-runs every source, every hour, for ever.
+
+    Read at call time rather than bound at import, so a test that repoints the home
+    directory sees it — and `redirect_home` sets `USERPROFILE` too, because `ntpath`
+    ignores `HOME`.
+    """
+    return Path.home() / ".fantabot" / LINEUP_REFRESH_FILE
+
+
 def bundled_database_url(database: str = "fantabot") -> str:
     """The DSN of the app's bundled Postgres — the canonical database.
 
@@ -231,6 +251,16 @@ class Settings(BaseSettings):
     # for legamiallerotaie. Runtime state is keyed by it because the account is
     # in two leghe and one flat file could not tell them apart. 0 means unset.
     fantabot_league_id: int = 0
+
+    # The lineup model, the lega's substitution mode and the news gate (SPEC A4/A7/A19(5)).
+    # `str | None`, never `Literal` and never required: `Settings()` runs at import, and a
+    # typo in `.env` must not stop the hourly job at the import line. Each is parsed at its
+    # own point of use and fails closed — an unrecognised model falls back to
+    # `indexcompare`, an unrecognised sub mode is "the operator has not said", and anything
+    # but an explicit yes leaves the news off.
+    fantabot_lineup_model: str | None = None
+    fantabot_lineup_sub_mode: str | None = None
+    fantabot_lineup_news: str | None = None
 
     # The driver must stay +psycopg2. SPEC assumption 3: fantabot is a batch
     # process, and `postgresql+asyncpg://` breaks `alembic upgrade head`.

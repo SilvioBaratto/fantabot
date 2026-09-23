@@ -232,6 +232,41 @@ class LeagueRepository(RepositoryBase):
         rows = self.session.execute(from_competitions.union(from_snapshots)).scalars().all()
         return sorted({int(row) for row in rows if row is not None})
 
+    def fixtures_for(self, league_id: int) -> list[Fixture]:
+        """The lega's whole calendar, as `domain/lega` sees it.
+
+        **`league_fixture` has no `league_id`.** Its only route to a lega is through
+        `league_competition.competition_id`, which is why the ids are resolved first and
+        the fixtures fetched by them — the same shape `purge` needs, and for the same
+        reason. An empty id list issues no second statement: `IN ()` is not a query worth
+        sending, and its answer is already known.
+        """
+        competition_ids = self.competition_ids(league_id)
+        if not competition_ids:
+            return []
+        rows = self.session.execute(
+            select(LeagueFixture)
+            .where(LeagueFixture.competition_id.in_(competition_ids))
+            .order_by(LeagueFixture.matchday, LeagueFixture.team_home)
+        ).scalars().all()
+        return [
+            Fixture(
+                competition_id=row.competition_id,
+                matchday=row.matchday,
+                championship_matchday=row.championship_matchday,
+                team_home=row.team_home,
+                team_away=row.team_away,
+                points_home=row.points_home,
+                points_away=row.points_away,
+                standing_home=row.standing_home,
+                standing_away=row.standing_away,
+                result=row.result,
+                real_result=row.real_result,
+                calculated=row.calculated,
+            )
+            for row in rows
+        ]
+
     def purge(self, league_id: int) -> dict[str, int]:
         """Delete every stored row belonging to one lega. Returns rows removed per table.
 

@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import typer
+from rich.markup import escape
 
 from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadline
 from fantabot.interface.console import console
@@ -416,8 +417,100 @@ def _submit(
     )
 
 
+def _refresh(
+    league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
+    competition: int = typer.Option(
+        0, "--competition", help="Competition id. Needed only to read the roster for news."
+    ),
+    cmday: int = typer.Option(
+        0, "--cmday", help="Serie A giornata being planned. 0 = read it from the platform."
+    ),
+    season: str = typer.Option("2026/27", "--season", help="Which stagione to refresh."),
+    source: list[str] = typer.Option(
+        [], "--source", help="Only these sources: voti, lega, news. Repeatable."
+    ),
+    force: bool = typer.Option(False, "--force", help="Re-run a source already done today."),
+) -> None:
+    """Bring the history up to date for this matchday. Both the child process and the tool.
+
+    `lineup submit --refresh` runs exactly this, as a child process in its own group with a
+    hard timeout — so the command an operator types to recover by hand and the one the job
+    runs are the same command, and a fix to one is a fix to both [coverage-9].
+
+    It never fails the way a source does: a site down or a token expired is one source
+    reported failed and owed again next hour, and the exit code is 1 only so a wrapper can
+    tell a clean hour from a dirty one.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.files.refresh_marker import FileMarkerStore
+    from fantabot.application.lineup_refresh import (
+        LiveRefreshSources,
+        read_refresh_inputs,
+        run_refresh,
+    )
+    from fantabot.domain.tokens.errors import TokenError
+
+    league_id = _resolve_league(league)
+    matchday = cmday or _read_cmday(league_id, competition)
+    if matchday <= 0:
+        console.print(
+            "[red]no matchday: pass --cmday, or --competition so it can be read[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        inputs = read_refresh_inputs(
+            league_id,
+            season=season,
+            cmday=matchday,
+            day=_now().date(),
+            competition=competition,
+        )
+    except TokenError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    report = run_refresh(
+        inputs,
+        sources=LiveRefreshSources(reporter=console),
+        marker_store=FileMarkerStore(),
+        reporter=console,
+        now=_now(),
+        only=tuple(source),
+        force=force,
+    )
+    for line in report.lines():
+        console.print(escape(line))
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
+def _read_cmday(league_id: int, competition: int) -> int:
+    """The Serie A giornata the lega is on, from the lineup DTO. 0 when it cannot be read.
+
+    `--cmday` exists so the child process can pass what its parent already read, rather
+    than spending a second authenticated GET a minute after the first."""
+    if not competition:
+        return 0
+    from fantabot.adapters.http import apileague
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.config import settings
+    from fantabot.domain.tokens.crypto import TokenCipher
+
+    cipher = TokenCipher(settings.fantabot_encryption_key)
+    with database_manager.get_session() as session:
+        body = apileague.teamLineup_read(league_id, competition, store=TokenStore(session, cipher))
+    return int(body.get("teamLineupDto", {}).get("cmday", 0) or 0)
+
+
 def register(app: typer.Typer) -> None:
     """Attach the lineup commands to the `lineup` group (called from `interface/app`)."""
     app.command("show")(_show)
     app.command("plan")(_plan)
     app.command("submit")(_submit)
+    app.command("refresh")(_refresh)

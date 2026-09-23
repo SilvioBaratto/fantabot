@@ -52,6 +52,7 @@ EXPECTED: set[str] = {
     "lega show",
     "lega sync",
     "lineup plan",
+    "lineup refresh",
     "lineup show",
     "lineup submit",
     "mantra-grid",
