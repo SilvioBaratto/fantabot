@@ -67,6 +67,7 @@ TREE: dict[str, str] = {
     "test_dependence.py": "domain/lineup",
     "test_freshness.py": "domain/lineup",
     "test_bench_mc.py": "domain/lineup",
+    "test_choose.py": "domain/lineup",
     "test_simulate.py": "domain/lineup",
     "test_substitution.py": "domain/lineup",
     # The engine replayed against the platform's own substitutions, so the subject is
