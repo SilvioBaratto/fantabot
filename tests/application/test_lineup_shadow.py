@@ -368,3 +368,34 @@ class TestTwoCompetitions:
 
         assert len(picked) == 2
         assert {r.competition for r in picked} == {311681, 999999}
+
+
+class TestARecordThatDoesNotNameItsCompetition:
+    """A v1 line never carried one, and on the operator's own log 27 of 52 gradable records
+    are that shape. Keyed as a competition of their own they made one matchday appear twice,
+    once as itself and once as a matchday nobody could identify."""
+
+    def test_it_joins_a_named_competitions_matchday(self) -> None:
+        old = _run(at="2026-09-22T08:00:00+02:00", competition=None, starter_ids=(), bench_ids=())
+        new = _run(at="2026-09-23T09:00:00+02:00", competition=311681)
+
+        picked = latest_per_matchday([old, new], league_id=4103937)
+
+        assert len(picked) == 1
+        assert picked[0].competition == 311681
+
+    def test_it_stands_alone_when_no_named_record_claims_that_matchday(self) -> None:
+        """Dropping it would lose the only record of a matchday the v1 writer recorded."""
+        old = _run(at="2026-09-22T08:00:00+02:00", competition=None, matchday=3)
+
+        picked = latest_per_matchday([old, _run(matchday=4)], league_id=4103937)
+
+        assert [(r.matchday, r.competition) for r in picked] == [(3, None), (4, 311681)]
+
+    def test_the_newest_unnamed_record_of_a_matchday_wins(self) -> None:
+        early = _run(at="2026-09-22T08:00:00+02:00", competition=None, module="343")
+        late = _run(at="2026-09-22T18:00:00+02:00", competition=None, module="352")
+
+        picked = latest_per_matchday([early, late], league_id=4103937)
+
+        assert [r.module for r in picked] == ["352"]

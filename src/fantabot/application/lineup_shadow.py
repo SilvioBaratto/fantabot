@@ -202,18 +202,34 @@ def latest_per_matchday(runs: Sequence[LineupRun], *, league_id: int) -> list[Li
     *competition's* own numbering and a lega can hold more than one, so a second
     competition's matchday 3 would silently replace the first's — and the report would be
     one row short with nothing saying so.
+
+    ⚠ **A record that does not name its competition is not a competition of its own.** A v1
+    line never carried one, and on the operator's own log 27 of 52 gradable records are that
+    shape — keyed as `None` they made matchday 4 appear twice, once as itself and once as a
+    matchday nobody could identify. They fall into a named competition's bucket when one
+    exists for the same matchday, and stand alone only when none does. Measured 2026-09-23.
     """
-    latest: dict[tuple[int, int], LineupRun] = {}
+    named: dict[tuple[int, int], LineupRun] = {}
+    unnamed: dict[int, LineupRun] = {}
     for run in runs:
         if run.league != league_id or run.status not in GRADABLE_STATUSES:
             continue
         if run.matchday is None:
             continue
-        key = (run.competition or 0, run.matchday)
-        seen = latest.get(key)
-        if seen is None or run.at >= seen.at:
-            latest[key] = run
-    return [latest[key] for key in sorted(latest)]
+        if run.competition:
+            key = (run.competition, run.matchday)
+            seen = named.get(key)
+            if seen is None or run.at >= seen.at:
+                named[key] = run
+            continue
+        older = unnamed.get(run.matchday)
+        if older is None or run.at >= older.at:
+            unnamed[run.matchday] = run
+
+    claimed = {matchday for _competition, matchday in named}
+    out = [named[key] for key in sorted(named)]
+    out.extend(unnamed[md] for md in sorted(unnamed) if md not in claimed)
+    return sorted(out, key=lambda run: (run.matchday or 0, run.competition or 0))
 
 
 def grade_run(
