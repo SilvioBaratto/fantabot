@@ -15,14 +15,18 @@ import pytest
 from cryptography.fernet import Fernet
 from typer.testing import CliRunner
 
+from fantabot.domain.lineup.freshness import Freshness
 from fantabot.domain.lineup.models import PlannedLineup
 from fantabot.interface.app import app
 from fantabot.interface.lineup import (
+    format_chosen,
     format_freshness,
     format_lineup,
     format_plan,
     format_projection_rows,
     is_past_deadline,
+    resolve_model,
+    wall_stop,
 )
 
 runner = CliRunner()
@@ -751,3 +755,160 @@ def test_a_fresh_verdict_carries_no_reasons() -> None:
         "data: fresh",
         "  warning: g16 6/10 (postponed?)",
     ]
+
+
+# -- T31: the settings, the wall clock, and the evaluated plan's own line ---------------
+
+
+class TestTheModelSetting:
+    """AD4: `str | None`, parsed at the point of use and failing closed. `Settings()` runs
+    at import, so a typo in `.env` must not stop the hourly job at the import line — it
+    must field a lineup the old way."""
+
+    @pytest.mark.parametrize("raw", ["projection", "PROJECTION", " Projection "])
+    def test_the_projection_is_selected_by_name(self, raw: str) -> None:
+        assert resolve_model(raw) == "projection"
+
+    @pytest.mark.parametrize(
+        "raw", [None, "", "   ", "indexcompare", "projektion", "1", "true", "montecarlo"]
+    )
+    def test_anything_else_is_the_default_path(self, raw: str | None) -> None:
+        assert resolve_model(raw) == "indexcompare"
+
+    def test_the_setting_is_read_now_and_not_at_import(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`settings` is the module singleton built at first import, so a long-lived app
+        server would answer every request with the state of the world at boot — and an
+        operator who switched the model at 21:47 without restarting would keep the old one.
+        `live_auto_act`'s own argument, on the setting that chooses which model runs.
+        """
+        from fantabot.config import LINEUP_MODEL_VAR, live_setting
+
+        monkeypatch.setenv(LINEUP_MODEL_VAR, "projection")
+        assert resolve_model(live_setting(LINEUP_MODEL_VAR)) == "projection"
+
+        monkeypatch.setenv(LINEUP_MODEL_VAR, "indexcompare")
+        assert resolve_model(live_setting(LINEUP_MODEL_VAR)) == "indexcompare"
+
+
+class TestTheWallClock:
+    """A hard abort, never a budget. The plan's size is decided in work units (AD6) so the
+    same lega on the same matchday fields the same XI on a fast machine and a slow one; this
+    is the backstop for a machine so loaded that the counted work outruns the hour."""
+
+    def test_it_does_not_fire_before_the_deadline(self) -> None:
+        clock = iter([datetime(2026, 9, 23, 7, 0, 0), datetime(2026, 9, 23, 7, 0, 30)])
+
+        stop = wall_stop(60.0, now=lambda: next(clock))
+
+        assert stop() is False
+
+    def test_it_fires_at_the_deadline(self) -> None:
+        clock = iter([datetime(2026, 9, 23, 7, 0, 0), datetime(2026, 9, 23, 7, 1, 0)])
+
+        stop = wall_stop(60.0, now=lambda: next(clock))
+
+        assert stop() is True
+
+    def test_the_deadline_is_taken_once_and_not_re_read(self) -> None:
+        """A deadline recomputed per call is not a deadline — it is a clock that never
+        passes, and the abort would never fire."""
+        times = [
+            datetime(2026, 9, 23, 7, 0, 0),
+            datetime(2026, 9, 23, 7, 0, 30),
+            datetime(2026, 9, 23, 7, 1, 30),
+        ]
+        clock = iter(times)
+
+        stop = wall_stop(60.0, now=lambda: next(clock))
+
+        assert (stop(), stop()) == (False, True)
+
+
+class TestTheChosenPlansLine:
+    def test_without_an_opponent_it_says_so_rather_than_printing_a_zero(self) -> None:
+        """A zero E[pts] reads as a certain loss. There is no league to have, and the line
+        names the reason and the objective it fell back to."""
+        outcome = _outcome(points=None, opponent="none (only 0 calculated round(s))")
+
+        lines = format_chosen(outcome)
+
+        assert any("no opponent" in line and "ranked on E[fp]" in line for line in lines)
+        assert not any("E[pts]" in line for line in lines)
+
+    def test_with_an_opponent_it_prints_the_objective_and_its_parts(self) -> None:
+        outcome = _outcome(points=1.85, wdl=(0.55, 0.2, 0.25))
+
+        lines = format_chosen(outcome)
+
+        assert any("E[pts] 1.850" in line for line in lines)
+        assert any("P(W/D/L) 0.550/0.200/0.250" in line for line in lines)
+        assert any("E[fp] 66.00" in line for line in lines)
+
+    def test_an_assumed_sub_mode_says_it_is_assumed(self) -> None:
+        """Open Question 1 is open and the three modes field different XIs, so an unset
+        mode is announced rather than defaulted in silence."""
+        lines = format_chosen(_outcome(points=1.0, assumed=True))
+
+        assert any("assumed" in line and "FANTABOT_LINEUP_SUB_MODE" in line for line in lines)
+
+    def test_a_set_sub_mode_is_reported_without_the_warning(self) -> None:
+        lines = format_chosen(_outcome(points=1.0, assumed=False, sub_mode="easy"))
+
+        assert any("sub mode easy" in line for line in lines)
+        assert not any("assumed" in line for line in lines)
+
+    def test_a_budget_cut_is_surfaced(self) -> None:
+        """"The model wanted 20,000 draws and got 500" is the first thing to know when a
+        plan looks noisy."""
+        lines = format_chosen(_outcome(points=1.0, cuts=("draws 20000 -> 500",)))
+
+        assert any("budget: draws 20000 -> 500" in line for line in lines)
+
+    def test_no_chosen_plan_names_the_fallback(self) -> None:
+        lines = format_chosen(_outcome(chosen=False, fallback="classic: Mantra-only"))
+
+        assert any("no evaluated plan: classic: Mantra-only" in line for line in lines)
+
+
+def _outcome(
+    *,
+    points: float | None = None,
+    wdl: tuple[float, float, float] | None = None,
+    opponent: str = "12 calculated round(s)",
+    assumed: bool = True,
+    sub_mode: str = "basic",
+    cuts: tuple[str, ...] = (),
+    chosen: bool = True,
+    fallback: str = "",
+) -> Any:
+    from fantabot.application.lineup_projection import ProjectionOutcome
+    from fantabot.domain.lineup.choose import ChosenPlan
+    from fantabot.domain.lineup.simulate import Evaluation
+
+    win, drawn, loss = wdl or (None, None, None)
+    plan = ChosenPlan(
+        module="343",
+        starts=tuple(range(11)),
+        bench=(20, 21),
+        evaluation=Evaluation(
+            points=points, win=win, drawn=drawn, loss=loss,
+            fantapunti=66.0, fantapunti_sd=5.0, goals=1.0, malus=0.0, short=0.0, patterns=3,
+        ),
+        objective="points" if points is not None else "fantapunti",
+        candidates=9, evaluated=9, draws=500, cuts=cuts, benched=2,
+    )
+    return ProjectionOutcome(
+        plans=(),
+        lines=(),
+        freshness=Freshness(fresh=True, reasons=(), warnings=()),
+        replacement=0.0,
+        as_of=date(2026, 9, 23),
+        seasons=("2026/27",),
+        chosen=plan if chosen else None,
+        opponent=opponent,
+        sub_mode=sub_mode,  # type: ignore[arg-type]
+        sub_mode_assumed=assumed,
+        fallback=fallback,
+    )

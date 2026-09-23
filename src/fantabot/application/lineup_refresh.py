@@ -316,7 +316,7 @@ class LiveRefreshSources:
         """`FANTABOT_LINEUP_NEWS`, parsed at use and failing closed (AD4)."""
         if self.news_enabled is not None:
             return self.news_enabled
-        from fantabot.config import Settings
+        from fantabot.config import LINEUP_NEWS_VAR, live_setting
 
-        raw = Settings().fantabot_lineup_news
+        raw = live_setting(LINEUP_NEWS_VAR)
         return (raw or "").strip().lower() in {"1", "true", "yes", "on"}

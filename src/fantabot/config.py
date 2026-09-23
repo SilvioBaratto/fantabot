@@ -104,6 +104,29 @@ def live_auto_act() -> bool:
         return False
 
 
+#: The three lineup settings, by env name. Re-read like `live_auto_act`, and for the same
+#: reason: `settings` is the module singleton built at first import, so a long-lived app
+#: server would answer every request with the state of the world at boot — and an operator
+#: who switched the model at 21:47 without restarting would keep getting the old one.
+LINEUP_MODEL_VAR = "FANTABOT_LINEUP_MODEL"
+LINEUP_SUB_MODE_VAR = "FANTABOT_LINEUP_SUB_MODE"
+LINEUP_NEWS_VAR = "FANTABOT_LINEUP_NEWS"
+
+
+def live_setting(name: str) -> str | None:
+    """One setting's value **now**, with `live_auto_act`'s precedence and none of its parsing.
+
+    Parsing belongs at the point of use (AD4): each of the three fails closed differently —
+    an unknown model is `indexcompare`, an unknown sub mode is "the operator has not said",
+    and anything but an explicit yes leaves the news off — so this returns the raw string
+    and the caller decides what it could not read.
+    """
+    raw: str | None = os.environ.get(name)
+    if raw is None or name in _DOTENV_INJECTED:
+        raw = _dotenv_value(name)
+    return raw
+
+
 def _dotenv_value(name: str) -> str | None:
     """One name's current value in the `.env`, read fresh. ``None`` if anything is wrong.
 

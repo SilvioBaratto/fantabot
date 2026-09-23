@@ -18,7 +18,14 @@ from datetime import date, timedelta
 import pytest
 
 from fantabot.application.lineup_planner import LineupInputs
-from fantabot.application.lineup_projection import ProjectionOutcome, plan_projection
+from fantabot.application.lineup_projection import (
+    ProjectionOutcome,
+    _chosen,
+    plan_projection,
+    substitution_cap,
+)
+from fantabot.domain.lineup.choose import Budget
+from fantabot.domain.lineup.errors import BenchIncomplete, NoFieldableModule
 from fantabot.domain.lineup.history import Fixture, HistoryAppearance, Valuation
 from fantabot.domain.lineup.scoring import Appearance, ScoringRules
 from fantabot.domain.shared.values import SentimentRow
@@ -156,9 +163,17 @@ def _reading(player_id: int, **over: float) -> SentimentRow:
     )
 
 
+#: A small budget, because the default tier's rule is N <= 500 and the chain's real one is
+#: 20,000. It changes the draws and nothing else — every assertion below is about what the
+#: projection *read* and how it valued it, not about a Monte Carlo number.
+SMALL = Budget(k=3, lambdas=(0.0,), node_budget=200, m=2, work=8_000)
+
+
 def _plan(history: FakeHistory | None = None, **over: object) -> ProjectionOutcome:
+    budget = over.pop("budget", SMALL)
     return plan_projection(
-        _inputs(**over), history or FakeHistory(), as_of=AS_OF, rules=RULES
+        _inputs(**over), history or FakeHistory(), as_of=AS_OF, rules=RULES,
+        budget=budget,  # type: ignore[arg-type]
     )
 
 
@@ -293,3 +308,195 @@ class TestFreshness:
 
         assert not outcome.freshness.fresh
         assert any("matchday" in reason for reason in outcome.freshness.reasons)
+
+
+# -- T31: the evaluated plan, the settings, and the fallbacks ---------------------------
+
+
+class TestTheEvaluatedPlan:
+    def test_the_chain_runs_and_its_xi_leads_the_list(self) -> None:
+        """`plans[0]` *is* the plan, wherever it came from: the submit path walks this list,
+        so the model's answer is the one that would be sent."""
+        outcome = _plan()
+
+        assert outcome.chosen is not None
+        assert outcome.plans[0].starts == outcome.chosen.starts
+        assert outcome.plans[0].module == outcome.chosen.module
+        assert outcome.plans[0].bench == outcome.chosen.bench
+
+    def test_the_matchday_coordinates_come_from_the_dto_and_not_from_the_chain(self) -> None:
+        """The chain knows nothing about competitions; a head built without them would
+        submit `tid=0` and a matchday of 0, which the submit path refuses."""
+        outcome = _plan()
+
+        assert (outcome.plans[0].competition, outcome.plans[0].tid) == (311681, 10000003)
+        assert (outcome.plans[0].mday, outcome.plans[0].cmday) == (7, 9)
+
+    def test_the_matchers_own_answer_survives_behind_it(self) -> None:
+        """A refused schema must still have somewhere to fall to, and the fallback that
+        needs no opponent and no draws is the list that was already there."""
+        outcome = _plan()
+
+        assert len(outcome.plans) >= 1
+        assert len({(p.module, p.starts) for p in outcome.plans}) == len(outcome.plans)
+
+    def test_the_same_inputs_give_the_same_plan_twice(self) -> None:
+        """The seed is the coordinates, so an hourly job re-planning the same matchday all
+        week produces the same XI — and a shadow report can be recomputed."""
+        one, two = _plan(), _plan()
+
+        assert one.chosen is not None and two.chosen is not None
+        assert (one.chosen.module, one.chosen.starts, one.chosen.bench) == (
+            two.chosen.module, two.chosen.starts, two.chosen.bench
+        )
+        assert one.chosen.evaluation == two.chosen.evaluation
+
+    def test_another_matchday_is_another_seed(self) -> None:
+        """The control. Same roster, same history, a different giornata: the draws move."""
+        one, two = _plan(), _plan(cmday=10)
+
+        assert one.chosen is not None and two.chosen is not None
+        assert one.chosen.evaluation.fantapunti != two.chosen.evaluation.fantapunti
+
+    def test_the_default_tier_takes_at_most_five_hundred_draws(self) -> None:
+        """The suite's own rule. The chain's real budget is 20,000 and this file passes a
+        small one, so a test that quietly reverted to the default would be measurable here
+        before it was measurable in the wall clock."""
+        outcome = _plan()
+
+        assert outcome.chosen is not None
+        assert outcome.chosen.draws <= 500
+
+
+class TestTheOpponentDegrades:
+    def test_too_few_calculated_rounds_is_a_named_reason_and_not_a_crash(self) -> None:
+        """A KDE over four scores is a guess with a probability attached; the plan is still
+        worth having without one and says which."""
+        outcome = _plan()
+
+        assert outcome.chosen is not None
+        assert outcome.chosen.objective == "fantapunti"
+        assert outcome.opponent.startswith("none (")
+        assert outcome.chosen.evaluation.points is None
+
+    def test_enough_rounds_gives_a_league(self) -> None:
+        class WithScores(FakeHistory):
+            def calculated_scores(self, league_id: int) -> list[float]:
+                return [60.0, 64.0, 66.0, 68.0, 70.0, 72.0, 74.0, 80.0, 55.0, 90.0]
+
+        outcome = _plan(WithScores())
+
+        assert outcome.chosen is not None
+        assert outcome.chosen.objective == "points"
+        assert outcome.chosen.evaluation.points is not None
+        assert outcome.opponent == "10 calculated round(s)"
+
+
+class TestTheSubMode:
+    def test_an_unset_mode_is_assumed_and_recorded_as_assumed(self) -> None:
+        """AD4: the three modes field different XIs and Open Question 1 is still open, so
+        an unset mode is *assumed* basic and never silently defaulted."""
+        outcome = _plan()
+
+        assert (outcome.sub_mode, outcome.sub_mode_assumed) == ("basic", True)
+
+    def test_a_set_mode_is_used_and_not_marked_assumed(self) -> None:
+        outcome = plan_projection(
+            _inputs(), FakeHistory(), as_of=AS_OF, rules=RULES, budget=SMALL, sub_mode="easy"
+        )
+
+        assert (outcome.sub_mode, outcome.sub_mode_assumed) == ("easy", False)
+
+
+def _after(calls: int) -> object:
+    """A `should_stop` that fires after `calls` consultations — a clock without a clock."""
+    seen: list[int] = []
+
+    def stop() -> bool:
+        seen.append(1)
+        return len(seen) > calls
+
+    return stop
+
+
+class TestTheFallbacks:
+    """What the chain contains, and what it deliberately does not.
+
+    `plan_lineups` runs **before** the chain, so a roster that fields no module or cannot
+    fill a bench raises there and has nowhere to fall to — that refusal is the right answer
+    and is not caught. What the chain adds on top is optional, and every way it can fail is
+    a fallback to the matcher's own XI.
+    """
+
+    def test_a_classic_lega_never_reaches_the_chain(self) -> None:
+        """The substitution engine reads the 11 Mantra schemi; a Classic lega has one role
+        per player and a different legality, so the chain refuses it by name rather than
+        running it through a matcher answering a question nobody asked.
+
+        Asserted on `_chosen`'s guard itself: a Classic roster does not survive `_targets`
+        either — `macro_role` refuses a `P` on the Mantra scale — so a whole-projection test
+        would prove the *earlier* refusal and read as if it had proved this one.
+        """
+        outcome = _chosen(
+            _inputs(fmt="classic"),
+            roster=[], targets={}, projections={}, p={}, values={}, history_rows=[],
+            rules=RULES, sub_mode="basic", opponent=None, league_id=1, max_subs=None,
+            budget=SMALL, should_stop=None,
+        )
+
+        assert outcome == (None, "classic: the evaluated chain is Mantra-only")
+
+    def test_a_history_too_thin_for_the_copula_falls_back_rather_than_raising(self) -> None:
+        """An hourly job that raised here would field nothing at all rather than the XI the
+        matcher would have sent."""
+
+        class NoHistory(FakeHistory):
+            def appearances(
+                self, player_ids: Collection[int], *, seasons: Collection[str], before: date
+            ) -> list[HistoryAppearance]:
+                return []
+
+        with pytest.raises(ValueError):
+            _plan(NoHistory())
+
+    def test_a_roster_that_fields_nothing_raises_rather_than_falling_back(self) -> None:
+        """Not a fallback: there is no XI to fall back *to*, and a caller handed an empty
+        plan would POST nothing while reporting success."""
+        with pytest.raises(NoFieldableModule):
+            _plan(modules=[])
+
+    def test_a_bench_that_cannot_be_filled_raises_rather_than_falling_back(self) -> None:
+        with pytest.raises(BenchIncomplete):
+            _plan(bench_size=99)
+
+    def test_a_stopped_chain_is_a_plan(self) -> None:
+        outcome = plan_projection(
+            _inputs(), FakeHistory(), as_of=AS_OF, rules=RULES, budget=SMALL,
+            should_stop=_after(1),
+        )
+
+        assert outcome.chosen is not None
+        assert outcome.chosen.stopped
+        assert outcome.plans[0].starts == outcome.chosen.starts
+        assert any(cut.startswith(("stopped", "bench stopped")) for cut in outcome.chosen.cuts)
+
+
+class TestTheSubstitutionCap:
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            ({"subst": {"ssnum": 5}}, 5),
+            ({"subst": {"ssnum": "5"}}, 5),
+            ({"subst": {"ssnum": 0}}, None),
+            ({"subst": {"ssnum": None}}, None),
+            ({"subst": {}}, None),
+            ({}, None),
+            ({"subst": "nonsense"}, None),
+        ],
+    )
+    def test_a_missing_or_zero_cap_reads_as_uncapped(
+        self, payload: dict[str, object], expected: int | None
+    ) -> None:
+        """An engine told it may make no substitutions fields a man short every week, which
+        is a worse wrong answer than one that makes a substitution too many."""
+        assert substitution_cap(payload) == expected

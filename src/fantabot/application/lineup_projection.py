@@ -36,17 +36,36 @@ reach it, from `interface/lineup.py`'s command body.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from fantabot.application.lineup_planner import plan_lineups
 from fantabot.application.scrape import current_season
-from fantabot.domain.asta.roles import macro_role
+from fantabot.domain.asta.roles import macro_role, normalize_roles
+from fantabot.domain.lineup import positional
+from fantabot.domain.lineup.choose import (
+    Budget,
+    ChosenPlan,
+    PlanInputs,
+    choose_plan,
+    seed_for,
+)
+from fantabot.domain.lineup.dependence import fit as fit_dependence
+from fantabot.domain.lineup.dependence import residuals
+from fantabot.domain.lineup.errors import LineupError, OpponentUnavailable
 from fantabot.domain.lineup.freshness import Freshness, staleness
 from fantabot.domain.lineup.history import Fixture, HistoryAppearance, LineupHistory, Valuation
+from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
+from fantabot.domain.lineup.opponent import Opponent
+from fantabot.domain.lineup.opponent import fit as fit_opponent
 from fantabot.domain.lineup.presence import PresenceWeights, presence, windows
 from fantabot.domain.lineup.projection import (
+    Observation,
     Projection,
     ProjectionConfig,
     Target,
@@ -56,13 +75,13 @@ from fantabot.domain.lineup.projection import (
 from fantabot.domain.lineup.value import replacement_level, sub_aware
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Sequence
     from datetime import date
 
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_planner import LineupInputs
-    from fantabot.domain.lineup.models import PlannedLineup
     from fantabot.domain.lineup.scoring import ScoringRules
+    from fantabot.domain.lineup.substitution import SubMode
 
 #: Seasons of history the projection reads, the current one included.
 SEASONS_READ = 5
@@ -103,6 +122,20 @@ class ProjectionOutcome:
     replacement: float
     as_of: date
     seasons: tuple[str, ...]
+    #: The evaluated plan (T30), or `None` when the chain could not produce one. `plans[0]`
+    #: is then the fallback — the sub-aware matcher's own answer, which needs no opponent,
+    #: no draws and no budget.
+    chosen: ChosenPlan | None = None
+    #: How the opponent was obtained, or the named reason there is none. Printed, so an
+    #: operator reading "E[pts]" knows whether there was a league behind it.
+    opponent: str = ""
+    #: The substitution mode the chain ran under, and whether the operator set it. An
+    #: unset mode is **assumed**, never defaulted silently: the three field different XIs
+    #: and Open Question 1 is still open (`domain/lineup/substitution.parse_sub_mode`).
+    sub_mode: SubMode = "basic"
+    sub_mode_assumed: bool = True
+    #: Why there is no `chosen`, when there is none.
+    fallback: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,9 +155,11 @@ def projection_for_league(
     league_id: int,
     competition: int,
     as_of: date,
+    sub_mode: SubMode | None = None,
     voti_refreshed: bool = False,
     config: ProjectionConfig | None = None,
     weights: PresenceWeights = PresenceWeights(),
+    should_stop: Callable[[], bool] | None = None,
 ) -> ProjectionReport:
     """Both plans for one lega, from one set of reads.
 
@@ -149,13 +184,35 @@ def projection_for_league(
             LineupHistoryRepository(session),
             as_of=as_of,
             rules=rules,
+            league_id=league_id,
+            sub_mode=sub_mode,
+            max_subs=substitution_cap(calculate),
             voti_refreshed=voti_refreshed,
             config=config,
             weights=weights,
+            should_stop=should_stop,
         )
     return ProjectionReport(
         baseline=tuple(plan_lineups(inputs)), projection=outcome, names=names, competition=comp
     )
+
+
+def substitution_cap(calculate: Mapping[str, Any]) -> int | None:
+    """`settings/calculate.subst.ssnum`, if it is a cap at all.
+
+    Open Question 1: the field reads 5 for this lega and nothing has confirmed it *is* the
+    substitution allowance rather than, say, the number of declared switches. A missing or
+    non-positive value is read as **uncapped** rather than as zero — an engine told it may
+    make no substitutions fields a man short every week, which is a worse wrong answer than
+    an engine that makes one too many.
+    """
+    subst = calculate.get("subst")
+    raw = subst.get("ssnum") if isinstance(subst, Mapping) else None
+    try:
+        cap = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return cap if cap > 0 else None
 
 
 def plan_projection(
@@ -164,11 +221,22 @@ def plan_projection(
     *,
     as_of: date,
     rules: ScoringRules,
+    league_id: int = 0,
+    sub_mode: SubMode | None = None,
+    max_subs: int | None = None,
+    budget: Budget | None = None,
     voti_refreshed: bool = False,
     config: ProjectionConfig | None = None,
     weights: PresenceWeights = PresenceWeights(),
+    should_stop: Callable[[], bool] | None = None,
 ) -> ProjectionOutcome:
-    """Project the roster and rank the modules on it. Reads history, opens nothing."""
+    """Project the roster, rank the modules on it, and evaluate the shortlist. Reads
+    history, opens nothing.
+
+    `sub_mode` is `None` when the operator has not set it (AD4): the chain still runs, under
+    BASIC, and the outcome records that it was **assumed**. `should_stop` is the wall
+    clock's one seam into the pure chain — the clock itself never reaches here.
+    """
     season = current_season(as_of)
     seasons = _seasons(season)
     valuations = {s: history.valuations(s) for s in seasons}
@@ -176,8 +244,9 @@ def plan_projection(
     rows = history.appearances(sorted(targets), seasons=seasons, before=as_of)
     fixtures = {s: history.fixtures(s) for s in seasons}
 
+    history_rows = observations(rows, rules=rules, valuations=valuations)
     projections = project(
-        observations(rows, rules=rules, valuations=valuations),
+        history_rows,
         targets,
         as_of=as_of,
         config=config or ProjectionConfig(DEFAULT_HALF_LIFE_DAYS),
@@ -202,14 +271,162 @@ def plan_projection(
     mu = {pid: projections[pid].mu for pid in roster}
     p = {pid: presences[pid].p for pid in roster}
     values = sub_aware(mu, p)
+    plans = tuple(plan_lineups(replace(inputs, fvmma_by_id=values)))
+
+    mode: SubMode = sub_mode or "basic"
+    opponent, opponent_note = _opponent(history, league_id=league_id)
+    chosen, fallback = _chosen(
+        inputs,
+        roster=roster,
+        targets=targets,
+        projections=projections,
+        p=p,
+        values=values,
+        history_rows=history_rows,
+        rules=rules,
+        sub_mode=mode,
+        opponent=opponent,
+        league_id=league_id,
+        max_subs=max_subs,
+        budget=budget,
+        should_stop=should_stop,
+    )
     return ProjectionOutcome(
-        plans=tuple(plan_lineups(replace(inputs, fvmma_by_id=values))),
+        plans=_ranked(plans, chosen, inputs),
         lines=_lines(roster, targets, classic, projections, p, values),
         freshness=_freshness(fixtures[season], cmday=inputs.cmday, refreshed=voti_refreshed),
         replacement=replacement_level({pid: p[pid] * mu[pid] for pid in roster}),
         as_of=as_of,
         seasons=seasons,
+        chosen=chosen,
+        opponent=opponent_note,
+        sub_mode=mode,
+        sub_mode_assumed=sub_mode is None,
+        fallback=fallback,
     )
+
+
+def _ranked(
+    plans: Sequence[PlannedLineup], chosen: ChosenPlan | None, inputs: LineupInputs
+) -> tuple[PlannedLineup, ...]:
+    """The evaluated XI first, then the matcher's own list as the fallback walk.
+
+    **`plans[0]` is the plan, wherever it came from.** The submit path walks this list and
+    falls to the next module when the platform refuses one, so putting the chosen XI at the
+    head is what makes the model's answer the one that is *sent* — and building a
+    `PlannedLineup` in the interface instead would be a decision the app also needs, which
+    is the `GET /asta/plan` mistake in miniature.
+
+    The matcher's own answer is kept behind it, deduplicated on `(module, starts)`: a
+    refused schema must still have somewhere to fall to, and the fallback that needs no
+    opponent and no draws is exactly the list that was already there.
+    """
+    if chosen is None:
+        return tuple(plans)
+    head = PlannedLineup(
+        module=chosen.module,
+        starts=chosen.starts,
+        bench=chosen.bench,
+        competition=inputs.competition,
+        mday=inputs.mday,
+        cmday=inputs.cmday,
+        tid=inputs.tid,
+        guard=positional.refusal(
+            chosen.module,
+            [normalize_roles(inputs.roles_by_id.get(pid, ())) for pid in chosen.starts],
+        ),
+    )
+    rest = [p for p in plans if (p.module, p.starts) != (head.module, head.starts)]
+    return (head, *rest)
+
+
+def _opponent(history: LineupHistory, *, league_id: int) -> tuple[Opponent | None, str]:
+    """The opponent's score distribution, or the named reason there is none.
+
+    A **named degradation, never a crash.** `OpponentUnavailable` is the ordinary state of
+    a lega three rounds into a season — a KDE over four scores is a guess with a probability
+    attached — and the plan is still worth having without one: it ranks on E[fantapunti]
+    instead and says so. What it must not do is quietly report an E[pts] computed against an
+    opponent nobody fitted.
+    """
+    scores = history.calculated_scores(league_id)
+    try:
+        return fit_opponent(scores), f"{len(scores)} calculated round(s)"
+    except OpponentUnavailable as exc:
+        return None, f"none ({exc})"
+
+
+def _chosen(
+    inputs: LineupInputs,
+    *,
+    roster: Sequence[int],
+    targets: Mapping[int, Target],
+    projections: Mapping[int, Projection],
+    p: Mapping[int, float],
+    values: Mapping[int, float],
+    history_rows: Sequence[Observation],
+    rules: ScoringRules,
+    sub_mode: SubMode,
+    opponent: Opponent | None,
+    league_id: int,
+    max_subs: int | None,
+    budget: Budget | None,
+    should_stop: Callable[[], bool] | None,
+) -> tuple[ChosenPlan | None, str]:
+    """The evaluated plan, or `None` and why. The chain's one call site in the application.
+
+    **Mantra only, and it says so.** The substitution engine reads `schema.admissions`,
+    which is the 11 Mantra schemi; a Classic lega has one role per player and a different
+    legality, so it falls back by name rather than being run through a matcher that would
+    answer a question nobody asked.
+
+    Everything else that can go wrong is a `LineupError` or a `ValueError` from a history
+    too thin to fit the copula, and every one of them is a **fallback**: `plans[0]` — the
+    sub-aware matcher's own answer — needs no opponent, no draws and no budget, and an
+    hourly job that raised here would field nothing at all.
+
+    ⚠ The *matcher's* own refusals are not caught here and must not be: `plan_lineups` runs
+    first, and a roster that fields no module or cannot fill a bench has no fallback to fall
+    to. What this contains is what the **chain** adds — the copula, the shortlist, the
+    bench search — which is exactly the work that is optional.
+    """
+    if inputs.fmt == "classic":
+        return None, "classic: the evaluated chain is Mantra-only"
+    try:
+        players = assemble_roster(
+            list(roster),
+            roles_by_id=inputs.roles_by_id,
+            fvmma_by_id=values,
+            normalize=normalize_roles,
+        )
+        dependence = fit_dependence(residuals(history_rows, projections, targets))
+        plan_inputs = PlanInputs(
+            roster=tuple(players),
+            modules=tuple(inputs.modules),
+            mu={pid: projections[pid].mu for pid in roster},
+            p={pid: p[pid] for pid in roster},
+            sigma_tilde={pid: math.sqrt(projections[pid].sigma_tilde2) for pid in roster},
+            macro={pid: targets[pid].macro for pid in roster},
+            club={pid: targets[pid].club for pid in roster},
+            dependence=dependence,
+            rules=rules,
+            bench_size=inputs.bench_size,
+            value=values,
+            max_subs=max_subs,
+        )
+        chosen = choose_plan(
+            plan_inputs,
+            rng=np.random.default_rng(
+                seed_for(league_id, inputs.competition, inputs.cmday)
+            ),
+            budget=budget,
+            sub_mode=sub_mode,
+            opponent=opponent,
+            should_stop=should_stop,
+        )
+    except (LineupError, ValueError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    return chosen, ""
 
 
 def _seasons(current: str, count: int = SEASONS_READ) -> tuple[str, ...]:

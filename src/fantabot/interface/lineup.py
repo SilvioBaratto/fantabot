@@ -13,8 +13,8 @@ authority — it rejects a truly-closed submit and we surface that.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import datetime
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import typer
@@ -24,7 +24,7 @@ from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadlin
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:
-    from fantabot.application.lineup_projection import ProjectionReport
+    from fantabot.application.lineup_projection import ProjectionOutcome, ProjectionReport
     from fantabot.domain.lineup.freshness import Freshness
     from fantabot.domain.lineup.models import PlannedLineup
 
@@ -38,6 +38,67 @@ is_past_deadline = _is_past_deadline
 def _now() -> datetime:
     """The one clock read for the lineup feature — isolated so tests can reason about it."""
     return datetime.now()
+
+
+def wall_stop(seconds: float, *, now: Callable[[], datetime] = _now) -> Callable[[], bool]:
+    """`should_stop` from a wall clock — the **only** way a clock reaches the pure chain.
+
+    A hard abort, never a budget: the plan's size is decided in work units (AD6) precisely
+    so the same lega on the same matchday fields the same XI on a fast machine and a slow
+    one. This is the backstop for the case that reasoning cannot cover — a machine so loaded
+    that the counted work takes longer than the hour the job runs in — and what it produces
+    is a **fallback**: `choose_plan` returns the best plan it had and records the stop.
+
+    `now` is injected rather than read here so the test does not have to wait out a deadline.
+    """
+    deadline = now() + timedelta(seconds=seconds)
+    return lambda: now() >= deadline
+
+
+def resolve_model(raw: str | None) -> str:
+    """`FANTABOT_LINEUP_MODEL` as a model, failing closed to `indexcompare` (AD4).
+
+    `Settings()` runs at import, so the value is a plain `str | None` and a typo in `.env`
+    must not stop the hourly job at the import line — it must field a lineup the old way.
+    Parsed here, at the point of use, and re-read every run like `live_auto_act`.
+    """
+    candidate = (raw or "").strip().lower()
+    return PROJECTION if candidate == PROJECTION else INDEXCOMPARE
+
+
+def format_chosen(outcome: ProjectionOutcome) -> list[str]:
+    """The evaluated plan's own numbers, or the named reason there are none.
+
+    E[pts] is the objective and is printed first; P(W/D/L) is what it is made of; E[fp] and
+    its spread are reported beside it, never instead of it. Without an opponent there is no
+    E[pts] to print, and the line says so rather than showing a zero that reads as a loss.
+    """
+    mode = f"sub mode {outcome.sub_mode}" + (
+        " (assumed — FANTABOT_LINEUP_SUB_MODE is unset)" if outcome.sub_mode_assumed else ""
+    )
+    if outcome.chosen is None:
+        return [f"[yellow]no evaluated plan: {outcome.fallback}[/yellow]", f"[dim]{mode}[/dim]"]
+    plan = outcome.chosen
+    e = plan.evaluation
+    head = (
+        f"module {plan.module} · E[fp] {e.fantapunti:.2f} ± {e.fantapunti_sd:.2f} · "
+        f"E[goals] {e.goals:.2f}"
+    )
+    if e.points is None or e.win is None or e.drawn is None or e.loss is None:
+        result = f"no opponent ({outcome.opponent}) — ranked on E[fp]"
+    else:
+        result = (
+            f"E[pts] {e.points:.3f} · P(W/D/L) "
+            f"{e.win:.3f}/{e.drawn:.3f}/{e.loss:.3f} · opponent {outcome.opponent}"
+        )
+    spent = (
+        f"{plan.candidates} candidate(s), {plan.evaluated} evaluated, "
+        f"{plan.benched} bench search(es), {plan.draws} draws"
+    )
+    lines = [head, result, f"[dim]{spent} · {mode}[/dim]"]
+    if plan.cuts:
+        lines.append(f"[yellow]budget: {', '.join(plan.cuts)}[/yellow]")
+    return lines
 
 
 
@@ -73,6 +134,11 @@ def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
 #: the default everywhere; `projection` is phase `lineup-theory`'s μ/p model, which no submit
 #: path uses yet — `plan --model projection` is a preview, and T36 is what wires it.
 INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
+
+#: The hard abort for a read-only plan. Well inside launchd's hourly `StartInterval`, and
+#: far above what the counted budget actually takes (measured: 0.5 s over 20,000 draws on a
+#: four-candidate board). It exists for the machine that is not this one.
+PLAN_WALL_SECONDS = 60.0
 
 
 def format_projection_rows(report: ProjectionReport) -> list[tuple[str, ...]]:
@@ -153,9 +219,9 @@ def _plan(
         0, "--competition", help="Competition id. Auto-resolved when omitted."
     ),
     model: str = typer.Option(
-        INDEXCOMPARE,
+        "",
         "--model",
-        help=f"Value model: {INDEXCOMPARE} (the default) or {PROJECTION} (preview).",
+        help=f"Value model: {INDEXCOMPARE} or {PROJECTION}. Empty reads FANTABOT_LINEUP_MODEL.",
     ),
 ) -> None:
     """Build and print the best legal formation for the current matchday. **No submit.**"""
@@ -164,16 +230,17 @@ def _plan(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_submit import build_plans
-    from fantabot.config import settings
+    from fantabot.config import LINEUP_MODEL_VAR, live_setting, settings
     from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
     league_id = _resolve_league(league)
-    if model not in (INDEXCOMPARE, PROJECTION):
+    if model and model not in (INDEXCOMPARE, PROJECTION):
         console.print(f"[red]unknown model {model!r}: {INDEXCOMPARE} or {PROJECTION}[/red]")
         raise typer.Exit(code=1)
-    if model == PROJECTION:
+    chosen_model = model or resolve_model(live_setting(LINEUP_MODEL_VAR))
+    if chosen_model == PROJECTION:
         _plan_projection(league_id, competition)
         return
     try:
@@ -212,8 +279,9 @@ def _plan_projection(league_id: int, competition: int) -> None:
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_projection import projection_for_league
-    from fantabot.config import settings
+    from fantabot.config import LINEUP_SUB_MODE_VAR, live_setting, settings
     from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.lineup.substitution import parse_sub_mode
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
@@ -225,6 +293,8 @@ def _plan_projection(league_id: int, competition: int) -> None:
                 league_id=league_id,
                 competition=competition,
                 as_of=_now().date(),
+                sub_mode=parse_sub_mode(live_setting(LINEUP_SUB_MODE_VAR)),
+                should_stop=wall_stop(PLAN_WALL_SECONDS),
             )
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")
@@ -249,7 +319,11 @@ def _plan_projection(league_id: int, competition: int) -> None:
     for line in format_plan(report.baseline[0], report.names):
         console.print(line)
     console.print(f"\n[bold]{PROJECTION}[/bold]")
+    # `plans[0]` *is* the evaluated XI when there is one: the application puts it at the
+    # head so the submit path walks it first, and the interface only prints what it is given.
     for line in format_plan(outcome.plans[0], report.names):
+        console.print(line)
+    for line in format_chosen(outcome):
         console.print(line)
 
     header, *rows = format_projection_rows(report)
