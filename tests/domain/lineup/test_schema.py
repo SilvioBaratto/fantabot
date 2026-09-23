@@ -134,3 +134,50 @@ def test_all_eleven_platform_modules_resolve() -> None:
 def test_an_unknown_module_code_raises() -> None:
     with pytest.raises(ValueError, match="999"):
         schema.slots("999")
+
+
+# -- T20: the compat matrix, re-laid into the platform's slot order -------------------
+
+
+def test_the_two_files_describe_the_same_eleven_schemi() -> None:
+    """`mantra_compat.json` and `mantra_starts_order.json` are two views of one thing — the
+    PDF's row order and the platform's `starts[]` order. `admissions` matches them slot by
+    slot, so they must agree on which slots exist before the match means anything."""
+    from fantabot.domain.asta.legality import build_legality, load_compat
+
+    compat = {nome.replace("-", "") for nome in build_legality(load_compat())}
+
+    assert compat == schema.modules()
+
+
+def test_every_slot_is_matched_by_role_set_and_not_by_label() -> None:
+    """4-2-3-1 spells one slot `T/W` in the starts order and `W/T` in the compat matrix. A
+    `str` key drops that slot on exactly one of the eleven, and the one it drops is the
+    module whose `T` slot carries the `-1*` `W` cell — so the failure is silent and lands
+    on the rule the 4-1-4-1 exception is a *counter*example to."""
+    labels = {
+        code: [sorted(slot.natural) for slot in schema.admissions(code)]
+        for code in sorted(schema.modules())
+    }
+
+    assert labels["4231"][9] == ["T", "W"]
+    assert "W" in schema.admissions("4231")[9].natural
+
+
+@pytest.mark.parametrize("code", sorted({"3412", "3421", "343", "3511", "352", "4141",
+                                         "4231", "4312", "433", "4411", "442"}))
+def test_the_natural_roles_of_an_admission_are_the_slot_itself(code: str) -> None:
+    """`admissions(code)[i].natural` must be `slots(code)[i]` exactly. Anything looser and
+    the malus count is measured against a different schema from the one being fielded."""
+    assert tuple(slot.natural for slot in schema.admissions(code)) == schema.slots(code)
+
+
+@pytest.mark.parametrize("code", sorted({"3412", "3421", "343", "3511", "352", "4141",
+                                         "4231", "4312", "433", "4411", "442"}))
+def test_each_module_admits_eleven_slots(code: str) -> None:
+    assert len(schema.admissions(code)) == 11
+
+
+def test_an_unknown_module_has_no_admissions_rather_than_an_empty_one() -> None:
+    with pytest.raises(ValueError, match="999"):
+        schema.admissions("999")

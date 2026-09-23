@@ -67,6 +67,9 @@ TREE: dict[str, str] = {
     "test_dependence.py": "domain/lineup",
     "test_freshness.py": "domain/lineup",
     "test_substitution.py": "domain/lineup",
+    # The engine replayed against the platform's own substitutions, so the subject is
+    # `domain/lineup/substitution.py` even though every input is a saved HTTP response.
+    "test_substitution_reconcile.py": "domain/lineup",
     "test_opponent.py": "domain/lineup",
     "test_candidates.py": "domain/lineup",
     "test_build.py": "domain/lineup",

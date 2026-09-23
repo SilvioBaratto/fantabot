@@ -1,7 +1,7 @@
-"""The Mantra auto-sub engine: who comes on when starters have no vote. Pure.
+"""The Mantra auto-sub engine: who comes on when starters have no vote, and at what cost. Pure.
 
-`rules/sistema-mantra.md` §Substitution System. This module holds what all three modes share;
-the Efficient and Adapted tiers and the modes themselves are T20's.
+`rules/sistema-mantra.md` §Substitution System, in full: the shared combination search, the
+three tiers and the three modes.
 
 **Replacements are a block, not a queue.** With N starters missing, the engine tests
 *combinations* of N bench players, in an order driven by bench position: for A-B-C-D-E and
@@ -18,28 +18,77 @@ is why `max_subs` (`ssnum`, if it is a cap at all — Open Question 1) counts hi
 **Every position is reallocated, not patched.** The eleven on the pitch are matched to the
 schema's slots afresh, so surviving starters move: a `C/M` slides into the pure `C` slot to
 let an incoming `M` take the one he left. That is also why a malus can land on a player
-nobody expected — the rules doc's own gotcha, and T20's problem.
+nobody expected — the rules doc's own gotcha — and it is why only the malus **count** is
+meaningful here and never which player carries it.
 
-**Nothing that fits means one fewer.** The whole search restarts with one replacement fewer
-until it does fit, down to none, and the team plays a man short: `fielded` carries `None` in
-the slot nobody filled. A lineup is never refused for being un-fillable.
+**Nothing that fits means one fewer.** The whole search — every tier — restarts with one
+replacement fewer until it does fit, down to none, and the team plays a man short: `fielded`
+carries `None` in the slot nobody filled. A lineup is never refused for being un-fillable.
 
-The Optimal tier is all of this under the **original schema with natural roles** — no malus,
-so `mantra_compat.json` is not read here yet.
+### The three tiers, and what actually separates the three modes
+
+A tier is a pair: *which modules may be fielded* and *may a placement cost a malus*.
+
+* **Optimal** — the original module, natural roles, no malus.
+* **Efficient** — a *different* module, natural roles, still no malus.
+* **Adapted** — a module, and one or more `-1` out-of-position placements. `-1*` cells
+  are admitted **here and only here**: the platform refuses them at submission and allows
+  them once a substitution has been forced.
+
+The modes differ in nothing but the order those are tried, and the difference is real:
+
+* **BASIC** — `(original, no malus)`, then `(another, no malus)`, then `(any, malus)`.
+* **EASY** — `(original, no malus)`, then `(original, malus)`. The module never changes.
+* **MASTER** — `(any, no malus)`, then `(any, malus)`. Merging Optimal into Efficient is
+  exactly what "bench order dominates" means: BASIC will change *who comes on* to keep the
+  module, MASTER will change the module to keep the earlier bench player.
+
+Within a tier the combination is the outer key and the module the inner one, so an earlier
+bench combination always beats a later one at the same cost. The Adapted tier takes the
+**least total malus**, ties broken by that same combination order — `rules/sistema-mantra.md`
+again. It may stop at a malus of 1: every zero-malus fit reachable in this mode was already
+refused by the tiers before it, so 1 is the best that remains.
+
+The reported `tier` is read off the answer rather than off the loop that found it — malus
+first, then whether the module moved — so MASTER's single no-malus tier still reports
+`optimal` or `efficient` for what it actually did.
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from fantabot.domain.lineup import schema
 from fantabot.domain.lineup.bench import GK_ROLE
-from fantabot.domain.lineup.build import SlotsProvider, place_all
+from fantabot.domain.lineup.build import place_all_with_malus
+from fantabot.domain.lineup.schema import SlotAdmission
 
 Bench = TypeVar("Bench")
+
+#: The lega's substitution mode. Lower case because that is how the setting is written.
+SubMode = Literal["basic", "easy", "master"]
+
+#: Every mode the engine knows. `parse_sub_mode` fails closed against exactly this set.
+SUB_MODES: frozenset[str] = frozenset({"basic", "easy", "master"})
+
+#: What the engine did, cheapest first. Reported, never used to steer the search.
+Tier = Literal["optimal", "efficient", "adapted"]
+
+def parse_sub_mode(value: str | None) -> SubMode | None:
+    """`FANTABOT_LINEUP_SUB_MODE` as a mode, or `None`.
+
+    Fails closed (AD4): an unset, blank or unrecognised value is `None`, which the callers
+    read as "the operator has not told us" — not as a default mode. Guessing BASIC here
+    would make an unanswered Open Question look answered, and the three modes field
+    different XIs.
+    """
+    if value is None:
+        return None
+    candidate = value.strip().lower()
+    return candidate if candidate in SUB_MODES else None  # type: ignore[return-value]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +102,12 @@ class Substitution:
     entered: tuple[int, ...]
     #: Slots left empty.
     short: int
+    #: How many of the eleven are out of position. **A count, not an identity** — which of
+    #: several interchangeable players carries it is the platform's to pick, "in no
+    #: particular order" (`rules/sistema-mantra.md`).
+    malus: int = 0
+    #: Which tier produced this XI, read off the answer.
+    tier: Tier = "optimal"
 
 
 def bench_combinations(bench: Sequence[Bench], size: int) -> list[tuple[Bench, ...]]:
@@ -67,19 +122,24 @@ def substitute(
     bench: Sequence[int],
     voted: Collection[int],
     roles: Mapping[int, frozenset[str]],
-    slots_provider: SlotsProvider = schema.slots,
+    mode: SubMode = "basic",
+    modules: Sequence[str] = (),
     max_subs: int | None = None,
 ) -> Substitution:
     """Field the XI `starts` after the players outside `voted` are replaced from `bench`.
 
     `voted` is who got a vote this matchday — starters and bench alike, since a bench player
     without one cannot come on either.
+
+    `modules` is the lega's own `mods` list, which is what the Efficient and Adapted tiers
+    may move to. It defaults to **empty**, meaning "the original only": a module the lega
+    does not allow is one the platform would refuse, so an engine that invented the eleven
+    would model a game nobody is playing.
     """
-    slot_sets = slots_provider(module)
+    table = _admission_table(module, modules, mode)
+    slot_sets = table[module]
     if len(starts) != len(slot_sets):
-        raise ValueError(
-            f"a lineup is eleven players in {module}'s slots; got {len(starts)}"
-        )
+        raise ValueError(f"a lineup is eleven players in {module}'s slots; got {len(starts)}")
     if max_subs is not None and max_subs < 0:
         raise ValueError(f"max_subs is a count of substitutions; got {max_subs}")
 
@@ -100,30 +160,160 @@ def substitute(
 
     vacancies = len(slot_sets) - len(survivors) - len(entered)
     for size in range(min(vacancies, budget, len(available)), -1, -1):
-        for combination in bench_combinations(available, size):
-            fielded = _field([*survivors, *entered, *combination], slot_sets, roles)
-            if fielded is not None:
-                return Substitution(
-                    module=module,
-                    fielded=fielded,
-                    entered=(*entered, *combination),
-                    short=fielded.count(None),
-                )
+        for tier_modules, with_malus in _tiers(mode, module, table):
+            best = _best_in_tier(
+                size=size,
+                survivors=survivors,
+                entered=entered,
+                available=available,
+                roles=roles,
+                table=table,
+                tier_modules=tier_modules,
+                with_malus=with_malus,
+            )
+            if best is not None:
+                return best
     raise AssertionError(  # pragma: no cover - the empty combination always places nobody
         "the search must terminate at no replacements at all"
     )
 
 
-def _field(
-    players: Sequence[int],
-    slot_sets: Sequence[frozenset[str]],
+def _tiers(
+    mode: SubMode, module: str, table: Mapping[str, tuple[SlotAdmission, ...]]
+) -> tuple[tuple[tuple[str, ...], bool], ...]:
+    """`(modules, may a placement cost a malus)` per tier, in the order this mode tries them."""
+    others = tuple(code for code in table if code != module)
+    if mode == "easy":
+        return (((module,), False), ((module,), True))
+    if mode == "master":
+        every = (module, *others)
+        return ((every, False), (every, True))
+    basic: list[tuple[tuple[str, ...], bool]] = [((module,), False)]
+    if others:
+        basic.append((others, False))
+    basic.append(((module, *others), True))
+    return tuple(basic)
+
+
+def _best_in_tier(
+    *,
+    size: int,
+    survivors: Sequence[int],
+    entered: Sequence[int],
+    available: Sequence[int],
     roles: Mapping[int, frozenset[str]],
-) -> tuple[int | None, ...] | None:
-    """`players` laid into the slots, or `None` when they do not all fit in distinct ones."""
-    placement = place_all([roles.get(pid, frozenset()) for pid in players], slot_sets)
-    if placement is None:
-        return None
-    fielded: list[int | None] = [None] * len(slot_sets)
-    for player, slot in zip(players, placement, strict=True):
-        fielded[slot] = player
-    return tuple(fielded)
+    table: Mapping[str, tuple[SlotAdmission, ...]],
+    tier_modules: Sequence[str],
+    with_malus: bool,
+) -> Substitution | None:
+    """The cheapest XI this tier can field with exactly `size` replacements, or `None`.
+
+    Combination outer, module inner, so an earlier bench combination wins at equal cost; the
+    first module in `tier_modules` wins a tie between modules. A malus-free tier stops at its
+    first fit (every fit costs 0); the Adapted tier stops at a malus of 1, which is the least
+    it can cost once the malus-free tiers have been refused.
+    """
+    best: Substitution | None = None
+    for combination in bench_combinations(list(available), size):
+        players = [*survivors, *entered, *combination]
+        role_sets = [roles.get(pid, frozenset()) for pid in players]
+        for code in tier_modules:
+            admissions = table[code]
+            natural = [slot.natural for slot in admissions]
+            admitted = natural if not with_malus else [slot.substitution for slot in admissions]
+            placed = place_all_with_malus(role_sets, natural, admitted)
+            if placed is None:
+                continue
+            slots, malus = placed
+            fielded: list[int | None] = [None] * len(admissions)
+            for player, slot in zip(players, slots, strict=True):
+                fielded[slot] = player
+            found = Substitution(
+                module=code,
+                fielded=tuple(fielded),
+                entered=(*entered, *combination),
+                short=fielded.count(None),
+                malus=malus,
+                tier=_tier_of(malus, code, tier_modules),
+            )
+            if not with_malus:
+                return found
+            if best is None or found.malus < best.malus:
+                best = found
+            if best.malus <= 1:
+                return best
+    return best
+
+
+def _tier_of(malus: int, code: str, tier_modules: Sequence[str]) -> Tier:
+    """Which tier this answer is, read off the answer — `tier_modules[0]` is the original."""
+    if malus:
+        return "adapted"
+    return "optimal" if code == tier_modules[0] else "efficient"
+
+
+def _admission_table(
+    module: str, modules: Sequence[str], mode: SubMode
+) -> dict[str, tuple[SlotAdmission, ...]]:
+    """The module the XI was submitted in, plus every other module the lega allows.
+
+    An allowed code the shipped schemi do not know is dropped rather than raised: the
+    platform's `mods` has diverged before, and an unattended job must field *something*.
+    The submitted module is not optional and a bad one raises, as `schema.admissions` does.
+    """
+    table = {module: schema.admissions(module)}
+    if mode == "easy":
+        return table
+    for code in modules:
+        if code in table:
+            continue
+        try:
+            table[code] = schema.admissions(code)
+        except ValueError:
+            continue
+    return table
+
+
+@dataclass(frozen=True, slots=True)
+class SubstitutionEngine:
+    """`substitute` with everything but the absence pattern already bound, and memoized.
+
+    The evaluator runs the engine once per candidate per draw — tens of thousands of calls
+    over a handful of distinct absence patterns, because presence is drawn per player and
+    most draws repeat. The cache lives on the instance and nowhere else: a module-level one
+    would carry one lega's roster into the next, and `domain/` holds no global state.
+    """
+
+    module: str
+    starts: tuple[int, ...]
+    bench: tuple[int, ...]
+    roles: Mapping[int, frozenset[str]]
+    mode: SubMode = "basic"
+    modules: tuple[str, ...] = ()
+    max_subs: int | None = None
+    _cache: dict[tuple[tuple[int, ...], tuple[int, ...]], Substitution] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+
+    def field_xi(self, voted: Collection[int]) -> Substitution:
+        """The XI for this absence pattern. Same pattern, same object."""
+        present = set(voted)
+        key = (
+            tuple(pid for pid in self.starts if pid not in present),
+            tuple(pid for pid in self.bench if pid not in present),
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        result = substitute(
+            module=self.module,
+            starts=self.starts,
+            bench=self.bench,
+            voted=present,
+            roles=self.roles,
+            mode=self.mode,
+            modules=self.modules,
+            max_subs=self.max_subs,
+        )
+        self._cache[key] = result
+        return result

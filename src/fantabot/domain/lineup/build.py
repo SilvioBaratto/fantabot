@@ -109,27 +109,69 @@ def place_all(
 ) -> list[int] | None:
     """Each player's slot index, or `None` when they cannot all take distinct slots.
 
-    Feasibility only — every placement is worth the same, which is what the substitution
-    engine asks (`substitution.py`): its tiers rank *which players* come on, never where the
-    matcher puts them. Fewer players than slots is the man-short case and is allowed.
+    Feasibility only — every placement is worth the same, which is what the Optimal and
+    Efficient tiers ask (`substitution.py`): they rank *which players* come on, never where
+    the matcher puts them. Fewer players than slots is the man-short case and is allowed.
+
+    The malus-bearing Adapted tier needs a cheapest placement rather than any placement, so
+    the matrix is built once in `place_all_with_malus` and this is the natural-roles-only
+    case of it. One matcher call, one rows-vs-columns guard, one per-edge feasibility test:
+    a second copy here is a copy that can drift out of agreement with that one.
+    """
+    placement = place_all_with_malus(role_sets, slot_sets, slot_sets)
+    return None if placement is None else placement[0]
+
+
+def place_all_with_malus(
+    role_sets: Sequence[frozenset[str]],
+    natural_sets: Sequence[frozenset[str]],
+    admitted_sets: Sequence[frozenset[str]],
+) -> tuple[list[int], int] | None:
+    """`(slot per player, how many of them are out of position)`, or `None` when they do not
+    all fit in distinct admitted slots.
+
+    A player placed in a slot whose `natural_sets` entry his roles cover costs nothing; one
+    whose roles only reach `admitted_sets` costs the platform's **-1** and is counted; one
+    who reaches neither cannot take that slot at all. Minimising the total cost therefore
+    minimises the number of maluses, which is what the Adapted tier is defined to do
+    (`rules/sistema-mantra.md`: "the least-total-malus Adapted fit").
+
+    Which of several interchangeable players carries the malus is not decided here and must
+    not be read off the result — the rules doc's own gotcha is that the platform picks
+    "in no particular order" among a same-role group. Only the **count** is meaningful.
 
     ⚠ **More players than slots must be refused here**, not left to the matcher:
     `solve_assignment` assumes rows <= columns, and with more rows its loop never terminates —
     it hangs rather than returning something wrong. Measured 2026-09-22, when a mutation of
     this guard stopped a whole test run dead instead of failing it.
+
+    ⚠ **Feasibility is judged edge by edge, never off the total.** With 11 slots the maluses
+    sum to at most 11, so a single `INELIGIBLE` edge would still dominate — but that is an
+    accident of the numbers, and `candidates.k_best_assignments` already shipped the same
+    reasoning as a defect: a total read as infeasible-or-not accepted a branch holding one
+    ineligible edge (T22, 2026-09-22).
     """
-    if len(role_sets) > len(slot_sets):
+    if len(role_sets) > len(natural_sets):
         return None
     if not role_sets:
-        return []
+        return [], 0
+    slots = range(len(natural_sets))
     cost = [
-        [0.0 if (roles & slot_sets[j]) else INELIGIBLE for j in range(len(slot_sets))]
+        [
+            0.0
+            if (roles & natural_sets[j])
+            else (1.0 if (roles & admitted_sets[j]) else INELIGIBLE)
+            for j in slots
+        ]
         for roles in role_sets
     ]
     assignment = solve_assignment(cost)
-    if any(not (role_sets[i] & slot_sets[slot]) for i, slot in enumerate(assignment)):
+    if any(not (role_sets[i] & admitted_sets[slot]) for i, slot in enumerate(assignment)):
         return None
-    return assignment
+    malus = sum(
+        1 for i, slot in enumerate(assignment) if not (role_sets[i] & natural_sets[slot])
+    )
+    return assignment, malus
 
 
 def best_lineup(
