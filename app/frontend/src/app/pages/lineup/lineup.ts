@@ -22,11 +22,16 @@ import { LucideAngularModule } from 'lucide-angular';
 import { LegaService } from '../../core/api/lega.service';
 import { LineupService } from '../../core/api/lineup.service';
 import { LegaOverview } from '../../core/models/lega';
+import { DecimalPipe } from '@angular/common';
+
 import { CurrentLineup, LineupPlan, LineupRuns, SubmitResult } from '../../core/models/lineup';
 
 @Component({
   selector: 'app-lineup',
   imports: [
+    // The shadow line prints five numbers and they have to line up between rows; `number`
+    // is the pipe that makes 1.1 and 1.15 the same width.
+    DecimalPipe,
     LucideAngularModule,
     MatButtonModule,
     MatButtonToggleModule,

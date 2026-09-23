@@ -573,6 +573,129 @@ describe('LineupComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('No scheduled run recorded yet');
     });
 
+    it('names the model that fell back, and the reason', async () => {
+      // A row that says `submitted` and nothing else cannot be told apart from one where
+      // the projection was asked for, failed, and the matcher's lineup went instead.
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [
+          run({
+            status: 'submitted',
+            model: 'indexcompare',
+            fallback: 'OpponentUnavailable',
+          }),
+        ],
+      });
+
+      const line: HTMLElement | null =
+        fixture.nativeElement.querySelector('[data-run-fallback]');
+      expect(line?.textContent).toContain('fell back to indexcompare');
+      expect(line?.textContent).toContain('OpponentUnavailable');
+    });
+
+    it('lists every warning the run carried', async () => {
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [
+          run({
+            status: 'submitted',
+            warnings: ['stale: the voti end at g3', 'sub mode assumed basic'],
+          }),
+        ],
+      });
+
+      const items = [
+        ...fixture.nativeElement.querySelectorAll('[data-run-warnings] li'),
+      ].map((n: Element) => n.textContent?.trim());
+      expect(items).toEqual(['stale: the voti end at g3', 'sub mode assumed basic']);
+    });
+
+    it('summarises the shadow plan in one line', async () => {
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [
+          run({
+            status: 'submitted',
+            model: 'indexcompare',
+            shadow: {
+              model: 'projection',
+              module: '352',
+              starter_ids: [1, 2, 3],
+              bench_ids: [4],
+              starters: ['A', 'B', 'C'],
+              bench: ['D'],
+              e_pts: 1.128,
+              p_wdl: [0.288, 0.264, 0.448],
+              e_fp: 70.64,
+              sd: 5.85,
+              cuts: [],
+            },
+          }),
+        ],
+      });
+
+      const line: HTMLElement | null = fixture.nativeElement.querySelector('[data-run-shadow]');
+      const text = line?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(text).toContain('projection');
+      expect(text).toContain('352');
+      expect(text).toContain('E[pts] 1.128');
+      expect(text).toContain('P(W/D/L) 0.29/0.26/0.45');
+      expect(text).toContain('E[fp] 70.6');
+    });
+
+    it('shows why a shadow was ranked on fantapunti rather than a bare zero', async () => {
+      // `e_pts` is a float the row type pins, so a plan with no opponent writes 0.0 — and a
+      // bare 0.000 reads as a certain loss. The cut is what stops it reading that way.
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [
+          run({
+            status: 'submitted',
+            shadow: {
+              model: 'projection',
+              module: '343',
+              starter_ids: [1],
+              bench_ids: [],
+              starters: ['A'],
+              bench: [],
+              e_pts: 0,
+              p_wdl: [0, 0, 0],
+              e_fp: 66.2,
+              sd: 5,
+              cuts: ['ranked on E[fp]: no opponent (none (only 3 calculated round(s)))'],
+            },
+          }),
+        ],
+      });
+
+      const line: HTMLElement | null = fixture.nativeElement.querySelector('[data-run-shadow]');
+      expect(line?.textContent).toContain('ranked on E[fp]: no opponent');
+    });
+
+    it('draws no fallback, warning or shadow line when there is none', async () => {
+      // The control: these three are the whole of T38, and a template that always drew them
+      // would make every row look like a fallback.
+      const fixture = await withRuns({
+        ...NO_RUNS,
+        exists: true,
+        total: 1,
+        runs: [run()],
+      });
+
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('[data-run-fallback]')).toBeNull();
+      expect(el.querySelector('[data-run-warnings]')).toBeNull();
+      expect(el.querySelector('[data-run-shadow]')).toBeNull();
+    });
+
     it('says when the record cannot be read, and where', async () => {
       const fixture = await withRuns({
         ...NO_RUNS,
