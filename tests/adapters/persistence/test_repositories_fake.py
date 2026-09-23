@@ -20,7 +20,10 @@ from sqlalchemy.dialects import postgresql
 import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.adapters.persistence.base import Base
 from fantabot.adapters.persistence.repositories.admin import AdminRepository, UnknownTableError
-from fantabot.adapters.persistence.repositories.lineup_history import BacktestCorpusRepository
+from fantabot.adapters.persistence.repositories.lineup_history import (
+    BacktestCorpusRepository,
+    ShadowRepository,
+)
 from fantabot.adapters.persistence.repositories.sentiment import (
     SentimentReadRepository,
     SentimentRepository,
@@ -848,3 +851,99 @@ class TestTheBacktestCorpusRead:
             ("a", "buyerA", 132), ("a", "buyerA", 574),
             ("a", "buyerB", 6094), ("b", "buyerC", 2891),
         ]
+
+
+# -- T39: the shadow report's two reads --------------------------------------------------
+
+
+class TestTheShadowRead:
+    def test_the_fixture_read_carries_both_tids_and_our_points(self) -> None:
+        """Both sides, not only the points: `apileague.match_detail` addresses a match by
+        *both* tids, so the malus check (A18) cannot read anything without the opponent —
+        and taking them from a second query is how two reads come to disagree about which
+        match is being talked about."""
+
+        class _Row:
+            team_home, team_away = 10000003, 10000009
+            points_home, points_away = 71.5, 64.0
+
+        class _Scalars:
+            def first(self) -> object:
+                return _Row()
+
+        class _Result:
+            def scalars(self) -> object:
+                return _Scalars()
+
+        class _Session:
+            def __init__(self) -> None:
+                self.statements: list[str] = []
+
+            def execute(self, statement: object, *_a: object, **_k: object) -> object:
+                self.statements.append(str(statement))
+                return _Result()
+
+        session = _Session()
+        repo = ShadowRepository(session)  # type: ignore[arg-type]
+        repo.competition_ids_for = lambda _league: [311681]  # type: ignore[method-assign]
+
+        found = repo.fixture_for(4103937, matchday=4, tid=10000003)
+
+        assert found == (10000003, 10000009, 71.5)
+
+    def test_our_points_are_the_side_we_are_on(self) -> None:
+        """Home and away are not interchangeable, and a report that read the wrong column
+        would grade every away matchday against the opponent's total."""
+
+        class _Row:
+            team_home, team_away = 10000009, 10000003
+            points_home, points_away = 71.5, 64.0
+
+        class _Scalars:
+            def first(self) -> object:
+                return _Row()
+
+        class _Result:
+            def scalars(self) -> object:
+                return _Scalars()
+
+        class _Session:
+            def execute(self, *_a: object, **_k: object) -> object:
+                return _Result()
+
+        repo = ShadowRepository(_Session())  # type: ignore[arg-type]
+        repo.competition_ids_for = lambda _league: [311681]  # type: ignore[method-assign]
+
+        assert repo.fixture_for(4103937, matchday=4, tid=10000003) == (
+            10000009, 10000003, 64.0
+        )
+
+    def test_a_lega_with_no_competition_issues_no_second_statement(self) -> None:
+        """`league_fixture` has no `league_id`; with no competition ids there is nothing to
+        filter on, and `IN ()` is not a query worth sending."""
+
+        class _Session:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def execute(self, *_a: object, **_k: object) -> object:
+                self.calls += 1
+                raise AssertionError("a statement was built with no competition")
+
+        session = _Session()
+        repo = ShadowRepository(session)  # type: ignore[arg-type]
+        repo.competition_ids_for = lambda _league: []  # type: ignore[method-assign]
+
+        assert repo.fixture_for(4103937, matchday=4, tid=1) is None
+        assert session.calls == 0
+
+    def test_the_appearances_read_refuses_coach_rows_and_the_unvoted(self) -> None:
+        """Coach rows have no id and a row with no `voto_fc` is a player who did not take a
+        vote — reading either as an appearance would field a man who never played."""
+        session = _session([], literal=True)
+
+        ShadowRepository(session).appearances_at("2026/27", 6)
+
+        sql = session.statements[0]
+        assert "match_grain.player_id IS NOT NULL" in sql
+        assert "match_grain.voto_fc IS NOT NULL" in sql

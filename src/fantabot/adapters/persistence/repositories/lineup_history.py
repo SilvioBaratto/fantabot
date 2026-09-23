@@ -244,8 +244,15 @@ class ShadowRepository(RepositoryBase):
             for row in rows
         ]
 
-    def points_for(self, league_id: int, *, matchday: int, tid: int) -> float | None:
-        """What the platform awarded **our** team that matchday, or `None`.
+    def fixture_for(
+        self, league_id: int, *, matchday: int, tid: int
+    ) -> tuple[int, int, float | None] | None:
+        """`(home tid, away tid, our points)` for our match that matchday, or `None`.
+
+        Both tids, not only the points: `apileague.match_detail` addresses a match by *both*
+        sides, so the malus check (A18) cannot read anything without the opponent. They come
+        from the same row as the points, which is the only way the two can agree about which
+        match is being talked about.
 
         `league_fixture` has no `league_id`; its only route to a lega is through
         `league_competition.competition_id`, so the ids are resolved first — the same shape
@@ -271,7 +278,16 @@ class ShadowRepository(RepositoryBase):
         if row is None:
             return None
         points = row.points_home if row.team_home == tid else row.points_away
-        return None if points is None else float(points)
+        return (
+            int(row.team_home),
+            int(row.team_away),
+            None if points is None else float(points),
+        )
+
+    def points_for(self, league_id: int, *, matchday: int, tid: int) -> float | None:
+        """What the platform awarded **our** team that matchday, or `None`."""
+        found = self.fixture_for(league_id, matchday=matchday, tid=tid)
+        return None if found is None else found[2]
 
     def competition_ids_for(self, league_id: int) -> list[int]:
         """The lega's competitions. `LeagueRepository.competition_ids`' read, reached from

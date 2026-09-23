@@ -47,11 +47,15 @@ def no_strays() -> Iterator[list[int]]:
     started: list[int] = []
     yield started
     for pid in started:
-        for send in (lambda p: os.killpg(p, signal.SIGKILL), lambda p: os.kill(p, signal.SIGKILL)):
-            try:
-                send(pid)
-            except (ProcessLookupError, PermissionError):
-                continue
+        # ⚠ **Checked before it is signalled, and never by group.** A pid this suite has
+        # already reaped is free to be recycled, and `killpg` on a stale pgid would signal a
+        # stranger's whole session — so only a process still alive is signalled, and only
+        # that one process. The group is `run_grouped`'s job; this is the net under it.
+        try:
+            os.kill(pid, 0)
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            continue
 
 
 class TestTheHappyPath:
@@ -137,16 +141,17 @@ def _alive(pid: int) -> bool:
 
 
 class TestTheGroupProbe:
-    def test_a_living_group_reads_as_alive(self, no_strays: list[int]) -> None:
+    def test_a_living_group_reads_as_alive(self) -> None:
+        # Not registered with `no_strays`: this test reaps its own child, and a pid the
+        # suite has reaped is free to be recycled — the net must never signal one.
         child = subprocess.Popen(
             [sys.executable, "-c", "import time; time.sleep(600)"], start_new_session=True
         )
-        no_strays.append(child.pid)
-
-        assert group_alive(child.pid)
-
-        child.kill()
-        child.wait()
+        try:
+            assert group_alive(child.pid)
+        finally:
+            child.kill()
+            child.wait()
 
     def test_a_dead_group_reads_as_dead(self) -> None:
         child = subprocess.Popen(

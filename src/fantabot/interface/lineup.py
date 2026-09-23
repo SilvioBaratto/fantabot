@@ -157,11 +157,20 @@ PLAN_WALL_SECONDS = 300.0
 #: 600 here plus `REFRESH_WALL_SECONDS` is 2,400 of launchd's 3,600.
 SUBMIT_WALL_SECONDS = 600.0
 
-#: The hard wall on the refresh child. launchd's interval is 3600 s; the submit itself can
-#: spend `SUBMIT_WALL_SECONDS` on the projection plus its own reads and POST, and what is
-#: left has to leave room for the next tick to start clean. Thirty minutes is far above what
-#: a real refresh takes — eight voti GETs and eight lega reads — and is a wall, not a budget.
-REFRESH_WALL_SECONDS = 1800.0
+#: The hard wall on the refresh child, sized against what it bounds rather than against a
+#: round number. The sources run **serially**, and the worst case of each is:
+#:
+#: * **voti** — 8 giornate, each up to 3 attempts at a 30 s timeout with a 2 s + 4 s
+#:   backoff, plus the politeness delay between them: about 13 minutes;
+#: * **lega** — 8 authenticated reads, one of them megabytes: a couple of minutes;
+#: * **news** — off until T40, and the one that would blow any wall: ~30 players at a
+#:   180 s per-query timeout and concurrency 4 is 22 minutes on its own.
+#:
+#: Forty minutes covers the two that run today with room to spare, and launchd's interval
+#: has room for it: `SUBMIT_WALL_SECONDS` + this is 3,000 of 3,600, leaving ten minutes for
+#: the submit's own reads and the next tick to start clean. ⚠ **Re-measure this when news is
+#: switched on** — that source alone can approach the whole of it.
+REFRESH_WALL_SECONDS = 2400.0
 
 #: The bootstrap's seed. A constant, so a gate run is a gate run: the interval must not
 #: move between two readings of the same replay, or "the CI is above zero" is a coin.
@@ -683,6 +692,39 @@ def _refresh_child(league_id: int, *, cmday: int, competition: int) -> str:
     return f"{owes}: exit {code}"
 
 
+def _malus_starters(store: object, *, league_id: int, run: object, matchday: int,
+                    giornata: int, sides: tuple[int, int] | None) -> tuple[int, ...]:
+    """The starters the platform flagged with a positional malus (SPEC A18).
+
+    Read from the match detail, which is the only place the flag lives: `match_grain` has no
+    column for it and a score a point short is not evidence — two men can be a point apart
+    for a dozen reasons. Contained, because a matchday whose detail cannot be read is a
+    matchday whose malus check is unknown rather than clean, and the report says which.
+    """
+    from fantabot.adapters.http import apileague
+    from fantabot.domain.lineup.scoring import malus_starters
+
+    competition = int(getattr(run, "competition", 0) or 0)
+    tid = int(getattr(run, "tid", 0) or 0)
+    if not competition or not tid or sides is None:
+        return ()
+    home, away = sides
+
+    def read() -> tuple[int, ...]:
+        body = apileague.match_detail(
+            league_id, competition, mday=matchday, cmday=giornata,
+            home=home, away=away, store=store,  # type: ignore[arg-type]
+        )
+        for side in ("home", "away"):
+            block = body.get(side) or {}
+            if int(block.get("tid") or 0) == tid:
+                return malus_starters(block)
+        return ()
+
+    flagged, _failure = contained(read)
+    return flagged or ()
+
+
 def _voti_refreshed(cmday: int) -> bool:
     """Whether the marker records a voti success for this matchday (A20).
 
@@ -948,6 +990,12 @@ def _shadow_report(
                         f"no votes recorded for {season} giornata {giornata}",
                     )
                 tid = getattr(run, "tid", None)
+                matchday = int(getattr(run, "matchday", 0) or 0)
+                found = (
+                    None
+                    if not tid
+                    else shadow_repo.fixture_for(league_id, matchday=matchday, tid=int(tid))
+                )
                 return grade_run(
                     run,  # type: ignore[arg-type]
                     votes=votes_at(rows, giornata=int(giornata), season=season, rules=rules),
@@ -955,12 +1003,14 @@ def _shadow_report(
                     rules=rules,
                     sub_mode=mode,
                     modules=modules,
-                    platform=(
-                        None
-                        if not tid
-                        else shadow_repo.points_for(
-                            league_id, matchday=int(getattr(run, "matchday", 0) or 0), tid=int(tid)
-                        )
+                    platform=None if found is None else found[2],
+                    # A18's check, read off the platform's own `m` flag. It was defaulted to
+                    # empty until 2026-09-23, which made the whole check inert — the report
+                    # said "no malus" about a flag it had never looked at.
+                    malus_starters=_malus_starters(
+                        store, league_id=league_id, run=run, matchday=matchday,
+                        giornata=int(giornata),
+                        sides=None if found is None else (found[0], found[1]),
                     ),
                     max_subs=cap,
                 )

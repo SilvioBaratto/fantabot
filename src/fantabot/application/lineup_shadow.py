@@ -55,6 +55,9 @@ TOLERANCE = 0.01
 #: Slack for the binary representation of a sum of halves and quarters, and for nothing
 #: else. Small enough that no real difference hides under it.
 _EPSILON = 1e-9
+#: The most decisive goals one XI can plausibly have in one matchday. A bound, so a gap of
+#: "seven bmdg" is read as what it is — a real disagreement — rather than explained away.
+_MAX_DECISIVE_GOALS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,13 +74,44 @@ class Graded:
     platform: float | None
     #: The shadow's recompute, or `None` when the record carried none.
     shadow: Fielded | None
+    #: What one decisive goal is worth in this lega (`bmdg`). See `decisive_goals`.
+    decisive_goal: float = 1.0
     shadow_module: str = ""
     #: Starters the platform flagged with a positional malus (A18).
     malus_starters: tuple[int, ...] = ()
 
     @property
+    def short_by(self) -> float:
+        """How much the platform paid above our recompute. Negative if we paid more."""
+        return 0.0 if self.platform is None else self.platform - self.ours.fantapunti
+
+    @property
+    def decisive_goals(self) -> int | None:
+        """How many decisive goals would explain the gap, or `None` if none would.
+
+        ⚠ **Our recompute is knowably short by `bmdg`, and by nothing else.** The platform
+        pays +1 once to a scorer whose goal decided the match, and `match_grain` has no
+        column for it — T12 measured exactly that: 147 of 153 players exact in round 1, 5
+        short by `bmdg`, 1 by a malus the engine now reproduces. So a gap that is a small
+        non-negative multiple of `bmdg` is **explained**, and anything else is a finding.
+
+        Without this every matchday in which one of our eleven scored a decisive goal would
+        report `MISMATCH`, and the command would cry wolf most weeks — which is how a check
+        stops being read.
+        """
+        if self.platform is None or self.decisive_goal <= 0:
+            return None
+        count = self.short_by / self.decisive_goal
+        nearest = round(count)
+        if nearest < 0 or nearest > _MAX_DECISIVE_GOALS:
+            return None
+        if abs(count - nearest) * self.decisive_goal > TOLERANCE + _EPSILON:
+            return None
+        return int(nearest)
+
+    @property
     def agrees(self) -> bool:
-        """Whether our arithmetic matches the platform's, within `TOLERANCE`.
+        """Whether our arithmetic matches the platform's, allowing for `bmdg`.
 
         ⚠ **The epsilon absorbs the binary float and nothing else.** Fantavoti are halves
         and quarters and the difference of two sums of them is not: a platform total
@@ -87,7 +121,9 @@ class Graded:
         """
         if self.platform is None:
             return True
-        return abs(self.ours.fantapunti - self.platform) <= TOLERANCE + _EPSILON
+        if abs(self.short_by) <= TOLERANCE + _EPSILON:
+            return True
+        return self.decisive_goals is not None
 
     @property
     def delta(self) -> float | None:
@@ -124,7 +160,14 @@ class ShadowReport:
         out = [f"shadow report: {len(self.graded)} graded, sub mode {self.sub_mode}"]
         for g in self.graded:
             platform = "not calculated" if g.platform is None else f"{g.platform:.2f}"
-            agreement = "ok" if g.agrees else "MISMATCH"
+            goals = g.decisive_goals if g.agrees else None
+            agreement = (
+                "MISMATCH"
+                if not g.agrees
+                else f"ok (+{goals} bmdg)"
+                if goals
+                else "ok"
+            )
             out.append(
                 f"  md {g.matchday} (SA {g.serie_a_matchday}) {g.module}: "
                 f"ours {g.ours.fantapunti:.2f} vs platform {platform} [{agreement}]"
@@ -142,8 +185,8 @@ class ShadowReport:
         if self.mismatches:
             out.append(
                 f"  {len(self.mismatches)} matchday(s) disagree with the platform by more "
-                f"than {TOLERANCE}: the model is being graded by a scorer that does not "
-                "match the one paying out."
+                f"than {TOLERANCE}, and by something other than a decisive goal: the model "
+                "is being graded by a scorer that does not match the one paying out."
             )
         return out
 
@@ -154,17 +197,23 @@ def latest_per_matchday(runs: Sequence[LineupRun], *, league_id: int) -> list[Li
     **The last, not the first.** An hourly job writes a record every hour and re-submits
     while the round is open, so the XI that was actually in play at kickoff is the newest
     one — grading the first would grade a lineup that was replaced.
+
+    **Keyed by (competition, matchday), not by matchday alone.** `LineupRun.matchday` is the
+    *competition's* own numbering and a lega can hold more than one, so a second
+    competition's matchday 3 would silently replace the first's — and the report would be
+    one row short with nothing saying so.
     """
-    latest: dict[int, LineupRun] = {}
+    latest: dict[tuple[int, int], LineupRun] = {}
     for run in runs:
         if run.league != league_id or run.status not in GRADABLE_STATUSES:
             continue
         if run.matchday is None:
             continue
-        seen = latest.get(run.matchday)
+        key = (run.competition or 0, run.matchday)
+        seen = latest.get(key)
         if seen is None or run.at >= seen.at:
-            latest[run.matchday] = run
-    return [latest[md] for md in sorted(latest)]
+            latest[key] = run
+    return [latest[key] for key in sorted(latest)]
 
 
 def grade_run(
@@ -207,6 +256,7 @@ def grade_run(
         module=run.module,
         ours=ours,
         platform=platform,
+        decisive_goal=rules.decisive_goal,
         shadow=shadow_plan,
         shadow_module=shadow_module,
         malus_starters=tuple(int(pid) for pid in malus_starters),

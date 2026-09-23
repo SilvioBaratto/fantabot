@@ -283,3 +283,88 @@ class TestTheReport:
         assert graded.ours.fantapunti == pytest.approx(71.5)
         assert graded.ours.goals == 1
         assert graded.agrees
+
+
+class TestTheDecisiveGoalGap:
+    """Our recompute is **knowably** short, and by exactly one thing.
+
+    The platform pays `bmdg` — +1 once to a scorer whose goal decided the match — and
+    `match_grain` has no column for it. T12 measured it: 147 of 153 players exact in round 1,
+    5 short by `bmdg`, 1 by a malus the engine now reproduces. So a gap that is a small
+    non-negative multiple of `bmdg` is explained, and anything else is a finding.
+
+    Without this, every matchday in which one of our eleven scored a decisive goal would
+    report `MISMATCH` — which is how a check stops being read.
+    """
+
+    def test_one_decisive_goal_is_explained_and_counted(self) -> None:
+        graded = _grade(_run(), platform=67.0)
+
+        assert isinstance(graded, Graded)
+        assert graded.agrees
+        assert graded.decisive_goals == 1
+
+    def test_three_are_explained(self) -> None:
+        graded = _grade(_run(), platform=69.0)
+
+        assert isinstance(graded, Graded) and graded.agrees
+        assert graded.decisive_goals == 3
+
+    def test_an_exact_match_counts_none(self) -> None:
+        graded = _grade(_run(), platform=66.0)
+
+        assert isinstance(graded, Graded) and graded.agrees
+        assert graded.decisive_goals == 0
+
+    def test_a_gap_that_is_not_a_multiple_is_a_finding(self) -> None:
+        """1.5 is not a decisive goal and never will be. The allowance is for one known
+        omission, not a widened tolerance."""
+        graded = _grade(_run(), platform=67.5)
+
+        assert isinstance(graded, Graded)
+        assert not graded.agrees
+        assert graded.decisive_goals is None
+
+    def test_paying_us_less_than_we_computed_is_always_a_finding(self) -> None:
+        """`bmdg` only ever adds. A platform total *below* ours cannot be explained by it,
+        and a signed allowance would have hidden exactly that."""
+        graded = _grade(_run(), platform=65.0)
+
+        assert isinstance(graded, Graded) and not graded.agrees
+
+    def test_an_implausible_number_of_them_is_a_finding(self) -> None:
+        """Seven decisive goals in one XI is a real disagreement wearing a plausible shape."""
+        graded = _grade(_run(), platform=73.0)
+
+        assert isinstance(graded, Graded) and not graded.agrees
+
+    def test_the_report_says_when_a_gap_was_explained(self) -> None:
+        graded = _grade(_run(), platform=68.0)
+        assert isinstance(graded, Graded)
+
+        outcome = report([_run()], league_id=4103937, sub_mode="basic", grade=lambda _r: graded)
+
+        assert any("+2 bmdg" in line for line in outcome.lines())
+        assert outcome.mismatches == ()
+
+    def test_the_ladder_reads_our_number_and_not_the_platforms(self) -> None:
+        """The allowance explains a *disagreement*; it does not change what we computed, and
+        the goals we report are the ones our own total makes."""
+        graded = _grade(_run(), platform=72.0)
+
+        assert isinstance(graded, Graded)
+        assert graded.ours.fantapunti == pytest.approx(66.0)
+        assert graded.ours.goals == 1
+
+
+class TestTwoCompetitions:
+    def test_a_second_competitions_matchday_does_not_replace_the_first(self) -> None:
+        """`LineupRun.matchday` is the *competition's* own numbering and a lega can hold
+        more than one. Keyed on the matchday alone, the report came out a row short with
+        nothing saying so."""
+        coppa = _run(competition=999999, matchday=4, module="352")
+
+        picked = latest_per_matchday([_run(), coppa], league_id=4103937)
+
+        assert len(picked) == 2
+        assert {r.competition for r in picked} == {311681, 999999}
