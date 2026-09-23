@@ -543,6 +543,11 @@ def schedule_run(
     # left to the operator because the record is the only evidence Phase 7's shadow
     # matchdays will have, and a flag nobody remembered is four weeks of nothing.
     command.append("--shadow")
+    # And the refresh, which runs **after** the record is written, in its own process group,
+    # under a hard wall. It brings the voti and the lega sync up to date so the *next* hour's
+    # projection has something current to fit on; nothing it does can change this hour's
+    # record or exit code.
+    command.append("--refresh")
     code = schedule.run_command(command, cwd=str(Path.cwd()))
     if code:
         raise typer.Exit(code=code)

@@ -912,3 +912,118 @@ def _outcome(
         sub_mode_assumed=assumed,
         fallback=fallback,
     )
+
+
+# -- T37: the refresh as a bounded child ------------------------------------------------
+
+
+class TestTheRefreshChild:
+    """After the record, in its own process group, and unable to change either.
+
+    The refresh imports the agent SDK and the whole persistence stack, talks to a live site
+    and can hang in a way no `try` catches. In-process it would hold the hourly job past its
+    next tick, and the tick after that is a matchday. So it is a child, it is bounded, and
+    whatever it does the submit has already been written down.
+    """
+
+    def test_without_the_flag_no_child_is_started(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Off unless passed (A19(1)). The default path spawns nothing at all."""
+        _submit_fakes(monkeypatch, auto_act=True)
+        spawned: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.adapters.process.run_grouped",
+            lambda *a, **k: spawned.append((a, k)) or (0, ""),
+        )
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+        assert result.exit_code == 0
+        assert spawned == []
+
+    def test_with_nothing_due_no_child_is_started(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The in-process due check reads one small file. A hopeful spawn every hour costs
+        an interpreter start and a database connection to find out there was nothing to do."""
+        _submit_fakes(monkeypatch, auto_act=True)
+        spawned: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.adapters.process.run_grouped",
+            lambda *a, **k: spawned.append((a, k)) or (0, ""),
+        )
+        monkeypatch.setattr("fantabot.domain.lineup.refresh.due", lambda *_a, **_k: ())
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm", "--refresh"])
+
+        assert result.exit_code == 0
+        assert spawned == []
+
+    def test_with_something_due_the_child_is_this_interpreter_and_this_matchday(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`sys.executable`, not `fantabot`: a launchd job has no useful PATH, and the
+        interpreter that is running is the one with both packages importable."""
+        import sys
+
+        _submit_fakes(monkeypatch, auto_act=True)
+        spawned: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.adapters.process.run_grouped",
+            lambda command, **k: spawned.append((list(command), k)) or (0, ""),
+        )
+        monkeypatch.setattr("fantabot.domain.lineup.refresh.due", lambda *_a, **_k: ("voti",))
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm", "--refresh"])
+
+        assert result.exit_code == 0
+        assert len(spawned) == 1
+        command, kwargs = spawned[0]
+        assert command[:6] == [sys.executable, "-m", "fantabot", "lineup", "refresh", "--league"]
+        assert "--cmday" in command
+        assert kwargs["timeout"] > 0
+
+    def test_the_child_runs_after_the_record_and_cannot_change_it(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Exactly one record per run, written before the child starts. A refresh that
+        failed, hung or was killed changes nothing about what this hour did."""
+        _submit_fakes(monkeypatch, auto_act=True)
+        order: list[str] = []
+        monkeypatch.setattr(
+            "fantabot.adapters.files.lineup_runs.append_run",
+            lambda _path, _run: order.append("record") or True,
+        )
+        monkeypatch.setattr(
+            "fantabot.adapters.process.run_grouped",
+            lambda *a, **k: order.append("child") or (None, "killed after 1800s"),
+        )
+        monkeypatch.setattr("fantabot.domain.lineup.refresh.due", lambda *_a, **_k: ("lega",))
+
+        result = runner.invoke(
+            app, ["lineup", "submit", "--arm", "--refresh", "--scheduled"]
+        )
+
+        assert order == ["record", "child"], order
+        assert result.exit_code == 0, "a killed refresh changed the submit's exit code"
+
+    def test_an_unreadable_marker_is_reported_and_starts_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Contained: the refresh is the optional half and the submit is the job."""
+        _submit_fakes(monkeypatch, auto_act=True)
+        spawned: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.adapters.process.run_grouped",
+            lambda *a, **k: spawned.append(a) or (0, ""),
+        )
+
+        def _boom(_self: Any) -> Any:
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(
+            "fantabot.adapters.files.refresh_marker.FileMarkerStore.read", _boom
+        )
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm", "--refresh"])
+
+        assert result.exit_code == 0
+        assert spawned == []
+        assert "marker unreadable (OSError)" in result.output

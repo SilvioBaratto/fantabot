@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import typer
 from rich.markup import escape
 
+from fantabot.application.containment import contained
 from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadline
 from fantabot.interface.console import console
 
@@ -154,6 +155,12 @@ PLAN_WALL_SECONDS = 300.0
 #: for T37's refresh child. An abort here is a fallback to the `indexCompare` XI, which is
 #: the lineup that would have gone out anyway.
 SUBMIT_WALL_SECONDS = 600.0
+
+#: The hard wall on the refresh child. launchd's interval is 3600 s; the submit itself can
+#: spend `SUBMIT_WALL_SECONDS` on the projection plus its own reads and POST, and what is
+#: left has to leave room for the next tick to start clean. Thirty minutes is far above what
+#: a real refresh takes — eight voti GETs and eight lega reads — and is a wall, not a budget.
+REFRESH_WALL_SECONDS = 1800.0
 
 #: The bootstrap's seed. A constant, so a gate run is a gate run: the interval must not
 #: move between two readings of the same replay, or "the CI is above zero" is a coin.
@@ -371,11 +378,22 @@ def _submit(
         "--shadow",
         help="Also compute the projection and record it beside the lineup that was sent.",
     ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="After the record is written, bring the history up to date in a bounded child.",
+    ),
 ) -> None:
     """Build the formation and submit it — **behind two locks, dry run by default.**
 
     Prints the plan always. Submits only when `FANTABOT_AUTO_ACT=true` **and** `--arm`; then
     warns if the matchday looks started and confirms by reading the lineup back.
+
+    `--refresh` is **off unless passed** too, runs **after** the record is written, and runs
+    as a bounded child process: it imports the agent SDK and the whole persistence stack,
+    talks to a live site, and can hang in a way no `try` catches. A refresh that wedged
+    in-process would hold the job past its next hourly tick, and the tick after that is a
+    matchday. Nothing it does changes the record or the exit code.
 
     `--shadow` is **off unless passed** (A19(1)) and `fantabot-app schedule run` passes it.
     Under `indexcompare` it costs the run nothing that matters: the POST happens first and
@@ -455,6 +473,13 @@ def _submit(
         raise typer.Exit(code=1) from exc
 
     record(run_record(outcome, league_id=league_id, scheduled=scheduled, at=at))
+
+    # **After the record, and never before it.** The submit's own work is done and written
+    # down; everything from here is optional and may not be able to change either.
+    if refresh and outcome.plan is not None:
+        note = _refresh_child(league_id, cmday=outcome.plan.cmday, competition=outcome.competition)
+        if note:
+            console.print(f"[dim]refresh: {escape(note)}[/dim]")
 
     # Everything from here is presentation and an exit code. What happened is decided in
     # `application/lineup_submit.py`, so the app can reach the same eight decisions.
@@ -594,6 +619,43 @@ def _refresh(
         console.print(escape(line))
     if not report.ok:
         raise typer.Exit(code=1)
+
+
+def _refresh_child(league_id: int, *, cmday: int, competition: int) -> str:
+    """Spawn `lineup refresh` when this matchday still owes something. Never raises.
+
+    **The due check is in-process and reads only the marker** (`domain/lineup/refresh.due`).
+    It deliberately is not `run_refresh`: that one reads the lega calendar and the voti
+    table to decide *what* to fetch, and doing it here would pay the read in the submit's
+    own hour to find out there was nothing to do. The marker answers "does this matchday owe
+    anything at all" from one small file, which is the only question worth asking twice.
+
+    It also costs **no second `league_status` read**: `cmday` comes from the plan the submit
+    already built, which `test_the_status_is_read_once` is there to keep true.
+    """
+    import sys
+
+    from fantabot.adapters.files.refresh_marker import FileMarkerStore
+    from fantabot.adapters.process import run_grouped
+    from fantabot.domain.lineup.refresh import due
+
+    owed, failure = contained(lambda: due(FileMarkerStore().read(), cmday=cmday))
+    if owed is None:
+        return f"marker unreadable ({failure})"
+    if not owed:
+        return ""
+
+    command = [
+        sys.executable, "-m", "fantabot", "lineup", "refresh",
+        "--league", str(league_id), "--cmday", str(cmday),
+    ]
+    if competition:
+        command += ["--competition", str(competition)]
+    code, note = run_grouped(command, timeout=REFRESH_WALL_SECONDS)
+    owes = ", ".join(owed)
+    if note:
+        return f"{owes}: {note}"
+    return f"{owes}: exit {code}"
 
 
 def _projector(store: TokenStore, league_id: int) -> Projector:

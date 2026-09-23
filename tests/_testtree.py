@@ -221,6 +221,9 @@ TREE: dict[str, str] = {
     "test_aste_landing.py": "adapters/files",
     "test_lineup_runs.py": "adapters/files",
     "test_stop_flag.py": "adapters/files",
+    # The process-group runner. Filed under `files` with the other small adapters that
+    # touch the machine rather than the network.
+    "test_process_group.py": "adapters/files",
     "test_role_lock.py": "adapters/files",
     # The reader, beside the writer. Filed by its subject rather than its imports: it
     # reads `application/asta_room.py` to check the writer and the reader still agree.

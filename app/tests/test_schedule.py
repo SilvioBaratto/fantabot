@@ -462,6 +462,7 @@ class TestTheCommand:
                 "--arm",
                 "--scheduled",
                 "--shadow",
+                "--refresh",
             ]
         ]
 
@@ -483,6 +484,7 @@ class TestTheCommand:
         # `--shadow` is not gated by `--arm`: an unarmed scheduled run still plans, still
         # records, and the shadow is the evidence Phase 7 reads. It just submits nothing.
         assert "--shadow" in argv[0]
+        assert "--refresh" in argv[0]
 
     def test_run_exits_with_the_child_status(
         self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
