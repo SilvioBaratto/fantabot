@@ -37,6 +37,7 @@ from fantabot.application.reporting import Reporter
 
 # `VOTI_GETS_PER_RUN` is imported rather than restated: a second copy of "eight GETs a run"
 # is a second thing to keep in step with A20.
+from fantabot.domain.lineup.deadline import news_window_cutoff
 from fantabot.domain.lineup.freshness import VOTI_GETS_PER_RUN
 from fantabot.domain.lineup.refresh import (
     Marker,
@@ -66,6 +67,11 @@ class RefreshInputs:
     short_giornate: tuple[int, ...] = ()
     #: Whether the lega's round on giornata `cmday - 1` reads calculated.
     previous_calculated: bool = False
+    #: `league_status`'s posted first kickoff, for the news window (A13). Empty closes it.
+    mstr: str = ""
+    #: The matchday `mstr` belongs to. Compared against `cmday`: a mismatch closes the
+    #: window, because a start for the next matchday says nothing about this one.
+    status_mday: int = 0
 
 
 def read_refresh_inputs(
@@ -88,7 +94,8 @@ def read_refresh_inputs(
 
     The roster is read only when a `competition` is named. News is gated off until T40, and
     a refresh that read the roster it will not use would spend two authenticated GETs an
-    hour for a source that does nothing.
+    hour for a source that does nothing. The news **clock** is read under the same
+    condition and for the same reason.
     """
     from collections import Counter
 
@@ -103,6 +110,7 @@ def read_refresh_inputs(
         fixtures = LineupHistoryRepository(session).fixtures(season)
         calendar = LeagueRepository(session).fixtures_for(league_id)
     per_giornata = Counter(f.giornata for f in fixtures)
+    mstr, status_mday = _news_clock(league_id) if competition else ("", 0)
     return RefreshInputs(
         league_id=league_id,
         season=season,
@@ -111,7 +119,34 @@ def read_refresh_inputs(
         roster_ids=_roster_ids(league_id, competition) if competition else (),
         short_giornate=tuple(voti_range(cmday=cmday, fixtures_per_giornata=per_giornata)),
         previous_calculated=previous_round_calculated(calendar, cmday=cmday),
+        mstr=mstr,
+        status_mday=status_mday,
     )
+
+
+def _news_clock(league_id: int) -> tuple[str, int]:
+    """`league_status`'s `mstr` and `mday`, for the news window. Never raises.
+
+    **Contained rather than propagated**, unlike `_roster_ids` beside it. The clock is the
+    news step's alone: voti and lega do not read it, and a status call that fails must cost
+    the news window and not the two sources that were about to succeed. `("", 0)` is what
+    nothing-known looks like, and `news_window_cutoff` fails closed on it — so an unreadable
+    clock stands the news step down and leaves it owed, which is the safe direction.
+    """
+    from fantabot.adapters.http import apileague
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.config import settings
+    from fantabot.domain.tokens.crypto import TokenCipher
+
+    def read() -> tuple[str, int]:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            status = apileague.league_status(league_id, store=TokenStore(session, cipher))
+        return str(status.get("mstr") or ""), int(status.get("mday") or 0)
+
+    clock, _failure = contained(read)
+    return clock if clock is not None else ("", 0)
 
 
 def _roster_ids(league_id: int, competition: int) -> tuple[int, ...]:
@@ -197,7 +232,7 @@ def run_refresh(
     marker_error = ""
 
     for source in wanted:
-        outcome = _contained(source, partial(_run_one, source, inputs, sources))
+        outcome = _contained(source, partial(_run_one, source, inputs, sources, now=now))
         outcomes.append(outcome)
         reporter.print(f"[dim]{outcome.source}: {outcome.state}[/dim]")
         if not outcome.ok:
@@ -220,7 +255,9 @@ def run_refresh(
     )
 
 
-def _run_one(source: str, inputs: RefreshInputs, sources: RefreshSources) -> SourceOutcome:
+def _run_one(
+    source: str, inputs: RefreshInputs, sources: RefreshSources, *, now: datetime
+) -> SourceOutcome:
     if source == "voti":
         giornate = voti_giornate(
             cmday=inputs.cmday,
@@ -233,6 +270,18 @@ def _run_one(source: str, inputs: RefreshInputs, sources: RefreshSources) -> Sou
         return sources.voti(inputs, giornate)
     if source == "lega":
         return sources.lega(inputs)
+    # A13's window, gating news exactly as `voti_giornate` gates voti above — a pure domain
+    # answer, and `skipped` so `run_refresh` writes no marker and the hour stays owed. That
+    # last part is the whole point: the marker spends one news success per giornata, so a
+    # run stood down now must still be attempted when the window opens.
+    blocked = news_window_cutoff(
+        mstr=inputs.mstr,
+        status_mday=inputs.status_mday,
+        plan_cmday=inputs.cmday,
+        now=now,
+    )
+    if blocked is not None:
+        return SourceOutcome("news", "skipped", blocked.reason)
     return sources.news(inputs)
 
 

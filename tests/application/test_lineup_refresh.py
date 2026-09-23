@@ -18,7 +18,7 @@ store is in memory, and `now` is a parameter.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -41,6 +41,13 @@ from fantabot.domain.lineup.refresh import (
 NOW = datetime(2026, 9, 23, 7, 0, 0)
 DAY = date(2026, 9, 23)
 
+#: A kickoff that puts `NOW` inside A13's news window, which opens 6h before it and closes
+#: 2h before. Derived from `NOW`'s own UTC reading rather than written as a literal: `NOW` is
+#: naive, `news_window_cutoff` compares in UTC via `astimezone`, and a literal would put the
+#: fixture inside the window only on a machine in the zone it was written on.
+#: Four hours ahead leaves the window [NOW-2h, NOW+2h), so `NOW` sits in the middle of it.
+KICKOFF = (NOW.astimezone(UTC) + timedelta(hours=4)).replace(tzinfo=None).isoformat()
+
 
 def _inputs(**over: Any) -> RefreshInputs:
     base: dict[str, Any] = {
@@ -51,6 +58,10 @@ def _inputs(**over: Any) -> RefreshInputs:
         "roster_ids": (1, 2, 3),
         "short_giornate": (),
         "previous_calculated": True,
+        # The window open by default, so every test here keeps asking what it was written to
+        # ask. The window itself is `TestTheNewsWindow`'s subject, and those override these.
+        "mstr": KICKOFF,
+        "status_mday": 6,
     }
     base.update(over)
     return RefreshInputs(**base)
@@ -277,6 +288,88 @@ class TestTheRun:
         _run(sources, store, inputs=_inputs(cmday=6, short_giornate=(2,)))
 
         assert sources.giornate == (5, 2)
+
+
+def _kickoff_in(hours: float) -> str:
+    """An `mstr` that many hours after `NOW`, written the way the platform writes them."""
+    return (NOW.astimezone(UTC) + timedelta(hours=hours)).replace(tzinfo=None).isoformat()
+
+
+#: Each row puts `NOW` outside the window, one way per row, with a word from the reason A13
+#: gives for it. Nine hours out is before the window opens; one hour out is after it closed.
+OUTSIDE = [
+    pytest.param({"mstr": _kickoff_in(9)}, "opens", id="too-early"),
+    pytest.param({"mstr": _kickoff_in(1)}, "closed", id="too-late"),
+    pytest.param({"status_mday": 7}, "not this matchday's", id="matchday-mismatch"),
+    pytest.param({"mstr": "not a timestamp"}, "unreadable", id="unreadable-start"),
+]
+
+
+class TestTheNewsWindow:
+    """A13's window, gating the news source the way `voti_giornate` gates voti.
+
+    The window existed and was asserted ten times over in `test_deadline.py` while
+    `in_news_window` had **no production caller** — the suite was green and could not see
+    it. These tests are here because the gate is only real at this seam.
+    """
+
+    @pytest.mark.parametrize(("over", "says"), OUTSIDE)
+    def test_the_source_is_never_reached_outside_the_window(
+        self, over: dict[str, Any], says: str
+    ) -> None:
+        sources, store = _Sources(), _MemoryMarker()
+
+        report = _run(sources, store, inputs=_inputs(**over))
+
+        assert "news" not in sources.calls
+        detail = next(o.detail for o in report.outcomes if o.source == "news")
+        assert says in detail
+
+    @pytest.mark.parametrize(("over", "says"), OUTSIDE)
+    def test_a_window_skip_leaves_the_hour_still_owed(
+        self, over: dict[str, Any], says: str
+    ) -> None:
+        """The defect this gate exists to prevent, stated as the thing that must not happen.
+
+        `Marker.succeeded` matches on `cmday`, so one news success is spent per giornata. A
+        stand-down that *recorded* one would suppress the run in the window — the hours the
+        window exists to protect. `skipped` is not `ok`, and that is what keeps it owed.
+        """
+        sources, store = _Sources(), _MemoryMarker()
+
+        report = _run(sources, store, inputs=_inputs(**over))
+
+        assert not store.marker.succeeded("news", 6)
+        assert "news" in due(store.marker, cmday=6)
+        assert [o.state for o in report.outcomes if o.source == "news"] == ["skipped"]
+        # And it is a stand-down, not a breakage: nothing here makes the run dirty.
+        assert report.ok is True
+
+    def test_the_open_window_reaches_the_source_and_spends_the_success(self) -> None:
+        sources, store = _Sources(), _MemoryMarker()
+
+        _run(sources, store, inputs=_inputs())
+
+        assert "news" in sources.calls
+        assert store.marker.succeeded("news", 6)
+        assert "news" not in due(store.marker, cmday=6)
+
+    def test_the_reason_is_the_domain_s_own_and_not_restated_here(self) -> None:
+        """One implementation of "why not now": the application prints what the domain said.
+
+        A reason composed at this layer would be a second answer to the question
+        `news_window_cutoff` already answers, and the two would drift.
+        """
+        from fantabot.domain.lineup.deadline import news_window_cutoff
+
+        inputs = _inputs(status_mday=7)
+        report = _run(_Sources(), _MemoryMarker(), inputs=inputs)
+
+        cutoff = news_window_cutoff(
+            mstr=inputs.mstr, status_mday=7, plan_cmday=6, now=NOW
+        )
+        assert cutoff is not None
+        assert [o.detail for o in report.outcomes if o.source == "news"] == [cutoff.reason]
 
 
 class TestContainment:

@@ -48,6 +48,11 @@ MATCHDAY_STARTED = "matchday-started"
 MATCHDAY_MISMATCH = "matchday-mismatch"
 NO_START_TIME = "no-start-time"
 
+#: Why the news step stood down. Same kind of stable code, for the same reason: the refresh
+#: marker stores the detail and the operator reads it back an hour later.
+NEWS_WINDOW_EARLY = "news-window-early"
+NEWS_WINDOW_LATE = "news-window-late"
+
 #: The zone the kickoff is *shown* in. `mstr` itself is UTC; this is only so the reason a
 #: scheduled run gives reads like the clock on the operator's wall.
 KICKOFF_ZONE = "Europe/Rome"
@@ -104,6 +109,69 @@ def scheduled_cutoff(
     return None
 
 
+def news_window_cutoff(
+    *,
+    mstr: str,
+    status_mday: int,
+    plan_cmday: int,
+    now: datetime,
+    opens_before: float = 6,
+    closes_before: float = 2,
+) -> Cutoff | None:
+    """Why the news step must not run now, or `None` when the window is open. Pure (A13).
+
+    The window runs from `opens_before` hours before the first kickoff up to but not
+    including `closes_before` hours before it. Four refusals, in `scheduled_cutoff`'s order
+    and for its reasons:
+
+    1. **The start is for another matchday** — `mstr` describes `league_status`'s own `mday`.
+    2. **The start cannot be read.** Fail closed, as everywhere on this path.
+    3. **Too early**, and 4. **too late**.
+
+    **This returns the reason and `in_news_window` is defined from it**, rather than the
+    caller re-deriving why a `False` was false. Two guards on one question make the first
+    unobservable, and the refresh has to print something an operator can act on: "opens
+    2026-10-10 09:00 (Rome)" is a wait, "unreadable" is a bug.
+
+    Why a window exists at all: the refresh marker spends one news success per giornata
+    (`refresh.Marker.succeeded` matches on `cmday`), so a run outside the window does not
+    merely waste an agent call — it consumes the one call this matchday had and suppresses
+    the run in the hours when injuries and starters are actually known.
+    """
+    if not opens_before > closes_before >= 0:
+        raise ValueError(
+            f"the news window must open before it closes, and close by kickoff: opens "
+            f"{opens_before}h and closes {closes_before}h before it"
+        )
+    if status_mday != plan_cmday:
+        return Cutoff(
+            MATCHDAY_MISMATCH,
+            f"the platform's current matchday is {status_mday} but the refresh is for "
+            f"{plan_cmday} — its posted start ({mstr or 'none'}) is not this matchday's",
+        )
+    start = _kickoff(mstr)
+    if start is None:
+        return Cutoff(
+            NO_START_TIME,
+            f"matchday {status_mday}'s start is unreadable ({mstr!r}) — nothing says the "
+            "news window is open",
+        )
+    moment = now.astimezone(UTC)
+    opens = start - timedelta(hours=opens_before)
+    closes = start - timedelta(hours=closes_before)
+    if moment < opens:
+        return Cutoff(
+            NEWS_WINDOW_EARLY,
+            f"matchday {status_mday}'s news window opens {_on_the_wall(opens)}",
+        )
+    if moment >= closes:
+        return Cutoff(
+            NEWS_WINDOW_LATE,
+            f"matchday {status_mday}'s news window closed {_on_the_wall(closes)}",
+        )
+    return None
+
+
 def in_news_window(
     *,
     mstr: str,
@@ -113,24 +181,20 @@ def in_news_window(
     opens_before: float = 6,
     closes_before: float = 2,
 ) -> bool:
-    """Whether `now` is in the news step's window: from `opens_before` hours before the first
-    kickoff, up to but not including `closes_before` hours before it (SPEC A13). Pure.
+    """Whether `now` is in the news step's window (SPEC A13). Pure.
 
-    Never open on a start that is not this lineup's (the MISMATCH rule of `scheduled_cutoff`)
-    or cannot be read: a news run on the wrong clock spends an agent run on a matchday that
-    is not the one being planned.
+    The predicate half of `news_window_cutoff`, and derived from it so the two cannot drift.
     """
-    if not opens_before > closes_before >= 0:
-        raise ValueError(
-            f"the news window must open before it closes, and close by kickoff: opens "
-            f"{opens_before}h and closes {closes_before}h before it"
-        )
-    start = _kickoff(mstr)
-    if status_mday != plan_cmday or start is None:
-        return False
-    moment = now.astimezone(UTC)
     return (
-        start - timedelta(hours=opens_before) <= moment < start - timedelta(hours=closes_before)
+        news_window_cutoff(
+            mstr=mstr,
+            status_mday=status_mday,
+            plan_cmday=plan_cmday,
+            now=now,
+            opens_before=opens_before,
+            closes_before=closes_before,
+        )
+        is None
     )
 
 
@@ -162,9 +226,12 @@ __all__ = [
     "KICKOFF_ZONE",
     "MATCHDAY_MISMATCH",
     "MATCHDAY_STARTED",
+    "NEWS_WINDOW_EARLY",
+    "NEWS_WINDOW_LATE",
     "NO_START_TIME",
     "Cutoff",
     "in_news_window",
     "is_past_deadline",
+    "news_window_cutoff",
     "scheduled_cutoff",
 ]

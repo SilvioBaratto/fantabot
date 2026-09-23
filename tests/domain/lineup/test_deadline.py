@@ -29,8 +29,11 @@ import pytest
 from fantabot.domain.lineup.deadline import (
     MATCHDAY_MISMATCH,
     MATCHDAY_STARTED,
+    NEWS_WINDOW_EARLY,
+    NEWS_WINDOW_LATE,
     NO_START_TIME,
     in_news_window,
+    news_window_cutoff,
     scheduled_cutoff,
 )
 
@@ -178,3 +181,60 @@ class TestNewsWindow:
                 mstr=START, status_mday=4, plan_cmday=4, now=_utc(14, 0),
                 opens_before=opens, closes_before=closes,
             )
+
+
+class TestWhyTheWindowIsShut:
+    """`news_window_cutoff` names the reason; `in_news_window` is the predicate over it.
+
+    The refresh prints this reason into the marker an hour before an operator reads it, so
+    "opens 2026-09-18 14:45 (Rome)" and "unreadable" have to be tellable apart: one is a
+    wait and the other is a bug.
+    """
+
+    @pytest.mark.parametrize(
+        ("now", "status_mday", "mstr", "code"),
+        [
+            (_utc(12, 44), 4, START, NEWS_WINDOW_EARLY),
+            (_utc(16, 45), 4, START, NEWS_WINDOW_LATE),
+            (_utc(18, 44), 4, START, NEWS_WINDOW_LATE),
+            (_utc(14, 0), 5, START, MATCHDAY_MISMATCH),
+            (_utc(14, 0), 4, "not a date", NO_START_TIME),
+        ],
+    )
+    def test_each_way_it_is_shut_has_its_own_code(
+        self, now: datetime, status_mday: int, mstr: str, code: str
+    ) -> None:
+        cutoff = news_window_cutoff(
+            mstr=mstr, status_mday=status_mday, plan_cmday=4, now=now
+        )
+        assert cutoff is not None
+        assert cutoff.code == code
+
+    def test_the_open_window_has_no_cutoff(self) -> None:
+        assert news_window_cutoff(
+            mstr=START, status_mday=4, plan_cmday=4, now=_utc(14, 0)
+        ) is None
+
+    @pytest.mark.parametrize(
+        ("now", "status_mday", "mstr"),
+        [
+            (_utc(12, 44), 4, START),
+            (_utc(12, 45), 4, START),
+            (_utc(16, 44), 4, START),
+            (_utc(16, 45), 4, START),
+            (_utc(14, 0), 5, START),
+            (_utc(14, 0), 4, ""),
+        ],
+    )
+    def test_the_predicate_is_the_cutoff_and_not_a_second_opinion(
+        self, now: datetime, status_mday: int, mstr: str
+    ) -> None:
+        """The anti-drift invariant: one implementation, two shapes.
+
+        `in_news_window` is *defined* as `news_window_cutoff(...) is None`. Asserting the
+        agreement here means a future edit that gives either one its own logic fails, rather
+        than leaving a predicate and a reason that quietly disagree about the same instant.
+        """
+        shut = news_window_cutoff(mstr=mstr, status_mday=status_mday, plan_cmday=4, now=now)
+        open_ = in_news_window(mstr=mstr, status_mday=status_mday, plan_cmday=4, now=now)
+        assert open_ is (shut is None)
