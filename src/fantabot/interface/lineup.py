@@ -136,9 +136,11 @@ def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
 INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
 
 #: The hard abort for a read-only plan. Well inside launchd's hourly `StartInterval`, and
-#: far above what the counted budget actually takes (measured: 0.5 s over 20,000 draws on a
-#: four-candidate board). It exists for the machine that is not this one.
-PLAN_WALL_SECONDS = 60.0
+#: comfortably above what the counted budget takes on the operator's own machine — 250,000
+#: work units at a measured 0.34 ms each is about 85 s. It exists for the machine that is
+#: not this one, and it was 60 s until 2026-09-23, when it fired on the real lega at
+#: "stopped at 4/177" — a wall tighter than the budget is a wall that decides the plan.
+PLAN_WALL_SECONDS = 300.0
 
 
 def format_projection_rows(report: ProjectionReport) -> list[tuple[str, ...]]:

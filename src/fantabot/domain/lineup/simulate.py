@@ -68,6 +68,13 @@ class DrawBank:
     def index(self) -> Mapping[int, int]:
         return {pid: i for i, pid in enumerate(self.player_ids)}
 
+    def head(self, n: int) -> DrawBank:
+        """The first `n` draws. A **prefix**, so the screen and the final round compare the
+        same weeks — common random numbers across the stages, not only within one."""
+        if n >= self.n:
+            return self
+        return DrawBank(self.player_ids, self.scores[:n], self.present[:n])
+
 
 @dataclass(frozen=True, slots=True)
 class Evaluation:

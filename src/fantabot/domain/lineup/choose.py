@@ -49,7 +49,7 @@ from fantabot.domain.lineup.candidates import (
 from fantabot.domain.lineup.dependence import Member
 from fantabot.domain.lineup.errors import BenchIncomplete, NoFieldableModule
 from fantabot.domain.lineup.opponent import goal_probabilities
-from fantabot.domain.lineup.simulate import Evaluation, build_bank, evaluate
+from fantabot.domain.lineup.simulate import DrawBank, Evaluation, build_bank, evaluate
 from fantabot.domain.lineup.substitution import SubMode, SubstitutionEngine
 
 if TYPE_CHECKING:
@@ -60,16 +60,29 @@ if TYPE_CHECKING:
     from fantabot.domain.lineup.opponent import Opponent
     from fantabot.domain.lineup.scoring import ScoringRules
 
-#: The fewest and most draws a plan may take. The floor keeps a big roster from being
-#: planned on noise; the ceiling is where more draws stop moving the argmax and start
-#: costing the hour.
+#: The fewest and most draws the **final** round may take. The floor keeps a big roster from
+#: being ranked on noise; the ceiling is where more draws stop moving the argmax.
 MIN_DRAWS = 500
 MAX_DRAWS = 20_000
 
-#: Work units one plan may spend. Measured against the hourly job's own room: the whole
-#: `lineup submit` must finish well inside launchd's 3600 s, and the projection is one step
-#: of it. Stated here as a number rather than a duration for AD6's reason.
-DEFAULT_WORK = 3_000_000
+#: Draws the screening round takes, for every candidate. Small on purpose: the screen only
+#: has to rank, and a difference that 400 paired draws cannot see is one the final round is
+#: unlikely to care about either. It is the **prefix** of the same bank, so the two rounds
+#: compare the same weeks.
+SCREEN_DRAWS = 400
+
+#: Work units one plan may spend. A unit is one candidate evaluated over one draw, and its
+#: price is **measured, not declared**: on the real lega — 30-man roster, eleven modules,
+#: 177 candidates — 160,000 units took **192 s** end to end on 2026-09-23, so a unit is
+#: about 1.2 ms. That is three minutes for a read-only preview and a rounding error against
+#: the hourly job's 3600 s, which is the run that matters.
+#:
+#: ⚠ The price is **not** flat across the rounds, which is why it is stated as a measured
+#: average and not as a rate. The screen pays once per candidate and warms the matcher's
+#: memo as it goes; the bench search pays again on benches nobody has matched before, and
+#: is the dearest round per unit. A budget derived from the screen's own rate would
+#: under-price the bench by a factor of two.
+DEFAULT_WORK = 160_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +97,10 @@ class Budget:
     m: int
     #: Work units — candidate-draws — the whole plan may spend.
     work: int = DEFAULT_WORK
+    #: Bench positions the greedy actually searches, and reserves it tries at each. With
+    #: `ssnum` at 5 and the keeper spending one, at most four outfielders ever come on.
+    bench_depth: int = 6
+    bench_width: int = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,15 +189,27 @@ def budget_for(inputs: PlanInputs, *, work: int = DEFAULT_WORK) -> Budget:
     return Budget(k=4, lambdas=(0.0, 0.125), node_budget=800, m=3, work=work)
 
 
-def draws_for(budget: Budget, *, candidates: int, bench_units: int) -> tuple[int, str]:
-    """How many draws the budget buys, and why it is that many.
+def draws_for(
+    budget: Budget, *, candidates: int, bench_units: int, screen: int = SCREEN_DRAWS
+) -> tuple[int, str]:
+    """How many draws the **final** round buys, and why it is that many.
 
-    One plan costs `(candidates + m*bench_units)` evaluations, each over every draw. The
-    clamp is reported rather than applied silently: a plan built on 500 draws when the model
-    asked for 20,000 is the first thing to know when its argmax looks unstable.
+    A plan is three rounds and only the last is expensive per candidate:
+
+    * the **screen** evaluates every candidate at `screen` draws — `candidates * screen`;
+    * the **bench search** runs on the survivors, at the same `screen` draws, because
+      ordering a bench is a comparison between benches and not a measurement of one —
+      `m * bench_units * screen`;
+    * the **final** re-evaluates those `m` at as many draws as is left over.
+
+    Evaluating all 177 candidates of a real eleven-module board at 20,000 draws was never
+    affordable in Python — measured, 0.34 ms a unit — and a budget that pretended otherwise
+    spent its whole wall clock on the screen and reported "stopped at 4/177". The clamp is
+    reported rather than applied silently.
     """
-    per_draw = max(candidates + budget.m * bench_units, 1)
-    wanted = budget.work // per_draw
+    spent = candidates * screen + budget.m * bench_units * screen
+    left = budget.work - spent
+    wanted = left // max(budget.m, 1)
     draws = max(MIN_DRAWS, min(MAX_DRAWS, wanted))
     if draws == wanted:
         return draws, ""
@@ -219,7 +248,12 @@ def choose_plan(
         raise NoFieldableModule(inputs.modules)
 
     reserve_pool = max(len(inputs.roster) - 11, 0)
-    bench_units = work_units(pool=reserve_pool, size=inputs.bench_size)
+    bench_units = work_units(
+        pool=reserve_pool,
+        size=inputs.bench_size,
+        depth=plan_budget.bench_depth,
+        width=plan_budget.bench_width,
+    )
     draws, cut = draws_for(plan_budget, candidates=len(shortlist), bench_units=bench_units)
     if cut:
         cuts.append(cut)
@@ -230,8 +264,9 @@ def choose_plan(
         inputs.p,
         inputs.dependence,
         rng=rng,
-        n=draws,
+        n=max(draws, SCREEN_DRAWS),
     )
+    screen = bank.head(SCREEN_DRAWS)
     goals = (
         None
         if opponent is None
@@ -243,12 +278,23 @@ def choose_plan(
     )
     ranked_on: Literal["points", "fantapunti"] = "fantapunti" if goals is None else "points"
 
+    def run(
+        board: DrawBank, candidate: Candidate, bench: Sequence[int]
+    ) -> Evaluation:
+        return evaluate(
+            board,
+            engine=_engine(inputs, candidate, bench, sub_mode),
+            rules=inputs.rules,
+            opponent_goals=goals,
+        )
+
+    # -- the screen: every candidate, on the prefix ------------------------------------
     scored: list[tuple[float, int, Candidate, tuple[int, ...], Evaluation]] = []
     stopped = False
     for position, candidate in enumerate(shortlist):
         if should_stop is not None and should_stop():
             stopped = True
-            cuts.append(f"stopped at {position}/{len(shortlist)}")
+            cuts.append(f"screen stopped at {position}/{len(shortlist)}")
             break
         try:
             bench = tuple(
@@ -260,23 +306,20 @@ def choose_plan(
             # A module this roster cannot bench is one the platform would refuse; it is
             # dropped rather than fatal, exactly as an unfieldable module is.
             continue
-        result = evaluate(
-            bank,
-            engine=_engine(inputs, candidate, bench, sub_mode),
-            rules=inputs.rules,
-            opponent_goals=goals,
-        )
+        result = run(screen, candidate, bench)
         scored.append((objective(result), -position, candidate, bench, result))
 
     if not scored:
         raise NoFieldableModule(inputs.modules)
-
     scored.sort(reverse=True)
+    survivors = scored[: plan_budget.m]
+
+    # -- the bench search, on the same prefix ------------------------------------------
     benched = 0
-    for index, (_value, negative, candidate, bench, _result) in enumerate(scored[: plan_budget.m]):
+    for index, (_value, negative, candidate, bench, _result) in enumerate(list(survivors)):
         if should_stop is not None and should_stop():
             stopped = True
-            cuts.append(f"bench stopped at {index}/{min(plan_budget.m, len(scored))}")
+            cuts.append(f"bench stopped at {index}/{len(survivors)}")
             break
         reserves = tuple(
             player.id for player in inputs.roster if player.id not in set(candidate.starts)
@@ -284,7 +327,7 @@ def choose_plan(
         engine_for = partial(_engine_for_bench, inputs, candidate, sub_mode)
         try:
             order = order_bench_mc(
-                bank,
+                screen,
                 engine_for=engine_for,
                 reserves=reserves,
                 roles=roles,
@@ -292,15 +335,33 @@ def choose_plan(
                 rules=inputs.rules,
                 fallback=bench,
                 opponent_goals=goals,
+                depth=plan_budget.bench_depth,
+                width=plan_budget.bench_width,
             )
         except BenchIncomplete:  # pragma: no cover - `order_bench` already refused these
             continue
         benched += 1
-        scored[index] = (objective(order.evaluation), negative, candidate, order.bench,
-                         order.evaluation)
+        survivors[index] = (
+            objective(order.evaluation), negative, candidate, order.bench, order.evaluation
+        )
 
-    scored.sort(reverse=True)
-    _best_value, _negative, best, bench, result = scored[0]
+    # -- the final: the survivors, on the whole bank -----------------------------------
+    final: list[tuple[float, int, Candidate, tuple[int, ...], Evaluation]] = []
+    for index, (_screened, negative, candidate, bench, _result) in enumerate(survivors):
+        if should_stop is not None and should_stop():
+            stopped = True
+            cuts.append(f"final stopped at {index}/{len(survivors)}")
+            break
+        full = run(bank, candidate, bench)
+        final.append((objective(full), negative, candidate, bench, full))
+    if not final:
+        # Stopped before the first full evaluation: the screen's own ranking is the answer,
+        # and a screened plan is still a plan. What it is not is a *measured* one, and the
+        # cut says which.
+        final = survivors
+    final.sort(reverse=True)
+
+    _best_value, _negative, best, bench, result = final[0]
     return ChosenPlan(
         module=best.module,
         starts=tuple(best.starts),
@@ -309,12 +370,12 @@ def choose_plan(
         objective=ranked_on,
         candidates=len(shortlist),
         evaluated=len(scored),
-        draws=draws,
+        draws=bank.n,
         cuts=tuple(cuts),
         stopped=stopped,
         benched=benched,
         runners_up=tuple(
-            (c.module, tuple(c.starts), value) for value, _n, c, _b, _e in scored[1:4]
+            (c.module, tuple(c.starts), value) for value, _n, c, _b, _e in final[1:4]
         ),
     )
 

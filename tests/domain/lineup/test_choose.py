@@ -142,12 +142,27 @@ class TestTheBudget:
 
         assert eleven.m <= one.m
 
-    def test_the_draw_count_falls_out_of_the_budget(self) -> None:
-        draws, cut = draws_for(Budget(k=1, lambdas=(0.0,), node_budget=1, m=0, work=10_000),
-                               candidates=10, bench_units=0)
+    def test_the_final_round_gets_what_the_screen_left_over(self) -> None:
+        """Ten candidates screened at 400 draws is 4,000 units; the rest divides among the
+        survivors. The screen is the cheap round on purpose — evaluating every candidate at
+        the final draw count was what spent a whole wall clock on "stopped at 4/177"."""
+        budget = Budget(k=1, lambdas=(0.0,), node_budget=1, m=4, work=60_000)
 
-        assert draws == 1000
+        draws, cut = draws_for(budget, candidates=10, bench_units=0, screen=400)
+
+        assert draws == (60_000 - 10 * 400) // 4
         assert cut == ""
+
+    def test_the_bench_search_is_charged_at_the_screen_price(self) -> None:
+        """Ordering a bench is a comparison between benches, not a measurement of one, so
+        it runs on the prefix — and the budget says so."""
+        budget = Budget(k=1, lambdas=(0.0,), node_budget=1, m=4, work=60_000)
+
+        without, cut_a = draws_for(budget, candidates=10, bench_units=0, screen=400)
+        with_bench, cut_b = draws_for(budget, candidates=10, bench_units=10, screen=400)
+
+        assert (cut_a, cut_b) == ("", "")
+        assert without - with_bench == 4 * 10 * 400 // 4
 
     def test_a_clamp_is_recorded_rather_than_swallowed(self) -> None:
         """"The model wanted 20,000 draws and got 500" is the first thing to know when a
@@ -236,7 +251,7 @@ class TestAStopIsAPlan:
 
         assert plan.stopped
         assert len(plan.starts) == 11
-        assert any(cut.startswith("stopped at") for cut in plan.cuts)
+        assert any("stopped at" in cut for cut in plan.cuts)
 
     def test_a_stop_that_leaves_nothing_evaluated_is_refused(self) -> None:
         """There is a difference between "we ran out of time" and "there is no XI": the
@@ -248,7 +263,7 @@ class TestAStopIsAPlan:
         plan = _plan(should_stop=lambda: False)
 
         assert plan.stopped is False
-        assert not any(cut.startswith("stopped") for cut in plan.cuts)
+        assert not any("stopped" in cut for cut in plan.cuts)
 
 
 class TestTheBenchSearch:

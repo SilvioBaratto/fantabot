@@ -11,6 +11,19 @@ that maximises the evaluator's own objective given the positions already fixed. 
 marginal decision the engine itself makes — a player at position k is tried before one at
 k+1 — and it costs `size x |pool|` evaluations rather than the `12!` a search would.
 
+**And it is bounded twice, because `size x |pool|` was still the whole budget.** Measured on
+the real lega (2026-09-23): a 12-man bench over 19 reserves is 164 evaluations per candidate,
+which at four candidates was 79% of the plan's work and left the final round on its floor of
+500 draws. Two bounds fix that without touching the guarantee:
+
+* **`depth`** — only the first few positions are searched. With `ssnum` at 5 and the keeper
+  spending one, at most four outfielders ever come on, so position 8 is a lottery ticket
+  priced like a starter. The rest keep `bench.py`'s order.
+* **`width`** — each position tries only the best few reserves by that same order. A reserve
+  the value model ranks 15th is not the man who covers a flank better than the 3rd.
+
+Both are the budget's to set, and both are reported as the work they cost.
+
 **Never worse than `bench.py`, by construction rather than by hope.** A greedy is a
 heuristic and this one has no optimality argument, so its answer is evaluated against
 `order_bench`'s under the same draws and the better of the two is returned. One extra
@@ -75,6 +88,8 @@ def order_bench_mc(
     fallback: Sequence[int],
     opponent_goals: Sequence[float] | None = None,
     gk_role: str = GK_ROLE,
+    depth: int | None = None,
+    width: int | None = None,
 ) -> BenchOrder:
     """The best bench of `size` from `reserves`, never worse than `fallback`.
 
@@ -94,6 +109,8 @@ def order_bench_mc(
         raise BenchIncomplete(f"only {len(pool)} reserves available, need {size}")
 
     rank = {pid: i for i, pid in enumerate(fallback)}
+    searched = size if depth is None else min(depth, size)
+    considered = len(pool) if width is None else max(width, 1)
     work = 0
 
     def score(bench: Sequence[int]) -> tuple[float, Evaluation]:
@@ -104,17 +121,27 @@ def order_bench_mc(
         )
         return objective(result), result
 
+    def by_rank(among: Sequence[int]) -> list[int]:
+        """`fallback`'s order, then id — the order `width` truncates."""
+        return sorted(among, key=lambda pid: (rank.get(pid, len(rank)), pid))
+
     def best_of(chosen: list[int], among: Sequence[int]) -> int:
         """The reserve that pays most at the next position. Ties: `fallback`'s order, then id."""
         scored = [
-            (score([*chosen, pid])[0], -rank.get(pid, len(rank)), -pid, pid) for pid in among
+            (score([*chosen, pid])[0], -rank.get(pid, len(rank)), -pid, pid)
+            for pid in by_rank(among)[:considered]
         ]
         return max(scored)[3]
 
-    chosen = [best_of([], keepers)]
+    chosen = [best_of([], keepers)] if searched else [by_rank(keepers)[0]]
     while len(chosen) < size:
         remaining = [pid for pid in pool if pid not in chosen]
-        chosen.append(best_of(chosen, remaining))
+        if len(chosen) < searched:
+            chosen.append(best_of(chosen, remaining))
+        else:
+            # Past the searched positions, `bench.py`'s order stands: these men come on only
+            # when four have already been replaced, which `ssnum` usually forbids outright.
+            chosen.append(by_rank(remaining)[0])
 
     greedy_value, greedy = score(chosen)
     baseline_value, baseline = score(fallback)
@@ -123,13 +150,18 @@ def order_bench_mc(
     return BenchOrder(tuple(fallback), baseline, "value", work)
 
 
-def work_units(*, pool: int, size: int) -> int:
+def work_units(
+    *, pool: int, size: int, depth: int | None = None, width: int | None = None
+) -> int:
     """An **upper bound** on the evaluations `order_bench_mc` will spend.
 
     A bound and not a count: the keeper's position iterates over the reserve keepers alone,
     and a roster usually has one or two rather than twelve. Erring high is the safe
-    direction — T30 uses this to refuse a bench search it cannot afford, and a budget that
-    under-counted would commit to work it then has to abandon half done.
+    direction — T30 uses this to decide what the *final* round can still afford, and a
+    budget that under-counted would spend the whole wall clock on the bench and rank its
+    survivors on the draw floor. Which is exactly what it did before `depth` and `width`.
     """
-    positions = sum(max(pool - k, 0) for k in range(size))
+    searched = size if depth is None else min(depth, size)
+    per_position = pool if width is None else min(width, pool)
+    positions = sum(min(per_position, max(pool - k, 0)) for k in range(searched))
     return positions + 2

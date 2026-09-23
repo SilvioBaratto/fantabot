@@ -21,6 +21,7 @@ admit the `-1` cells, confirms every result (cross-checked in the tests).
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from functools import lru_cache
 
 from fantabot.domain.lineup import schema
 from fantabot.domain.lineup.errors import NoFieldableModule
@@ -155,6 +156,41 @@ def place_all_with_malus(
         return None
     if not role_sets:
         return [], 0
+    # Canonicalised before the matcher, so the memo below sees one key for every ordering of
+    # the same men. That is most of its value: the auto-sub engine asks this question once
+    # per bench *combination*, and swapping which of two centre-backs is in the combination
+    # is the same matching problem twice.
+    order = sorted(range(len(role_sets)), key=lambda i: sorted(role_sets[i]))
+    solved = _matched(
+        tuple(role_sets[i] for i in order), tuple(natural_sets), tuple(admitted_sets)
+    )
+    if solved is None:
+        return None
+    canonical, malus = solved
+    placement = [0] * len(role_sets)
+    for position, slot in zip(order, canonical, strict=True):
+        placement[position] = slot
+    return placement, malus
+
+
+@lru_cache(maxsize=1 << 17)
+def _matched(
+    role_sets: tuple[frozenset[str], ...],
+    natural_sets: tuple[frozenset[str], ...],
+    admitted_sets: tuple[frozenset[str], ...],
+) -> tuple[tuple[int, ...], int] | None:
+    """The matching itself, memoised on the question rather than on the asker.
+
+    Pure: the same role sets against the same slots are the same matching, whichever lega
+    asked — which is why a module-level cache is safe here and is not in `SubstitutionEngine`,
+    whose key is a roster's own player ids. Measured 2026-09-23 on a realistic 23-man Mantra
+    board: 6.5 ms per absence pattern without it, because a pattern costs one Hungarian per
+    bench combination per module and the Adapted tier scans all of them.
+
+    ⚠ Which of several interchangeable players carries the malus is not stable under the
+    canonicalisation, and must not be read — the platform picks "in no particular order"
+    (`rules/sistema-mantra.md`), and only the **count** was ever meaningful.
+    """
     slots = range(len(natural_sets))
     cost = [
         [
@@ -171,7 +207,7 @@ def place_all_with_malus(
     malus = sum(
         1 for i, slot in enumerate(assignment) if not (role_sets[i] & natural_sets[slot])
     )
-    return assignment, malus
+    return tuple(assignment), malus
 
 
 def best_lineup(
