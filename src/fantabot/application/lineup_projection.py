@@ -426,6 +426,15 @@ def _chosen(
         )
     except (LineupError, ValueError) as exc:
         return None, f"{type(exc).__name__}: {exc}"
+    if chosen.stopped:
+        # SPEC A17(6): **the wall clock is a hard abort, and a hard abort is a fallback.**
+        # `choose_plan` is right to return a plan rather than raise — a pure chain that
+        # threw would have no answer to give — but a half-searched plan is a plan that
+        # depends on how loaded the machine was, and submitting one would mean the same
+        # lega on the same matchday fielded two different XIs on two different evenings.
+        # So it is reported and dropped, and `plans[0]` goes back to the matcher's answer,
+        # which needs no draws and is the same everywhere.
+        return None, f"aborted: {', '.join(chosen.cuts) or 'the wall clock fired'}"
     return chosen, ""
 
 

@@ -131,6 +131,15 @@ class PlanInputs:
 
     @property
     def sigma2(self) -> Mapping[int, float]:
+        """The variance the candidate tilt reads: `sigma_tilde**2`, the **predictive** one.
+
+        Deliberate, and worth saying because `Projection` carries two. `sigma2` is the
+        within-player variance; `sigma_tilde2 = sigma2 + v` adds the uncertainty in his own
+        mean, and it is what the Monte Carlo actually draws with. The tilt's whole job is to
+        seek or avoid the spread of the *outcome*, so it has to be priced on the spread the
+        outcome has — pricing it on `sigma2` would make the shortlist tilt against a
+        different quantity from the one the evaluator then measures.
+        """
         return {pid: s * s for pid, s in self.sigma_tilde.items()}
 
 
@@ -150,7 +159,10 @@ class ChosenPlan:
     draws: int
     #: Every budget clamp and every stop, named: `draws 20000 -> 500`, `stopped at 12/97`.
     cuts: tuple[str, ...] = ()
-    #: True when `should_stop` ended the search. The plan is still a plan.
+    #: True when `should_stop` ended the search. The plan is still a **plan** — a pure
+    #: chain that raised would have no answer to give — but it is not a *reproducible* one,
+    #: and `application/lineup_projection` drops it for the matcher's own XI on that
+    #: ground (SPEC A17(6): a hard abort is a fallback).
     stopped: bool = False
     #: Candidates that got the Monte Carlo bench search.
     benched: int = 0

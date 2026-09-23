@@ -469,16 +469,31 @@ class TestTheFallbacks:
         with pytest.raises(BenchIncomplete):
             _plan(bench_size=99)
 
-    def test_a_stopped_chain_is_a_plan(self) -> None:
-        outcome = plan_projection(
+    def test_an_aborted_chain_falls_back_rather_than_submitting_a_half_search(self) -> None:
+        """SPEC A17(6): the wall clock is a hard abort, **and a hard abort is a fallback**.
+
+        `choose_plan` is right to return a plan rather than raise — a pure chain that threw
+        would have no answer to give — but a half-searched plan depends on how loaded the
+        machine was, so submitting one would mean the same lega on the same matchday
+        fielding two different XIs on two different evenings. The application drops it and
+        `plans[0]` goes back to the matcher's answer, which needs no draws and is the same
+        everywhere.
+        """
+        aborted = plan_projection(
             _inputs(), FakeHistory(), as_of=AS_OF, rules=RULES, budget=SMALL,
             should_stop=_after(1),
         )
+        clean = _plan()
 
-        assert outcome.chosen is not None
-        assert outcome.chosen.stopped
-        assert outcome.plans[0].starts == outcome.chosen.starts
-        assert any(cut.startswith(("stopped", "bench stopped")) for cut in outcome.chosen.cuts)
+        assert aborted.chosen is None
+        assert aborted.fallback.startswith("aborted: ")
+        assert clean.chosen is not None
+        # This board fields one module, so the aborted XI and the chain's coincide and
+        # asserting on `starts` alone would prove nothing. The **bench** is where the
+        # search shows, and the aborted head does not carry the one it half-searched.
+        head = (aborted.plans[0].module, aborted.plans[0].starts, aborted.plans[0].bench)
+        searched = (clean.chosen.module, clean.chosen.starts, clean.chosen.bench)
+        assert head != searched
 
 
 class TestTheSubstitutionCap:

@@ -228,6 +228,13 @@ def test_the_default_plan_and_the_scheduled_submit_run_with_both_blocked(
     `HOME` and `USERPROFILE` point at `tmp_path` because a scheduled submit appends to
     `~/.fantabot/lineup_runs.jsonl`: two tests that forgot once wrote 34 fake runs into the
     operator's real record. The working directory is `tmp_path` too, so no `.env` is read.
+
+    ⚠ **The three lineup settings are cleared, not inherited.** `lineup plan` with no
+    `--model` reads `FANTABOT_LINEUP_MODEL` *now* (T31), so an operator who exported
+    `projection` in their own shell would make this subprocess take the projection branch —
+    and the guard would fail on the one machine it matters on, saying numpy loaded when
+    what actually happened is that the *default* path was never run. The guard is about the
+    default path, so the default path is what it must select.
     """
     env = {
         **os.environ,
@@ -235,6 +242,8 @@ def test_the_default_plan_and_the_scheduled_submit_run_with_both_blocked(
         "USERPROFILE": str(tmp_path),
         "FANTABOT_AUTO_ACT": "true",
     }
+    for setting in ("FANTABOT_LINEUP_MODEL", "FANTABOT_LINEUP_SUB_MODE", "FANTABOT_LINEUP_NEWS"):
+        env.pop(setting, None)
     result = subprocess.run(
         [sys.executable, "-c", _BLOCKED_RUN],
         cwd=tmp_path,
