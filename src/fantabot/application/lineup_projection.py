@@ -159,6 +159,7 @@ def projection_for_league(
     as_of: date,
     sub_mode: SubMode | None = None,
     voti_refreshed: bool = False,
+    refreshed: Callable[[int], bool] | None = None,
     config: ProjectionConfig | None = None,
     weights: PresenceWeights = PresenceWeights(),
     should_stop: Callable[[], bool] | None = None,
@@ -190,6 +191,7 @@ def projection_for_league(
             sub_mode=sub_mode,
             max_subs=substitution_cap(calculate),
             voti_refreshed=voti_refreshed,
+            refreshed=refreshed,
             config=config,
             weights=weights,
             should_stop=should_stop,
@@ -228,6 +230,7 @@ def plan_projection(
     max_subs: int | None = None,
     budget: Budget | None = None,
     voti_refreshed: bool = False,
+    refreshed: Callable[[int], bool] | None = None,
     config: ProjectionConfig | None = None,
     weights: PresenceWeights = PresenceWeights(),
     should_stop: Callable[[], bool] | None = None,
@@ -296,7 +299,16 @@ def plan_projection(
     return ProjectionOutcome(
         plans=_ranked(plans, chosen, inputs),
         lines=_lines(roster, targets, classic, projections, p, values),
-        freshness=_freshness(fixtures[season], cmday=inputs.cmday, refreshed=voti_refreshed),
+        freshness=_freshness(
+            fixtures[season],
+            cmday=inputs.cmday,
+            # The marker is asked **here**, where `cmday` is finally known: "were the voti
+            # refreshed" is a question about one matchday, and A20 makes the answer half of
+            # whether the history is fresh at all. It was hard-coded `False` until
+            # 2026-09-23, which made every shadowed run report itself stale whatever the
+            # refresh had actually done.
+            refreshed=voti_refreshed if refreshed is None else refreshed(inputs.cmday),
+        ),
         replacement=replacement_level({pid: p[pid] * mu[pid] for pid in roster}),
         as_of=as_of,
         seasons=seasons,
@@ -534,6 +546,8 @@ def projector_for(
     as_of: date,
     sub_mode: SubMode | None = None,
     should_stop: Callable[[], bool] | None = None,
+    for_submit: bool = False,
+    voti_refreshed: Callable[[int], bool] | None = None,
 ) -> Callable[[int], Projected]:
     """The `--shadow` seam, bound to one lega (T36).
 
@@ -558,28 +572,53 @@ def projector_for(
             as_of=as_of,
             sub_mode=sub_mode,
             should_stop=should_stop,
+            refreshed=voti_refreshed,
         )
-        return projected_from(report)
+        return projected_from(report, for_submit=for_submit)
 
     return build
 
 
-def projected_from(report: ProjectionReport) -> Projected:
-    """A `ProjectionReport` as the submit path needs it. Pure."""
+def projected_from(report: ProjectionReport, *, for_submit: bool = False) -> Projected:
+    """A `ProjectionReport` as the submit path needs it. Pure.
+
+    **`for_submit` is the whole safety property of the phase.** The same three conditions are
+    a *warning* on a shadow run and a **fallback** on a projection submit, because they are
+    reasons not to trust the plan and a shadow is not trusted with anything:
+
+    * **stale** — the voti behind μ are not final (SPEC Freshness: the projection path is
+      skipped, with the reason recorded);
+    * **an assumed sub mode** — SPEC A7: an unset `FANTABOT_LINEUP_SUB_MODE` means a
+      projection *submit* falls back, because the three modes field different XIs and
+      nobody has said which this lega plays;
+    * **no opponent** — the plan was ranked on E[fantapunti], which is a different objective
+      from the one the gate graded.
+
+    In every one of those the **shadow is still carried**, so the record shows what the
+    projection would have done *and* why it was not sent. Dropping it would throw away the
+    evidence at the moment it is most interesting.
+    """
     outcome = report.projection
     warnings = list(outcome.freshness.warnings)
+    reasons: list[str] = []
     if not outcome.freshness.fresh:
-        warnings.append(f"stale: {'; '.join(outcome.freshness.reasons)}")
+        reasons.append(f"stale: {'; '.join(outcome.freshness.reasons)}")
     if outcome.sub_mode_assumed:
-        warnings.append(f"sub mode assumed {outcome.sub_mode} (FANTABOT_LINEUP_SUB_MODE unset)")
+        reasons.append(
+            f"sub mode assumed {outcome.sub_mode} (FANTABOT_LINEUP_SUB_MODE unset)"
+        )
+    if outcome.chosen is not None and outcome.chosen.objective != "points":
+        reasons.append(f"no opponent ({outcome.opponent})")
+    warnings.extend(reasons)
+
     if outcome.chosen is None:
         return Projected(plans=(), shadow=None, fallback=outcome.fallback,
                          warnings=tuple(warnings))
-    return Projected(
-        plans=outcome.plans,
-        shadow=shadow_of(outcome, report.names),
-        warnings=tuple(warnings),
-    )
+    shadow = shadow_of(outcome, report.names)
+    if for_submit and reasons:
+        return Projected(plans=(), shadow=shadow, fallback="; ".join(reasons),
+                         warnings=tuple(warnings))
+    return Projected(plans=outcome.plans, shadow=shadow, warnings=tuple(warnings))
 
 
 def shadow_of(outcome: ProjectionOutcome, names: Mapping[int, str]) -> LineupShadow | None:

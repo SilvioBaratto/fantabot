@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     # lineup_submit`, which is on the default path — so naming it here costs no import edge
     # into the projection branch. That is the whole reason the seam is typed that way.
     from fantabot.application.lineup_projection import ProjectionOutcome, ProjectionReport
-    from fantabot.application.lineup_submit import Projector
+    from fantabot.application.lineup_submit import Projected, Projector
     from fantabot.domain.lineup.freshness import Freshness
     from fantabot.domain.lineup.models import PlannedLineup
 
@@ -60,17 +60,6 @@ def wall_stop(seconds: float, *, now: Callable[[], datetime] = _now) -> Callable
     """
     deadline = now() + timedelta(seconds=seconds)
     return lambda: now() >= deadline
-
-
-def resolve_model(raw: str | None) -> str:
-    """`FANTABOT_LINEUP_MODEL` as a model, failing closed to `indexcompare` (AD4).
-
-    `Settings()` runs at import, so the value is a plain `str | None` and a typo in `.env`
-    must not stop the hourly job at the import line — it must field a lineup the old way.
-    Parsed here, at the point of use, and re-read every run like `live_auto_act`.
-    """
-    candidate = (raw or "").strip().lower()
-    return PROJECTION if candidate == PROJECTION else INDEXCOMPARE
 
 
 def format_chosen(outcome: ProjectionOutcome) -> list[str]:
@@ -140,7 +129,18 @@ def format_plan(plan: PlannedLineup, names: Mapping[int, str]) -> list[str]:
 #: The two value models `plan` can rank on. `indexcompare` is the platform's own rating and
 #: the default everywhere; `projection` is phase `lineup-theory`'s μ/p model, which no submit
 #: path uses yet — `plan --model projection` is a preview, and T36 is what wires it.
-INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
+#: Re-exported from `application/lineup_submit`, not restated: the app asks the same
+#: question and two spellings of one answer is how the format detection came to differ
+#: between `lineup plan` and `GET /lineup/plan`.
+from fantabot.application.lineup_submit import (  # noqa: E402
+    INDEXCOMPARE as INDEXCOMPARE,
+)
+from fantabot.application.lineup_submit import (  # noqa: E402
+    PROJECTION as PROJECTION,
+)
+from fantabot.application.lineup_submit import (  # noqa: E402
+    parse_model as resolve_model,
+)
 
 #: The hard abort for a read-only plan. Well inside launchd's hourly `StartInterval`, and
 #: comfortably above what the counted budget takes on the operator's own machine — 250,000
@@ -149,11 +149,12 @@ INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
 #: "stopped at 4/177" — a wall tighter than the budget is a wall that decides the plan.
 PLAN_WALL_SECONDS = 300.0
 
-#: The hard abort for the projection **inside a submit**. Tighter than the read-only
-#: preview's, because this one runs in a job that must still POST: launchd's interval is
-#: 3600 s, the submit's own reads and POST take seconds, and what is left has to leave room
-#: for T37's refresh child. An abort here is a fallback to the `indexCompare` XI, which is
-#: the lineup that would have gone out anyway.
+#: The hard abort for the projection **inside a submit**, and **looser** than the read-only
+#: preview's on purpose. An abort in a preview costs a table nobody was waiting for; an
+#: abort here costs the model's lineup and falls back to `indexCompare`, so a wall tight
+#: enough to fire regularly would make the projection unreachable rather than safe — and
+#: the measured plan takes 192 s on the operator's own machine. The hour has the room:
+#: 600 here plus `REFRESH_WALL_SECONDS` is 2,400 of launchd's 3,600.
 SUBMIT_WALL_SECONDS = 600.0
 
 #: The hard wall on the refresh child. launchd's interval is 3600 s; the submit itself can
@@ -410,8 +411,11 @@ def _submit(
     from fantabot.application.arming import CLI_SENTENCES
     from fantabot.application.lineup_submit import (
         ALL_MODULES_REFUSED,
+        MODEL_NOT_ON_SURFACE,
         NO_MATCHDAY,
         NOT_ARMED,
+        PROJECTION,
+        chosen_model,
         failed_run,
         run_record,
         submit_lineup,
@@ -444,6 +448,10 @@ def _submit(
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
             store = TokenStore(session, cipher)
+            # Read **once**, here, and passed down: `submit_lineup` would otherwise read it
+            # again and the projector is built from it, so an edit to `.env` between the two
+            # would build a shadow projector for a submit that plans with the projection.
+            model = chosen_model()
             outcome = submit_lineup(
                 store,
                 league_id=league_id,
@@ -451,13 +459,18 @@ def _submit(
                 arm=arm,
                 now=_now,
                 scheduled=scheduled,
-                projector=_projector(store, league_id) if shadow else None,
+                model=model,
+                projector=(
+                    _projector(store, league_id, for_submit=model == PROJECTION)
+                    if shadow
+                    else None
+                ),
             )
     except (TokenError, LineupError) as exc:
         # Recorded before anything else: these stop the run before a plan exists, which is
         # exactly the Saturday the record has to speak for.
         record(failed_run(type(exc).__name__, str(exc), league_id=league_id,
-                          scheduled=scheduled, at=at))
+                          scheduled=scheduled, at=at, model=chosen_model()))
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
@@ -467,7 +480,7 @@ def _submit(
             "database-unreachable",
             f"the bundled Postgres is not reachable ({type(exc).__name__}) — the token lives "
             "there. Start it with `fantabot-app db start`.",
-            league_id=league_id, scheduled=scheduled, at=at,
+            league_id=league_id, scheduled=scheduled, at=at, model=chosen_model(),
         ))
         console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
         raise typer.Exit(code=1) from exc
@@ -504,6 +517,15 @@ def _submit(
         console.print(f"[red]scheduled run refused: {outcome.detail}[/red]")
         raise typer.Exit(code=1)
 
+    if outcome.refused == MODEL_NOT_ON_SURFACE:
+        console.print(
+            "[red]FANTABOT_LINEUP_MODEL asks for the projection and this run has no "
+            "projector.[/red] Pass [bold]--shadow[/bold], or unset the variable. "
+            "Refusing rather than sending an indexCompare lineup under a record that says "
+            "projection."
+        )
+        raise typer.Exit(code=1)
+
     if outcome.refused == NOT_ARMED:
         console.print(
             f"[yellow]dry run ({outcome.arming.because(CLI_SENTENCES)}) — not submitted. "
@@ -523,6 +545,9 @@ def _submit(
         console.print("[red]every fieldable module was refused by the platform.[/red]")
         raise typer.Exit(code=1)
 
+    # Every refusal has a branch above — `application.lineup_submit.REFUSALS` is the list
+    # and `test_lineup_cli.py` holds this surface to it. `MODEL_NOT_ON_SURFACE` reached
+    # this line once (2026-09-23) and the scheduled job died on the assertion.
     assert outcome.submitted is not None
     if outcome.unconfirmed:
         # Exit 0, and deliberately: the POST returned 200, so the lineup is on the platform
@@ -658,25 +683,54 @@ def _refresh_child(league_id: int, *, cmday: int, competition: int) -> str:
     return f"{owes}: exit {code}"
 
 
-def _projector(store: TokenStore, league_id: int) -> Projector:
-    """The projection, bound to this lega — imported **here** and nowhere else on this path.
+def _voti_refreshed(cmday: int) -> bool:
+    """Whether the marker records a voti success for this matchday (A20).
 
-    The one edge from the hourly submit into the projection branch, and it is taken only
-    when `--shadow` was passed. `tests/domain/lineup/test_lineup_imports.py` declares it;
-    without the flag this function is never called and neither library is loaded, which is
-    what guard 1b runs a fresh interpreter to prove.
+    Read through the same `FileMarkerStore` the refresh writes, so "fresh" means the thing
+    the refresh actually did rather than a flag somebody set. Unreadable is **not fresh**:
+    fail closed, because a stale history that reads as fresh is a projection submitted on
+    voti that can still change.
     """
-    from fantabot.application.lineup_projection import projector_for
-    from fantabot.config import LINEUP_SUB_MODE_VAR, live_setting
-    from fantabot.domain.lineup.substitution import parse_sub_mode
+    from fantabot.adapters.files.refresh_marker import FileMarkerStore
 
-    return projector_for(
-        store,
-        league_id=league_id,
-        as_of=_now().date(),
-        sub_mode=parse_sub_mode(live_setting(LINEUP_SUB_MODE_VAR)),
-        should_stop=wall_stop(SUBMIT_WALL_SECONDS),
-    )
+    ok, _failure = contained(lambda: FileMarkerStore().read().succeeded("voti", cmday))
+    return bool(ok)
+
+
+def _projector(store: TokenStore, league_id: int, *, for_submit: bool) -> Projector:
+    """The projection, bound to this lega — imported **inside the returned callable**.
+
+    The one edge from the hourly submit into the projection branch, taken only when
+    `--shadow` was passed. `tests/domain/lineup/test_lineup_imports.py` declares it; without
+    the flag this function is never called and neither library is loaded, which is what
+    guard 1b runs a fresh interpreter to prove.
+
+    ⚠ **The import is deferred into the call, not done here.** This function is evaluated as
+    an *argument* to `submit_lineup`, so an `ImportError` raised at this level lands outside
+    the containment boundary and outside the `except` clauses the command has — a scheduled
+    run with a broken numpy died with no record at all, which is the one thing A19(3) exists
+    to prevent. Inside the callable it is `contained` like every other failure and becomes a
+    named fallback to the lineup that was going out anyway. Measured 2026-09-23.
+    """
+    deadline = wall_stop(SUBMIT_WALL_SECONDS)
+    as_of = _now().date()
+
+    def build(competition: int) -> Projected:
+        from fantabot.application.lineup_projection import projector_for
+        from fantabot.config import LINEUP_SUB_MODE_VAR, live_setting
+        from fantabot.domain.lineup.substitution import parse_sub_mode
+
+        return projector_for(
+            store,
+            league_id=league_id,
+            as_of=as_of,
+            sub_mode=parse_sub_mode(live_setting(LINEUP_SUB_MODE_VAR)),
+            should_stop=deadline,
+            for_submit=for_submit,
+            voti_refreshed=_voti_refreshed,
+        )(competition)
+
+    return build
 
 
 def _read_cmday(league_id: int, competition: int) -> int:

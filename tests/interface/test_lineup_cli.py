@@ -1027,3 +1027,97 @@ class TestTheRefreshChild:
         assert result.exit_code == 0
         assert spawned == []
         assert "marker unreadable (OSError)" in result.output
+
+
+# -- T36 at the command: the flag, and the setting that refuses without it --------------
+
+
+class TestTheShadowFlag:
+    def test_without_it_no_projector_is_built(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Off unless passed (A19(1)). The default path builds nothing at all, which is
+        also what keeps numpy off the hourly job's import graph."""
+        _submit_fakes(monkeypatch, auto_act=True)
+        built: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.application.lineup_projection.projector_for",
+            lambda *a, **k: built.append(k) or (lambda _c: None),
+        )
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+        assert result.exit_code == 0
+        assert built == []
+
+    def test_with_it_the_projector_is_built_and_bounded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.lineup_submit import Projected
+
+        posted = _submit_fakes(monkeypatch, auto_act=True)
+        built: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.application.lineup_projection.projector_for",
+            lambda *a, **k: built.append(k) or (lambda _c: Projected()),
+        )
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm", "--shadow"])
+
+        assert result.exit_code == 0
+        assert len(posted) == 1, "the shadow changed whether a lineup was sent"
+        assert len(built) == 1
+        assert built[0]["should_stop"] is not None, "the projection ran with no wall clock"
+        assert built[0]["for_submit"] is False
+
+    def test_an_import_error_from_the_projector_is_contained(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one A19 names, and the one that used to escape: the projector was built as
+        an *argument* to `submit_lineup`, so a missing numpy raised outside every `except`
+        the command has and the scheduled run died with no record at all."""
+        posted = _submit_fakes(monkeypatch, auto_act=True)
+
+        def _boom(*_a: Any, **_k: Any) -> Any:
+            raise ImportError("No module named 'numpy'")
+
+        monkeypatch.setattr("fantabot.application.lineup_projection.projector_for", _boom)
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm", "--shadow"])
+
+        assert result.exit_code == 0, result.output
+        assert len(posted) == 1, "an ImportError cost the lineup"
+
+    def test_the_setting_alone_refuses_without_a_projector(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AD10, at the command. It reached `assert outcome.submitted is not None` and died
+        with an AssertionError until 2026-09-23 — on the live surface, with no record."""
+        posted = _submit_fakes(monkeypatch, auto_act=True)
+        monkeypatch.setenv("FANTABOT_LINEUP_MODEL", "projection")
+
+        result = runner.invoke(app, ["lineup", "submit", "--arm"])
+
+        assert posted == []
+        assert result.exit_code == 1
+        assert "--shadow" in result.output
+        assert "projection" in result.output
+
+    def test_the_setting_with_the_flag_plans_with_the_projection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.lineup_submit import Projected
+
+        _submit_fakes(monkeypatch, auto_act=True)
+        monkeypatch.setenv("FANTABOT_LINEUP_MODEL", "projection")
+        built: list[Any] = []
+        monkeypatch.setattr(
+            "fantabot.application.lineup_projection.projector_for",
+            lambda *a, **k: built.append(k) or (lambda _c: Projected()),
+        )
+
+        runner.invoke(app, ["lineup", "submit", "--arm", "--shadow"])
+
+        assert len(built) == 1
+        assert built[0]["for_submit"] is True, (
+            "a projection submit built a shadow projector, so a stale history would have "
+            "been sent rather than fallen back from"
+        )

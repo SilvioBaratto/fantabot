@@ -327,6 +327,19 @@ def lineup_submit(request: SubmitRequest) -> SubmitResult:
                 "reason": "every fieldable module was refused by the platform.",
             }
         )
+    if outcome.refused is not None:
+        # **Anything else, named rather than swallowed.** `MODEL_NOT_ON_SURFACE` fell
+        # through to the `submitted` line below on 2026-09-23 — the route answered
+        # "submitted" for a run that POSTed nothing. The scheduled-only codes cannot reach
+        # here (this route never passes `scheduled=True`), but the next code added can, and
+        # a screen that says "submitted" about a refusal is worse than one that says a word
+        # it does not have a nicer phrasing for.
+        return body.model_copy(
+            update={
+                "outcome": "refused",
+                "reason": outcome.detail or outcome.refused,
+            }
+        )
 
     return body.model_copy(
         update={

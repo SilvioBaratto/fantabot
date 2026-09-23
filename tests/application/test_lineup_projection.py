@@ -515,3 +515,110 @@ class TestTheSubstitutionCap:
         """An engine told it may make no substitutions fields a man short every week, which
         is a worse wrong answer than one that makes a substitution too many."""
         assert substitution_cap(payload) == expected
+
+
+# -- T36: what a submit may plan with, and what it may only shadow ----------------------
+
+
+class TestWhatAProjectionSubmitRefusesToSend:
+    """The phase's safety property, and the difference between a shadow and a plan.
+
+    The same three conditions are a **warning** on a shadow run and a **fallback** on a
+    projection submit, because they are reasons not to trust the plan and a shadow is not
+    trusted with anything. In all three the shadow is still carried: the record shows what
+    the projection would have done *and* why it was not sent, which is exactly the run worth
+    looking at.
+    """
+
+    def _projected(self, *, for_submit: bool, history: FakeHistory | None = None, **over: object):
+        from fantabot.application.lineup_projection import ProjectionReport, projected_from
+
+        outcome = _plan(history, **over)
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome, names={}, competition=311681
+        )
+        return projected_from(report, for_submit=for_submit)
+
+    def test_a_stale_history_is_a_warning_for_a_shadow(self) -> None:
+        shadow = self._projected(for_submit=False)
+
+        assert shadow.plans, "the fixture is fresh; this case proves nothing"
+        assert any("stale" in w for w in shadow.warnings)
+        assert shadow.fallback == ""
+
+    def test_a_stale_history_is_a_fallback_for_a_submit(self) -> None:
+        """SPEC Freshness: the projection path is skipped and the reason recorded. A model
+        fitted on voti that can still change is a model fitted on a guess."""
+        submit = self._projected(for_submit=True)
+
+        assert submit.plans == ()
+        assert "stale" in submit.fallback
+
+    def test_the_shadow_is_still_carried_when_the_submit_falls_back(self) -> None:
+        """The record shows what the projection *would* have done, which is the whole point
+        of the run that did not use it."""
+        submit = self._projected(for_submit=True)
+
+        assert submit.shadow is not None
+        assert submit.shadow.module
+
+    def test_an_assumed_sub_mode_is_a_fallback_for_a_submit(self) -> None:
+        """SPEC A7. The three modes field different XIs and nobody has said which this lega
+        plays, so a submit under an assumed one submits a guess."""
+        submit = self._projected(for_submit=True)
+
+        assert "sub mode assumed" in submit.fallback
+
+    def test_no_opponent_is_a_fallback_for_a_submit(self) -> None:
+        """The plan was ranked on E[fantapunti] — a different objective from the one Gate 1
+        graded, so it is not the model the gate passed."""
+        submit = self._projected(for_submit=True)
+
+        assert "no opponent" in submit.fallback
+
+    def test_a_fresh_confirmed_opposed_plan_is_sendable(self) -> None:
+        """The control. Without it every assertion above would hold on a projector that
+        never sends anything, which is not a safety property but a broken feature."""
+        from fantabot.application.lineup_projection import ProjectionReport, projected_from
+
+        class WithScores(FakeHistory):
+            def calculated_scores(self, league_id: int) -> list[float]:
+                return [60.0, 64.0, 66.0, 68.0, 70.0, 72.0, 74.0, 80.0, 55.0, 90.0]
+
+        outcome = plan_projection(
+            _inputs(cmday=4), WithScores(), as_of=AS_OF, rules=RULES, budget=SMALL,
+            sub_mode="easy", voti_refreshed=True,
+        )
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome, names={}, competition=311681
+        )
+
+        sendable = projected_from(report, for_submit=True)
+
+        assert outcome.freshness.fresh, outcome.freshness.reasons
+        assert sendable.plans, sendable.fallback
+        assert sendable.fallback == ""
+
+
+class TestTheRefreshMarkerDecidesFreshness:
+    def test_the_marker_is_asked_about_this_matchday(self) -> None:
+        """A20's other half. It was hard-coded `False` until 2026-09-23, which made every
+        shadowed run report itself stale whatever the refresh had actually done."""
+        asked: list[int] = []
+
+        outcome = plan_projection(
+            _inputs(cmday=4), FakeHistory(), as_of=AS_OF, rules=RULES, budget=SMALL,
+            refreshed=lambda cmday: (asked.append(cmday), True)[1],
+        )
+
+        assert asked == [4]
+        assert outcome.freshness.fresh, outcome.freshness.reasons
+
+    def test_an_unrefreshed_matchday_is_stale_and_names_it(self) -> None:
+        outcome = plan_projection(
+            _inputs(cmday=4), FakeHistory(), as_of=AS_OF, rules=RULES, budget=SMALL,
+            refreshed=lambda _cmday: False,
+        )
+
+        assert not outcome.freshness.fresh
+        assert any("refresh" in reason for reason in outcome.freshness.reasons)

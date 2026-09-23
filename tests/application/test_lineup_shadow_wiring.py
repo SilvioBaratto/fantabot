@@ -353,3 +353,98 @@ class TestTheProjectionAsTheModel:
 
         assert asked == []
         assert outcome.refused == "matchday-started"
+
+
+class TestEveryRefusalHasABranch:
+    """The ratchet the crash asked for.
+
+    `MODEL_NOT_ON_SURFACE` fell through both surfaces on 2026-09-23: the CLI reached
+    `assert outcome.submitted is not None` and died with no record at all, and the app route
+    answered `outcome: "submitted"` for a run that POSTed nothing. Adding the one branch
+    would have fixed that code and nothing else, so what is pinned is the **list**.
+    """
+
+    def test_the_list_is_every_code_the_submit_can_refuse_with(self) -> None:
+        from fantabot.application.lineup_submit import (
+            ALL_MODULES_REFUSED,
+            NO_MATCHDAY,
+            NOT_ARMED,
+            REFUSALS,
+        )
+        from fantabot.domain.lineup.deadline import (
+            MATCHDAY_MISMATCH,
+            MATCHDAY_STARTED,
+            NO_START_TIME,
+        )
+
+        assert set(REFUSALS) == {
+            NO_MATCHDAY, NOT_ARMED, ALL_MODULES_REFUSED, MODEL_NOT_ON_SURFACE,
+            MATCHDAY_STARTED, MATCHDAY_MISMATCH, NO_START_TIME,
+        }
+
+    def test_every_code_becomes_a_record_that_is_not_a_submit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`run_record` is the other surface, and it decides which rows the app paints red.
+        A code with no branch there falls to the catch-all — which is a failure, and right —
+        but a code that produced a *submitted* record would be a lie."""
+        from dataclasses import replace as dc_replace
+
+        from fantabot.application.lineup_submit import REFUSALS, SubmitOutcome
+
+        _fakes(monkeypatch)
+        base = _submit()
+        for code in REFUSALS:
+            record = run_record(
+                dc_replace(base, refused=code, submitted=None),
+                league_id=4103937, scheduled=True, at="x",
+            )
+            assert record.status in {"skipped", "failed"}, code
+            assert record.code == code
+        assert isinstance(base, SubmitOutcome)
+
+    def test_every_code_carries_a_sentence(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A refusal with an empty reason is one the operator has to read the source to
+        understand — and the app renders `detail` straight onto the screen."""
+        from dataclasses import replace as dc_replace
+
+        from fantabot.application.lineup_submit import REFUSALS
+
+        _fakes(monkeypatch)
+        base = _submit()
+        for code in REFUSALS:
+            record = run_record(
+                dc_replace(base, refused=code, submitted=None, detail=""),
+                league_id=4103937, scheduled=True, at="x",
+            )
+            assert record.detail, code
+
+
+class TestTheShadowOnAnUnarmedRun:
+    def test_a_dry_run_still_records_the_shadow(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A dry run has already done every read the projection needs and submits nothing,
+        so withholding the shadow saves only the evidence — and four shadow matchdays are
+        the evidence. It was skipped here until 2026-09-23."""
+        posted = _fakes(monkeypatch)
+
+        outcome = _submit(arm=False, auto_act=False, projector=lambda _c: Projected(shadow=SHADOW))
+
+        assert posted == []
+        assert outcome.refused == "not-armed"
+        assert outcome.shadow is SHADOW
+
+    def test_an_unarmed_projection_run_computes_no_shadow_of_itself(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Under `projection` the chain runs as the *planner*, which an unarmed run has no
+        use for — it would spend minutes to plan a lineup nobody sends."""
+        _fakes(monkeypatch)
+        asked: list[int] = []
+
+        outcome = _submit(
+            model=PROJECTION, arm=False, auto_act=False,
+            projector=lambda c: (asked.append(c), Projected(plans=(EVALUATED,)))[1],
+        )
+
+        assert asked == []
+        assert outcome.refused == "not-armed"

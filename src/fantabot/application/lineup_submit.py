@@ -55,6 +55,21 @@ if TYPE_CHECKING:
 NO_MATCHDAY = "no-matchday"
 NOT_ARMED = "not-armed"
 ALL_MODULES_REFUSED = "all-modules-refused"
+#: Every reason a submit can refuse. **Both surfaces are held to this list**: a code with no
+#: branch fell through to `assert outcome.submitted is not None` in the CLI and to
+#: `outcome="submitted"` in the app, so adding one without a branch turned a refusal into a
+#: crash and a lie respectively. `MODEL_NOT_ON_SURFACE` did exactly that (2026-09-23), which
+#: is why the list exists rather than the one branch that would have fixed it.
+REFUSALS: tuple[str, ...] = (
+    "no-matchday",
+    "not-armed",
+    "all-modules-refused",
+    "model-not-on-surface",
+    "matchday-started",
+    "matchday-mismatch",
+    "no-start-time",
+)
+
 #: The code a plan skipped by the positional guard is recorded under in `rejected`, beside
 #: the platform's own `LUP0xx`: ours, raised before any POST, with the cell that failed.
 GUARD = "GUARD"
@@ -295,7 +310,17 @@ def submit_lineup(
     # **Before the arm check**, like every other refusal here: a dry run that rehearsed the
     # `indexCompare` XI while the setting said `projection` would rehearse the wrong thing.
     if asked == PROJECTION and projector is None:
-        return outcome(refused=MODEL_NOT_ON_SURFACE)
+        # The sentence travels with the refusal, not only with the record: both surfaces
+        # render `detail`, and a refusal with an empty reason is one the operator has to
+        # come here to understand.
+        return outcome(
+            refused=MODEL_NOT_ON_SURFACE,
+            detail=(
+                f"FANTABOT_LINEUP_MODEL asks for {PROJECTION} and this surface cannot run "
+                f"it. Refusing rather than sending an {INDEXCOMPARE} lineup under a record "
+                f"that says {PROJECTION}."
+            ),
+        )
 
     # **Before the arm check**, so a dry run refuses too. A dry run that printed a plan the
     # armed run would have refused is a rehearsal of the wrong thing.
@@ -317,7 +342,27 @@ def submit_lineup(
         if cut is not None:
             return outcome(refused=cut.code, detail=cut.reason)
 
+    def with_shadow() -> None:
+        """Compute the other model's plan, contained. Sets `shadow` and `warnings`."""
+        nonlocal shadow, warnings
+        if projector is None:
+            return
+        projected, failure = contained(lambda: projector(comp))
+        if projected is None:
+            warnings = (*warnings, f"shadow failed: {failure}")
+            return
+        shadow = projected.shadow
+        warnings = (*warnings, *projected.warnings)
+        if projected.fallback:
+            warnings = (*warnings, f"no shadow: {projected.fallback}")
+
     if not arming.armed:
+        # **The shadow still runs.** A dry run has already done every read the projection
+        # needs and submits nothing, so the only thing withholding it saves is the evidence
+        # — and the four shadow matchdays are the evidence. It was skipped here until
+        # 2026-09-23, which made `--shadow` on an unarmed run collect nothing at all.
+        if asked == INDEXCOMPARE:
+            with_shadow()
         return outcome(refused=NOT_ARMED)
 
     # The projection, when it is the model doing the choosing. Contained (A19(3)): a chain
@@ -399,15 +444,8 @@ def submit_lineup(
         # **After the POST**, under `indexcompare`: the lineup is already on the platform,
         # so nothing the shadow does can delay it, change it or lose it. That asymmetry is
         # what makes `--shadow` free to leave on in an unattended job.
-        if asked == INDEXCOMPARE and projector is not None:
-            projected, failure = contained(lambda: projector(comp))
-            if projected is None:
-                warnings = (*warnings, f"shadow failed: {failure}")
-            else:
-                shadow = projected.shadow
-                warnings = (*warnings, *projected.warnings)
-                if projected.fallback:
-                    warnings = (*warnings, f"no shadow: {projected.fallback}")
+        if asked == INDEXCOMPARE:
+            with_shadow()
 
         return outcome(
             past_deadline=past,
@@ -493,7 +531,7 @@ def run_record(
 
     code = outcome.refused
     if code in (MATCHDAY_STARTED, MATCHDAY_MISMATCH):
-        return replace(base, status=SKIPPED, code=code, detail=outcome.detail)
+        return replace(base, status=SKIPPED, code=code, detail=_explained(outcome))
     if code == NO_MATCHDAY:
         return replace(
             base,
@@ -509,16 +547,7 @@ def run_record(
             detail=f"not armed: {outcome.arming.because(CLI_SENTENCES)}",
         )
     if code == MODEL_NOT_ON_SURFACE:
-        return replace(
-            base,
-            status=FAILED,
-            code=code,
-            detail=(
-                f"FANTABOT_LINEUP_MODEL asks for {PROJECTION} and this surface cannot run "
-                f"it. Refusing rather than sending an {INDEXCOMPARE} lineup under a record "
-                f"that says {PROJECTION}."
-            ),
-        )
+        return replace(base, status=FAILED, code=code, detail=_explained(outcome))
     if code == ALL_MODULES_REFUSED:
         refused = ", ".join(base.rejected) or "none recorded"
         return replace(
@@ -529,10 +558,28 @@ def run_record(
         )
     # `NO_START_TIME` — and anything a later refusal adds before this learns its name. An
     # unknown refusal is a failure until someone decides otherwise: silence is the risk.
-    return replace(base, status=FAILED, code=code, detail=outcome.detail)
+    return replace(base, status=FAILED, code=code, detail=_explained(outcome))
 
 
-def failed_run(code: str, detail: str, *, league_id: int, scheduled: bool, at: str) -> LineupRun:
+def _explained(outcome: SubmitOutcome) -> str:
+    """`outcome.detail`, or the code itself when it is empty.
+
+    A floor on the **record**, not a second copy of the sentence: the producer writes the
+    explanation and this only refuses to emit a row with nothing in the column the app
+    renders. "model-not-on-surface" is a poor sentence and an infinitely better one than "".
+    """
+    return outcome.detail or (outcome.refused or "")
+
+
+def failed_run(
+    code: str,
+    detail: str,
+    *,
+    league_id: int,
+    scheduled: bool,
+    at: str,
+    model: str = INDEXCOMPARE,
+) -> LineupRun:
     """A run that raised before it had an outcome — a dead token, an unreachable database.
 
     These are the failures most worth recording, because they stop everything else: no
@@ -542,7 +589,10 @@ def failed_run(code: str, detail: str, *, league_id: int, scheduled: bool, at: s
 
     return LineupRun(
         at=at, league=league_id, scheduled=scheduled, status=FAILED, code=code, detail=detail,
-        model=INDEXCOMPARE,
+        # The model that was **asked for**, not the one that ran: nothing ran. Hard-coding
+        # `indexcompare` here recorded the wrong model for every run that died before a plan
+        # (AD10 says the setting binds every surface, and a record is a surface).
+        model=model,
     )
 
 

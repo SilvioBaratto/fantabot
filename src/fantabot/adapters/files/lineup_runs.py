@@ -73,7 +73,14 @@ class LineupRejection:
 
 @dataclass(frozen=True, slots=True)
 class LineupShadow:
-    """The plan the other model would have sent, logged beside the one that went in."""
+    """The **evaluated** plan's own line, logged beside the run that produced it.
+
+    Under `indexcompare` it is what the other model would have sent — the counterfactual.
+    Under `projection` it is the plan that *was* sent, carried here because its numbers
+    (E[pts], P(W/D/L), E[fp]) have nowhere else to live and `starter_ids` above already say
+    which XI went. `model` names which produced the line, and the record's own `model` names
+    which chose the lineup: when they agree, the shadow is not a shadow.
+    """
 
     model: str
     module: str

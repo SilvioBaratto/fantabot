@@ -212,7 +212,9 @@ _BLOCKED_RUN = textwrap.dedent(
     plan = runner.invoke(app, ["lineup", "plan", "--league", "4103937"])
     assert plan.exit_code == 0 and "XI:" in plan.output, (plan.output, repr(plan.exception))
 
-    # The job's own argv (`schedule run` appends exactly these), armed, POSTing to a fake.
+    # The **flagless** argv, armed, POSTing to a fake. `schedule run` also appends
+    # `--shadow --refresh` since T36/T37; this is the path a run without them takes, and
+    # the one that must load neither library — which is what makes it the guard's subject.
     submit = runner.invoke(
         app, ["lineup", "submit", "--league", "4103937", "--arm", "--scheduled"]
     )
