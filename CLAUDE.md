@@ -453,8 +453,8 @@ src/fantabot/
   assertion in the file without turning any of them red. Never pass the encryption key
   on argv — `ps` shows it and the shell keeps it in history.
 - **Decision logic stays pure — no Playwright, no network, no clock.** That is what
-  `domain/` means, and it is enforced rather than intended: 1039 tests in the default tier
-  plus 136 in `db`, opening zero sockets and making zero agent calls. Keep new logic in a
+  `domain/` means, and it is enforced rather than intended: 3,514 tests in the default tier
+  plus 195 in `db`, opening zero sockets and making zero agent calls. Keep new logic in a
   pure module and the I/O in a thin shell around it. The clock counts as I/O: the asta
   feature reads the calendar in exactly one place (`interface/asta.py::_today`),
   enforced by `tests/domain/asta/test_asta_clock.py`, because the golden harness has to
