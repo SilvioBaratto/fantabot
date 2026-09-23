@@ -19,10 +19,12 @@ import pytest
 from fantabot.domain.lineup import positional, schema
 from fantabot.domain.lineup.substitution import (
     SUB_MODES,
+    SubMode,
     SubstitutionEngine,
     bench_combinations,
     parse_sub_mode,
     substitute,
+    tier_plan,
 )
 
 MODULE = "343"
@@ -48,7 +50,11 @@ ALL_ROLES = ROLES | BENCH_ROLES
 
 
 def _substitute(absent: tuple[int, ...] = (), **over: object) -> object:
+    """The shared board. `mode` defaults to BASIC *here* and not in `substitute`, which has
+    no default: with no `modules` these cases run the same search under all three, and a
+    test that has to name one is not a test about modes."""
     voted = [pid for pid in (*STARTS, *BENCH) if pid not in absent]
+    over.setdefault("mode", "basic")
     return substitute(
         module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES,
         **over,  # type: ignore[arg-type]
@@ -89,7 +95,7 @@ class TestTheEngineRuns:
 
         outcome = substitute(
             module=MODULE, starts=swapped, bench=BENCH,
-            voted=(*swapped, *BENCH), roles=ALL_ROLES,
+            voted=(*swapped, *BENCH), roles=ALL_ROLES, mode="basic",
         )
 
         assert outcome.fielded == swapped
@@ -100,7 +106,8 @@ class TestTheEngineRuns:
         voted = [pid for pid in (*STARTS, *BENCH) if pid not in (80, 1)]
 
         outcome = substitute(
-            module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES
+            module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES,
+            mode="basic",
         )
 
         assert outcome.entered == (2,)
@@ -125,7 +132,8 @@ class TestTheKeeperGoesFirst:
         voted = [pid for pid in (*STARTS, *BENCH) if pid not in (0, 5, 7)]
 
         outcome = substitute(
-            module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES
+            module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES,
+            mode="basic",
         )
 
         assert outcome.fielded[0] is None
@@ -203,7 +211,8 @@ class TestTheManShortFallback:
         voted = [pid for pid in STARTS if pid != 80]
 
         outcome = substitute(
-            module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES
+            module=MODULE, starts=STARTS, bench=BENCH, voted=voted, roles=ALL_ROLES,
+            mode="basic",
         )
 
         assert outcome.entered == ()
@@ -249,13 +258,15 @@ class TestWhatItRefuses:
     def test_an_unknown_module_is_refused(self) -> None:
         with pytest.raises(ValueError, match="module"):
             substitute(
-                module="999", starts=STARTS, bench=BENCH, voted=STARTS, roles=ALL_ROLES
+                module="999", starts=STARTS, bench=BENCH, voted=STARTS, roles=ALL_ROLES,
+                mode="basic",
             )
 
     def test_a_lineup_that_is_not_eleven_is_refused(self) -> None:
         with pytest.raises(ValueError, match="eleven"):
             substitute(
-                module=MODULE, starts=STARTS[:10], bench=BENCH, voted=STARTS, roles=ALL_ROLES
+                module=MODULE, starts=STARTS[:10], bench=BENCH, voted=STARTS, roles=ALL_ROLES,
+                mode="basic",
             )
 
 
@@ -287,6 +298,7 @@ BOTH = ("343", "352")
 
 def _mode_substitute(absent: tuple[int, ...], **over: object) -> object:
     voted = [pid for pid in (*MODE_STARTS, *MODE_BENCH) if pid not in absent]
+    over.setdefault("mode", "basic")
     return substitute(
         module="343", starts=MODE_STARTS, bench=MODE_BENCH, voted=voted, roles=MODE_ALL,
         **over,  # type: ignore[arg-type]
@@ -305,6 +317,57 @@ class TestParsingTheMode:
         assert parse_sub_mode(raw) is None
 
 
+class TestTheSearchOrder:
+    """The plan itself. Which XI comes out is the consequence; this is the cause, and a
+    search order only readable through its consequences is one nothing can assert."""
+
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [
+            ("basic", ((("343",), False), (("352", "433"), False), (("343", "352", "433"), True))),
+            ("easy", ((("343",), False), (("343",), True))),
+            ("master", ((("343", "352", "433"), False), (("343", "352", "433"), True))),
+        ],
+    )
+    def test_each_mode_orders_its_tiers(
+        self, mode: SubMode, expected: tuple[tuple[tuple[str, ...], bool], ...]
+    ) -> None:
+        plan = tier_plan(mode, "343", ("343", "352", "433"))
+
+        assert tuple((modules, malus) for modules, malus, _floor in plan) == expected
+
+    @pytest.mark.parametrize("mode", ["basic", "easy", "master"])
+    def test_a_free_tier_can_never_stop_above_zero(self, mode: SubMode) -> None:
+        plan = tier_plan(mode, "343", ("343", "352", "433"))
+
+        assert [floor for _m, malus, floor in plan if not malus] == [0] * sum(
+            1 for _m, malus, _f in plan if not malus
+        )
+
+    @pytest.mark.parametrize("mode", ["basic", "easy", "master"])
+    def test_no_mode_leaves_a_module_of_its_malus_tier_unscanned(self, mode: SubMode) -> None:
+        """Documentation of the three, not a guard on the search: `_with_floors` derives the
+        early exit's licence from this very property, so the search stays correct for a mode
+        that broke it. What breaks then is this assertion, which is where a reader is told.
+
+        It is also why a mutation pinning the floor at a literal `1` survives the battery and
+        is recorded as equivalent: for the three modes that exist the derivation returns 1.
+        """
+        free: set[str] = set()
+        for modules, with_malus, _floor in tier_plan(mode, "343", ("343", "352", "433")):
+            if with_malus:
+                assert set(modules) <= free, mode
+            else:
+                free.update(modules)
+
+    def test_a_lega_with_one_module_has_no_efficient_tier(self) -> None:
+        plan = tier_plan("basic", "343", ("343",))
+
+        assert tuple((modules, malus) for modules, malus, _f in plan) == (
+            (("343",), False), (("343",), True),
+        )
+
+
 class TestTheThreeModesDisagree:
     """One absence, one bench, three answers. If these ever agree the modes are a fiction."""
 
@@ -321,6 +384,28 @@ class TestTheThreeModesDisagree:
 
         assert (outcome.module, outcome.entered) == ("352", (51,))
         assert (outcome.malus, outcome.tier) == (0, "efficient")
+
+    def test_basic_reports_efficient_when_it_changes_the_module(self) -> None:
+        """The tier is read off the answer, and the answer moved. It reported `optimal`
+        until 2026-09-23: `_tier_of` read "the original" off `tier_modules[0]`, which is the
+        original for EASY, for MASTER and for two of BASIC's three tiers — and is another
+        module in the one tier whose whole point is that the module changed."""
+        bench = (51,)
+        voted = [pid for pid in (*MODE_STARTS, *bench) if pid != 43]
+
+        outcome = substitute(
+            module="343", starts=MODE_STARTS, bench=bench, voted=voted, roles=MODE_ALL,
+            mode="basic", modules=BOTH,
+        )
+
+        assert (outcome.module, outcome.malus, outcome.tier) == ("352", 0, "efficient")
+
+    def test_the_original_module_kept_free_is_optimal_in_every_mode(self) -> None:
+        for mode in ("basic", "easy", "master"):
+            outcome = _mode_substitute(absent=(43,), mode=mode, modules=BOTH)
+
+            if outcome.module == "343":
+                assert outcome.tier == "optimal", mode
 
     def test_easy_never_changes_the_module(self) -> None:
         """With only the midfielder left on the bench, BASIC reaches the Efficient tier and
@@ -407,7 +492,7 @@ class TestTheAdaptedTier:
         voted = [pid for pid in (*STARTS, *bench) if pid not in (40, 70)]
 
         outcome = substitute(
-            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles, mode="basic"
         )
 
         assert outcome.entered == (61, 63)
@@ -423,7 +508,7 @@ class TestTheAdaptedTier:
         voted = [pid for pid in (*STARTS, *bench) if pid not in (40, 70)]
 
         outcome = substitute(
-            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles, mode="basic"
         )
 
         assert outcome.entered == (61, 62)
@@ -461,6 +546,25 @@ class TestTheStarredCells:
             for index, slot in enumerate(schema.admissions(code)):
                 assert slot.natural <= slot.submission <= slot.substitution, (code, index)
 
+    def test_withholding_the_starred_cells_costs_a_man_rather_than_a_malus(self) -> None:
+        """Inside the Adapted tier a `-1` and a `-1*` both cost exactly 1, so no assertion
+        on `malus` can tell them apart: `-1*` changes **feasibility**, not price. 343's three
+        defensive slots take a `DD` only as `-1*`, so with a right-back the only cover for a
+        missing centre-back, admitting them fields eleven and withholding them fields ten.
+        """
+        bench = (81,)
+        roles = ROLES | {81: frozenset({"DD"})}
+        voted = [pid for pid in (*STARTS, *bench) if pid != 20]
+        slots = schema.admissions(MODULE)
+
+        with_star = substitute(
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles, mode="basic"
+        )
+
+        assert (with_star.entered, with_star.short, with_star.malus) == ((81,), 0, 1)
+        assert all("DD" not in slot.submission for slot in slots[1:4])
+        assert all("DD" in slot.substitution for slot in slots[1:4])
+
     def test_the_four_one_four_one_w_t_exception_comes_from_the_shipped_matrix(self) -> None:
         """`rules/sistema-mantra.md`: W and T are interchangeable with a malus *except* in
         4-1-4-1, where neither may take the other's slot at all. 4-2-3-1 is the control —
@@ -486,7 +590,8 @@ class TestTheStarredCells:
 class TestTheMemoizedEngine:
     def test_the_same_absence_pattern_returns_the_same_answer(self) -> None:
         engine = SubstitutionEngine(
-            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES, max_subs=5
+            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES,
+            mode="basic", max_subs=5,
         )
         voted = [pid for pid in (*STARTS, *BENCH) if pid != 80]
 
@@ -497,7 +602,8 @@ class TestTheMemoizedEngine:
 
     def test_a_different_pattern_is_computed_afresh(self) -> None:
         engine = SubstitutionEngine(
-            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES, max_subs=5
+            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES,
+            mode="basic", max_subs=5,
         )
 
         one = engine.field_xi([pid for pid in (*STARTS, *BENCH) if pid != 80])
@@ -510,7 +616,8 @@ class TestTheMemoizedEngine:
         """Two patterns with the same missing starters and different missing bench must not
         share an answer — the bench is what the engine picks from."""
         engine = SubstitutionEngine(
-            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES, max_subs=5
+            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES,
+            mode="basic", max_subs=5,
         )
 
         plain = engine.field_xi([pid for pid in (*STARTS, *BENCH) if pid != 80])
@@ -519,10 +626,33 @@ class TestTheMemoizedEngine:
         assert plain.entered == (1,)
         assert thinned.entered == (2,)
 
+    def test_the_engine_fields_under_its_own_mode(self) -> None:
+        """The mode is not re-guessed inside the engine: two engines over one board and one
+        absence differ only in the mode and must answer differently."""
+        bench = (51,)
+        starts, roles = MODE_STARTS, MODE_ALL
+        voted = [pid for pid in (*starts, *bench) if pid != 43]
+
+        easy = SubstitutionEngine(
+            module="343", starts=starts, bench=bench, roles=roles,
+            mode="easy", modules=BOTH,
+        ).field_xi(voted)
+        master = SubstitutionEngine(
+            module="343", starts=starts, bench=bench, roles=roles,
+            mode="master", modules=BOTH,
+        ).field_xi(voted)
+
+        assert (easy.module, easy.malus) == ("343", 1)
+        assert (master.module, master.malus) == ("352", 0)
+
     def test_the_cache_is_per_instance(self) -> None:
         """A module-level cache would carry one lega's roster into the next."""
-        first = SubstitutionEngine(module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES)
-        second = SubstitutionEngine(module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES)
+        first = SubstitutionEngine(
+            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES, mode="basic"
+        )
+        second = SubstitutionEngine(
+            module=MODULE, starts=STARTS, bench=BENCH, roles=ALL_ROLES, mode="basic"
+        )
         voted = [pid for pid in (*STARTS, *BENCH) if pid != 80]
 
         assert first.field_xi(voted) is not second.field_xi(voted)

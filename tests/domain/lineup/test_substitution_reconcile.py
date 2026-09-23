@@ -20,6 +20,17 @@ BASIC's Efficient tier takes the free module both times, and the platform did no
 misses those two and three more where an earlier bench man is reachable only by changing
 module. `nmdl == mdl` on all 24 sides, which is the same fact seen from the other end.
 
+Those five sides are **named** in the test below rather than counted. On 16 of the 18 all
+three modes agree, so "BASIC misses 2" is a number a new fixture moves for reasons that
+have nothing to do with the modes.
+
+`swtc` was looked at and is **not** the substitution record: it is set on 7 of the 24 sides
+while 18 made substitutions, its first field is a bench player and its second a starter, and
+its fourth is always `mdl`. It reads as the manager's *declared conditional* switch ("bring
+X on for Y and change to module Z"), which never fired here because every declared X was
+himself without a vote. Recorded so the next reader does not re-derive it; the engine does
+not use it.
+
 ⚠ This is evidence about **this lega** (`sstype: 5`), not about the platform: one lega, one
 season, one setting. It is why `FANTABOT_LINEUP_SUB_MODE` has no default and the operator
 still confirms it (CP4). What the file pins is that the *engine* reproduces the platform
@@ -124,34 +135,37 @@ def test_easy_reproduces_every_total_within_a_hundredth(key: str, side: dict[str
     assert fielded == pytest.approx(float(side["tot"]), abs=0.01)
 
 
-def _agreement(mode: SubMode) -> list[str]:
-    return [
-        key
-        for key, side in SIDES
-        if _observed(side)[0]
-        and (
-            frozenset(_field(side, mode).entered),
-            _field(side, mode).module,
-            _field(side, mode).malus,
-        )
-        != _observed(side)
-    ]
+def _disagreement(mode: SubMode) -> list[str]:
+    """The sides this mode fails to reproduce, named and sorted. Only the 18 that needed a
+    substitution are judged: on the other six the engine does not run at all."""
+    out: list[str] = []
+    for key, side in SIDES:
+        observed = _observed(side)
+        if not observed[0]:
+            continue
+        outcome = _field(side, mode)
+        if (frozenset(outcome.entered), outcome.module, outcome.malus) != observed:
+            out.append(key)
+    return sorted(out)
 
 
 def test_the_three_modes_are_told_apart_by_the_eighteen() -> None:
-    """The measurement itself, pinned. EASY is exact; the other two are not, and the counts
-    are named so that a change which quietly makes BASIC fit is a failure and not a silent
-    re-reading of the evidence."""
-    assert _agreement("easy") == []
-    assert len(_agreement("basic")) == 2
-    assert len(_agreement("master")) == 5
+    """The measurement itself, pinned. EASY is exact; the other two are not, and the sides
+    are **named** rather than counted. On 16 of the 18 all three modes agree, so a count is
+    a number that a new fixture moves for no reason — the evidence is these sides and no
+    others, and an implementation that quietly makes one of them fit has to say which."""
+    assert _disagreement("easy") == []
+    assert _disagreement("basic") == ["1:18774379", "3:19184924"]
+    assert _disagreement("master") == [
+        "1:18774379", "2:18780035", "2:18814141", "3:18814141", "3:19184924",
+    ]
 
 
 def test_where_basic_and_the_platform_part_company_the_platform_paid_a_malus() -> None:
     """The two BASIC misses are the Efficient tier firing: a free module change existed and
     the platform took the `-1` instead. That is what makes this lega EASY rather than a lega
     whose evidence happens to be silent."""
-    for key in _agreement("basic"):
+    for key in _disagreement("basic"):
         side = dict(SIDES)[key]
         _entered, _module, malus = _observed(side)
         basic = _field(side, "basic")

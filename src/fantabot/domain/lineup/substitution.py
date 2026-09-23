@@ -77,6 +77,10 @@ SUB_MODES: frozenset[str] = frozenset({"basic", "easy", "master"})
 #: What the engine did, cheapest first. Reported, never used to steer the search.
 Tier = Literal["optimal", "efficient", "adapted"]
 
+#: One tier of the search: its modules, whether a placement may cost a malus, and the
+#: cheapest it can still be — see `_with_floors`.
+Tiering = tuple[tuple[str, ...], bool, int]
+
 def parse_sub_mode(value: str | None) -> SubMode | None:
     """`FANTABOT_LINEUP_SUB_MODE` as a mode, or `None`.
 
@@ -122,7 +126,7 @@ def substitute(
     bench: Sequence[int],
     voted: Collection[int],
     roles: Mapping[int, frozenset[str]],
-    mode: SubMode = "basic",
+    mode: SubMode,
     modules: Sequence[str] = (),
     max_subs: int | None = None,
 ) -> Substitution:
@@ -135,6 +139,13 @@ def substitute(
     may move to. It defaults to **empty**, meaning "the original only": a module the lega
     does not allow is one the platform would refuse, so an engine that invented the eleven
     would model a game nobody is playing.
+
+    `mode` has **no default**, for the reason `parse_sub_mode` has none: the operator has
+    not answered Open Question 1 and the three modes field different XIs. A `"basic"`
+    default here was harmless only while `modules` was also empty — BASIC's Efficient tier
+    is guarded by `if others:`, so with no module list the search degenerates to EASY's —
+    and it would have started guessing the moment T28 passed the lega's real `mods`. A
+    default that is correct only while a second default is also taken is not a default.
     """
     table = _admission_table(module, modules)
     slot_sets = table[module]
@@ -160,9 +171,11 @@ def substitute(
 
     vacancies = len(slot_sets) - len(survivors) - len(entered)
     for size in range(min(vacancies, budget, len(available)), -1, -1):
-        for tier_modules, with_malus in _tiers(mode, module, table):
+        for tier_modules, with_malus, floor in tier_plan(mode, module, tuple(table)):
             best = _best_in_tier(
                 size=size,
+                module=module,
+                floor=floor,
                 survivors=survivors,
                 entered=entered,
                 available=available,
@@ -178,26 +191,50 @@ def substitute(
     )
 
 
-def _tiers(
-    mode: SubMode, module: str, table: Mapping[str, tuple[SlotAdmission, ...]]
-) -> tuple[tuple[tuple[str, ...], bool], ...]:
-    """`(modules, may a placement cost a malus)` per tier, in the order this mode tries them."""
-    others = tuple(code for code in table if code != module)
+def tier_plan(mode: SubMode, module: str, available: Sequence[str]) -> tuple[Tiering, ...]:
+    """`(modules, may it cost a malus, the cheapest it can still be)` per tier, in order.
+
+    Public because it *is* the difference between the three modes, and a search order that
+    can only be read by watching which XI comes out is one nothing can assert directly.
+
+    The third field is what makes the Adapted tier's early exit safe. It may stop at the
+    first fit costing `floor` because nothing cheaper remains to find — and "nothing cheaper
+    remains" is a statement about the *free* tiers that ran before it over the *same*
+    modules, not a constant. So it is derived here, from the modules already scanned free,
+    rather than written as a literal `1` in the search: add a mode whose malus tier reaches
+    a module its free tiers never did and a literal would return a malus-1 XI while a
+    malus-0 one sat unexamined.
+    """
+    others = tuple(code for code in available if code != module)
     if mode == "easy":
-        return (((module,), False), ((module,), True))
+        return _with_floors((((module,), False), ((module,), True)))
     if mode == "master":
         every = (module, *others)
-        return ((every, False), (every, True))
+        return _with_floors(((every, False), (every, True)))
     basic: list[tuple[tuple[str, ...], bool]] = [((module,), False)]
     if others:
         basic.append((others, False))
     basic.append(((module, *others), True))
-    return tuple(basic)
+    return _with_floors(tuple(basic))
+
+
+def _with_floors(tiers: Sequence[tuple[tuple[str, ...], bool]]) -> tuple[Tiering, ...]:
+    """Each tier, with the least it can still cost given the free tiers already run."""
+    scanned_free: set[str] = set()
+    out: list[Tiering] = []
+    for modules, with_malus in tiers:
+        floor = 0 if not with_malus or not set(modules) <= scanned_free else 1
+        out.append((modules, with_malus, floor))
+        if not with_malus:
+            scanned_free.update(modules)
+    return tuple(out)
 
 
 def _best_in_tier(
     *,
     size: int,
+    module: str,
+    floor: int,
     survivors: Sequence[int],
     entered: Sequence[int],
     available: Sequence[int],
@@ -210,8 +247,8 @@ def _best_in_tier(
 
     Combination outer, module inner, so an earlier bench combination wins at equal cost; the
     first module in `tier_modules` wins a tie between modules. A malus-free tier stops at its
-    first fit (every fit costs 0); the Adapted tier stops at a malus of 1, which is the least
-    it can cost once the malus-free tiers have been refused.
+    first fit (every fit costs 0); a malus-bearing one stops at `floor`, the least it can
+    still cost given what the free tiers already refused (`_with_floors`).
     """
     best: Substitution | None = None
     for combination in bench_combinations(list(available), size):
@@ -234,22 +271,29 @@ def _best_in_tier(
                 entered=(*entered, *combination),
                 short=fielded.count(None),
                 malus=malus,
-                tier=_tier_of(malus, code, tier_modules),
+                tier=_tier_of(malus, code, module),
             )
             if not with_malus:
                 return found
             if best is None or found.malus < best.malus:
                 best = found
-            if best.malus <= 1:
+            if best.malus <= floor:
                 return best
     return best
 
 
-def _tier_of(malus: int, code: str, tier_modules: Sequence[str]) -> Tier:
-    """Which tier this answer is, read off the answer — `tier_modules[0]` is the original."""
+def _tier_of(malus: int, code: str, module: str) -> Tier:
+    """Which tier this answer is, read off the answer: the cost, then whether it moved.
+
+    `module` is the module the XI was **submitted** in and is passed down rather than read
+    off the tier's own list. `tier_modules[0]` was the obvious shortcut and it is right for
+    EASY, for MASTER and for two of BASIC's three tiers — and wrong for the one whose entire
+    purpose is that the module changed, because BASIC's Efficient tier holds `others` and
+    its first entry is another module. It reported `optimal` for a formation change.
+    """
     if malus:
         return "adapted"
-    return "optimal" if code == tier_modules[0] else "efficient"
+    return "optimal" if code == module else "efficient"
 
 
 def _admission_table(
@@ -287,13 +331,18 @@ class SubstitutionEngine:
     over a handful of distinct absence patterns, because presence is drawn per player and
     most draws repeat. The cache lives on the instance and nowhere else: a module-level one
     would carry one lega's roster into the next, and `domain/` holds no global state.
+
+    ⚠ **An instance is valid for exactly one (lega, competition, matchday).** The key is the
+    absence pattern alone, and `roles`, `starts` and `bench` are held by reference: reuse it
+    across matchdays, or mutate the roles mapping under it, and it answers from the cache
+    with no error and no warning. Build a new one per plan.
     """
 
     module: str
     starts: tuple[int, ...]
     bench: tuple[int, ...]
     roles: Mapping[int, frozenset[str]]
-    mode: SubMode = "basic"
+    mode: SubMode
     modules: tuple[str, ...] = ()
     max_subs: int | None = None
     _cache: dict[tuple[tuple[int, ...], tuple[int, ...]], Substitution] = field(
