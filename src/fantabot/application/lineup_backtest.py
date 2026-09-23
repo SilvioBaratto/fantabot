@@ -46,18 +46,17 @@ from fantabot.domain.asta.roles import macro_role, normalize_roles
 from fantabot.domain.lineup.backtest import (
     BURN_IN,
     Fielded,
-    Interval,
     Paired,
     baseline_inputs,
     field,
     pair,
     table,
-    two_way_bootstrap,
 )
 from fantabot.domain.lineup.choose import Budget, PlanInputs, choose_plan, seed_for
 from fantabot.domain.lineup.dependence import fit as fit_dependence
 from fantabot.domain.lineup.dependence import residuals
 from fantabot.domain.lineup.errors import LineupError
+from fantabot.domain.lineup.gate import Interval, two_way_bootstrap
 from fantabot.domain.lineup.history import before, first_match_date
 from fantabot.domain.lineup.models import assemble_roster
 from fantabot.domain.lineup.opponent import Opponent

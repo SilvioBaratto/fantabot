@@ -53,6 +53,7 @@ EXPECTED: set[str] = {
     "lega sync",
     "lineup backtest",
     "lineup plan",
+    "lineup shadow-report",
     "lineup refresh",
     "lineup show",
     "lineup submit",

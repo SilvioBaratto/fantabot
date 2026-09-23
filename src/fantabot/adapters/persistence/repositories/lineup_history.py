@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from fantabot.adapters.persistence.models.aste import ASTA_TYPES, Asta, AstaAssignment
 from fantabot.adapters.persistence.models.league import LeagueCompetition, LeagueFixture
@@ -165,6 +165,120 @@ def _appearance(record: MatchGrain) -> HistoryAppearance:
         ),
         fantavoto_fc=None if record.fantavoto_fc is None else float(record.fantavoto_fc),
     )
+
+
+class ShadowRepository(RepositoryBase):
+    """The two reads the shadow report needs, and nothing else.
+
+    Separate from `LineupHistoryRepository` because the questions are different: that one
+    reads a *season* to fit a model on, this one reads *one matchday* to grade a lineup that
+    was actually sent.
+    """
+
+    def appearances_at(self, season: str, giornata: int) -> list[HistoryAppearance]:
+        """Every `match_grain` row of one Serie A giornata.
+
+        Coach rows never come back — they are rows with no id, and `player_id IS NOT NULL`
+        is the one guard, the observable one, so there is no second copy for a mutant to
+        delete unnoticed.
+        """
+        rows = self.session.execute(
+            select(
+                MatchGrain.player_id,
+                MatchGrain.ruolo_codice,
+                MatchGrain.giornata,
+                MatchGrain.data,
+                MatchGrain.squadra_raw,
+                MatchGrain.avversario_raw,
+                MatchGrain.gol_squadra,
+                MatchGrain.gol_avversario,
+                MatchGrain.voto_fc,
+                MatchGrain.fantavoto_fc,
+                MatchGrain.gol_segnati,
+                MatchGrain.rigori_segnati,
+                MatchGrain.assist,
+                MatchGrain.ammonizione,
+                MatchGrain.espulsione,
+                MatchGrain.autoreti,
+                MatchGrain.rigori_parati,
+                MatchGrain.rigori_sbagliati,
+                MatchGrain.gol_subiti,
+                MatchGrain.mvp,
+            )
+            .where(
+                MatchGrain.stagione == season,
+                MatchGrain.giornata == giornata,
+                MatchGrain.player_id.is_not(None),
+                MatchGrain.voto_fc.is_not(None),
+            )
+            .order_by(MatchGrain.player_id)
+        ).all()
+        return [
+            HistoryAppearance(
+                player_id=int(row.player_id),
+                role=str(row.ruolo_codice or ""),
+                fixture=Fixture(
+                    season=season,
+                    giornata=int(row.giornata),
+                    played_on=row.data,
+                    home=str(row.squadra_raw),
+                    away=str(row.avversario_raw),
+                    home_goals=int(row.gol_squadra or 0),
+                    away_goals=int(row.gol_avversario or 0),
+                ),
+                scored=Appearance(
+                    voto_fc=float(row.voto_fc),
+                    gol_segnati=int(row.gol_segnati or 0),
+                    rigori_segnati=int(row.rigori_segnati or 0),
+                    assist=int(row.assist or 0),
+                    ammonizione=int(row.ammonizione or 0),
+                    espulsione=int(row.espulsione or 0),
+                    autoreti=int(row.autoreti or 0),
+                    rigori_parati=int(row.rigori_parati or 0),
+                    rigori_sbagliati=int(row.rigori_sbagliati or 0),
+                    gol_subiti=int(row.gol_subiti or 0),
+                    mvp=int(row.mvp or 0),
+                ),
+                fantavoto_fc=None if row.fantavoto_fc is None else float(row.fantavoto_fc),
+            )
+            for row in rows
+        ]
+
+    def points_for(self, league_id: int, *, matchday: int, tid: int) -> float | None:
+        """What the platform awarded **our** team that matchday, or `None`.
+
+        `league_fixture` has no `league_id`; its only route to a lega is through
+        `league_competition.competition_id`, so the ids are resolved first — the same shape
+        `purge` and `fixtures_for` need, and for the same reason.
+
+        `None` covers three cases that are one answer: the round is not calculated, the
+        lega has no fixture there, and our `tid` is on neither side of it. All three mean
+        "the platform has not said", and a 0.0 would mean "it said nothing scored".
+        """
+        competition_ids = self.competition_ids_for(league_id)
+        if not competition_ids:
+            return None
+        row = self.session.execute(
+            select(LeagueFixture)
+            .where(
+                LeagueFixture.competition_id.in_(competition_ids),
+                LeagueFixture.matchday == matchday,
+                LeagueFixture.calculated.is_(True),
+                or_(LeagueFixture.team_home == tid, LeagueFixture.team_away == tid),
+            )
+            .limit(1)
+        ).scalars().first()
+        if row is None:
+            return None
+        points = row.points_home if row.team_home == tid else row.points_away
+        return None if points is None else float(points)
+
+    def competition_ids_for(self, league_id: int) -> list[int]:
+        """The lega's competitions. `LeagueRepository.competition_ids`' read, reached from
+        here so the shadow report needs one repository rather than two."""
+        from fantabot.adapters.persistence.repositories.league import LeagueRepository
+
+        return LeagueRepository(self.session).competition_ids(league_id)
 
 
 class BacktestCorpusRepository(RepositoryBase):

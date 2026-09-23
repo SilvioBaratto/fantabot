@@ -814,6 +814,120 @@ def _backtest(
         raise typer.Exit(code=1)
 
 
+def _shadow_report(
+    league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
+    season: str = typer.Option("2026/27", "--season", help="Which stagione the votes are in."),
+    sub_mode: str = typer.Option(
+        "", "--sub-mode", help="basic | easy | master. Defaults to FANTABOT_LINEUP_SUB_MODE."
+    ),
+) -> None:
+    """Grade what was fielded, and what the shadow would have fielded. Read-only.
+
+    Phase 7's evidence. For each matchday it takes the **last** gradable record — an hourly
+    job re-submits while the round is open, so the newest is the XI that was in play — and
+    recomputes it from the **ids**: lega-scored votes plus the auto-sub engine. Three lines
+    per matchday: our number against the platform's own, the shadow's number, and the malus
+    check (A18).
+
+    A recompute that disagrees with the platform by more than 0.01 is a **finding**, not a
+    rounding: the model is being graded by a scorer that does not match the one paying out,
+    and nothing downstream is worth reading until it is explained.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.files.lineup_runs import read_runs
+    from fantabot.adapters.http import apileague
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.lineup_history import (
+        LineupHistoryRepository,
+        ShadowRepository,
+    )
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_projection import substitution_cap
+    from fantabot.application.lineup_shadow import Ungradable, grade_run, report, votes_at
+    from fantabot.config import LINEUP_SUB_MODE_VAR, lineup_runs_path, live_setting, settings
+    from fantabot.domain.asta.roles import normalize_roles
+    from fantabot.domain.lineup.scoring import ScoringRules
+    from fantabot.domain.lineup.substitution import SUB_MODES, parse_sub_mode
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    league_id = _resolve_league(league)
+    mode = parse_sub_mode(sub_mode or live_setting(LINEUP_SUB_MODE_VAR))
+    if mode is None:
+        console.print(
+            f"[red]no substitution mode: pass --sub-mode ({', '.join(sorted(SUB_MODES))}) "
+            "or set FANTABOT_LINEUP_SUB_MODE.[/red]\nThe three field different XIs, so a "
+            "grade under an assumed mode grades a game nobody has confirmed is being played."
+        )
+        raise typer.Exit(code=2)
+
+    runs, _skipped = read_runs(lineup_runs_path())
+    if not runs:
+        console.print(f"[yellow]no run records at {lineup_runs_path()}[/yellow]")
+        raise typer.Exit(code=0)
+
+    try:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
+            calculate = apileague.calculate_settings(league_id, store=store)
+            lega = apileague.lineup_settings(league_id, store=store)
+            rules = ScoringRules.from_settings(calculate["bnMls"], calculate["step"])
+            modules = tuple(str(m) for m in lega.get("mods") or ())
+            cap = substitution_cap(calculate)
+            shadow_repo = ShadowRepository(session)
+            history = LineupHistoryRepository(session)
+            roles = {
+                pid: normalize_roles(codes)
+                for pid, codes in history.roles(season).items()
+            }
+
+            def grade(run: object) -> object:
+                giornata = getattr(run, "serie_a_matchday", None)
+                if not giornata:
+                    return Ungradable(getattr(run, "at", "?"), "no Serie A matchday recorded")
+                rows = shadow_repo.appearances_at(season, int(giornata))
+                if not rows:
+                    return Ungradable(
+                        getattr(run, "at", "?"),
+                        f"no votes recorded for {season} giornata {giornata}",
+                    )
+                tid = getattr(run, "tid", None)
+                return grade_run(
+                    run,  # type: ignore[arg-type]
+                    votes=votes_at(rows, giornata=int(giornata), season=season, rules=rules),
+                    roles=roles,
+                    rules=rules,
+                    sub_mode=mode,
+                    modules=modules,
+                    platform=(
+                        None
+                        if not tid
+                        else shadow_repo.points_for(
+                            league_id, matchday=int(getattr(run, "matchday", 0) or 0), tid=int(tid)
+                        )
+                    ),
+                    max_subs=cap,
+                )
+
+            outcome = report(
+                runs, league_id=league_id, sub_mode=mode,
+                grade=grade,  # type: ignore[arg-type]
+            )
+    except TokenError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    for line in outcome.lines():
+        console.print(escape(line))
+    if outcome.mismatches or outcome.maluses:
+        raise typer.Exit(code=1)
+
+
 def register(app: typer.Typer) -> None:
     """Attach the lineup commands to the `lineup` group (called from `interface/app`)."""
     app.command("show")(_show)
@@ -821,3 +935,4 @@ def register(app: typer.Typer) -> None:
     app.command("submit")(_submit)
     app.command("refresh")(_refresh)
     app.command("backtest")(_backtest)
+    app.command("shadow-report")(_shadow_report)
