@@ -51,6 +51,7 @@ EXPECTED: set[str] = {
     "harvest scan",
     "lega show",
     "lega sync",
+    "lineup backtest",
     "lineup plan",
     "lineup refresh",
     "lineup show",

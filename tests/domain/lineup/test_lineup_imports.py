@@ -55,7 +55,13 @@ DEFAULT_PATH = (
 #: branch exists; T18 added the first, `plan --model projection`'s own import. Exact
 #: equality, like `test_layers.py`'s ratchets.
 EXPECTED_PROJECTION_EDGES: frozenset[tuple[str, str]] = frozenset(
-    {("fantabot.interface.lineup", "fantabot.application.lineup_projection")}
+    {
+        ("fantabot.interface.lineup", "fantabot.application.lineup_projection"),
+        # T33. `lineup backtest` is a read-only, overnight command and the only other
+        # surface that runs the chain; like `plan --model projection` it imports inside the
+        # Typer body, so the hourly `indexcompare` submit never loads either library.
+        ("fantabot.interface.lineup", "fantabot.application.lineup_backtest"),
+    }
 )
 
 

@@ -142,6 +142,10 @@ INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
 #: "stopped at 4/177" — a wall tighter than the budget is a wall that decides the plan.
 PLAN_WALL_SECONDS = 300.0
 
+#: The bootstrap's seed. A constant, so a gate run is a gate run: the interval must not
+#: move between two readings of the same replay, or "the CI is above zero" is a coin.
+_GATE_SEED = 20260923
+
 
 def format_projection_rows(report: ProjectionReport) -> list[tuple[str, ...]]:
     """The μ/p/sigma_tilde table as strings, header first. Pure."""
@@ -584,9 +588,116 @@ def _read_cmday(league_id: int, competition: int) -> int:
     return int(body.get("teamLineupDto", {}).get("cmday", 0) or 0)
 
 
+def _backtest(
+    league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
+    season: list[str] = typer.Option(
+        [], "--season", help="A graded season. Repeatable. Gate 1 needs both of them."
+    ),
+    sweep_season: str = typer.Option(
+        "2023/24", "--sweep-season", help="The season H is picked on, and never graded."
+    ),
+    sub_mode: str = typer.Option(
+        "", "--sub-mode", help="basic | easy | master. Required: the three field different XIs."
+    ),
+    rooms: int = typer.Option(0, "--rooms", help="Replay only the first N rooms. 0 = all."),
+    last: int = typer.Option(38, "--last-giornata", help="Stop after this giornata."),
+    draws: int = typer.Option(2000, "--draws", help="Bootstrap resamples."),
+) -> None:
+    """Replay the corpus under both arms and print Gate 1's verdict. Read-only, and long.
+
+    `--sub-mode` has **no default** and the command refuses without it. The three modes field
+    different XIs — measured on the platform's own rounds 1-3 (T20) — so a gate run under an
+    assumed mode grades a game the operator has not confirmed is the one being played.
+
+    `--rooms` and `--last-giornata` exist for the smoke run. The full corpus is 148 rosters
+    over 33 giornate in each of two seasons, plus the sweep, and every one of them is a
+    plan: this is an overnight command, and the report says what it actually covered.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories.lineup_history import (
+        BacktestCorpusRepository,
+        LineupHistoryRepository,
+    )
+    from fantabot.adapters.tokens.store import TokenStore
+    from fantabot.application.lineup_backtest import ReplaySettings, run_gate
+    from fantabot.application.lineup_projection import substitution_cap
+    from fantabot.config import settings
+    from fantabot.domain.lineup.backtest_corpus import admit
+    from fantabot.domain.lineup.errors import LineupError
+    from fantabot.domain.lineup.substitution import SUB_MODES, parse_sub_mode
+    from fantabot.domain.tokens.crypto import TokenCipher
+    from fantabot.domain.tokens.errors import TokenError
+
+    league_id = _resolve_league(league)
+    mode = parse_sub_mode(sub_mode)
+    if mode is None:
+        console.print(
+            f"[red]--sub-mode is required: one of {', '.join(sorted(SUB_MODES))}.[/red]\n"
+            "The three field different XIs, so a gate run under an assumed mode grades a "
+            "game nobody has confirmed is the one being played."
+        )
+        raise typer.Exit(code=2)
+    graded = list(season) or ["2024/25", "2025/26"]
+    if sweep_season in graded:
+        console.print(
+            f"[red]{sweep_season} is both swept and graded.[/red] H would be tuned on the "
+            "data it is then graded on, which is a model choosing its own exam."
+        )
+        raise typer.Exit(code=2)
+
+    from fantabot.adapters.http import apileague
+    from fantabot.domain.lineup.scoring import ScoringRules
+
+    try:
+        cipher = TokenCipher(settings.fantabot_encryption_key)
+        with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
+            calculate = apileague.calculate_settings(league_id, store=store)
+            lega = apileague.lineup_settings(league_id, store=store)
+        rules = ScoringRules.from_settings(calculate["bnMls"], calculate["step"])
+        with database_manager.get_session() as session:
+            corpus_rows = BacktestCorpusRepository(session).corpus_rows()
+            corpus = admit(*corpus_rows)
+            report = run_gate(
+                LineupHistoryRepository(session),
+                corpus,
+                ReplaySettings(
+                    rules=rules,
+                    sub_mode=mode,
+                    modules=tuple(str(m) for m in lega.get("mods") or ()),
+                    bench_size=int(lega.get("tbench", 12)),
+                    max_subs=substitution_cap(calculate),
+                    rooms=rooms,
+                    last=last,
+                ),
+                seasons=graded,
+                sweep_season=sweep_season,
+                seed=_GATE_SEED,
+                reporter=console,
+                draws=draws,
+            )
+    except TokenError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except (LineupError, ValueError) as exc:
+        console.print(f"[red]the gate could not run: {exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    for line in report.lines():
+        console.print(escape(line))
+    if not report.passes:
+        raise typer.Exit(code=1)
+
+
 def register(app: typer.Typer) -> None:
     """Attach the lineup commands to the `lineup` group (called from `interface/app`)."""
     app.command("show")(_show)
     app.command("plan")(_plan)
     app.command("submit")(_submit)
     app.command("refresh")(_refresh)
+    app.command("backtest")(_backtest)

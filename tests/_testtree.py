@@ -188,6 +188,7 @@ TREE: dict[str, str] = {
     "test_aste_load_windowing.py": "application",
     "test_aste_supervisor.py": "application",
     "test_aste_outage.py": "application",
+    "test_lineup_backtest.py": "application",
     "test_lineup_refresh.py": "application",
     "test_news_roster.py": "application",
     "test_news_pipeline.py": "application",
@@ -231,6 +232,9 @@ TREE: dict[str, str] = {
     # Filed with the read it measures, not with the pure rule beside it: what it pins
     # is what is in the database, which is the repository's subject.
     "test_backtest_corpus_db.py": "adapters/persistence",
+    # The gate's smoke run. Filed with the reads it crosses, which is what it is about:
+    # a fake cannot prove that real ids join.
+    "test_lineup_backtest_db.py": "adapters/persistence",
     "test_migrations.py": "adapters/persistence",
     "test_token_store.py": "adapters/tokens",
     "test_token_secrecy.py": "adapters/tokens",
