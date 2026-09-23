@@ -20,6 +20,7 @@ from sqlalchemy.dialects import postgresql
 import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.adapters.persistence.base import Base
 from fantabot.adapters.persistence.repositories.admin import AdminRepository, UnknownTableError
+from fantabot.adapters.persistence.repositories.lineup_history import BacktestCorpusRepository
 from fantabot.adapters.persistence.repositories.sentiment import (
     SentimentReadRepository,
     SentimentRepository,
@@ -765,3 +766,85 @@ class TestLineupHistoryReads:
         )
 
         assert LineupHistoryRepository(_session()).latest_sentiment([2, 3]) == {2: "b"}
+
+
+# -- T23: the backtest corpus read ------------------------------------------------------
+
+
+class TestTheBacktestCorpusRead:
+    def test_an_unknown_format_raises_before_any_statement_is_built(self) -> None:
+        """An unknown format would otherwise come back as an empty corpus, which reads
+        exactly like a corpus nobody recorded."""
+        session = _session()
+
+        with pytest.raises(ValueError, match="asta_type"):
+            BacktestCorpusRepository(session).corpus_rows(asta_type="fantasy")
+
+        assert session.statements == []
+
+    def test_the_read_recovers_the_id_through_the_uuid_bridge(self) -> None:
+        session = _session([], literal=True)
+
+        BacktestCorpusRepository(session).corpus_rows()
+
+        sql = session.statements[0]
+        assert "coalesce" in sql.lower()
+        assert "min(asta_assignment.fantacalcio_id)" in sql.lower()
+        assert "group by asta_assignment.player_uuid" in sql.lower()
+
+    def test_the_bridge_is_scoped_by_the_uuid_and_by_nothing_else(self) -> None:
+        """A uuid is a platform-wide identity. Any extra key — the format, the room —
+        makes a Mantra room's admission depend on what some other room happened to record,
+        so the bridge's grouping is asserted **exhaustively** rather than by the absence of
+        one column: a scope added by a different name would otherwise slip through."""
+        session = _session([], literal=True)
+
+        BacktestCorpusRepository(session).corpus_rows(asta_type="mantra")
+
+        bridge, _sep, _rest = session.statements[0].partition(") AS bridge")
+        _head, _sep2, grouping = bridge.rpartition("GROUP BY")
+        assert grouping.strip() == "asta_assignment.player_uuid"
+        _head2, _sep3, filtering = bridge.partition("WHERE")
+        assert filtering.partition("GROUP BY")[0].strip() == (
+            "asta_assignment.fantacalcio_id IS NOT NULL"
+        )
+
+    def test_unsold_lots_never_reach_the_fold(self) -> None:
+        """29,406 of 192,197 assignment rows have no buyer — lots called and never bid on.
+        Counted as a roster they would shrink every buyer below the minimum."""
+        session = _session([], literal=True)
+
+        BacktestCorpusRepository(session).corpus_rows()
+
+        assert "buyer_team_id IS NOT NULL" in session.statements[0]
+
+    def test_the_order_is_total(self) -> None:
+        """Postgres has no inherent row order, and a corpus that comes back shuffled is a
+        replay that differs from the one the gate graded."""
+        session = _session([], literal=True)
+
+        BacktestCorpusRepository(session).corpus_rows()
+
+        _head, _sep, tail = session.statements[0].partition("ORDER BY")
+        assert [part.strip() for part in tail.split(",")][:2] == [
+            "asta.id", "asta_assignment.buyer_team_id"
+        ]
+
+    def test_one_room_row_per_room_and_one_sale_row_per_sale(self) -> None:
+        rows = [
+            ("a", 2, 500, 25, "buyerA", 132),
+            ("a", 2, 500, 25, "buyerA", 574),
+            ("a", 2, 500, 25, "buyerB", 6094),
+            ("b", 8, 500, None, "buyerC", 2891),
+        ]
+        session = _session(rows)
+
+        rooms, sales = BacktestCorpusRepository(session).corpus_rows()
+
+        assert [(r.asta_id, r.num_teams, r.max_player) for r in rooms] == [
+            ("a", 2, 25), ("b", 8, None)
+        ]
+        assert [(s.asta_id, s.buyer_team_id, s.player_id) for s in sales] == [
+            ("a", "buyerA", 132), ("a", "buyerA", 574),
+            ("a", "buyerB", 6094), ("b", "buyerC", 2891),
+        ]

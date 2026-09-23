@@ -70,6 +70,7 @@ TREE: dict[str, str] = {
     # The engine replayed against the platform's own substitutions, so the subject is
     # `domain/lineup/substitution.py` even though every input is a saved HTTP response.
     "test_substitution_reconcile.py": "domain/lineup",
+    "test_backtest_corpus.py": "domain/lineup",
     "test_opponent.py": "domain/lineup",
     "test_candidates.py": "domain/lineup",
     "test_build.py": "domain/lineup",
@@ -221,6 +222,9 @@ TREE: dict[str, str] = {
     "test_repositories_fake.py": "adapters/persistence",
     "test_upserts.py": "adapters/persistence",
     "test_clearing_sales_shapes.py": "adapters/persistence",
+    # Filed with the read it measures, not with the pure rule beside it: what it pins
+    # is what is in the database, which is the repository's subject.
+    "test_backtest_corpus_db.py": "adapters/persistence",
     "test_migrations.py": "adapters/persistence",
     "test_token_store.py": "adapters/tokens",
     "test_token_secrecy.py": "adapters/tokens",
