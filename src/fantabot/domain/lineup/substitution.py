@@ -350,11 +350,21 @@ class SubstitutionEngine:
     )
 
     def field_xi(self, voted: Collection[int]) -> Substitution:
-        """The XI for this absence pattern. Same pattern, same object."""
+        """The XI for this absence pattern. Same pattern, same object.
+
+        **A full XI keys on nothing.** With every starter voted the engine does not run at
+        all — the lineup stands as submitted — so the bench cannot change the answer, and
+        folding those patterns onto one key is what makes the cache earn its keep: under
+        Monte Carlo presence is drawn per player, so the bench differs in almost every
+        draw while the eleven that matter are the same.
+        """
         present = set(voted)
+        missing = tuple(pid for pid in self.starts if pid not in present)
         key = (
-            tuple(pid for pid in self.starts if pid not in present),
-            tuple(pid for pid in self.bench if pid not in present),
+            missing,
+            ()
+            if not missing
+            else tuple(pid for pid in self.bench if pid not in present),
         )
         cached = self._cache.get(key)
         if cached is not None:
