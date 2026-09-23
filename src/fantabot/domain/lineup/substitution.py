@@ -136,7 +136,7 @@ def substitute(
     does not allow is one the platform would refuse, so an engine that invented the eleven
     would model a game nobody is playing.
     """
-    table = _admission_table(module, modules, mode)
+    table = _admission_table(module, modules)
     slot_sets = table[module]
     if len(starts) != len(slot_sets):
         raise ValueError(f"a lineup is eleven players in {module}'s slots; got {len(starts)}")
@@ -253,17 +253,22 @@ def _tier_of(malus: int, code: str, tier_modules: Sequence[str]) -> Tier:
 
 
 def _admission_table(
-    module: str, modules: Sequence[str], mode: SubMode
+    module: str, modules: Sequence[str]
 ) -> dict[str, tuple[SlotAdmission, ...]]:
     """The module the XI was submitted in, plus every other module the lega allows.
 
     An allowed code the shipped schemi do not know is dropped rather than raised: the
     platform's `mods` has diverged before, and an unattended job must field *something*.
     The submitted module is not optional and a bad one raises, as `schema.admissions` does.
+
+    ⚠ **EASY is not filtered here.** It reads the same table as the other two and `_tiers`
+    is the one place that holds it to the original module. Skipping the build for EASY was
+    the obvious optimisation and it was a second guard on one question: with the table
+    already empty of alternatives, a mutation letting EASY's *Adapted* tier change module
+    became unobservable, and the test that should have caught it passed. Measured
+    2026-09-23 (mutant M01, survived behind M10). The build is `lru_cache`d anyway.
     """
     table = {module: schema.admissions(module)}
-    if mode == "easy":
-        return table
     for code in modules:
         if code in table:
             continue

@@ -192,6 +192,7 @@ TREE: dict[str, str] = {
     "test_agentkit_options.py": "adapters/agent",
     "test_agentkit_runner.py": "adapters/agent",
     "test_agentkit_usage.py": "adapters/agent",
+    "test_voti_range.py": "adapters/scraping",
     "test_apileague_client.py": "adapters/http",
     "test_apileague_teamlineup.py": "adapters/http",
     "test_fantalab_feed.py": "adapters/http",

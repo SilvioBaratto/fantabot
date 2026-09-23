@@ -24,10 +24,12 @@ from datetime import date
 import pytest
 
 from fantabot.application.scrape import (
+    GIORNATE_IN_A_SEASON,
     InvalidScrape,
     clean_scrape,
     current_season,
     run_scrape,
+    run_voti_range,
     scrapables,
 )
 
@@ -225,3 +227,73 @@ def test_the_run_calls_that_tables_module_with_the_resolved_seasons(
     run_scrape(clean_scrape("voti", ["2026/27", "2025/26"]))
 
     assert called == [("voti", ["2026/27", "2025/26"])]
+
+
+# -- T24: the targeted voti range -------------------------------------------------------
+#
+# The hourly refresh's half of `run_scrape`. Same refusals before the first socket, a
+# different failure model after it: an empty giornata is the ordinary case and not an exit.
+
+
+def test_the_range_cleans_the_season_and_hands_the_giornate_over_as_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The season is normalised here because the refusal is here. The giornate are not:
+    `scrape_giornate` deduplicates and orders them, and doing it twice would make the first
+    copy unobservable (`tests/adapters/scraping/test_voti_range.py` is where it is tested).
+    """
+    from fantabot.adapters.scraping import voti
+
+    called: list[tuple[str, list[int]]] = []
+    monkeypatch.setattr(
+        voti, "scrape_giornate", lambda season, g: (called.append((season, list(g))), [])[1]
+    )
+
+    run_voti_range(" 2026/27 ", [9, 3, 9])
+
+    assert called == [("2026/27", [9, 3, 9])]
+
+
+def test_the_range_returns_the_scrapers_counts_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot.adapters.scraping import voti
+    from fantabot.adapters.scraping.voti import GiornataCount
+
+    counts = [GiornataCount(giornata=3, teams_listed=20, teams_graded=18, rows=540)]
+    monkeypatch.setattr(voti, "scrape_giornate", lambda _s, _g: counts)
+
+    assert run_voti_range("2026/27", [3]) == counts
+
+
+def test_a_malformed_season_is_refused_before_a_socket_opens() -> None:
+    with pytest.raises(InvalidScrape, match="not a season"):
+        run_voti_range("2022/26", [3])
+
+
+@pytest.mark.parametrize("giornata", [0, -1, GIORNATE_IN_A_SEASON + 1])
+def test_a_giornata_outside_the_season_is_refused(giornata: int) -> None:
+    with pytest.raises(InvalidScrape, match="not a giornata"):
+        run_voti_range("2026/27", [giornata])
+
+
+def test_asking_for_nothing_is_refused_rather_than_reported_as_a_clean_run() -> None:
+    """A refresh that ran no request and exited 0 is a marker written for work not done."""
+    with pytest.raises(InvalidScrape, match="no giornate"):
+        run_voti_range("2026/27", [])
+
+
+def test_the_whole_season_run_is_untouched(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`db scrape voti` must still call `voti.run` with the resolved seasons, and must not
+    have been quietly rerouted through the range — it walks a season it discovers."""
+    from fantabot.adapters.scraping import voti
+
+    seen: list[list[str]] = []
+    monkeypatch.setattr(voti, "run", lambda seasons: seen.append(list(seasons)))
+    monkeypatch.setattr(
+        voti, "scrape_giornate", lambda *_a, **_k: pytest.fail("the season run used the range")
+    )
+
+    run_scrape(clean_scrape("voti", ["2026/27"]))
+
+    assert seen == [["2026/27"]]

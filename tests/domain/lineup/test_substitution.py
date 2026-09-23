@@ -338,6 +338,31 @@ class TestTheThreeModesDisagree:
 
         assert outcome.module == "343"
 
+    def test_easy_pays_the_dearer_malus_rather_than_change_module(self) -> None:
+        """EASY's *Adapted* tier is held to the original module too, which is the half a
+        module-free Efficient tier cannot show. Both `E` are missing and a right- and a
+        left-back come on: `343` fields them for two maluses and `433` for one, so BASIC
+        moves and EASY pays. Without this the two halves of "never changes the module"
+        are one assertion, and a search that quietly widened EASY's last tier would pass.
+        """
+        bench = (71, 72)
+        roles = ROLES | {71: frozenset({"DD"}), 72: frozenset({"DS"})}
+        voted = [pid for pid in (*STARTS, *bench) if pid not in (40, 70)]
+        mods = ("343", "352", "433", "442", "3412")
+
+        easy = substitute(
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles,
+            mode="easy", modules=mods,
+        )
+        basic = substitute(
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles,
+            mode="basic", modules=mods,
+        )
+
+        assert (easy.module, easy.malus) == ("343", 2)
+        assert (basic.module, basic.malus) == ("433", 1)
+        assert easy.entered == basic.entered == (71, 72)
+
     @pytest.mark.parametrize("mode", ["basic", "easy", "master"])
     def test_no_module_but_the_original_is_ever_fielded_without_mods(self, mode: str) -> None:
         """`modules` defaults to empty — the lega's own `mods` is the only licence to move.
@@ -369,12 +394,56 @@ class TestTheAdaptedTier:
         )
 
     def test_the_cheapest_adapted_fit_wins_over_an_earlier_dearer_one(self) -> None:
-        """Bench order breaks ties; it does not outrank the malus count. `1` is the first
-        bench man and costs two maluses here, `(3, 4)` costs one, so `(3, 4)` is fielded."""
-        outcome = _substitute(absent=(40, 70))
+        """"The least-total-malus Adapted fit", `rules/sistema-mantra.md`. Both `E` are
+        missing and the bench reads centre-back, centre-back, `E`: the *first* combination
+        that fits, `(61, 62)`, puts a centre-back in each flank for two maluses, and the
+        engine must keep scanning to `(61, 63)`, which costs one. Bench order breaks ties
+        between equal costs; it does not outrank the cost.
+        """
+        bench = (61, 62, 63)
+        roles = ROLES | {
+            61: frozenset({"DC"}), 62: frozenset({"DC"}), 63: frozenset({"E"}),
+        }
+        voted = [pid for pid in (*STARTS, *bench) if pid not in (40, 70)]
 
+        outcome = substitute(
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles
+        )
+
+        assert outcome.entered == (61, 63)
         assert outcome.malus == 1
-        assert 1 not in outcome.entered
+
+    def test_bench_order_breaks_a_tie_between_equally_dear_fits(self) -> None:
+        """The same board with the cheap `E` gone: `(61, 62)` and nothing else costs two,
+        and among the two-malus fits the earliest combination is the one fielded."""
+        bench = (61, 62, 63)
+        roles = ROLES | {
+            61: frozenset({"DC"}), 62: frozenset({"DC"}), 63: frozenset({"DC"}),
+        }
+        voted = [pid for pid in (*STARTS, *bench) if pid not in (40, 70)]
+
+        outcome = substitute(
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles
+        )
+
+        assert outcome.entered == (61, 62)
+        assert outcome.malus == 2
+
+    def test_a_dearer_fit_in_another_module_never_beats_the_original(self) -> None:
+        """Bench order breaks ties, and so does module order: the module the XI was
+        submitted in is first, so an equally dear fit elsewhere does not move it."""
+        bench = (61, 62, 63)
+        roles = ROLES | {
+            61: frozenset({"DC"}), 62: frozenset({"DC"}), 63: frozenset({"DC"}),
+        }
+        voted = [pid for pid in (*STARTS, *bench) if pid not in (40, 70)]
+
+        outcome = substitute(
+            module=MODULE, starts=STARTS, bench=bench, voted=voted, roles=roles,
+            mode="master", modules=("343", "352", "3412"),
+        )
+
+        assert outcome.module == MODULE
 
 
 class TestTheStarredCells:

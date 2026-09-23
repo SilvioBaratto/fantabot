@@ -41,10 +41,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from types import ModuleType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fantabot.adapters.scraping.voti import GiornataCount
 
 #: `2026/27`. Anchored, so `x2026/27y` is not a season and neither is `2026/27 `-with-a-tab
 #: that got past a `strip` this module did not do.
 SEASON = re.compile(r"\A(\d{4})/(\d{2})\Z")
+
+#: Giornate in a 20-team Serie A season. A bound, not a schedule: the site discovers the
+#: real count from its own `Giornata` select, and this only refuses a number that cannot be
+#: a giornata at all — before a socket is opened, like `clean_season`.
+GIORNATE_IN_A_SEASON = 38
 
 #: The month a new season's listone appears. July rather than August: the quotazioni for
 #: the coming season publish before a ball is kicked, and that is when an operator wants
@@ -193,6 +202,41 @@ def clean_season(raw: str) -> str:
             f"{start}/{(start + 1) % 100:02d}?"
         )
     return season
+
+
+def run_voti_range(season: str, giornate: Sequence[int]) -> list[GiornataCount]:
+    """Re-fetch a handful of named giornate and say what each one held.
+
+    The hourly refresh's half of `run_scrape` (T27). Three things differ, and all three are
+    the difference between a command an operator typed and a job nobody is watching:
+
+    * it fetches **only** what it is asked for, which for a refresh is
+      `freshness.voti_range` — the giornate still short of their ten matches;
+    * it **returns counts instead of printing them**, so the marker can record whether rows
+      actually landed for `cmday - 1` rather than whether the process exited 0;
+    * an empty result is `rows=0` and **not** a failure. `run`'s `SystemExit(1)` is right for
+      an operator who typed a season with no page and wrong for a postponed giornata, which
+      is exactly the case a refresh exists to try again next hour.
+
+    Refused before any request: a malformed season, and a giornata outside 1..38. An empty
+    list is refused too — it is a caller that has not worked out what it wants, and the
+    scrape it would run is one that silently does nothing and reports success.
+    """
+    cleaned = clean_season(season)
+    # Validated here, **ordered and deduplicated there**. `scrape_giornate` walks oldest
+    # first so a killed run has filled the gaps a projection needs first, and that order is
+    # a property of the walk; normalising twice is two guards on one question, and the one
+    # that runs second is the only one a test can see.
+    asked = [int(g) for g in giornate]
+    if not asked:
+        raise InvalidScrape("no giornate to scrape. Ask for at least one.")
+    out_of_range = [g for g in asked if not 1 <= g <= GIORNATE_IN_A_SEASON]
+    if out_of_range:
+        raise InvalidScrape(
+            f"{out_of_range} is not a giornata. Giornate run 1 to {GIORNATE_IN_A_SEASON}."
+        )
+    counts: list[GiornataCount] = _module("voti").scrape_giornate(cleaned, asked)
+    return counts
 
 
 def run_scrape(request: ScrapeRequest) -> None:

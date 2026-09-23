@@ -41,7 +41,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
@@ -339,6 +339,84 @@ def store_giornata(rows: list[PlayerMatchRow]) -> int:
     with _db.session() as handle:
         _db.upsert_match_grain(handle, voti, bonus)
     return len(rows)
+
+
+@dataclass(frozen=True, slots=True)
+class GiornataCount:
+    """What one giornata's page held, once it had been stored.
+
+    `teams_graded` is the number the freshness verdict needs: the site lists a team's table
+    as soon as the fixture exists and fills in the grades when it has been played, so a
+    postponed match is 2 listed and 0 graded. `fixtures_per_giornata` is `teams_graded // 2`.
+    """
+
+    giornata: int
+    #: Team tables the page rendered.
+    teams_listed: int
+    #: Of those, the ones with at least one base vote.
+    teams_graded: int
+    #: Player-match rows stored. `0` is a real answer and never an error.
+    rows: int
+
+    @property
+    def fixtures(self) -> int:
+        """Matches played, as `freshness.staleness` counts them."""
+        return self.teams_graded // 2
+
+
+def count_giornata(giornata: int, rows: Sequence[PlayerMatchRow], stored: int) -> GiornataCount:
+    """The counts of one parsed giornata. Pure, so the page shape is testable without a page.
+
+    A team is *graded* when one of its players carries a base vote from any of the three
+    sources. Any, not `voto_fc`: Voto Italia can publish before the Redazione does, and a
+    giornata read as ungraded is one the refresh re-fetches for ever.
+    """
+    listed: set[str] = set()
+    graded: set[str] = set()
+    for row in rows:
+        if not row.team:
+            continue
+        listed.add(row.team)
+        if row.voto_fc or row.voto_stat or row.voto_italia:
+            graded.add(row.team)
+    return GiornataCount(
+        giornata=giornata,
+        teams_listed=len(listed),
+        teams_graded=len(graded),
+        rows=stored,
+    )
+
+
+def scrape_giornate(
+    season: str,
+    giornate: Sequence[int],
+    *,
+    fetch: Callable[[str, int], list[PlayerMatchRow]] | None = None,
+    store: Callable[[list[PlayerMatchRow]], int] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[GiornataCount]:
+    """Fetch and upsert exactly the giornate asked for, and say what each one held.
+
+    The targeted counterpart to `run`, for the hourly refresh (T27): it walks a handful of
+    named giornate rather than a whole season, **never prints and never exits**. A giornata
+    with no rows at all is `rows=0` and not a failure — `run`'s `SystemExit(1)` is right for
+    an operator who typed a command and wrong for a job whose whole purpose is to try a
+    postponed giornata again next hour.
+
+    Only the giornate asked for are fetched: deduplicated, and in ascending order so a run
+    killed half way has filled the oldest gaps, which are the ones a projection needs first.
+    The three seams are injected for the suite's sake — it opens no socket and no session,
+    and does not sleep for the politeness delay it is asserting.
+    """
+    do_fetch = fetch if fetch is not None else fetch_giornata
+    do_store = store if store is not None else store_giornata
+    counts: list[GiornataCount] = []
+    for index, giornata in enumerate(sorted(dict.fromkeys(giornate))):
+        if index:
+            sleep(REQUEST_DELAY_SECONDS)
+        rows = list(do_fetch(season, giornata))
+        counts.append(count_giornata(giornata, rows, do_store(rows)))
+    return counts
 
 
 def fetch_season(season: str) -> int:
