@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from fantabot.application.lineup_planner import plan_lineups
+from fantabot.application.lineup_submit import PROJECTION, Projected
 from fantabot.application.scrape import current_season
 from fantabot.domain.asta.roles import macro_role, normalize_roles
 from fantabot.domain.lineup import positional
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import date
 
+    from fantabot.adapters.files.lineup_runs import LineupShadow
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_planner import LineupInputs
     from fantabot.domain.lineup.scoring import ScoringRules
@@ -522,4 +524,94 @@ def _freshness(fixtures: Sequence[Fixture], *, cmday: int, refreshed: bool) -> F
         cmday=cmday,
         fixtures_per_giornata=per_giornata,
         voti_refreshed=refreshed,
+    )
+
+
+def projector_for(
+    store: TokenStore,
+    *,
+    league_id: int,
+    as_of: date,
+    sub_mode: SubMode | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> Callable[[int], Projected]:
+    """The `--shadow` seam, bound to one lega (T36).
+
+    **This is the one place the projection crosses into the submit path**, and it hands over
+    default-path types only — plans and a `LineupShadow`. A seam typed as `ProjectionReport`
+    would put this module, and through it numpy and scipy, on the import graph of the hourly
+    `indexcompare` submit (AD3), and the guard counts a `TYPE_CHECKING` import exactly as it
+    counts a real one.
+
+    Everything it can fail at is a **named fallback**, never an exception: no evaluated plan,
+    a stale history, an assumed sub mode, an opponent that could not be fitted. The caller
+    contains it too — belt and braces, because the caller cannot know what a future failure
+    here will be — but a reason a reader can act on beats a type name, and that is what this
+    produces while it still knows what went wrong.
+    """
+
+    def build(competition: int) -> Projected:
+        report = projection_for_league(
+            store,
+            league_id=league_id,
+            competition=competition,
+            as_of=as_of,
+            sub_mode=sub_mode,
+            should_stop=should_stop,
+        )
+        return projected_from(report)
+
+    return build
+
+
+def projected_from(report: ProjectionReport) -> Projected:
+    """A `ProjectionReport` as the submit path needs it. Pure."""
+    outcome = report.projection
+    warnings = list(outcome.freshness.warnings)
+    if not outcome.freshness.fresh:
+        warnings.append(f"stale: {'; '.join(outcome.freshness.reasons)}")
+    if outcome.sub_mode_assumed:
+        warnings.append(f"sub mode assumed {outcome.sub_mode} (FANTABOT_LINEUP_SUB_MODE unset)")
+    if outcome.chosen is None:
+        return Projected(plans=(), shadow=None, fallback=outcome.fallback,
+                         warnings=tuple(warnings))
+    return Projected(
+        plans=outcome.plans,
+        shadow=shadow_of(outcome, report.names),
+        warnings=tuple(warnings),
+    )
+
+
+def shadow_of(outcome: ProjectionOutcome, names: Mapping[int, str]) -> LineupShadow | None:
+    """The one-line summary the run record carries. `None` when there is no evaluated plan.
+
+    ⚠ **`e_pts` and `p_wdl` are zero when no opponent could be fitted**, and the first entry
+    of `cuts` says so. `LineupShadow.e_pts` is a `float` and the app's row type pins it
+    (T06), so there is no `None` to write; a bare 0.0 reads as a certain loss, which is why
+    it never travels without the sentence that explains it. The plan was ranked on
+    E[fantapunti] in that case and `e_fp` is the number that decided it.
+    """
+    from fantabot.adapters.files.lineup_runs import LineupShadow
+
+    plan = outcome.chosen
+    if plan is None:
+        return None
+    evaluation = plan.evaluation
+    cuts = list(plan.cuts)
+    if evaluation.points is None:
+        cuts.insert(0, f"ranked on E[fp]: no opponent ({outcome.opponent})")
+    if plan.stopped:  # pragma: no cover - an aborted plan is dropped before it gets here
+        cuts.append("stopped")
+    return LineupShadow(
+        model=PROJECTION,
+        module=plan.module,
+        starter_ids=plan.starts,
+        bench_ids=plan.bench,
+        starters=tuple(names.get(pid, str(pid)) for pid in plan.starts),
+        bench=tuple(names.get(pid, str(pid)) for pid in plan.bench),
+        e_pts=evaluation.points or 0.0,
+        p_wdl=(evaluation.win or 0.0, evaluation.drawn or 0.0, evaluation.loss or 0.0),
+        e_fp=evaluation.fantapunti,
+        sd=evaluation.fantapunti_sd,
+        cuts=tuple(cuts),
     )

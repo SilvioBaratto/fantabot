@@ -445,6 +445,11 @@ class TestTheCommand:
 
         assert result.exit_code == 0, result.output
         assert order == ["db", "submit"]
+        # The exact argv, because this is the line launchd runs every hour and the
+        # operator confirms it at CP6. `--shadow` joined it in T36: it computes the
+        # projection beside the lineup that was sent and records it, and under
+        # `indexcompare` the POST happens first so it cannot delay, change or lose the
+        # lineup that was going out anyway.
         assert argv == [
             [
                 sys.executable,
@@ -456,6 +461,7 @@ class TestTheCommand:
                 "4103937",
                 "--arm",
                 "--scheduled",
+                "--shadow",
             ]
         ]
 
@@ -474,6 +480,9 @@ class TestTheCommand:
         runner.invoke(app, ["schedule", "run", "--league", "4103937"])
         assert "--arm" not in argv[0]
         assert "--scheduled" in argv[0]
+        # `--shadow` is not gated by `--arm`: an unarmed scheduled run still plans, still
+        # records, and the shadow is the evidence Phase 7 reads. It just submits nothing.
+        assert "--shadow" in argv[0]
 
     def test_run_exits_with_the_child_status(
         self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch

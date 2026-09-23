@@ -33,16 +33,17 @@ a second one where the first is already enforced to be alone.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from fantabot.application.arming import Arming, decide_arming
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
     from datetime import datetime
 
-    from fantabot.adapters.files.lineup_runs import LineupRun
+    from fantabot.adapters.files.lineup_runs import LineupRun, LineupShadow
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_planner import LineupInputs
     from fantabot.domain.lineup.models import PlannedLineup
@@ -60,6 +61,64 @@ GUARD = "GUARD"
 #: The model this path plans with: the platform's own `indexCompare` value. Written into
 #: every run record, so a line says which model chose it.
 INDEXCOMPARE = "indexcompare"
+#: The evaluated model (T30's chain). Named here rather than in `interface/` because the
+#: app asks the same question and must not answer it with its own spelling (AD10).
+PROJECTION = "projection"
+
+#: A surface asked for a model it has no way to run. A **refusal**, not a silent fallback
+#: (AD10): a job told to plan with the projection and quietly POSTing `indexCompare` is a
+#: job whose record says one thing and whose lineup says another.
+MODEL_NOT_ON_SURFACE = "model-not-on-surface"
+
+
+def parse_model(raw: str | None) -> str:
+    """`FANTABOT_LINEUP_MODEL` as a model, failing closed to `indexcompare` (AD4).
+
+    `Settings()` runs at import, so the value is a plain `str | None` and a typo in `.env`
+    must not stop the hourly job at the import line — it must field a lineup the old way.
+    """
+    candidate = (raw or "").strip().lower()
+    return PROJECTION if candidate == PROJECTION else INDEXCOMPARE
+
+
+def chosen_model() -> str:
+    """The model **now**, for every surface (AD10).
+
+    Re-read rather than remembered, like `live_auto_act`: `settings` is the module singleton
+    built at first import, so a long-lived app server would answer every request with the
+    state of the world at boot — and the operator who switches the model at 21:47 without
+    restarting would keep getting the old one.
+    """
+    from fantabot.config import LINEUP_MODEL_VAR, live_setting
+
+    return parse_model(live_setting(LINEUP_MODEL_VAR))
+
+
+@dataclass(frozen=True, slots=True)
+class Projected:
+    """What a projection surface hands the submit path: its plans, and its shadow line.
+
+    **Both are default-path types on purpose.** A seam typed as `ProjectionReport` would put
+    `application.lineup_projection` — and through it numpy and scipy — on the import graph
+    of a module the hourly `indexcompare` submit walks every hour (AD3), and
+    `tests/domain/lineup/test_lineup_imports.py` counts an import under `TYPE_CHECKING`
+    exactly as it counts a real one. So the projection builds these and hands them over,
+    and `lineup_submit` never learns what built them.
+    """
+
+    #: The evaluated plans, best first. Empty when the chain produced none.
+    plans: tuple[PlannedLineup, ...] = ()
+    #: The one-line summary for the run record, or `None`.
+    shadow: LineupShadow | None = None
+    #: Why the chain did not produce a plan, when it did not. `""` otherwise.
+    fallback: str = ""
+    #: Named, non-fatal things a reader should see — staleness, an assumed sub mode.
+    warnings: tuple[str, ...] = ()
+
+
+#: Builds the projection for one competition. Injected, and absent by default: the flag
+#: that supplies it is `--shadow`, and `fantabot-app schedule run` is what passes it.
+Projector = Callable[[int], "Projected"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +161,15 @@ class SubmitOutcome:
     #: The sentence behind a scheduled run's refusal (`domain.lineup.deadline`'s codes) — the
     #: start, the matchday, and why that meant not acting. Empty everywhere else.
     detail: str = ""
+    #: The model that **chose** the XI that was sent — not the one that was asked for. Those
+    #: differ exactly when `fallback` is non-empty.
+    model: str = INDEXCOMPARE
+    #: Why the asked-for model was not the one used. `""` when it was.
+    fallback: str = ""
+    #: The other model's plan, when one was computed. `None` otherwise.
+    shadow: LineupShadow | None = None
+    #: Named, non-fatal things a reader should see.
+    warnings: tuple[str, ...] = ()
 
     @property
     def rejected(self) -> tuple[tuple[str, str], ...]:
@@ -175,6 +243,8 @@ def submit_lineup(
     now: Callable[[], datetime],
     auto_act: bool | None = None,
     scheduled: bool = False,
+    model: str | None = None,
+    projector: Projector | None = None,
 ) -> SubmitOutcome:
     """Build the XI and submit it — behind two locks, a dry run by default.
 
@@ -185,21 +255,47 @@ def submit_lineup(
     `domain.lineup.deadline.scheduled_cutoff`: nobody reads a `launchd` job's warnings, and
     the operator asked for it never to reshuffle a lineup once its matchday has started. A
     human at the keyboard keeps the warning.
+
+    **`projector` is absent by default and the order depends on the model** (A19(2)):
+
+    * under `indexcompare` the POST happens **first**, exactly as in the baseline, and the
+      projection is computed after it — so the shadow cannot delay, change or lose the
+      lineup that was going out anyway. That is what makes `--shadow` free to switch on.
+    * under `projection` the plan comes first, and `scheduled_cutoff` is **re-checked**
+      immediately before the POST, because the chain takes minutes and a matchday can open
+      inside them.
+
+    A surface asked for `projection` with no projector **refuses** (`MODEL_NOT_ON_SURFACE`),
+    before the arm check, rather than quietly POSTing `indexCompare` under a record that
+    says `projection`.
     """
     from fantabot.adapters.http import apileague
+    from fantabot.application.containment import contained
     from fantabot.domain.lineup import payload as payload_module
     from fantabot.domain.lineup.deadline import is_past_deadline, scheduled_cutoff
     from fantabot.domain.lineup.errors import LineupRejected
     from fantabot.domain.tokens.errors import TokenError
 
+    asked = chosen_model() if model is None else parse_model(model)
     plans, names, comp = build_plans(store, league_id, competition)
     arming = decide_arming(arm=arm, auto_act=auto_act)
+    chose, fallback, shadow = INDEXCOMPARE, "", None
+    warnings: tuple[str, ...] = ()
 
     def outcome(**over: Any) -> SubmitOutcome:
         """The four facts every outcome carries, so a return site states only its own."""
+        over.setdefault("model", chose)
+        over.setdefault("fallback", fallback)
+        over.setdefault("shadow", shadow)
+        over.setdefault("warnings", warnings)
         return SubmitOutcome(
             plans=tuple(plans), names=names, competition=comp, arming=arming, **over
         )
+
+    # **Before the arm check**, like every other refusal here: a dry run that rehearsed the
+    # `indexCompare` XI while the setting said `projection` would rehearse the wrong thing.
+    if asked == PROJECTION and projector is None:
+        return outcome(refused=MODEL_NOT_ON_SURFACE)
 
     # **Before the arm check**, so a dry run refuses too. A dry run that printed a plan the
     # armed run would have refused is a rehearsal of the wrong thing.
@@ -223,6 +319,34 @@ def submit_lineup(
 
     if not arming.armed:
         return outcome(refused=NOT_ARMED)
+
+    # The projection, when it is the model doing the choosing. Contained (A19(3)): a chain
+    # that raises is a fallback to the XI the matcher already built, never a lost matchday.
+    if asked == PROJECTION and projector is not None:
+        projected, failure = contained(lambda: projector(comp))
+        if projected is None:
+            fallback = failure
+        elif not projected.plans:
+            fallback = projected.fallback or "the chain produced no plan"
+            shadow, warnings = projected.shadow, projected.warnings
+        else:
+            plans = list(projected.plans)
+            chose, shadow, warnings = PROJECTION, projected.shadow, projected.warnings
+        if fallback:
+            warnings = (*warnings, f"fell back to {INDEXCOMPARE}: {fallback}")
+        # **Re-checked after the chain, not before it.** The plan took minutes and a
+        # scheduled run must not submit into a matchday that opened inside them.
+        if scheduled and status is not None:
+            late = scheduled_cutoff(
+                mstr=str(status.get("mstr") or ""),
+                status_mday=int(status.get("mday") or 0),
+                plan_cmday=plans[0].cmday if plans else 0,
+                now=now(),
+            )
+            if late is not None:
+                return outcome(refused=late.code, detail=late.reason)
+        if not plans:
+            return outcome(refused=ALL_MODULES_REFUSED)
 
     # Warns, never blocks — for a manual run. `mstr` is not confirmed to be the lineup
     # deadline, so the platform stays the authority; a guess that blocked would lose a
@@ -271,6 +395,19 @@ def submit_lineup(
             # guard is for the fakes, which are free to return nothing at all.
             saved = sent.get("teamLineupDto", {}) if isinstance(sent, dict) else {}
             unconfirmed = str(exc)
+
+        # **After the POST**, under `indexcompare`: the lineup is already on the platform,
+        # so nothing the shadow does can delay it, change it or lose it. That asymmetry is
+        # what makes `--shadow` free to leave on in an unattended job.
+        if asked == INDEXCOMPARE and projector is not None:
+            projected, failure = contained(lambda: projector(comp))
+            if projected is None:
+                warnings = (*warnings, f"shadow failed: {failure}")
+            else:
+                shadow = projected.shadow
+                warnings = (*warnings, *projected.warnings)
+                if projected.fallback:
+                    warnings = (*warnings, f"no shadow: {projected.fallback}")
 
         return outcome(
             past_deadline=past,
@@ -332,7 +469,10 @@ def run_record(
         bench_ids=tuple(plan.bench) if plan else (),
         competition=outcome.competition,
         tid=plan.tid if plan else None,
-        model=INDEXCOMPARE,
+        model=outcome.model,
+        fallback=outcome.fallback,
+        warnings=outcome.warnings,
+        shadow=outcome.shadow,
         rejections=tuple(
             LineupRejection(
                 module=r.plan.module,
@@ -368,6 +508,17 @@ def run_record(
             code=code,
             detail=f"not armed: {outcome.arming.because(CLI_SENTENCES)}",
         )
+    if code == MODEL_NOT_ON_SURFACE:
+        return replace(
+            base,
+            status=FAILED,
+            code=code,
+            detail=(
+                f"FANTABOT_LINEUP_MODEL asks for {PROJECTION} and this surface cannot run "
+                f"it. Refusing rather than sending an {INDEXCOMPARE} lineup under a record "
+                f"that says {PROJECTION}."
+            ),
+        )
     if code == ALL_MODULES_REFUSED:
         refused = ", ".join(base.rejected) or "none recorded"
         return replace(
@@ -398,12 +549,18 @@ def failed_run(code: str, detail: str, *, league_id: int, scheduled: bool, at: s
 __all__ = [
     "ALL_MODULES_REFUSED",
     "INDEXCOMPARE",
+    "MODEL_NOT_ON_SURFACE",
     "NOT_ARMED",
     "NO_MATCHDAY",
+    "PROJECTION",
+    "Projected",
+    "Projector",
     "Rejection",
     "SubmitOutcome",
     "build_plans",
+    "chosen_model",
     "failed_run",
+    "parse_model",
     "run_record",
     "submit_lineup",
 ]

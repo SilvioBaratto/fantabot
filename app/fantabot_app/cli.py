@@ -537,6 +537,12 @@ def schedule_run(
     # Always: this command *is* the unattended runner, and `--scheduled` is what makes a
     # run past kickoff a no-op instead of a reshuffle of a lineup already in play.
     command.append("--scheduled")
+    # **The production switch** (SPEC A19(1)). `--shadow` computes the projection beside the
+    # lineup that was sent and records it; under `indexcompare` the POST happens first, so a
+    # chain that hangs or raises cannot delay, change or lose it. Appended here rather than
+    # left to the operator because the record is the only evidence Phase 7's shadow
+    # matchdays will have, and a flag nobody remembered is four weeks of nothing.
+    command.append("--shadow")
     code = schedule.run_command(command, cwd=str(Path.cwd()))
     if code:
         raise typer.Exit(code=code)

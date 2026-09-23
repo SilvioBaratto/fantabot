@@ -170,6 +170,7 @@ TREE: dict[str, str] = {
     # from `test_cli_db_dump.py`, which is about the CLI's printing of it.
     "test_db_dump.py": "application",
     "test_lineup_submit.py": "application",
+    "test_lineup_shadow_wiring.py": "application",
     "test_lineup_projection.py": "application",
     "test_lineup_golden.py": "application",
     "test_asta_room_tracker.py": "application",

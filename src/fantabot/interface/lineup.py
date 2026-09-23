@@ -24,7 +24,13 @@ from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadlin
 from fantabot.interface.console import console
 
 if TYPE_CHECKING:
+    from fantabot.adapters.tokens.store import TokenStore
+
+    # `Projector` is `Callable[[int], Projected]` and both live in `application/
+    # lineup_submit`, which is on the default path — so naming it here costs no import edge
+    # into the projection branch. That is the whole reason the seam is typed that way.
     from fantabot.application.lineup_projection import ProjectionOutcome, ProjectionReport
+    from fantabot.application.lineup_submit import Projector
     from fantabot.domain.lineup.freshness import Freshness
     from fantabot.domain.lineup.models import PlannedLineup
 
@@ -141,6 +147,13 @@ INDEXCOMPARE, PROJECTION = "indexcompare", "projection"
 #: not this one, and it was 60 s until 2026-09-23, when it fired on the real lega at
 #: "stopped at 4/177" — a wall tighter than the budget is a wall that decides the plan.
 PLAN_WALL_SECONDS = 300.0
+
+#: The hard abort for the projection **inside a submit**. Tighter than the read-only
+#: preview's, because this one runs in a job that must still POST: launchd's interval is
+#: 3600 s, the submit's own reads and POST take seconds, and what is left has to leave room
+#: for T37's refresh child. An abort here is a fallback to the `indexCompare` XI, which is
+#: the lineup that would have gone out anyway.
+SUBMIT_WALL_SECONDS = 600.0
 
 #: The bootstrap's seed. A constant, so a gate run is a gate run: the interval must not
 #: move between two readings of the same replay, or "the CI is above zero" is a coin.
@@ -353,11 +366,23 @@ def _submit(
         help="The unattended run (launchd): once the matchday has started, skip instead of "
         "warning — never reshuffle a lineup in play.",
     ),
+    shadow: bool = typer.Option(
+        False,
+        "--shadow",
+        help="Also compute the projection and record it beside the lineup that was sent.",
+    ),
 ) -> None:
     """Build the formation and submit it — **behind two locks, dry run by default.**
 
     Prints the plan always. Submits only when `FANTABOT_AUTO_ACT=true` **and** `--arm`; then
     warns if the matchday looks started and confirms by reading the lineup back.
+
+    `--shadow` is **off unless passed** (A19(1)) and `fantabot-app schedule run` passes it.
+    Under `indexcompare` it costs the run nothing that matters: the POST happens first and
+    the projection after, so a chain that hangs or raises cannot delay, change or lose the
+    lineup that was going out anyway. Under `FANTABOT_LINEUP_MODEL=projection` it is not a
+    shadow at all — it is the projector the submit *plans* with, and without it that surface
+    refuses rather than sending an `indexCompare` XI under a record that says `projection`.
     """
     from sqlalchemy.exc import SQLAlchemyError
 
@@ -400,13 +425,15 @@ def _submit(
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
         with database_manager.get_session() as session:
+            store = TokenStore(session, cipher)
             outcome = submit_lineup(
-                TokenStore(session, cipher),
+                store,
                 league_id=league_id,
                 competition=competition,
                 arm=arm,
                 now=_now,
                 scheduled=scheduled,
+                projector=_projector(store, league_id) if shadow else None,
             )
     except (TokenError, LineupError) as exc:
         # Recorded before anything else: these stop the run before a plan exists, which is
@@ -567,6 +594,27 @@ def _refresh(
         console.print(escape(line))
     if not report.ok:
         raise typer.Exit(code=1)
+
+
+def _projector(store: TokenStore, league_id: int) -> Projector:
+    """The projection, bound to this lega — imported **here** and nowhere else on this path.
+
+    The one edge from the hourly submit into the projection branch, and it is taken only
+    when `--shadow` was passed. `tests/domain/lineup/test_lineup_imports.py` declares it;
+    without the flag this function is never called and neither library is loaded, which is
+    what guard 1b runs a fresh interpreter to prove.
+    """
+    from fantabot.application.lineup_projection import projector_for
+    from fantabot.config import LINEUP_SUB_MODE_VAR, live_setting
+    from fantabot.domain.lineup.substitution import parse_sub_mode
+
+    return projector_for(
+        store,
+        league_id=league_id,
+        as_of=_now().date(),
+        sub_mode=parse_sub_mode(live_setting(LINEUP_SUB_MODE_VAR)),
+        should_stop=wall_stop(SUBMIT_WALL_SECONDS),
+    )
 
 
 def _read_cmday(league_id: int, competition: int) -> int:

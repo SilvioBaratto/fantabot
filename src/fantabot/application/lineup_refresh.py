@@ -32,6 +32,7 @@ from datetime import date, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
+from fantabot.application.containment import contained
 from fantabot.application.reporting import Reporter
 
 # `VOTI_GETS_PER_RUN` is imported rather than restated: a second copy of "eight GETs a run"
@@ -236,14 +237,11 @@ def _run_one(source: str, inputs: RefreshInputs, sources: RefreshSources) -> Sou
 
 
 def _contained(source: str, run: Callable[[], SourceOutcome]) -> SourceOutcome:
-    """One source, inside the boundary. `AssertionError` and `KeyboardInterrupt` pass."""
-    try:
-        return run()
-    except (AssertionError, KeyboardInterrupt):
-        raise
-    except BaseException as exc:
-        # The **type name only**. A message can carry the DSN, and this line goes to a log.
-        return SourceOutcome(source, "failed", type(exc).__name__)
+    """One source, inside the shared boundary (`application/containment.py`)."""
+    outcome, failure = contained(run)
+    if outcome is not None:
+        return outcome
+    return SourceOutcome(source, "failed", failure)
 
 
 @dataclass
