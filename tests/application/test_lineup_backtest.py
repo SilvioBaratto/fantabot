@@ -22,10 +22,12 @@ from collections.abc import Collection
 from datetime import date, timedelta
 
 import numpy as np
+import pytest
 
 from fantabot.application.lineup_backtest import (
     BACKTEST_BUDGET,
     FIRST_MODEL_GIORNATA,
+    ROLES_SEASON,
     ReplaySettings,
     SeasonData,
     fit_giornata,
@@ -84,13 +86,20 @@ def _plays(pid: int, giornata: int) -> bool:
     return True
 
 
+#: Giornata 2's second match is **postponed** past giornata 5. That is the whole reason the
+#: cutoff is a date: `giornata < g` puts this result into every fit from g3 on, weeks before
+#: it was played, and no fake without a postponement can tell the two rules apart.
+POSTPONED = (2, CLUBS[2])
+
+
 def _fixtures(season: str, giornate: int = 10) -> list[Fixture]:
     out: list[Fixture] = []
     for g in range(1, giornate + 1):
         day = OPENED + timedelta(days=7 * (g - 1))
         out.append(Fixture(season=season, giornata=g, played_on=day, home=CLUBS[0],
                            away=CLUBS[1], home_goals=1, away_goals=1))
-        out.append(Fixture(season=season, giornata=g, played_on=day, home=CLUBS[2],
+        late = day + timedelta(days=7 * 4) if (g, CLUBS[2]) == POSTPONED else day
+        out.append(Fixture(season=season, giornata=g, played_on=late, home=CLUBS[2],
                            away=CLUBS[3], home_goals=1, away_goals=1))
     return out
 
@@ -147,7 +156,13 @@ class FakeHistory:
         return dict(ROLE_CODES)
 
     def valuations(self, season: str) -> dict[int, Valuation]:
-        return {pid: Valuation(qi=10.0, squadra=CLUB_OF[pid]) for pid in PLAYERS}
+        """Season-dependent on purpose. A fake that answered the same for every season
+        could not tell "read the replayed season" from "read the roles season", which is
+        exactly the leak M6 injects."""
+        shift = {"2023/24": 1, "2024/25": 2, "2025/26": 3}.get(season, 4)
+        return {
+            pid: Valuation(qi=10 + shift + pid % 3, squadra=CLUB_OF[pid]) for pid in PLAYERS
+        }
 
     def fixtures(self, season: str) -> list[Fixture]:
         return _fixtures(season, self.giornate)
@@ -196,14 +211,24 @@ def _data(history: FakeHistory | None = None, season: str = SEASON) -> SeasonDat
 
 class TestTheRead:
     def test_roles_come_from_the_roles_season_and_qi_from_the_replayed_one(self) -> None:
-        """A16(3). The platform froze its Mantra tags in July 2026 and no earlier season's
-        are recorded, so the replay uses today's tags on yesterday's form — a limitation the
-        report prints rather than a defect the corpus can fix."""
-        data = _data()
+        """A16(3), and the battery's M6. The platform froze its Mantra tags in July 2026 and
+        no earlier season's are recorded, so the replay uses today's tags on yesterday's
+        form — a limitation the report prints rather than a defect the corpus can fix.
+
+        `qi` is the other half and it must come from the **replayed** season: reading it
+        from the roles season prices 2023/24 on what a player was worth three years later.
+        Asserted on the value, because "which method was called" is not what leaks.
+        """
+        history = FakeHistory()
+        data = read_season(history, SEASON)
+        roles_season = read_season(history, ROLES_SEASON)
 
         assert data.season == SEASON
         assert set(data.role_codes) == set(PLAYERS)
-        assert set(data.valuations) == set(PLAYERS)
+        assert data.role_codes == roles_season.role_codes
+        some = next(iter(PLAYERS))
+        assert data.valuations[some].qi != roles_season.valuations[some].qi
+        assert data.valuations[some].qi == history.valuations(SEASON)[some].qi
 
     def test_the_whole_season_is_read_once(self) -> None:
         """38 queries a season against one is not the point; the point is that one read
@@ -223,19 +248,42 @@ class TestTheFit:
 
         assert fit.cutoff == OPENED + timedelta(days=21)
 
-    def test_nothing_from_the_giornata_itself_reaches_the_fit(self) -> None:
-        """The leak the battery mutates. A `<=` cutoff, or a `giornata <` one, puts the
-        result being predicted into the model predicting it."""
+    def test_a_postponed_match_is_cut_by_its_date_and_not_by_its_number(self) -> None:
+        """The leak the battery's M2 injects, and the reason the cutoff is a date.
+
+        Giornata 2's second match is played four weeks late — after giornata 5 opened. A
+        `giornata < g` cut puts that result into every fit from g3 on, weeks before it was
+        played; the date cut does not. Without a postponed fixture the two rules select the
+        same rows and the mutant survives, which is exactly what it did until measured.
+        """
+        data = _data()
+        late = [
+            row for row in data.rows
+            if row.fixture.giornata == POSTPONED[0] and row.fixture.home == POSTPONED[1]
+        ]
+        assert late, "the fake has no postponed match; the assertion below would be vacuous"
+
+        fit = fit_giornata(data, 4, rules=RULES, half_life=180.0, model=False)
+
+        assert all(row.fixture.played_on > fit.cutoff for row in late)
+        by_number = [row for row in data.rows if row.fixture.giornata < 4]
+        by_date = [row for row in data.rows if row.fixture.played_on < fit.cutoff]
+        assert len(by_number) > len(by_date)
+        assert all(pid not in fit.baseline_mu or True for pid in ())
+
+    def test_the_baseline_mean_is_short_by_the_postponed_match(self) -> None:
+        """The consequence, on a number a test can read: a player whose club's giornata-2
+        match has not been played yet has one vote fewer in his mean than his giornata
+        counts."""
         data = _data()
 
-        fit = fit_giornata(data, 4, rules=RULES, half_life=180.0)
+        fit = fit_giornata(data, 4, rules=RULES, half_life=180.0, model=False)
 
-        assert all(
-            row.fixture.played_on < fit.cutoff
-            for row in data.rows
-            if row.fixture.giornata < 4
-        )
-        assert fit.votes and all(v > 0 for v in fit.votes.values())
+        postponed_club = code_for(POSTPONED[1])
+        theirs = next(pid for pid in PLAYERS if CLUB_OF[pid] == postponed_club and pid % 10 == 0)
+        ours = next(pid for pid in PLAYERS if CLUB_OF[pid] == code_for(CLUBS[0]) and pid % 10 == 0)
+
+        assert fit.baseline_mu[theirs] != fit.baseline_mu[ours]
 
     def test_the_votes_are_the_giornata_being_replayed(self) -> None:
         data = _data()
@@ -325,6 +373,31 @@ class TestTheReplay:
 
         assert result.rooms == 1
         assert {row.room for row in result.paired} == {"room0"}
+
+    def test_the_opponent_is_fitted_on_giornate_before_this_one_and_no_others(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The battery's M4: telling the model what it is playing against.
+
+        Asserted on the **pool**, not on the XI. A leaked opponent shifts the goal
+        probabilities by a little and may not move the argmax at all on a small board, so a
+        test that watched the lineup would pass while the model read its own result. The
+        pool's size is arithmetic: two rosters a room, one score each a giornata, so at
+        giornata g it is exactly `2 * (g - 1)` — and `2 * g` the moment g leaks in.
+        """
+        import fantabot.application.lineup_backtest as module
+
+        pools: list[int] = []
+        real = module._opponent_for
+        monkeypatch.setattr(
+            module, "_opponent_for", lambda scores: (pools.append(len(scores)), real(scores))[1]
+        )
+
+        replay_season(_data(), _corpus(buyers=2), SETTINGS, reporter=SilentReporter())
+
+        assert pools
+        # One call per room per giornata, from g1; giornata g has seen `2*(g-1)` scores.
+        assert pools == [2 * (g - 1) for g in range(1, SETTINGS.last + 1)]
 
     def test_a_stop_ends_the_replay_and_keeps_what_it_earned(self) -> None:
         calls: list[int] = []

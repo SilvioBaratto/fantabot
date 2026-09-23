@@ -14,6 +14,7 @@ import pytest
 from fantabot.domain.lineup.history import (
     Fixture,
     HistoryAppearance,
+    Valuation,
     before,
     first_match_date,
     plays_in,
@@ -107,3 +108,19 @@ class TestSide:
 
         assert plays_in(inter_lecce, "INT") and plays_in(inter_lecce, "LEC")
         assert not plays_in(inter_lecce, "NAP")
+
+
+# -- T34: the leaks the types make unrepresentable ---------------------------------------
+
+
+def test_a_valuation_carries_the_preseason_price_and_nothing_from_the_end_of_it() -> None:
+    """SPEC A9, enforced by the type rather than by care.
+
+    `fvm` and `qa` are end-of-season numbers: a replay that ranked 2023/24 on them would be
+    ranking on how the season turned out. The leak battery's M3 is the attempt to swap one
+    in, and it cannot be written — `Valuation` has no field to swap. That is a stronger
+    answer than a killed mutant, and this is where it is said out loud.
+    """
+    from dataclasses import fields
+
+    assert [f.name for f in fields(Valuation)] == ["qi", "squadra"]
