@@ -599,6 +599,9 @@ def _backtest(
     sub_mode: str = typer.Option(
         "", "--sub-mode", help="basic | easy | master. Required: the three field different XIs."
     ),
+    bench: int = typer.Option(
+        0, "--bench", help="Bench to replay at. 0 reads the gate's own (3), not the lega's 12."
+    ),
     rooms: int = typer.Option(0, "--rooms", help="Replay only the first N rooms. 0 = all."),
     last: int = typer.Option(38, "--last-giornata", help="Stop after this giornata."),
     draws: int = typer.Option(2000, "--draws", help="Bootstrap resamples."),
@@ -612,6 +615,11 @@ def _backtest(
     `--rooms` and `--last-giornata` exist for the smoke run. The full corpus is 148 rosters
     over 33 giornate in each of two seasons, plus the sweep, and every one of them is a
     plan: this is an overnight command, and the report says what it actually covered.
+
+    `--bench` defaults to the **gate's** three and not the lega's twelve, which is the
+    operator's call of 2026-09-23 on a measurement: at twelve the sweep season can field no
+    roster at all, because a 2026/27 rosa has few players with a 2023/24 `quotazioni` row.
+    The report prints the bench and names the limitation it buys.
     """
     from sqlalchemy.exc import SQLAlchemyError
 
@@ -621,7 +629,7 @@ def _backtest(
         LineupHistoryRepository,
     )
     from fantabot.adapters.tokens.store import TokenStore
-    from fantabot.application.lineup_backtest import ReplaySettings, run_gate
+    from fantabot.application.lineup_backtest import GATE_BENCH, ReplaySettings, run_gate
     from fantabot.application.lineup_projection import substitution_cap
     from fantabot.config import settings
     from fantabot.domain.lineup.backtest_corpus import admit
@@ -667,7 +675,9 @@ def _backtest(
                     rules=rules,
                     sub_mode=mode,
                     modules=tuple(str(m) for m in lega.get("mods") or ()),
-                    bench_size=int(lega.get("tbench", 12)),
+                    # The gate's bench, not the lega's. At the lega's twelve the sweep
+                    # season fields no roster at all — see `GATE_BENCH` for the measurement.
+                    bench_size=bench or GATE_BENCH,
                     max_subs=substitution_cap(calculate),
                     rooms=rooms,
                     last=last,

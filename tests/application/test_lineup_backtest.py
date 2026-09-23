@@ -27,6 +27,7 @@ import pytest
 from fantabot.application.lineup_backtest import (
     BACKTEST_BUDGET,
     FIRST_MODEL_GIORNATA,
+    GATE_BENCH,
     ROLES_SEASON,
     ReplaySettings,
     SeasonData,
@@ -197,7 +198,7 @@ SETTINGS = ReplaySettings(
     rules=RULES,
     sub_mode="basic",
     modules=("343",),
-    bench_size=3,
+    bench_size=GATE_BENCH,
     budget=BACKTEST_BUDGET.__class__(
         k=1, lambdas=(0.0,), node_budget=100, m=1, work=6_000, bench_depth=1, bench_width=2
     ),
@@ -448,6 +449,35 @@ class TestTheSweepAndTheGate:
 
         assert report.sweep_season == SWEEP
         assert report.half_life == max(report.sweep, key=lambda item: (item[1], -item[0]))[0]
+
+    def test_the_report_names_the_bench_and_the_limitation_it_buys(self) -> None:
+        """The operator chose three over the lega's twelve on a measurement, and the report
+        is where that choice is visible to whoever reads the verdict later. A gate whose
+        conclusion is carried to a twelve-man bench is carrying an assumption."""
+        report = run_gate(
+            FakeHistory(), _corpus(), SETTINGS,
+            seasons=[SEASON], sweep_season=SWEEP, seed=5, reporter=SilentReporter(),
+            draws=50,
+        )
+        text = "\n".join(report.lines())
+
+        assert report.bench == SETTINGS.bench_size
+        assert f"bench {SETTINGS.bench_size}" in text
+        assert "not the lega's 12" in text
+
+    def test_a_bench_other_than_the_gates_own_is_named_as_such(self) -> None:
+        """`GATE_BENCH` is 3; a run at any other bench is a run whose result is about
+        something else, and it says so rather than reading as the gate."""
+        from dataclasses import replace
+
+        report = run_gate(
+            FakeHistory(), _corpus(), replace(SETTINGS, bench_size=GATE_BENCH),
+            seasons=[SEASON], sweep_season=SWEEP, seed=5, reporter=SilentReporter(),
+            draws=50,
+        )
+
+        assert f"not the gate's own {GATE_BENCH}" not in "\n".join(report.lines())
+        assert report.bench == GATE_BENCH
 
     def test_the_report_states_what_it_ran(self) -> None:
         report = run_gate(

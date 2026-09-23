@@ -30,8 +30,9 @@ a gate run at bench 12 would report a sweep result that cannot have happened.
 
 At bench 3 it is runnable — 36 / 85 / 109 rosters — and that is a **different game**: the
 auto-sub engine has fewer men to cover with, which is precisely what the model is being
-graded on. Which trade to make is the operator's at CP5. What this file does is make the
-number impossible to miss and keep every seam proven at a bench the data can carry.
+graded on. **The operator chose 3 on 2026-09-23** (`GATE_BENCH`), and the report names the
+limitation it buys: what Gate 1 measures is the model's edge at a three-man bench, and
+carrying that to a twelve-man one is an assumption rather than a result.
 
 **And it is what the full run will cost.** This file replays one room over eight giornate in
 **141 s** (measured 2026-09-23), which is about 1.4 s a model plan at `BACKTEST_BUDGET`. A
@@ -55,6 +56,7 @@ from fantabot.adapters.persistence.repositories.lineup_history import (
 from fantabot.application.lineup_backtest import (
     BACKTEST_BUDGET,
     FIRST_MODEL_GIORNATA,
+    GATE_BENCH,
     ReplaySettings,
     read_season,
     replay_season,
@@ -68,10 +70,10 @@ from fantabot.domain.lineup.scoring import ScoringRules
 pytestmark = [pytest.mark.db, pytest.mark.dbdata]
 
 SEASON = "2025/26"
-#: Three, not the lega's twelve. See the measurement in the module docstring: at twelve the
-#: 2023/24 sweep fields no roster at all. Three is what every 2025/26 roster can carry, and
-#: a smoke test's job is to cross every seam, not to be the gate.
-BENCH = 3
+#: The gate's own bench, chosen by the operator on the measurement below. Imported rather
+#: than restated: a smoke test that ran at a different bench from the gate would be proving
+#: the seams of a run nobody makes.
+BENCH = GATE_BENCH
 #: This lega's own, from `settings/calculate` — not re-read here, because a smoke test that
 #: needed a token would be a smoke test nobody could run.
 RULES = ScoringRules(

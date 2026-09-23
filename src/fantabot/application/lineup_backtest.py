@@ -101,6 +101,29 @@ SWEEP_HALF_LIVES: tuple[float, ...] = (90.0, DEFAULT_HALF_LIFE_DAYS, 365.0)
 #: The fantapunti guard: the model may lose this much a giornata and still pass (A16).
 FANTAPUNTI_GUARD = -1.0
 
+#: The bench the gate replays on, and **not** the lega's own twelve. The operator's call,
+#: 2026-09-23, on a measurement the phase could not have guessed:
+#:
+#: A16(2) makes a player eligible only with a `quotazioni` row for the *replayed* season,
+#: and the corpus rosters were bought in a 2026/27 auction. Rosters that can actually field
+#: an XI plus a bench, over all 148:
+#:
+#:     bench        1     3     5     8    12
+#:     2023/24     39    36    24     6     0
+#:     2024/25     86    85    76    47    12
+#:     2025/26    109   109   109    99    56
+#:
+#: At twelve the **sweep season fields nothing at all**, so a run at the lega's own bench
+#: would report a sweep result that cannot have happened. Three is the knee: it costs one
+#: roster against a bench of one and buys back nothing above it.
+#:
+#: ⚠ **This is a different game and the report says so.** The auto-sub engine covers with
+#: what the bench holds, so three reserves substitute differently from twelve — which is
+#: part of what the model is being graded on. What the gate measures is the model's edge
+#: *at a three-man bench*; carrying that conclusion to a twelve-man one is an assumption,
+#: not a result.
+GATE_BENCH = 3
+
 #: The backtest's own budget (A12). Far smaller than a live plan's, and it has to be: the
 #: graded seasons are 148 rosters x 33 giornate x 2, and a live-sized plan takes minutes.
 #: The report states it, because a gate that graded a cheaper model than the one that ships
@@ -550,6 +573,9 @@ class GateReport:
     roles_season: str
     rooms: int
     rosters: int
+    #: The bench the replay ran at. Printed because it is **not** the lega's, and the
+    #: difference is part of what was graded — see `GATE_BENCH`.
+    bench: int
     skipped: Mapping[str, int]
 
     @property
@@ -566,7 +592,7 @@ class GateReport:
             f"({', '.join(f'{h:.0f}d {d:+.4f}' for h, d in self.sweep)})",
             f"  sub mode {self.sub_mode} (confirmed, passed explicitly)",
             f"  corpus {self.rooms} room(s), {self.rosters} roster(s); "
-            f"roles from {self.roles_season}",
+            f"roles from {self.roles_season}; bench {self.bench}",
             f"  budget k={self.budget.k} lambdas={len(self.budget.lambdas)} "
             f"m={self.budget.m} work={self.budget.work}",
         ]
@@ -588,6 +614,14 @@ class GateReport:
         out.append(
             "  limitation: roles are the platform's frozen 2026/27 tags, applied to earlier"
             " seasons; no earlier season's tags are recorded anywhere we can read."
+        )
+        if self.bench != GATE_BENCH:
+            out.append(f"  limitation: replayed at bench {self.bench}, not the gate's own"
+                       f" {GATE_BENCH}.")
+        out.append(
+            f"  limitation: the bench is {self.bench}, not the lega's 12. At 12 the sweep"
+            " season fields no roster at all (A16(2) eligibility against a 2026/27 rosa),"
+            " so what is graded is the model's edge at a short bench."
         )
         return out
 
@@ -690,5 +724,6 @@ def run_gate(
         roles_season=settings.roles_season,
         rooms=rooms,
         rosters=rosters,
+        bench=settings.bench_size,
         skipped=dict(skipped),
     )
