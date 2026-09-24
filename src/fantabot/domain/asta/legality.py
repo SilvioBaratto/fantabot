@@ -78,7 +78,16 @@ def build_legality(matrix: CompatMatrix) -> dict[str, SchemaLegality]:
 
 
 def slot_allows(role: str, slot: SlotRule, mode: Mode) -> bool:
-    """Whether a canonical role may fill this slot in the given mode."""
+    """Whether a canonical role may fill this slot in the given mode.
+
+    **This is the rule; `can_field` inlines it and does not call it.** The hot path hoists
+    the mode out of its player loop (see the comment there), so the only *named* statement
+    of "which cells a mode admits" is here — and it is the only one a test can address. The
+    inline copy is what would silently collapse the `-1*` distinction if the two drifted,
+    and the tests below pin the rule against this version so that drift is visible. So it
+    reads as unused to a call-graph scan and is kept deliberately: deleting it would leave
+    the rule stated only inside a loop, untestable.
+    """
     allowed = slot.submission if mode == "submission" else slot.substitution
     return role in allowed
 
@@ -124,18 +133,6 @@ def fieldable_schemi(
 ) -> frozenset[str]:
     """The names of every schema this rosa can field in the given mode."""
     return frozenset(nome for nome, schema in legality.items() if can_field(players, schema, mode))
-
-
-def marginal_legality(
-    players: Sequence[MantraPlayer],
-    player: MantraPlayer,
-    legality: dict[str, SchemaLegality],
-    mode: Mode = "submission",
-) -> frozenset[str]:
-    """The schemi that become fieldable when ``player`` is added to ``players``."""
-    before = fieldable_schemi(players, legality, mode)
-    after = fieldable_schemi([*players, player], legality, mode)
-    return after - before
 
 
 def load_compat(source: Path | None = None) -> CompatMatrix:

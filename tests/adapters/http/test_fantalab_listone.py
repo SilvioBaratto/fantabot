@@ -68,23 +68,6 @@ class TestFromCacheToleratesTheEnvelope:
         assert listone.from_cache(path) == {"uuid-a": 512}
 
 
-class TestCacheVersion:
-    def test_a_versioned_file_reports_its_version(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        path = tmp_path / "listone_map.json"
-        path.write_text(json.dumps({"version": 1, "uuid-a": {"fantacalcio_id": 1}}), encoding="utf-8")
-
-        assert listone.cache_version(path) == 1
-
-    def test_a_pre_version_file_reports_none(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        path = tmp_path / "listone_map.json"
-        path.write_text(json.dumps({"uuid-a": {"fantacalcio_id": 1}}), encoding="utf-8")
-
-        assert listone.cache_version(path) is None
-
-    def test_a_missing_file_reports_none_rather_than_raising(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        assert listone.cache_version(tmp_path / "nope.json") is None
-
-
 class TestCacheAge:
     def test_a_fresh_fetch_reports_a_small_age(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         now = datetime(2026, 9, 2, 12, 0, 0, tzinfo=UTC)

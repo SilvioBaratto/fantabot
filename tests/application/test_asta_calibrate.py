@@ -6,9 +6,9 @@ that really happened. This is that replay, and it is pure: it takes lots already
 Postgres and returns a table.
 
 **Re-targeted at `lot_ceiling`, not the retired walk-away floor (Task 1.3).** Only a plan
-member is ever priced, same scope as before this task: a lot outside the plan was always
-counted lost regardless of alpha, and stays that way here — see `_replay_one`'s own docstring
-for why widening it needs a band/slot guard this sweep does not have.
+member is ever priced, same scope as before this task: a lot outside the plan is passed over
+regardless of alpha, and stays that way here — see `_replay_one`'s own docstring for why
+widening it needs a band/slot guard this sweep does not have.
 
 **What is being measured, stated plainly.** For each recorded lot in the order it closed, we
 ask the real guard chain whether our bot would have raised at the price the lot actually
@@ -84,7 +84,6 @@ class TestTheSweepReportsOneRowPerAlpha:
         (row,) = _sweep([1.0])
 
         assert row.spend + row.unspent == 100.0
-        assert row.won + row.lost == 2
 
 
 class TestAlphaScalesTheCeilingHonestly:

@@ -47,9 +47,10 @@ def test_api_holds_no_second_sqlalchemy_engine() -> None:
     **``api/tests/`` is scanned too, and it used to be exempt.** The exemption was
     covering the only ``create_engine``/``sessionmaker`` pair anywhere under ``api/``:
     the test conftest built a SQLite engine to ``create_all`` an empty ``DeclarativeBase``
-    and override a ``get_db`` no route depends on — zero tables, an override that
+    and override a ``get_db`` no route ever depended on — zero tables, an override that
     overrode nothing, and precisely what this test forbids. The scaffold is gone and the
-    exemption with it.
+    exemption with it; ``get_db`` itself went on 2026-09-24, with the two tests that were
+    its only callers.
     """
     api_root = _package_root() / "api"
     offenders: list[str] = []

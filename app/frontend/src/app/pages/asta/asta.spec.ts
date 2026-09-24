@@ -97,8 +97,9 @@ describe('AstaComponent', () => {
    *
    * Not optional book-keeping: an outstanding request fails `httpMock.verify()` in
    * `afterEach`, and a failing `afterEach` leaves the TestBed instantiated — one page's
-   * extra `ngOnInit` request once took down `prices`, `app` and `toast` with "Cannot
-   * configure the test module", 15 failures across 3 files and none of them the page.
+   * extra `ngOnInit` request once took down `prices`, `app` and the since-deleted `toast`
+   * with "Cannot configure the test module", 15 failures across 3 files and none of them
+   * the page.
    */
   function flushExclusions(body: Partial<Exclusions> = {}): void {
     httpMock
@@ -1151,10 +1152,7 @@ describe('AstaComponent', () => {
         id: 'W1',
         kind: 'asta-watch',
         status: 'running',
-        started_at: '2026-09-20T19:31:00Z',
-        line_count: 0,
         ok: null,
-        stoppable: true,
         ...over,
       };
     }
@@ -1818,10 +1816,7 @@ describe('AstaComponent', () => {
           id: 'B9',
           kind: 'asta-bid',
           status: 'running',
-          started_at: '2026-09-20T19:31:00Z',
-          line_count: 3,
           ok: null,
-          stoppable: true,
           armed: true,
         },
       ]);
@@ -1922,10 +1917,7 @@ describe('AstaComponent', () => {
           id: 'B9',
           kind: 'asta-bid',
           status: 'running',
-          started_at: '2026-09-20T19:31:00Z',
-          line_count: 3,
           ok: null,
-          stoppable: true,
         },
       ]);
       httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());

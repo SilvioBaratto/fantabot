@@ -1,7 +1,11 @@
 import type { AppEnvironment } from './environment.model';
 
 /**
- * Dev talks to the API the same way production does: a relative path.
+ * The one environment file, dev and production alike: a relative path.
+ *
+ * There used to be an `environment.prod.ts` swapped in by an `angular.json`
+ * `fileReplacements` entry, and it set the same `apiUrl` this one does — a replacement
+ * that replaced nothing. Both are gone; the production build reads this file.
  *
  * It used to be the absolute `http://127.0.0.1:8000/api/v1/`, which only ever worked in a
  * browser running on the same machine as the API. Opened from a phone, a tablet or another

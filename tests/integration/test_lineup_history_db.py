@@ -178,8 +178,11 @@ def test_the_lega_s_scores_are_24_whatever_the_capture_count(db_session: Session
     for days_ago in (17, 11, 1):
         for competition, deleted in ((ACTIVE, False), (DELETED, days_ago == 1)):
             db_session.execute(
+                # `nome` and `team_ids` were dropped from this table on 2026-09-24 —
+                # written every sync, read by nothing. `deleted` is the column this test
+                # is actually about, and it stays.
                 text("INSERT INTO league_competition (captured_at, league_id, competition_id, "
-                     "nome, team_ids, deleted) VALUES (:t, :l, :c, 'synthetic', '{}', :d)"),
+                     "deleted) VALUES (:t, :l, :c, :d)"),
                 {"t": now - timedelta(days=days_ago), "l": LEAGUE_ID, "c": competition,
                  "d": deleted},
             )

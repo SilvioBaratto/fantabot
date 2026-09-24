@@ -210,7 +210,7 @@ class LotRouter:
         self,
         *,
         read: Callable[[str], Snapshot | None],
-        write: Callable[[dict[str, Any], str], Any] | None = None,
+        write: Callable[[dict[str, Any], str], Any],
     ) -> None:
         self._read = read
         self._write = write
@@ -233,7 +233,5 @@ class LotRouter:
         return None, "auction"
 
     def write_raise(self, payload: dict[str, Any]) -> Any:
-        """PATCH the node the lot was read from. Raises if no writer was given."""
-        if self._write is None:  # pragma: no cover - a read-only router is a caller error
-            raise RuntimeError("this LotRouter has no writer")
+        """PATCH the node the lot was read from."""
         return self._write(payload, self.node)

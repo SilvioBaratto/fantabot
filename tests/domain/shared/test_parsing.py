@@ -19,7 +19,6 @@ from fantabot.domain.shared.parsing import (
     italian_decimal,
     parse_date,
     parse_time,
-    plain_decimal,
     split_codes,
     split_flags,
 )
@@ -58,35 +57,6 @@ class TestItalianDecimal:
     def test_garbage_raises(self) -> None:
         with pytest.raises(ValueError):
             italian_decimal("n/a")
-
-
-class TestPlainDecimal:
-    """qi_bias_*.csv and target_price_*.csv."""
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("38.46", Decimal("38.46")),
-            ("-0.5", Decimal("-0.5")),
-            (" 1.25 ", Decimal("1.25")),
-            ("7", Decimal("7")),
-        ],
-    )
-    def test_parses_dot_decimals(self, raw: str, expected: Decimal) -> None:
-        assert plain_decimal(raw) == expected
-
-    @pytest.mark.parametrize("raw", ["", "   "])
-    def test_blank_becomes_none(self, raw: str) -> None:
-        assert plain_decimal(raw) is None
-
-    def test_zero_point_zero_is_a_value_not_a_sentinel(self) -> None:
-        """Unlike the Italian files, these use a blank for no-data, so 0.0 is a
-        real measurement — pct_delta can legitimately be zero."""
-        assert plain_decimal("0.0") == Decimal("0.0")
-
-    def test_a_comma_decimal_raises_instead_of_guessing(self) -> None:
-        with pytest.raises(ValueError, match="comma"):
-            plain_decimal("6,25")
 
 
 class TestSplitCodes:

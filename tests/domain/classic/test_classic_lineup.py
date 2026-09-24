@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from fantabot.domain.lineup.build import best_lineup
+from fantabot.domain.lineup.build import ranked_lineups
 from fantabot.domain.lineup.models import RosterPlayer
 from fantabot.domain.lineup.schema import classic_slots
 
@@ -38,7 +38,8 @@ def test_best_classic_xi_takes_the_top_value_per_bucket() -> None:
         _p(30, "A", 9), _p(31, "A", 8), _p(32, "A", 1),
     ]
     value = {p.id: p.fvmma for p in roster}
-    module, starts = best_lineup(roster, ["352"], value=value, slots_provider=classic_slots)
+    ranked = ranked_lineups(roster, ["352"], value=value, slots_provider=classic_slots)
+    module, starts = ranked[0]
 
     assert module == "352"
     assert set(starts) == {1, 10, 11, 12, 20, 21, 22, 23, 24, 30, 31}  # top per bucket
@@ -47,7 +48,6 @@ def test_best_classic_xi_takes_the_top_value_per_bucket() -> None:
 
 def test_a_short_bucket_makes_the_module_unfieldable() -> None:
     roster = [_p(1, "P", 5), _p(10, "D", 9), _p(20, "C", 9), _p(30, "A", 9)]  # far too few
-    from fantabot.domain.lineup.errors import NoFieldableModule
+    value = {p.id: p.fvmma for p in roster}
 
-    with pytest.raises(NoFieldableModule):
-        best_lineup(roster, ["352"], value={p.id: p.fvmma for p in roster}, slots_provider=classic_slots)
+    assert ranked_lineups(roster, ["352"], value=value, slots_provider=classic_slots) == []

@@ -25,9 +25,16 @@ LIVE = {"player_id": "kean", "price": 3, "user_id": "rival", "last_bid_time": 0}
 RESET = {"update_type": "reset"}
 
 
+def _never_written(_payload: dict[str, Any], _node: str) -> Any:
+    """A writer for the read tests. `write` is required — the production constructor
+    (`application/asta_session.lot_router`) always binds one — so a read-only router is
+    built with this rather than with `None`, and calling it here would be the bug."""
+    raise AssertionError("these tests read; nothing should PATCH")
+
+
 def _router(auction: Any, assign: Any) -> LotRouter:
     reads: dict[str, Any] = {"auction": auction, "assign": assign}
-    return LotRouter(read=lambda node: reads[node])
+    return LotRouter(read=lambda node: reads[node], write=_never_written)
 
 
 class TestWhichNodeAnsweredScribe:

@@ -118,6 +118,12 @@ class Quotazione(Base, TimestampMixin):
 
 # The three grading sources the site publishes side by side.
 FONTI: tuple[str, ...] = ("fantacalcio", "italia", "statistico")
+#: `Statistica.fonte`'s check, **derived** rather than written out a second time. It was a
+#: literal naming the same three values 46 lines below, which made `FONTI` look like the
+#: source of truth while the constraint was the only thing enforcing anything — the shape a
+#: fourth source gets added to one of and not the other. Renders byte-identical to the
+#: literal it replaces, so `alembic check` sees no drift.
+_FONTE_CHECK = "fonte IN (" + ", ".join(f"'{fonte}'" for fonte in FONTI) + ")"
 
 
 class Statistica(Base, TimestampMixin):
@@ -164,9 +170,7 @@ class Statistica(Base, TimestampMixin):
             ["stagione", "squadra"], ["teams.stagione", "teams.codice"]
         ),
         CheckConstraint(_LISTONE_CHECK, name="listone"),
-        CheckConstraint(
-            "fonte IN ('fantacalcio', 'italia', 'statistico')", name="fonte"
-        ),
+        CheckConstraint(_FONTE_CHECK, name="fonte"),
         Index("ix_statistiche_stagione_player", "stagione", "player_id"),
     )
 
@@ -184,9 +188,6 @@ class Statistica(Base, TimestampMixin):
 # It has no model deliberately: ``adapters/persistence/scraping.load_bias_rows`` reads
 # it with raw SQL, and mapping a view would make ``alembic check`` want to build it as
 # a table.
-
-# Coarse role buckets used by the pricing model. Mantra adds MID_ATT.
-MACRO_ROLES: tuple[str, ...] = ("GK", "DEF", "MID", "MID_ATT", "ATT")
 
 
 class TargetPrice(Base, TimestampMixin):

@@ -44,8 +44,6 @@ SKIPPED = "skipped"
 #: A run that should have submitted and did not.
 FAILED = "failed"
 
-STATUSES = (SUBMITTED, UNCONFIRMED, SKIPPED, FAILED)
-
 
 @dataclass(frozen=True, slots=True)
 class LineupRejection:
@@ -328,7 +326,6 @@ def _texts(value: Any) -> tuple[str, ...]:
 __all__ = [
     "FAILED",
     "SKIPPED",
-    "STATUSES",
     "SUBMITTED",
     "UNCONFIRMED",
     "LineupRejection",

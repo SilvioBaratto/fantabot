@@ -117,18 +117,6 @@ def from_cache(path: Path | None = None) -> dict[str, int]:
     }
 
 
-def cache_version(path: Path | None = None) -> int | None:
-    """The envelope version a cache file was written with, or `None` for a pre-version file
-    (or one that does not exist / does not parse)."""
-    path = path if path is not None else default_cache()
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    version = raw.get("version") if isinstance(raw, Mapping) else None
-    return version if isinstance(version, int) else None
-
-
 def cache_age(path: Path | None = None, *, now: datetime | None = None) -> float | None:
     """Seconds since the cache was fetched, or `None` when that cannot be known — the file is
     missing, unparseable, or predates the envelope (`fetched_at` did not exist yet).

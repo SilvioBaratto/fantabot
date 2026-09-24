@@ -21,11 +21,9 @@ from fantabot.adapters.persistence.models.league import (
     LeagueSnapshot,
     LeagueTeamSnapshot,
 )
-from fantabot.adapters.persistence.models.matches import COACH_ROLE, MatchGrain
+from fantabot.adapters.persistence.models.matches import MatchGrain
 from fantabot.adapters.persistence.models.reference import (
-    FONTI,
     LISTONI,
-    MACRO_ROLES,
     Player,
     Quotazione,
     Statistica,
@@ -37,10 +35,7 @@ from fantabot.adapters.persistence.models.tokens import FantalabSession, LeagueT
 
 __all__ = [
     "ASTA_TYPES",
-    "COACH_ROLE",
-    "FONTI",
     "LISTONI",
-    "MACRO_ROLES",
     "SCORE_COLUMNS",
     "Asta",
     "AstaAssignment",

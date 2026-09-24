@@ -124,7 +124,9 @@ def purge() -> None:
 
 def run(tests: tuple[str, ...]) -> tuple[bool, str]:
     """The named tests. A hang counts as a failure: a mutant that stops the run dead has
-    been noticed, and `place_all`'s own guard did exactly that once."""
+    been noticed, and the guard in `domain/lineup/build.py`'s `place_all` did exactly that
+    once. (That function was deleted on 2026-09-24, unused; the finding is stated here
+    rather than cited, so it survives the code that produced it.)"""
     try:
         finished = subprocess.run(
             [str(PYTHON), "-m", "pytest", "-x", "-q", "--no-header",

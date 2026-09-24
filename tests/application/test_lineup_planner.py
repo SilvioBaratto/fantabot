@@ -1,4 +1,4 @@
-"""`plan_lineup` — the one place the lineup value model is composed. Pure, zero sockets.
+"""`plan_lineups` — the one place the lineup value model is composed. Pure, zero sockets.
 
 Pins that the planner picks the best legal XI and bench from the value model, that sentiment
 tilts the XI, and that `--no-sentiment` (effect=None) reproduces the fvm-only field.
@@ -9,7 +9,6 @@ from __future__ import annotations
 from fantabot.application.lineup_planner import (
     LineupInputs,
     inputs_from_lineup,
-    plan_lineup,
     plan_lineups,
 )
 
@@ -52,7 +51,7 @@ INPUTS = LineupInputs(
 
 
 def test_plans_the_best_legal_lineup_and_carries_the_matchday_coordinates() -> None:
-    plan = plan_lineup(INPUTS)
+    plan = plan_lineups(INPUTS)[0]
 
     assert plan.module == "343"
     assert set(plan.starts) == set(STARTERS)
@@ -63,7 +62,7 @@ def test_plans_the_best_legal_lineup_and_carries_the_matchday_coordinates() -> N
 
 
 def test_the_field_is_the_top_value_players() -> None:
-    plan = plan_lineup(INPUTS)
+    plan = plan_lineups(INPUTS)[0]
 
     assert 2194 in plan.starts  # a starter (value 5.0) beats the reserves (< 5.0)
     assert 60 not in plan.starts  # a reserve (value 4.0) stays on the bench

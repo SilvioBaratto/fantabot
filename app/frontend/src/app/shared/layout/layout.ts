@@ -19,7 +19,6 @@ import { NAV_ITEMS } from '../nav-item';
 import { WindowSizeClassService } from '../../core/window-size-class';
 import { NavBarComponent } from '../nav-bar/nav-bar';
 import { NavRailComponent } from '../nav-rail/nav-rail';
-import { ToastComponent } from '../ui/toast/toast';
 
 /**
  * The application shell: one navigation system per width, and one flexible pane.
@@ -55,7 +54,6 @@ import { ToastComponent } from '../ui/toast/toast';
     LucideAngularModule,
     NavBarComponent,
     NavRailComponent,
-    ToastComponent,
   ],
   templateUrl: './layout.html',
   styleUrl: './layout.scss',

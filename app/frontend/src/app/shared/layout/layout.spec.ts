@@ -90,11 +90,6 @@ describe('LayoutComponent', () => {
     expect(el.querySelector('.sr-only[aria-live="polite"]')).toBeTruthy();
   });
 
-  it('when the shell renders, an inert toast outlet is present', async () => {
-    const el = await render();
-    expect(el.querySelector('#toast-outlet')).toBeTruthy();
-  });
-
   it('when the shell renders, a skip link pointing to main-content is present', async () => {
     const el = await render();
     expect(el.querySelector('a.skip-link[href="#main-content"]')).toBeTruthy();

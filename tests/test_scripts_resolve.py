@@ -33,11 +33,13 @@ SCRIPTS = REPO / "scripts"
 #: into ``fantabot.adapters.persistence.scraping``, so all of that is now linted by ``ruff``
 #: and typed by ``mypy --strict``.
 #:
-#: What is left under ``scripts/`` is **six** files, not one — ``gate.sh`` and the five
-#: ``.py`` this module parametrises over. The sentence here used to say
-#: ``resolve_aste_live.py`` was the only survivor; it was already false when written
-#: (``move_modules.py`` and ``verify_criteria.py`` both landed on the same 2026-08-30) and
-#: ``_scripts()`` two dozen lines below has contradicted it ever since.
+#: What is left under ``scripts/`` is **three** files — ``gate.sh`` and the two ``.py``
+#: this module parametrises over, ``leak_battery.py`` and ``resolve_aste_live.py``. The
+#: three orphans that used to pad that count out to six — ``move_modules.py``,
+#: ``verify_parity.py`` and ``verify_criteria.py`` — were deleted on 2026-09-24: a
+#: completed refactor driver and two criteria runners whose specs no longer exist.
+#: Do not re-derive the number from prose. ``_scripts()`` two dozen lines below is the
+#: only count that cannot go stale, and a sentence here has now contradicted it twice.
 #:
 #: The parse check below still earns its place — ``scripts/`` remains outside both
 #: tools — and this table stays so a new sibling cannot reappear unguarded.

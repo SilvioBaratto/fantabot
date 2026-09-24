@@ -39,7 +39,6 @@ Four decisions this file makes, each of which has a wrong version that looks fin
 from __future__ import annotations
 
 import math
-import os
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -159,7 +158,6 @@ class SeededWorld:
     #: Player ids as the pool holds them — strings, because every consumer does.
     player_ids: tuple[str, ...]
     budget: int
-    num_teams: int
     roster_size: int
     min_roles: tuple[int, ...]
     #: How many teams the **newest** capture holds. The earlier one holds two more, so a
@@ -604,7 +602,6 @@ def _seed(session: Session) -> SeededWorld:
         listone="mantra",
         player_ids=ids,
         budget=500,
-        num_teams=8,
         roster_size=_ROSTER_SIZE,
         min_roles=_MIN_ROLES,
         pricing_roles=pricing_roles,
@@ -690,12 +687,6 @@ def listone_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def seeded_callable_ids() -> frozenset[str]:
-    """What that bridge narrows to — the CLI side of the comparison uses it too."""
-    return frozenset(str(SYNTHETIC_BASE + n) for n in range(len(_POOL)))
-
-
-@pytest.fixture
 def frozen_today(monkeypatch: pytest.MonkeyPatch) -> date:
     """Both calendar seams, pinned to one date.
 
@@ -769,8 +760,3 @@ def cli_session() -> Iterator[Session]:
 
     with database_manager.get_session() as session:
         yield session
-
-
-def env_says_where() -> str:
-    """For a skip message: which database the tier was pointed at, without a password."""
-    return os.environ.get("FANTABOT_TEST_DATABASE_URL", "<unset — the bundled default>")

@@ -61,7 +61,6 @@ class SyncResult:
     custom_roles: tuple[CustomRole, ...] = ()
     pool: tuple[PoolEntry, ...] = ()
     failures: list[str] = field(default_factory=list)
-    written: dict[str, int] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -167,7 +166,6 @@ def persist(result: SyncResult, repository: LeagueRepository) -> dict[str, int]:
         written["league_custom_role"] = repository.record_custom_roles(result.custom_roles)
     if result.pool:
         written["league_player_pool"] = repository.record_pool(result.pool)
-    result.written = written
     return written
 
 

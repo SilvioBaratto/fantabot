@@ -30,14 +30,6 @@ def _counts(code: str) -> dict[str, int]:
 FORMATIONS: dict[str, dict[str, int]] = {code: _counts(code) for code in FORMATION_CODES}
 
 
-def formation_counts(code: str) -> dict[str, int]:
-    """The per-role starting counts for a module, or raise if the code is not one of the seven."""
-    try:
-        return dict(FORMATIONS[code])
-    except KeyError:
-        raise ValueError(f"not a Classic formation code: {code!r}") from None
-
-
 def fieldable_formations(role_counts: Mapping[str, int]) -> frozenset[str]:
     """The modules a rosa with these per-role counts can field a legal XI for.
 
@@ -50,7 +42,3 @@ def fieldable_formations(role_counts: Mapping[str, int]) -> frozenset[str]:
         if all(role_counts.get(role, 0) >= n for role, n in need.items())
     )
 
-
-def classic_fieldable(role_counts: Mapping[str, int]) -> bool:
-    """Whether the rosa can field any Classic module at all."""
-    return bool(fieldable_formations(role_counts))

@@ -253,10 +253,7 @@ describe('NewsComponent', () => {
           id: 'job-live',
           kind: 'news-fetch',
           status: 'running',
-          started_at: '2026-09-05T19:00:00Z',
-          line_count: 3,
           ok: null,
-          stoppable: false,
         },
       ]);
       flush([], []);
@@ -274,10 +271,7 @@ describe('NewsComponent', () => {
           id: 'job-other',
           kind: 'harvest-collect',
           status: 'running',
-          started_at: '2026-09-05T19:00:00Z',
-          line_count: 3,
           ok: null,
-          stoppable: false,
         },
       ]);
       flush([], []);

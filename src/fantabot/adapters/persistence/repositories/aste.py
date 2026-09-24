@@ -55,10 +55,6 @@ class EventWrite:
     unknown_auction: int = 0
 
     @property
-    def offered(self) -> int:
-        return self.inserted + self.already_present + self.unknown_auction
-
-    @property
     def discarded(self) -> bool:
         """True when rows were dropped for want of an auction to attach them to.
 

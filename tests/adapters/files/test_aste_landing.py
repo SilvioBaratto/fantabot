@@ -16,7 +16,24 @@ from pathlib import Path
 
 from _paths import ONE_AUCTION
 
-from fantabot.adapters.files.landing import LandingZone, read_records
+from fantabot.adapters.files.landing import LandingZone
+
+
+def _records(path: Path) -> list[dict]:
+    """Read back what the zone wrote. Local on purpose.
+
+    `landing.read_records` used to live beside the writer and was reached by nothing but
+    this file — the second reader its own module docstring warns about, and the untested
+    one of the pair. It went on 2026-09-24, as did the other half,
+    `application/harvest_loader.iter_records`. Reading the format here with three lines of
+    `json.loads` is the cheaper honesty either way: importing a reader from the application
+    layer would make an adapter's tests depend on it to assert a file format.
+    """
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def test_a_record_is_readable_immediately_after_writing(tmp_path: Path) -> None:
@@ -24,13 +41,13 @@ def test_a_record_is_readable_immediately_after_writing(tmp_path: Path) -> None:
     every already-written record intact and parseable."""
     zone = LandingZone(tmp_path / "events.jsonl")
     zone.write("a-1", {"price": 1})
-    assert len(read_records(tmp_path / "events.jsonl")) == 1
+    assert len(_records(tmp_path / "events.jsonl")) == 1
 
 
 def test_records_carry_the_auction_and_an_observation_time(tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
     LandingZone(path).write("a-1", {"price": 1})
-    (record,) = read_records(path)
+    (record,) = _records(path)
     assert record["auction_id"] == "a-1"
     assert record["state"] == {"price": 1}
     assert record["seen_at"], "an observation without a time cannot be ordered"
@@ -46,7 +63,7 @@ def test_the_shape_matches_what_the_backfill_already_reads(tmp_path: Path) -> No
     )
     path = tmp_path / "events.jsonl"
     LandingZone(path).write(recorded["auction_id"], recorded["state"])
-    (written,) = read_records(path)
+    (written,) = _records(path)
     assert set(written) >= {"seen_at", "auction_id", "state"}
     assert set(recorded) >= set(written) - {"ns"}
 
@@ -56,20 +73,7 @@ def test_appending_never_rewrites_what_is_already_there(tmp_path: Path) -> None:
     zone = LandingZone(path)
     for i in range(5):
         zone.write("a-1", {"price": i})
-    assert [r["state"]["price"] for r in read_records(path)] == [0, 1, 2, 3, 4]
-
-
-def test_a_truncated_final_line_does_not_poison_the_whole_file(tmp_path: Path) -> None:
-    """A kill during a write can leave a partial line. Losing that one record is
-    the accepted cost; losing the file is not."""
-    path = tmp_path / "events.jsonl"
-    zone = LandingZone(path)
-    zone.write("a-1", {"price": 1})
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write('{"auction_id": "a-1", "sta')
-    records = read_records(path)
-    assert len(records) == 1
-    assert records[0]["state"]["price"] == 1
+    assert [r["state"]["price"] for r in _records(path)] == [0, 1, 2, 3, 4]
 
 
 def test_the_directory_is_created_if_it_does_not_exist(tmp_path: Path) -> None:

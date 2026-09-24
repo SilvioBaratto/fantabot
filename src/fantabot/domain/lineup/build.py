@@ -3,8 +3,8 @@
 Because the objective is a sum of per-player scores over the started players, it is linear,
 so for a fixed module the best XI is a **max-weight bipartite matching** that saturates the
 11 slots — solved exactly here by the Hungarian algorithm, no dependency added (11 slots x
-~30 players resolves in microseconds). `best_lineup` runs it for each allowed module and
-takes the argmax.
+~30 players resolves in microseconds). `ranked_lineups` runs it for each allowed module and
+sorts, best first, so the caller can walk down the list when the platform refuses one.
 
 Slots come from `schema.slots`: the natural ("ok") roles of `mantra_schemi.json`, laid out
 in the platform's own slot order (`mantra_starts_order.json`, pinned from its JS bundle).
@@ -24,7 +24,6 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 
 from fantabot.domain.lineup import schema
-from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.models import RosterPlayer
 
 #: A module code -> its ordered slot role-sets (GK first). `schema.slots` for Mantra,
@@ -105,24 +104,6 @@ def ranked_lineups(
         scored.append((total, code, starts))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [(code, starts) for _total, code, starts in scored]
-
-
-def place_all(
-    role_sets: Sequence[frozenset[str]], slot_sets: Sequence[frozenset[str]]
-) -> list[int] | None:
-    """Each player's slot index, or `None` when they cannot all take distinct slots.
-
-    Feasibility only — every placement is worth the same, which is what the Optimal and
-    Efficient tiers ask (`substitution.py`): they rank *which players* come on, never where
-    the matcher puts them. Fewer players than slots is the man-short case and is allowed.
-
-    The malus-bearing Adapted tier needs a cheapest placement rather than any placement, so
-    the matrix is built once in `place_all_with_malus` and this is the natural-roles-only
-    case of it. One matcher call, one rows-vs-columns guard, one per-edge feasibility test:
-    a second copy here is a copy that can drift out of agreement with that one.
-    """
-    placement = place_all_with_malus(role_sets, slot_sets, slot_sets)
-    return None if placement is None else placement[0]
 
 
 def place_all_with_malus(
@@ -210,21 +191,6 @@ def _matched(
         1 for i, slot in enumerate(assignment) if not (role_sets[i] & natural_sets[slot])
     )
     return tuple(assignment), malus
-
-
-def best_lineup(
-    roster: Sequence[RosterPlayer],
-    modules: Sequence[str],
-    *,
-    value: Mapping[int, float],
-    slots_provider: SlotsProvider = schema.slots,
-) -> tuple[str, list[int]]:
-    """`(module, starts[])` maximising `sum(value)`. Raises `NoFieldableModule` when the
-    roster fields none of the allowed modules."""
-    ranked = ranked_lineups(roster, modules, value=value, slots_provider=slots_provider)
-    if not ranked:
-        raise NoFieldableModule(tuple(modules))
-    return ranked[0]
 
 
 def solve_assignment(cost: list[list[float]]) -> list[int]:

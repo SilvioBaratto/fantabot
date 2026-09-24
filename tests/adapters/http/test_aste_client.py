@@ -83,8 +83,8 @@ def test_the_host_is_the_configured_base_not_a_hardcoded_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`FANTABOT_FANTALAB_BASE_URL` is a knob whose whole purpose is to point the app
-    somewhere else. It was obeyed by `rest.fetch_league` and `rest.join_team` and ignored
-    here, so the scan kept hitting the real site while everything else had moved.
+    somewhere else. It was obeyed by `rest.fetch_league` and ignored here, so the scan kept
+    hitting the real site while everything else had moved.
 
     The assertion is on the **override**, never on the literal `api.fantalab.it`: that
     one passes against the bug.

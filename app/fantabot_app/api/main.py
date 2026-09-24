@@ -50,10 +50,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# OpenAPI metadata — per-tag descriptions render as grouped sections in Swagger /
-# ReDoc. Populated as fantabot endpoints are added under app/api/v1/endpoints/.
-TAGS_METADATA: list[dict[str, Any]] = []
-
 # Project identity constants — set once at scaffold time, not per-deployment, so
 # they live here rather than in Settings (env vars). Replace with your own.
 CONTACT_INFO = {"name": "API Support", "email": "support@example.com"}
@@ -82,7 +78,6 @@ def create_application() -> FastAPI:
         version=settings.version,
         summary="Modern API scaffold with layered architecture.",
         description="Modern API",
-        openapi_tags=TAGS_METADATA,
         contact=CONTACT_INFO,
         license_info=LICENSE_INFO,
         docs_url=None,  # Disable default docs - we'll set up custom ones
@@ -177,7 +172,7 @@ def setup_documentation_endpoints(app: FastAPI) -> None:
         """OpenAPI JSON schema.
 
         Delegate to ``app.openapi()`` so the served schema reflects ALL metadata
-        set on the app (summary/description/openapi_tags/contact/license_info).
+        set on the app (summary/description/contact/license_info).
         The 3-arg ``get_openapi(title, version, routes)`` form silently dropped
         them. This route is the sole responder only when ``openapi_url`` is None
         (production); otherwise FastAPI's built-in route serves the same schema.

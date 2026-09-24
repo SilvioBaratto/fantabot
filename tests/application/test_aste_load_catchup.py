@@ -533,33 +533,6 @@ class TestTheLadderIsCarriedRatherThanRebuilt:
             "advances anyway, so those records are gone"
         )
 
-    def test_the_whole_file_is_never_re_read(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:  # type: ignore[no-untyped-def]
-        """The thing this whole exercise was for.
-
-        `assignments_for_pass` is the whole-file rebuild. It still exists for
-        `harvest backfill`, which genuinely reads a finished recording, but the
-        follower must never call it.
-        """
-        from fantabot.application import harvest_loader as loader
-
-        landing = tmp_path / "live.jsonl"
-        _zone(landing, 400)
-        _FakeDatabase().install(monkeypatch)
-
-        calls: list[int] = []
-        real = loader.assignments_for_pass
-        monkeypatch.setattr(
-            loader,
-            "assignments_for_pass",
-            lambda *a, **k: (calls.append(1), real(*a, **k))[1],
-        )
-
-        _load(landing, _seed_file(tmp_path), tmp_path, "--window", "20000")
-
-        assert calls == [], f"the whole-file rebuild ran {len(calls)} times"
-
     def test_the_union_across_passes_equals_one_whole_file_fold(
         self, tmp_path: Path, monkeypatch
     ) -> None:  # type: ignore[no-untyped-def]
@@ -569,7 +542,6 @@ class TestTheLadderIsCarriedRatherThanRebuilt:
         cannot see a truncated ladder and that is the failure the whole-file rebuild
         existed to prevent.
         """
-        from fantabot.application.harvest_loader import iter_records
         from fantabot.domain.harvest.compare import equivalent
         from fantabot.domain.harvest.models import Assignment, Bid
         from fantabot.domain.harvest.reconstruct import reconstruct
@@ -596,7 +568,14 @@ class TestTheLadderIsCarriedRatherThanRebuilt:
                 ),
             )
 
-        whole = reconstruct(iter_records(landing))
+        # The whole-file fold, read inline: the loader's own whole-file readers are gone
+        # (2026-09-24), and `_zone` writes only complete lines, so `splitlines` is the
+        # entire reader this oracle needs.
+        whole = reconstruct(
+            json.loads(line)
+            for line in landing.read_text(encoding="utf-8").splitlines()
+            if line
+        )
         assert whole, "the fixture produced no sales; this test would prove nothing"
         verdict = equivalent(whole, list(final.values()))
         assert verdict.ok, verdict.reason

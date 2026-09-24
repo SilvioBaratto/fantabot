@@ -46,9 +46,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from fantabot.adapters.persistence.base import Base, TimestampMixin
 
-# Coach rows carry this instead of a player role, and no player id.
-COACH_ROLE = "ALL"
-
 
 def _partial_unique_indexes(table: str) -> tuple[Index, ...]:
     """The two disjoint keys that stand in for an impossible primary key."""
@@ -125,6 +122,7 @@ class MatchGrain(Base, TimestampMixin):
         BigInteger, ForeignKey("players.id"), nullable=True
     )
     nome: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `ALL` on a coach row, which is also the half of the table with no `player_id`.
     ruolo_codice: Mapped[str] = mapped_column(String(3), nullable=False)
     ruolo: Mapped[str] = mapped_column(Text, nullable=False)
 

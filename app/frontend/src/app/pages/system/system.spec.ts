@@ -22,7 +22,8 @@ const CONFIG: SystemConfig = {
  *
  * Not boilerplate: `httpMock.verify()` fails on an outstanding request, and a failing
  * `afterEach` leaves the TestBed instantiated — which broke `prices.spec.ts`,
- * `app.spec.ts` and `toast.spec.ts` in the same run, none of which touch this page.
+ * `app.spec.ts` and the since-deleted `toast.spec.ts` in the same run, none of which
+ * touch this page.
  * A helper rather than a line per test so the two requests cannot drift apart.
  */
 function flushConfig(mock: HttpTestingController, body: SystemConfig | 'error' = CONFIG): void {

@@ -1,21 +1,9 @@
-"""Repositories: every query the application makes lives behind one of these."""
+"""Repositories: every query the application makes lives behind one of these.
 
-from fantabot.adapters.persistence.repositories._base import RepositoryBase
-from fantabot.adapters.persistence.repositories.admin import AdminRepository, UnknownTableError
-from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
-from fantabot.adapters.persistence.repositories.sentiment import (
-    SentimentReadRepository,
-    SentimentRepository,
-)
-from fantabot.adapters.persistence.repositories.tokens import UPSERT_COLUMNS, LeagueTokenRepository
-
-__all__ = [
-    "UPSERT_COLUMNS",
-    "AdminRepository",
-    "LeagueTokenRepository",
-    "ReferenceRepository",
-    "RepositoryBase",
-    "SentimentReadRepository",
-    "SentimentRepository",
-    "UnknownTableError",
-]
+**Nothing is re-exported here, deliberately.** This package had an eight-name ``__all__``
+covering five of its eleven repository classes, and not one import in the tree went through
+it — all 126, measured 2026-09-24, name the submodule (``repositories.aste``,
+``repositories.league``). A partial re-export is worse than none: it reads as the package's
+public face while six classes are missing from it, so the next repository is added to a list
+nobody imports, or left out of one that looks authoritative.
+"""

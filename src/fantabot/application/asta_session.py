@@ -108,11 +108,6 @@ class AstaSession:
         self._seat = seat
         self._fantaleague_id = fantaleague_id
 
-    @property
-    def tracker(self) -> RoomTracker:
-        """For the callers that still reach past the session. Read-only on purpose."""
-        return self._tracker
-
     def cycle(
         self, snapshot: Mapping[str, Any] | None, *, now_ms: int, node: str = "auction"
     ) -> Cycle:

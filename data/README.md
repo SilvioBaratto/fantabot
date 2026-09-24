@@ -176,7 +176,7 @@ Measured, not assumed:
 
 One parser would have to guess, and guessing wrong does not raise: `"38.46"`
 with commas swapped for dots is still `38.46`, and `"38,46"` read as a plain
-decimal is `3846`. So there are two — `italian_decimal` and `plain_decimal` —
+decimal is `3846`. There were two — `italian_decimal` and `plain_decimal` —
 and each refuses the other's format.
 
 ### `league_tokens`

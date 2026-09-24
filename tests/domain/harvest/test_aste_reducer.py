@@ -8,15 +8,32 @@ evening stops being a regression test for anything.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 
 from _paths import ONE_AUCTION, SSE_FIXTURES
 
-from fantabot.domain.harvest.reducer import apply_frame, fold
-from fantabot.domain.harvest.sse import parse
+from fantabot.domain.harvest.reducer import State, apply_frame
+from fantabot.domain.harvest.sse import Frame, parse
 
 SSE = SSE_FIXTURES
 LIVE = (SSE / "live_auction.txt").read_text(encoding="utf-8")
 NULL_PATCH = (SSE / "null_patch.txt").read_text(encoding="utf-8")
+
+
+def _fold(frames: Iterable[Frame]) -> State:
+    """Apply every frame in order — this file's own scaffolding, not a stand-in.
+
+    `reducer.fold` was exactly this and was deleted on 2026-09-24: the collector folds
+    frame by frame (`adapters/http/harvest/stream.py` keeps the state itself), so nothing
+    in `src/` ever called it and only this file did. The subject of every test below is
+    `apply_frame`'s semantics over a *sequence* of frames, which is why the loop stayed
+    while the production function went. It is three lines and asserts nothing, so there is
+    no production behaviour being reimplemented here to drift out of agreement.
+    """
+    state: State = {}
+    for frame in frames:
+        state = apply_frame(state, frame)
+    return state
 
 
 def test_a_put_replaces_the_whole_state() -> None:
@@ -27,7 +44,7 @@ def test_a_put_replaces_the_whole_state() -> None:
 
 
 def test_a_patch_merges_into_what_is_there() -> None:
-    state = fold(parse(LIVE)[:3])
+    state = _fold(parse(LIVE)[:3])
     assert state["price"] == 262, "the patch's price must win"
     assert state["fantaleague_id"], "fields the patch did not mention must survive"
 
@@ -44,8 +61,8 @@ def test_a_null_in_a_patch_deletes_the_key() -> None:
 
 
 def test_a_keepalive_changes_nothing() -> None:
-    state = fold(parse(LIVE)[:1])
-    assert fold(parse(LIVE)[:2]) == state
+    state = _fold(parse(LIVE)[:1])
+    assert _fold(parse(LIVE)[:2]) == state
 
 
 def test_folding_never_mutates_its_input() -> None:
@@ -65,7 +82,7 @@ def test_the_folded_state_is_what_reconstruct_expects() -> None:
         .splitlines()[0]
     )["state"]
 
-    live = fold(parse(LIVE))
+    live = _fold(parse(LIVE))
     assert set(live) >= {"fantaleague_id", "last_update", "update_type", "price"}
     assert set(live) <= set(recorded) | set(live), "no invented keys"
 
@@ -84,7 +101,7 @@ def test_a_nested_put_does_not_replace_the_whole_state() -> None:
     The aste-streaming phase's spec (archived, not in this checkout) carried a Code Style
     snippet refusing a non-root path — that guard was specified and never implemented.
     """
-    state = fold(parse(LIVE)[:1])
+    state = _fold(parse(LIVE)[:1])
     assert state["price"] == 261
     after = apply_frame(state, parse(NESTED_PUT)[0])
     assert after == state, "an unhandled path must leave the node as it was"
@@ -100,12 +117,3 @@ def test_a_nested_null_put_is_not_the_room_closing() -> None:
     assert is_auction_gone(parse('event: put\ndata: {"path":"/","data":null}\n\n')[0])
     assert not is_auction_gone(parse(NESTED_NULL)[0])
 
-
-def test_an_unhandled_path_is_counted_rather_than_silently_dropped() -> None:
-    """Refusing is right; refusing in silence is the failure this phase keeps
-    finding in itself."""
-    from fantabot.domain.harvest.reducer import unsupported_paths
-
-    counter = unsupported_paths()
-    apply_frame({}, parse(NESTED_PUT)[0], seen=counter)
-    assert counter["/price"] == 1

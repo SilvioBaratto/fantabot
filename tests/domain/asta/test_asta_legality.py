@@ -19,7 +19,6 @@ from fantabot.domain.asta.legality import (
     can_field,
     fieldable_schemi,
     load_compat,
-    marginal_legality,
     slot_allows,
 )
 from fantabot.domain.asta.roles import MANTRA_ROLES, MantraPlayer, normalize_role, normalize_roles
@@ -119,14 +118,6 @@ def test_a_rosa_missing_a_goalkeeper_cannot_field() -> None:
     movement = [s for s in schema.slots if s.name != "Por"]
     rosa = [_player(f"p{i}", sorted(slot.submission)[0]) for i, slot in enumerate(movement)]
     assert not can_field(rosa, schema, "submission")
-
-
-def test_marginal_legality_of_adding_a_goalkeeper() -> None:
-    schema = LEGALITY["3-4-3"]
-    movement = [s for s in schema.slots if s.name != "Por"]
-    rosa = [_player(f"p{i}", sorted(slot.submission)[0]) for i, slot in enumerate(movement)]
-    gained = marginal_legality(rosa, _player("gk", "POR"), LEGALITY)
-    assert "3-4-3" in gained  # the keeper unlocks the schema the rosa could not field
 
 
 # --- the matcher itself, on a hand-built schema (mode + perfect matching) ---------------

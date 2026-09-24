@@ -49,11 +49,6 @@ class Settings(BaseSettings):
     debug: bool = Field(default=True)
     environment: str = Field(default="development")
 
-    @property
-    def is_development(self) -> bool:
-        """True in development or when debug is on."""
-        return self.environment == "development" or self.debug
-
 
 # Global settings instance
 settings = Settings()

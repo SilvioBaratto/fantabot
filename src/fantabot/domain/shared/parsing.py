@@ -16,11 +16,19 @@ target_price (derived)       0       all    ``""`` (523 per listone)
 
 A single parser has to guess which convention it is looking at, and guessing
 wrong does not raise: ``"38.46"`` with commas swapped for dots is still
-``38.46``, and ``"38,46"`` read as a plain decimal is ``3846``. So there are two
-functions, and each **refuses** the other's format. A hundredfold error becomes a
-crash on the first row instead of a number nobody questions.
+``38.46``, and ``"38,46"`` read as a plain decimal is ``3846``. So
+``italian_decimal`` **refuses** a dot outright rather than parsing it: a
+hundredfold error becomes a crash on the first row instead of a number nobody
+questions.
 
-The scrapers write straight to Postgres, so these run at scrape time now rather
+Only the comma convention is still parsed here. A ``plain_decimal`` twin covered
+the two derived dot-decimal columns and was deleted on 2026-09-24 — ``qi_bias``
+and ``target_price`` were CSV-importer columns, and the importers are gone
+(``application/pricing.py`` computes those values rather than reading them back).
+The dot refusal below is **not** about that twin and does not go with it: it is
+about the site's own two conventions, which is why the table above is kept.
+
+The scrapers write straight to Postgres, so this runs at scrape time now rather
 than at import time. The rules are unchanged: they are facts about how the site
 renders numbers, not about how a file was stored.
 """
@@ -48,33 +56,14 @@ def italian_decimal(raw: str) -> Decimal | None:
     if "." in value:
         raise ValueError(
             f"{value!r} uses a dot decimal separator; this column is comma-decimal. "
-            "Use plain_decimal for qi_bias and target_price."
+            "The statistiche and voti pages render every number with a comma, so a dot "
+            "here means the wrong column is being parsed."
         )
     try:
         return Decimal(value.replace(",", "."))
     except InvalidOperation as exc:
         raise ValueError(f"{value!r} is not a comma-decimal number") from exc
 
-
-def plain_decimal(raw: str) -> Decimal | None:
-    """Parse a dot-decimal cell from the qi_bias or target_price derivations.
-
-    ``""`` becomes ``None``. ``"0.0"`` does **not** — unlike the Italian pages
-    these use a blank for no-data, so zero is a real measurement and
-    ``pct_delta`` can legitimately be it. A comma-decimal raises.
-    """
-    value = raw.strip()
-    if not value:
-        return None
-    if "," in value:
-        raise ValueError(
-            f"{value!r} uses a comma decimal separator; this column is dot-decimal. "
-            "Use italian_decimal for statistiche and voti."
-        )
-    try:
-        return Decimal(value)
-    except InvalidOperation as exc:
-        raise ValueError(f"{value!r} is not a dot-decimal number") from exc
 
 
 def split_codes(raw: str) -> list[str]:

@@ -46,9 +46,11 @@ DEFENSIVE_PROFILE: frozenset[str] = frozenset({"DD", "DS", "DC", "B", "E", "M"})
 OFFENSIVE_PROFILE: frozenset[str] = frozenset({"C", "T", "W", "A", "PC"})
 
 # The one exception the rules name explicitly: W and T are normally interchangeable
-# with a -1 malus, except here, where the swap is impossible at any price.
+# with a -1 malus, except here, where the swap is impossible at any price. Only the
+# schema is named: the pair is not a declaration `_check_named_exception` reads, it is
+# the cells that function walks (see its comment) -- a `("W", "T")` constant beside this
+# one was measured unread on 2026-09-24 and deleted.
 NAMED_EXCEPTION_SCHEMA = "4-1-4-1"
-NAMED_EXCEPTION_PAIR = ("W", "T")
 
 
 def check_schemi(grid: SchemaGrid) -> list[str]:

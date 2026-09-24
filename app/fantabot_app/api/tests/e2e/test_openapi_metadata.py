@@ -1,9 +1,8 @@
 """End-to-end OpenAPI metadata tests (issue #23).
 
-Proves ``create_application()`` enriches the OpenAPI surface — per-tag
-descriptions (``openapi_tags``), a top-level ``summary``, ``contact``, and
-``license_info`` — and that the custom ``/openapi.json`` endpoint actually
-surfaces them.
+Proves ``create_application()`` enriches the OpenAPI surface — a top-level
+``summary``, ``contact`` and ``license_info`` — and that the custom
+``/openapi.json`` endpoint actually surfaces them.
 
 Two paths are exercised on purpose:
 - The shared ``client`` fixture runs with ``settings.debug=True`` (the default),
@@ -65,7 +64,7 @@ def test_when_redoc_requested_then_200_is_returned(client):
 @pytest.mark.e2e
 def test_when_production_app_then_custom_route_surfaces_metadata(monkeypatch):
     """when openapi_url is None (production), the custom /openapi.json still
-    surfaces contact/license/tag metadata via app.openapi()."""
+    surfaces contact/license metadata via app.openapi()."""
     from fantabot_app.api import main as main_module
 
     # Force the production branch: debug=False AND not staging => openapi_url=None,

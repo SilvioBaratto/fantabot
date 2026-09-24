@@ -372,8 +372,9 @@ def test_every_live_command_can_be_disarmed(command: str) -> None:
 
     This is the check that would have caught `asta bid`: no handler around its loop, and a
     writer reading a bool captured at start. Read from the syntax tree rather than the text,
-    for the reason `scripts/verify_criteria.py` gives — a substring check cannot tell a call
-    from a sentence about a call. `TestAstaBidCanBeDisarmedMidRun` proves the behaviour for
+    because a substring check cannot tell a call from a sentence about a call. (That
+    reasoning was `scripts/verify_criteria.py`'s, since deleted — it is stated here rather
+    than cited, so it survives the tool that made it.) `TestAstaBidCanBeDisarmedMidRun` proves the behaviour for
     one command end to end; this proves the shape for every command. `asta room` used to
     have no harness at all, which is what made the structural form load-bearing here — it
     now has one (`_run_asta_room`), but only as far as the banner: nothing drives its loop,

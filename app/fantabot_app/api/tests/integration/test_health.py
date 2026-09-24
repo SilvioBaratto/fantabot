@@ -1,6 +1,6 @@
 """Baseline-route tests for the root and health endpoints (issue #11).
 
-Uses the shared ``client`` fixture (``TestClient`` with ``get_db`` overridden).
+Uses the shared ``client`` fixture — a plain ``TestClient`` over the real app.
 These endpoints touch no DB and open no sockets, so they belong in the default
 fast tier: marked ``e2e`` (which the default ``-m 'not integration'`` run executes),
 not ``integration``. ``/health`` is the liveness route the cold-install CI (A1) and

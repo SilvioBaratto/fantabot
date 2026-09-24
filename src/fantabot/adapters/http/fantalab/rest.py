@@ -3,8 +3,12 @@
 `docs/fantalab/06-asta-write-path.md` §3: ``POST /fantaleague/fetch`` and ``GET /fantaleagues/live``
 **require a Bearer** (measured `401` unauthenticated, 2026-08-28) — only the RTDB nodes and the
 player CDN are public. This module wraps the read the live advisory uses to *discover* a room —
-``fetch_league`` (config, seats, RTDB shard) — plus ``join_team``. Each takes an optional
-``token``; without one the call is unauthenticated and will `401`.
+``fetch_league`` (config, seats, RTDB shard). It takes an optional ``token``; without one the
+call is unauthenticated and will `401`.
+
+``POST /fantaleague/join`` is **not** here. It had a wrapper (``join_team``) with the same
+history as ``live_leagues`` below — no production caller, only a test — and a seat is claimed
+once, by hand, in the browser. Deleted 2026-09-24.
 
 ``GET /fantaleagues/live`` is **not** here. It had a wrapper (``live_leagues``) that no
 production caller ever reached, while the live path — ``harvest/client.LiveAuctionsClient`` —
@@ -12,8 +16,8 @@ carried its own copy with the host hardcoded. Two wrappers of one endpoint is ho
 stops obeying ``FANTABOT_FANTALAB_BASE_URL`` without anything saying so, so the unused one was
 deleted on 2026-09-24 and the surviving one taught to read the setting (``client._live_url``).
 
-A **participant bot needs none of these**: told its shard, seat and uid, it reads the live lot and
-bids entirely over the unauthenticated RTDB (``rtdb``). These calls matter only when discovering a
+A **participant bot needs none of this**: told its shard, seat and uid, it reads the live lot and
+bids entirely over the unauthenticated RTDB (``rtdb``). This call matters only when discovering a
 room or acting as admin, which is where a ``token`` comes from.
 
 The parse is pure (``parse_league``); the HTTP call is a thin shell with an **injectable
@@ -33,7 +37,6 @@ import httpx
 from fantabot.domain.tokens.errors import FantalabSessionMissing
 
 FETCH_PATH = "/fantaleague/fetch"
-JOIN_PATH = "/fantaleague/join"
 DEFAULT_TIMEOUT = 10.0
 
 
@@ -329,35 +332,11 @@ def fetch_league(
     return parse_league(body if isinstance(body, dict) else {})
 
 
-def join_team(
-    fantateam_id: str,
-    user_id: str,
-    *,
-    token: str | None = None,
-    transport: httpx.BaseTransport | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
-) -> bool:
-    """``POST /fantaleague/join`` — claim a seat. Returns ``True`` on success. **Needs a Bearer.**
-
-    The body is exactly ``{fantateam_id, user_id}``: ``invitation_id`` is **not** required when
-    the seat's id is already known (``docs/fantalab/06-asta-write-path.md`` §3, observed). A seat
-    is claimed once (interactively, with a token); the bot then bids on it over the unauthenticated
-    RTDB, so a headless participant never calls this itself.
-    """
-    with httpx.Client(
-        base_url=_base_url(), headers=_headers(token), timeout=timeout, transport=transport
-    ) as client:
-        response = client.post(JOIN_PATH, json={"fantateam_id": fantateam_id, "user_id": user_id})
-    response.raise_for_status()
-    return True
-
-
 __all__ = [
     "RoomConfig",
     "Seat",
     "fetch_league",
     "fetcher_from",
-    "join_team",
     "parse_league",
     "shard_of",
 ]

@@ -41,8 +41,6 @@ from .conftest import SeededWorld
 
 def _cli_plan(
     world: SeededWorld,
-    today: date,
-    narrowed: frozenset[str] | None,
     cli: Callable[..., Result],
 ) -> dict[str, object]:
     """What `asta optimize` decides — **by running `asta optimize`.**
@@ -158,7 +156,6 @@ def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
     seeded_db: SeededWorld,
     frozen_today: date,
     api: TestClient,
-    seeded_callable_ids: frozenset[str],
     cli: Callable[..., Result],
 ) -> None:
     body = api.get(
@@ -171,14 +168,13 @@ def test_the_plan_the_page_shows_is_the_plan_the_cli_prints(
         "objective": round(float(body["objective"]), 6),
     }
 
-    assert page == _cli_plan(seeded_db, frozen_today, seeded_callable_ids, cli)
+    assert page == _cli_plan(seeded_db, cli)
 
 
 def test_both_sides_build_the_same_request(
     seeded_db: SeededWorld,
     frozen_today: date,
     api: TestClient,
-    seeded_callable_ids: frozenset[str],
     cli: Callable[..., Result],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

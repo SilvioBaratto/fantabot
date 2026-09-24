@@ -200,7 +200,8 @@ def test_ineligible_edges_must_be_dominated_or_a_fieldable_matrix_reads_as_infea
 
 def test_more_rows_than_columns_is_refused_rather_than_hung() -> None:
     """`solve_assignment` assumes rows <= columns and does not terminate otherwise — the
-    failure `place_all`'s own guard was measured hanging a whole run on 2026-09-22. Reached
+    failure `place_all_with_malus`'s own guard was measured hanging a whole run on
+    2026-09-22. Reached
     through `module_family` the case cannot arise, but this is a public entry point.
     """
     assert k_best_assignments([[-1.0], [-2.0]], k=1, node_budget=10) == []

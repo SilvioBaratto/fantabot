@@ -17,12 +17,16 @@ and 28 seconds of reconnect time, never a written record.
 so a database outage cannot stop collection. Decided 2026-08-27 for exactly the
 reason above: the file survived eleven kills; a socket would not have.
 
-**A truncated final line is skipped, not fatal.** A kill during a write leaves a
-partial record. Losing that one is the accepted cost; refusing to read the file
-because of it is not.
+**A truncated final line is survivable, not fatal.** A kill during a write leaves
+a partial record. Losing that one is the accepted cost; refusing to read the file
+because of it is not. That rule is enforced by the *reader*. Both readers this module's docstring used to
+name went on 2026-09-24, each reached by nothing but its own tests:
+``application/harvest_loader.iter_records`` and this module's own ``read_records``,
+which were the two halves of exactly the split the line below warns about. The live
+path reads a window through ``application/harvest_loader``'s incremental fold.
 
 The record shape is identical to what the poller wrote, so the loader has one
-reader rather than two — and the second one would be the untested one.
+reader rather than two.
 """
 
 from __future__ import annotations
@@ -56,22 +60,3 @@ class LandingZone:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
         self.written += 1
-
-
-def read_records(path: Path) -> list[dict[str, Any]]:
-    """Every complete record in ``path``.
-
-    A partial trailing line — the signature of a kill mid-write — is skipped
-    rather than raised on. One lost observation is the accepted cost of a
-    guarantee that costs nothing when nothing goes wrong.
-    """
-    records: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return records

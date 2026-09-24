@@ -33,13 +33,10 @@ rows. `FoldCheckpoint` below keeps that state beside the byte offset — 287 KB 
 the whole zone — because the two describe the same position and must move
 together.
 
-``assignments_for_pass`` is still here, and is still the whole-file rebuild. The
-follower does not call it — and neither, since T22, does `harvest backfill`: that
-command goes through `domain/harvest/backfill.build`, via
-`application/harvest_backfill`. Nothing in `src/` reaches it; its only callers are
-the windowing tests, which use it as the reference answer a bounded pass must
-reproduce. This paragraph named `harvest backfill` as the live caller until
-2026-09-24.
+The whole-file rebuild is gone from this module (2026-09-24). `harvest backfill`
+stopped calling it at T22 — that command goes through `domain/harvest/backfill.build`,
+via `application/harvest_backfill` — and the follower never did, so nothing in `src/`
+reached it, and `read_from`'s bounded window is now the only way out of a landing zone.
 
 **The rule that makes it safe: never consume a line the writer has not
 finished.** The two processes share a file with no lock between them, so a read
@@ -54,7 +51,7 @@ a checkpoint that outlived its file — is testable with no database at all.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -226,9 +223,6 @@ class FoldCheckpoint:
         tmp.write_text(json.dumps(incremental.to_json(state)), encoding="utf-8")
         tmp.replace(self.path)
 
-    def clear(self) -> None:
-        self.path.unlink(missing_ok=True)
-
 
 def read_from(
     path: Path, offset: int, max_bytes: int = DEFAULT_WINDOW_BYTES
@@ -302,72 +296,6 @@ def catching_up(behind: int, *, window: int = DEFAULT_WINDOW_BYTES) -> bool:
     would turn ``--follow`` into a busy loop over the whole file.
     """
     return behind >= window
-
-
-def assignments_for_pass(
-    landing: Path, new_records: Sequence[Mapping[str, Any]]
-) -> list[dict[str, Any]]:
-    """Assignment rows for a pass that carried ``new_records``.
-
-    Rebuilt from the **whole** landing zone rather than the window, for the
-    reason in the module docstring. Returns nothing when the pass carried
-    nothing, so a quiet pass does not rewrite rows it has no news about.
-
-    Kept here rather than in the CLI so the windowing rule has one home and one
-    test, instead of being an implicit property of the command.
-    """
-    if not new_records:
-        return []
-    from fantabot.domain.harvest.reconstruct import reconstruct
-
-    return assignment_rows(reconstruct(iter_records(landing)))
-
-
-def iter_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Every complete record in ``path``, streamed.
-
-    The whole-file pass exists for `harvest backfill`, which reads a finished
-    recording — but it must not *hold* the whole file. ``read_from``
-    takes it in one ``handle.read()``, so the bytes, the decoded string, the
-    split lines and the parsed dicts are alive together: a 92 MB landing zone
-    put the loader at 1.6 GB resident, re-paid every ten seconds, against a file
-    growing 3 MB a minute with hours of auctions left (measured 2026-08-27
-    22:27). Streaming makes the peak the reconstruction state, which is bounded
-    by sales rather than by bytes.
-
-    A trailing line without its newline is one the collector is still writing,
-    and is left for the next pass — the same rule ``read_from`` applies with
-    ``rfind``.
-    """
-    try:
-        handle = path.open("rb")
-    except OSError as exc:
-        # The same distinction read_from makes: a missing zone is not a quiet
-        # pass, and must not read as one.
-        raise LandingZoneMissing(path) from exc
-
-    with handle:
-        for raw in handle:
-            if not raw.endswith(b"\n"):
-                return
-            line = raw.decode("utf-8", "replace").strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
-                # Whole but not JSON. Skipped for the reason the landing reader
-                # skips one: losing a record beats refusing the file.
-                continue
-
-
-def read_records(path: Path) -> list[dict[str, Any]]:
-    """Every complete record in ``path``, from the beginning, as a list.
-
-    Kept for tests and for callers that genuinely want them all at once. The
-    loader does not — see ``iter_records``.
-    """
-    return list(iter_records(path))
 
 
 def assignment_rows(assignments: Iterable[Assignment]) -> list[dict[str, Any]]:

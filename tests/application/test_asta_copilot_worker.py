@@ -90,10 +90,10 @@ class TestEveryFailureLooksTheSame:
         try:
             _settle(worker, "200", timeout=0.5)
             assert worker.advice_for("200") is None
-            assert worker.errors == 1
+            assert worker.consecutive_errors == 1
             worker.brief([BRIEF])  # still alive
             _settle(worker, "200", timeout=0.5)
-            assert worker.errors == 2
+            assert worker.consecutive_errors == 2
         finally:
             worker.stop()
 
@@ -143,9 +143,9 @@ class TestBriefOrder:
 
 
 class TestOfflineIsNotSticky:
-    """`errors > 0` never went back down, so one timeout at 21:03 made every player without
-    commentary read as "offline" for the rest of the evening — and the pane stopped
-    distinguishing the two things its docstring says it keeps apart.
+    """A running total of failures never went back down, so one timeout at 21:03 made every
+    player without commentary read as "offline" for the rest of the evening — and the pane
+    stopped distinguishing the two things its docstring says it keeps apart.
     """
 
     def test_a_single_failure_does_not_mark_the_copilot_offline(self) -> None:

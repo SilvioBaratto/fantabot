@@ -76,7 +76,6 @@ class CopilotWorker:
         self._answers: dict[str, Commentary] = {}
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
-        self.errors = 0
         #: Failures since the last success. A running total never came down, so one timeout
         #: made the pane read "offline" for the rest of the evening while the worker was fine
         #: — and the pane's whole job is telling an outage from "nothing yet for this player".
@@ -127,7 +126,6 @@ class CopilotWorker:
         try:
             outcome = loop.run_until_complete(self._runner(request_for(brief, model=self._model), Commentary))
         except Exception as exc:
-            self.errors += 1
             self.consecutive_errors += 1
             if self._on_error:
                 self._on_error(f"{brief.name}: {exc}")
@@ -135,7 +133,6 @@ class CopilotWorker:
 
         parsed = getattr(outcome, "value", None)
         if parsed is None:
-            self.errors += 1
             self.consecutive_errors += 1
             return
         self.consecutive_errors = 0

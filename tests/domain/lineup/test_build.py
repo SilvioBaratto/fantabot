@@ -13,8 +13,11 @@ import pytest
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.lineup import positional
-from fantabot.domain.lineup.build import best_lineup, lineup_for_module, place_all, ranked_lineups
-from fantabot.domain.lineup.errors import NoFieldableModule
+from fantabot.domain.lineup.build import (
+    lineup_for_module,
+    place_all_with_malus,
+    ranked_lineups,
+)
 from fantabot.domain.lineup.models import RosterPlayer
 
 MODULES = ["3412", "3421", "343", "3511", "352", "4141", "4231", "4312", "433", "4411", "442"]
@@ -42,7 +45,7 @@ GOLDEN_VALUE = {p.id: p.fvmma for p in GOLDEN}
 
 
 def test_picks_the_only_fieldable_module_and_starts_with_the_keeper() -> None:
-    module, starts = best_lineup(GOLDEN, MODULES, value=GOLDEN_VALUE)
+    module, starts = ranked_lineups(GOLDEN, MODULES, value=GOLDEN_VALUE)[0]
 
     assert module == "343"
     assert set(starts) == {p.id for p in GOLDEN}
@@ -54,7 +57,7 @@ def test_maximises_score_within_a_module_benching_the_weaker_same_role_player() 
     roster = [*GOLDEN, weak_dc]
     value = {**GOLDEN_VALUE, 9999: 1.0}
 
-    module, starts = best_lineup(roster, MODULES, value=value)
+    module, starts = ranked_lineups(roster, MODULES, value=value)[0]
 
     assert module == "343"
     assert 9999 not in starts  # the three stronger DCs are preferred
@@ -63,8 +66,7 @@ def test_maximises_score_within_a_module_benching_the_weaker_same_role_player() 
 def test_a_roster_with_no_keeper_fields_no_module() -> None:
     outfield_only = [p for p in GOLDEN if "POR" not in p.roles]
 
-    with pytest.raises(NoFieldableModule):
-        best_lineup(outfield_only, MODULES, value=GOLDEN_VALUE)
+    assert ranked_lineups(outfield_only, MODULES, value=GOLDEN_VALUE) == []
 
 
 # A roster of universal outfielders + two keepers can field every module.
@@ -138,28 +140,37 @@ def test_the_built_starts_pass_the_positional_check(code: str) -> None:
     assert positional.violations(code, [roles[pid] for pid in starts]) == ()
 
 
-# --- `place_all`: feasibility, the substitution engine's primitive ----------
+# --- `place_all_with_malus`: feasibility, the substitution engine's primitive ----------
+#
+# These five were written against `place_all`, a two-line wrapper that passed `slot_sets`
+# as both the natural and the admitted sets and dropped the malus count. It was deleted on
+# 2026-09-24 with no caller in `src/`; `substitution.py` calls the matcher below directly.
+# The tests were repointed rather than deleted, because their subject was always the
+# matcher — and the rows-vs-columns guard in particular has no other coverage: break it
+# and `solve_assignment` hangs the run instead of failing it.
 
 
 def test_place_all_seats_everyone_in_a_slot_his_roles_cover() -> None:
     slots = (frozenset({"POR"}), frozenset({"DC"}), frozenset({"C", "M"}))
 
-    placement = place_all([frozenset({"C"}), frozenset({"POR"})], slots)
+    placed = place_all_with_malus([frozenset({"C"}), frozenset({"POR"})], slots, slots)
 
-    assert placement == [2, 0]
+    assert placed == ([2, 0], 0)
 
 
 def test_place_all_refuses_when_two_players_want_the_only_slot() -> None:
     slots = (frozenset({"POR"}), frozenset({"DC"}))
 
-    assert place_all([frozenset({"POR"}), frozenset({"POR"})], slots) is None
+    assert place_all_with_malus([frozenset({"POR"}), frozenset({"POR"})], slots, slots) is None
 
 
 def test_place_all_allows_fewer_players_than_slots() -> None:
     """The man-short case: ten players, eleven slots, one left empty."""
     slots = (frozenset({"POR"}), frozenset({"DC"}), frozenset({"DC"}))
 
-    assert place_all([frozenset({"DC"})], slots) in ([1], [2])
+    placed = place_all_with_malus([frozenset({"DC"})], slots, slots)
+
+    assert placed is not None and placed[0] in ([1], [2])
 
 
 def test_place_all_refuses_more_players_than_slots() -> None:
@@ -168,8 +179,10 @@ def test_place_all_refuses_more_players_than_slots() -> None:
     merely a wrong answer."""
     slots = (frozenset({"DC"}),)
 
-    assert place_all([frozenset({"DC"}), frozenset({"DC"})], slots) is None
+    assert place_all_with_malus([frozenset({"DC"}), frozenset({"DC"})], slots, slots) is None
 
 
 def test_place_all_seats_nobody_in_no_slots() -> None:
-    assert place_all([], (frozenset({"DC"}),)) == []
+    slots = (frozenset({"DC"}),)
+
+    assert place_all_with_malus([], slots, slots) == ([], 0)

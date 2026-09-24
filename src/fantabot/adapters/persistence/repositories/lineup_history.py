@@ -284,11 +284,6 @@ class ShadowRepository(RepositoryBase):
             None if points is None else float(points),
         )
 
-    def points_for(self, league_id: int, *, matchday: int, tid: int) -> float | None:
-        """What the platform awarded **our** team that matchday, or `None`."""
-        found = self.fixture_for(league_id, matchday=matchday, tid=tid)
-        return None if found is None else found[2]
-
     def competition_ids_for(self, league_id: int) -> list[int]:
         """The lega's competitions. `LeagueRepository.competition_ids`' read, reached from
         here so the shadow report needs one repository rather than two."""

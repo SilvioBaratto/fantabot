@@ -112,7 +112,7 @@ graph — an AST walk that counts imports inside function bodies and under
 src/fantabot/
   domain/        Pure. No I/O, no network, no clock, no framework import.
     asta/        legality, optimizer, reservation, roles, sentiment, state, value,
-                 bid, drain, live, opponents, prices, report, stateentry, copilot
+                 bid, live, opponents, prices, report, copilot
     classic/     roles, formations, state — the P/D/C/A engine: one role per player,
                  so legality is counting, not matching
     lega/        models, parse — the platform's own JSON, translated

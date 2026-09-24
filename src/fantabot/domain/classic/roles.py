@@ -30,9 +30,6 @@ class Role(StrEnum):
 #: The four codes as plain strings, for membership tests without the enum.
 CLASSIC_ROLES: frozenset[str] = frozenset(role.value for role in Role)
 
-#: The goalkeeper role — the one band that is a platform floor, not a per-league choice.
-GOALKEEPER: str = Role.P.value
-
 
 def normalize_role(code: str) -> str:
     """Fold a role code to its canonical uppercase letter, or raise if it is not P/D/C/A.

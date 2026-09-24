@@ -69,13 +69,14 @@ class ClassicRosterRules:
         return ClassicRosterRules(size=size, bands=bands)
 
 
-def classic_rules(counts: Mapping[str, int], *, size: int | None = None) -> ClassicRosterRules:
+def classic_rules(counts: Mapping[str, int]) -> ClassicRosterRules:
     """Build rules from a parsed ``static`` band (``players_settings_data`` / ``minrl``).
 
     ``counts`` is the exact per-role composition (e.g. ``{"P":3,"D":8,"C":8,"A":6}``); under the
-    ``static`` selection min == max, so each becomes a pinned band. ``size`` defaults to the sum,
-    matching the platform's own invariant that the per-role counts total the roster size.
+    ``static`` selection min == max, so each becomes a pinned band. The roster size is their
+    sum, which is the platform's own invariant — the per-role counts total the roster size. An
+    overriding ``size=`` keyword was here and no caller ever passed one; it is gone rather than
+    left as a second, untested way for the size and the bands to disagree.
     """
     bands = tuple((role, counts[role], counts[role]) for role in ROLE_ORDER if role in counts)
-    total = size if size is not None else sum(counts.values())
-    return ClassicRosterRules(size=total, bands=bands)
+    return ClassicRosterRules(size=sum(counts.values()), bands=bands)

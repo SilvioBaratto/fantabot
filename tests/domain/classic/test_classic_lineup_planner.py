@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineup, plan_lineups
+from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
 from fantabot.domain.lineup.payload import build
 
 
@@ -75,7 +75,7 @@ def test_mantra_stays_the_default_source() -> None:
 def test_the_classic_plan_is_deterministic() -> None:
     # a golden-style pin: fixed distinct values -> exactly one best 352 XI and bench order.
     inputs, _ = _classic_inputs(_distinct_roster(), mods=["352"])
-    plan = plan_lineup(inputs)
+    plan = plan_lineups(inputs)[0]
 
     assert plan.module == "352"
     # GK first, then the top 3 D, top 5 C, top 2 A by value (lower pid = higher value).
@@ -87,7 +87,7 @@ def test_the_classic_plan_is_deterministic() -> None:
 
 def test_the_classic_payload_carries_the_formation_code() -> None:
     inputs, _ = _classic_inputs(_distinct_roster(), mods=["352"])
-    body = build(plan_lineup(inputs))
+    body = build(plan_lineups(inputs)[0])
 
     assert body["mdl"] == "352"
     assert body["swtcMdl"] == "352"

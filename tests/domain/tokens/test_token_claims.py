@@ -86,11 +86,11 @@ def test_a_token_ninety_seconds_from_expiry_is_not() -> None:
     assert claims.is_expired(NOW) is False
 
 
-def test_a_long_lived_token_is_not_expired_and_reports_its_remaining_life() -> None:
+def test_a_long_lived_token_is_not_expired() -> None:
     claims = decode_claims(_tokens.make_token(l_id=1))
 
     assert claims.is_expired(NOW) is False
-    assert claims.expires_in(NOW) > timedelta(days=350)
+    assert claims.expires_at - NOW > timedelta(days=350)
 
 
 def test_a_token_that_expired_yesterday_is_expired() -> None:

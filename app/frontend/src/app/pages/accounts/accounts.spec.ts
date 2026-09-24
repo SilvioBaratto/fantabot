@@ -703,7 +703,7 @@ describe('AccountsComponent', () => {
     fixture.detectChanges();
     flush(ONE_LEAGUE);
     flushJobs({
-      jobs: [{ id: 'J7', kind: 'auth-login', status: 'running', started_at: '', lines: [] }],
+      jobs: [{ id: 'J7', kind: 'auth-login', status: 'running', lines: [] }],
     });
     fixture.detectChanges();
     await tick();
@@ -730,7 +730,7 @@ describe('AccountsComponent', () => {
     fixture.detectChanges();
     flush(ONE_LEAGUE);
     flushJobs({
-      jobs: [{ id: 'H1', kind: 'harvest-collect', status: 'running', started_at: '', lines: [] }],
+      jobs: [{ id: 'H1', kind: 'harvest-collect', status: 'running', lines: [] }],
     });
     fixture.detectChanges();
     await tick();
@@ -743,7 +743,7 @@ describe('AccountsComponent', () => {
     fixture.detectChanges();
     flush(ONE_LEAGUE);
     flushJobs({
-      jobs: [{ id: 'J6', kind: 'auth-login', status: 'done', started_at: '', lines: [] }],
+      jobs: [{ id: 'J6', kind: 'auth-login', status: 'done', lines: [] }],
     });
     fixture.detectChanges();
     await tick();

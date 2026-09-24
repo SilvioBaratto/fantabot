@@ -93,7 +93,6 @@ def _room(**kw: object) -> ResolvedRoom:
         # what a real room declares (`CLAUDE.md`: "counter_time is 7-10 s").
         "counter_time": 7,
         "counter_time_first": 15,
-        "call_at_quotaz": False,
         "team_names": {OUR_TEAM: "Noi"},
         "admin_id": "the-admin",
         "seat_by_user": {OUR_UID: OUR_TEAM},

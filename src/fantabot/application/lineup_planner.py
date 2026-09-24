@@ -148,8 +148,3 @@ def plan_lineups(inputs: LineupInputs) -> list[PlannedLineup]:
     if not plans:
         raise NoFieldableModule(tuple(inputs.modules))
     return plans
-
-
-def plan_lineup(inputs: LineupInputs) -> PlannedLineup:
-    """The single best `PlannedLineup` from `inputs`."""
-    return plan_lineups(inputs)[0]

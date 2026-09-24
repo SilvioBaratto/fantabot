@@ -126,8 +126,17 @@ def _unterminated_from(text: str) -> int | None:
 
 
 def _tracked_markdown() -> list[str]:
+    """Every tracked `.md` **that is still on disk**.
+
+    `git ls-files` reads the index, which lists a file deleted in the working tree until the
+    deletion is staged. Without the `is_file()` filter the guard raises `FileNotFoundError`
+    from `read_text` the moment anyone deletes a document — which is a crash, not a finding,
+    and it fires hardest during exactly the kind of sweep that most needs the guard working.
+    Measured 2026-09-24: deleting `app/frontend/QA_REPORT.md` took down three tests this way
+    before a single link had been checked.
+    """
     out = subprocess.run(["git", "ls-files", "*.md"], cwd=REPO, capture_output=True, text=True)
-    return sorted(out.stdout.split())
+    return sorted(f for f in out.stdout.split() if (REPO / f).is_file())
 
 
 def _tracked() -> set[str]:

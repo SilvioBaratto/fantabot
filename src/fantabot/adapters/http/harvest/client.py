@@ -56,8 +56,7 @@ def _live_url() -> str:
     """The live-list URL, with the host read from the environment **on every call**.
 
     It used to be the whole URL, hardcoded. ``FANTABOT_FANTALAB_BASE_URL`` therefore
-    moved ``rest.fetch_league`` and ``rest.join_team`` and left the scan pointed at the
-    real site — the worst half-obedience available to a knob whose only purpose is to
+    moved ``rest.fetch_league`` and left the scan pointed at the real site — the worst half-obedience available to a knob whose only purpose is to
     point the app somewhere else, because nothing said the scan had not moved.
 
     **Read through `config.live_setting`, not off the `settings` singleton**, which is the

@@ -206,8 +206,6 @@ def _all_valid(
     )
 
 
-
-
 def _confirm_until_captured(
     read_state: Callable[[], Mapping[str, Any]],
     *,

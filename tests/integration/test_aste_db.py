@@ -154,7 +154,6 @@ def test_events_for_an_unregistered_auction_are_reported_as_discarded(
     assert written.inserted == 0
     assert written.unknown_auction == 2
     assert written.discarded is True
-    assert written.offered == 2
     assert _count(db_session, AstaEvent) == 0
     assert "2 with no auction row" in written.summary()
 

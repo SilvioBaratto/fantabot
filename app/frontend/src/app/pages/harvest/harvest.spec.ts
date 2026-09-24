@@ -300,10 +300,7 @@ describe('HarvestComponent', () => {
           id: 'L9',
           kind: 'harvest-load',
           status: 'running',
-          started_at: '2026-09-05T18:00:00+00:00',
-          line_count: 0,
           ok: null,
-          stoppable: true,
         },
       ],
     });
@@ -318,10 +315,7 @@ describe('HarvestComponent', () => {
           id: 'j9',
           kind: 'harvest-scan',
           status: 'running',
-          started_at: '2026-09-05T18:00:00+00:00',
-          line_count: 0,
           ok: null,
-          stoppable: false,
         },
       ],
     });
@@ -457,10 +451,7 @@ describe('HarvestComponent', () => {
           id: 'C9',
           kind: 'harvest-collect',
           status: 'running',
-          started_at: '2026-09-05T21:00:00+00:00',
-          line_count: 0,
           ok: null,
-          stoppable: true,
         },
       ],
     });
@@ -761,10 +752,7 @@ describe('HarvestComponent', () => {
           id: 'B9',
           kind: 'harvest-backfill',
           status: 'running',
-          started_at: '2026-09-20T10:00:00+00:00',
-          line_count: 0,
           ok: null,
-          stoppable: true,
         },
       ],
     });

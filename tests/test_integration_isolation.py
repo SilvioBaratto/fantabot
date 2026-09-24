@@ -63,8 +63,6 @@ from pathlib import Path
 import pytest
 from _paths import INTEGRATION, TESTS
 
-INTEGRATION = INTEGRATION
-
 #: The borrow: *selecting ids* out of the table to use as test subjects. Whichever ids come
 #: back are real players with real readings, so the test collides with production rows on
 #: `(data_run, player_id)` and reads back somebody else's data.

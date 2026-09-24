@@ -91,7 +91,6 @@ class CalibrationRow:
     #: telling the model something false about our rosa.
     schemi: float | None
     won: int
-    lost: int
     #: Plan members the recorded rooms actually put up for sale. The denominator that makes
     #: `won` mean anything: losing a player we never wanted is not a miss.
     available: int
@@ -138,8 +137,8 @@ def _replay_one(
     rules: CompositionRules,
     budget: float,
     lam: float,
-) -> tuple[AstaState, int, int, int]:
-    """One evening at one ceiling premium: the end state, and the lots won, lost and offered.
+) -> tuple[AstaState, int, int]:
+    """One evening at one ceiling premium: the end state, and the lots won and offered.
 
     ``available`` is counted here rather than against the opening plan, because the plan moves
     as the evening does — a player we did not want at 20:00 becomes a target once the man
@@ -147,7 +146,7 @@ def _replay_one(
     tracks the live plan is how ``won %`` came out above 100 on its first run.
 
     **Only a plan member is ever priced — same scope as before this task, not widened.** A
-    lot outside the plan was always counted lost regardless of alpha; that stays. Widening it
+    lot outside the plan is passed over regardless of alpha; that stays. Widening it
     to price every lot through `lot_ceiling`, the way `RoomTracker._decide` now does live,
     would need the same "band and slot already full" guard `opportunistic_walkaway` gives the
     live bot's unplanned path — `optimize_roster` does not itself refuse a roster forced over
@@ -158,7 +157,7 @@ def _replay_one(
     not calibrate them.
     """
     state = AstaState(total_budget=budget)
-    won = lost = available = 0
+    won = available = 0
 
     # The plan is re-solved only when it could have changed: after a lot we won, and after a
     # lot somebody else won that the plan was counting on. A naive re-solve per lot costs one
@@ -190,7 +189,6 @@ def _replay_one(
             need_plan = False
 
         if lot.player_id not in planned:
-            lost += 1
             state = replace(state, taken=state.taken | {lot.player_id})
             continue
 
@@ -216,7 +214,6 @@ def _replay_one(
             ceilings[lot.player_id] = cached_ceiling
 
         if cached_ceiling < MIN_BID:
-            lost += 1
             state = replace(state, taken=state.taken | {lot.player_id})
             continue
 
@@ -239,7 +236,6 @@ def _replay_one(
             max_cap=None,
         )
         if payload is None:
-            lost += 1
             state = replace(state, taken=state.taken | {lot.player_id})
             continue
 
@@ -252,7 +248,7 @@ def _replay_one(
             taken=state.taken | {lot.player_id},
         )
 
-    return state, won, lost, available
+    return state, won, available
 
 
 def sweep(
@@ -294,10 +290,10 @@ def sweep(
         spends: list[float] = []
         slots: list[int] = []
         schemi: list[int] = []
-        won = lost = available = 0
+        won = available = 0
 
         for auction in admitted:
-            state, auction_won, auction_lost, auction_available = _replay_one(
+            state, auction_won, auction_available = _replay_one(
                 auction, ceiling_alpha=alpha, pool=pool, value=value, prices=prices,
                 teams=teams, legality=legality, rules=rules, budget=budget, lam=lam,
             )
@@ -310,7 +306,6 @@ def sweep(
                     len(fieldable_schemi(cast("list[MantraPlayer]", owned_players), legality))
                 )
             won += auction_won
-            lost += auction_lost
             available += auction_available
 
         n = len(admitted) or 1
@@ -325,7 +320,6 @@ def sweep(
                 slots=sum(slots) / n,
                 schemi=sum(schemi) / len(schemi) if schemi else None,
                 won=won,
-                lost=lost,
                 available=available,
                 won_share=(won / available) if available else 0.0,
             )

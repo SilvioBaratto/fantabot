@@ -54,12 +54,13 @@ app/
     doctor.py               # environment checks
     provisioner/            # postgres (pixeltable_pgserver) + migrate + chromium
     api/                    # the FastAPI adapter (was top-level `app`, renamed in R1b)
-      main.py  infrastructure/{settings,database,jobs,processes,...}  v1/{router,endpoints}
+      main.py  infrastructure/{settings,jobs,processes,...}  v1/{router,endpoints}
       outcomes.py           # why a decision route said no: the pinned tuples, and the rule
       tests/                # api tests (pytest), incl. tests/parity/ (`-m parity`)
       #  No `orm/` and no `schemas/`: deleted in T43. Both were scaffold. `Base` was an
       #  empty DeclarativeBase, so create_all/drop_all built and dropped zero tables, and
-      #  no route declares Depends(get_db), so the test override overrode nothing.
+      #  no route declared Depends(get_db), so the test override overrode nothing. That
+      #  wrapper went on 2026-09-24 too, with the two tests that were its only callers.
       #  Persistence is fantabot's; this layer holds no models of its own.
       #  No `reads/` either: deleted in T37. It hand-wrote SQLAlchemy over the same two
       #  snapshot models `interface/lega.py::_show` hand-wrote it over, and two readers of
@@ -90,9 +91,12 @@ cd frontend && npx ng test --watch=false  # vitest
 
 ## Rules
 
-- **One DB, one engine.** Every session comes from `fantabot.adapters.persistence.database_manager`
-  (`get_db` in `api/infrastructure/database.py`). The API adapter builds no `create_engine`/
-  `sessionmaker` — enforced by `tests/test_fitness.py` (A6). The provisioner's transient
+- **One DB, one engine.** Every session comes from `fantabot.adapters.persistence.database_manager`,
+  which routes import directly. The API adapter builds no `create_engine`/`sessionmaker` —
+  enforced by `tests/test_fitness.py` (A6). There was a `get_db` wrapper in
+  `api/infrastructure/database.py`; **no route ever declared `Depends(get_db)`**, which is
+  why `orm/` and `schemas/` went in T43, and the wrapper itself went on 2026-09-24 with the
+  two tests that were its only callers. The provisioner's transient
   admin engine (CREATE DATABASE) is the one documented exception.
 - **Degrade open.** Read endpoints never 500 on a missing token/DB — they return an empty/
   not-connected state, like the CLI.

@@ -50,13 +50,13 @@ from fantabot.domain.tokens.errors import SignInWindowClosed, StorageReadFailed
 #: so reads are worth spacing out even though there are now only a handful of them.
 POLL_INTERVAL_S = 2.0
 
-#: Sixty seconds. This runs *after* the human has said they are signed in, so the
-#: credential is either already written or a few SPA ticks away; ten minutes would
-#: only mean ten minutes of tab-opening reads before reporting the same failure.
-DEADLINE_S = 60.0
-
 #: Consecutive reads that must agree before an *incomplete* credential is accepted.
-#: See `await_capture`.
+#: See `read_credential`.
+#:
+#: There is no wall-clock deadline: this and `READ_FAILURE_BUDGET` are the only two
+#: bounds on the loop, and each caps a *count* of reads rather than an elapsed time.
+#: A `DEADLINE_S = 60.0` sat here until 2026-09-24 describing one the loop never
+#: enforced.
 SETTLE_TICKS = 5
 
 #: Consecutive failed *reads* tolerated before giving up. A single third-party origin

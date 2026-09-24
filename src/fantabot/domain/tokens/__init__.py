@@ -20,40 +20,14 @@ partially initialised. The test suite caught it the moment it was tried.
 The cycle is the pure/shell boundary asserting itself: `db` may depend on the
 pure half of `tokens`, so the pure half must not reach back through a package
 import. Callers say `from fantabot.adapters.tokens.store import TokenStore`.
+
+That reasoning survives this file having nothing in it. Importing
+`fantabot.domain.tokens.status` executes this module whatever it contains, so an
+import added here is the cycle, and the emptiness is what keeps the door shut.
+This file also carried a 16-name re-export block — the thirteen `errors` classes
+plus `TokenStatus`/`orphaned`/`render_state`. Measured 2026-09-24 it had **zero**
+importers: every consumer, `src/`, `app/` and `tests/` alike, names the submodule
+(`from fantabot.domain.tokens.errors import ...`). Deleted, because a package
+re-export nobody reads is a second spelling of every name in it, and it is the
+spelling that would one day be extended to `store`.
 """
-
-from fantabot.domain.tokens.errors import (
-    ApiTimeout,
-    ApiUnavailable,
-    AppKeyRejected,
-    KeyMalformed,
-    KeyMissing,
-    LeagueMismatch,
-    NoLeaguesFound,
-    TokenError,
-    TokenExpired,
-    TokenMissing,
-    TokenRejected,
-    TokenUndecryptable,
-    TokenUnreadable,
-)
-from fantabot.domain.tokens.status import TokenStatus, orphaned, render_state
-
-__all__ = [
-    "ApiTimeout",
-    "ApiUnavailable",
-    "AppKeyRejected",
-    "KeyMalformed",
-    "KeyMissing",
-    "LeagueMismatch",
-    "NoLeaguesFound",
-    "TokenError",
-    "TokenExpired",
-    "TokenMissing",
-    "TokenRejected",
-    "TokenStatus",
-    "TokenUndecryptable",
-    "TokenUnreadable",
-    "orphaned",
-    "render_state",
-]

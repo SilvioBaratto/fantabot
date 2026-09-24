@@ -282,3 +282,97 @@ def test_the_fixture_table_is_the_one_that_upserts() -> None:
     columns = [c.name for c in Base.metadata.tables["league_fixture"].primary_key.columns]
     assert columns == ["competition_id", "matchday", "team_home", "team_away"]
     assert "captured_at" not in Base.metadata.tables["league_fixture"].columns
+
+
+# -- `AstaEvent.full_payload` against the migration that made it necessary -----------------
+
+#: The revision that promoted five keys out of `asta_event.payload`. Its `downgrade()`
+#: folds them back in with raw SQL; `AstaEvent.full_payload` does the same thing in Python
+#: so the reconstruction is runnable outside a migration. Two implementations of one
+#: reconstruction, and until 2026-09-24 nothing checked that they agree.
+COLUMN_SPLIT = "d3f81a6b2e50_column_split_asta_event.py"
+
+
+def _downgrade_reconstruction() -> tuple[str, dict[str, tuple[str, str]]]:
+    """`(sql, {json key: (table alias, column)})` from the migration's `jsonb_build_object`.
+
+    Parsed from the file rather than restated here. A copy of the mapping in this test
+    would be a third implementation and would agree with the other two only by luck —
+    which is the failure the test exists to catch.
+    """
+    import re
+
+    from _paths import REPO
+
+    source = (REPO / "alembic" / "versions" / COLUMN_SPLIT).read_text(encoding="utf-8")
+    downgrade = source[source.index("def downgrade()") :]
+    start = downgrade.index("jsonb_build_object(")
+    body = downgrade[start : downgrade.index("))", start)]
+    pairs = re.findall(r"'(\w+)',\s*(\w+)\.(\w+)", body)
+    assert pairs, "the migration's reconstruction no longer parses — read it before trusting this"
+    return downgrade, {key: (alias, column) for key, alias, column in pairs}
+
+
+def test_the_migration_folds_back_exactly_the_keys_the_model_says_it_promoted() -> None:
+    """`AstaEvent.PROMOTED` is the model's claim about which keys left the payload. The
+    migration's `downgrade()` is the only other statement of it, in SQL, and a key in one
+    and not the other is a payload that does not come back the way it went in.
+
+    `fantaleague_id` is the one key the model cannot carry: it moved to `asta`, being
+    bijective with it, which is why `full_payload` takes it as an argument.
+    """
+    from fantabot.adapters.persistence.models.aste import AstaEvent
+
+    _, mapping = _downgrade_reconstruction()
+
+    assert set(mapping) == set(AstaEvent.PROMOTED) | {"fantaleague_id"}
+    for key, attribute in AstaEvent.PROMOTED.items():
+        assert mapping[key] == ("e", attribute), f"{key} reads a different column in SQL"
+    assert mapping["fantaleague_id"][0] == "a", "fantaleague_id must come from `asta`, not the event"
+
+
+def test_full_payload_agrees_with_the_migrations_sql_on_every_null_combination() -> None:
+    """The keys agreeing is half of it; the **null handling** is the half that can drift.
+
+    SQL merges `payload || jsonb_strip_nulls(jsonb_build_object(...))`: nulls are dropped,
+    and what survives overwrites the payload. Python does the same with an `is not None`
+    guard and an assignment. Both halves are asserted here — a `full_payload` that wrote
+    `None` through, or merged the other way round, passes the key test above and fails this.
+    """
+    from fantabot.adapters.persistence.models.aste import AstaEvent
+
+    sql, mapping = _downgrade_reconstruction()
+    assert "jsonb_strip_nulls" in sql, "the SQL no longer drops nulls; Python still does"
+    assert "e.payload\n" in sql and "|| jsonb_strip_nulls" in sql, (
+        "the merge order changed: `payload || built` is what makes the promoted columns win"
+    )
+
+    def as_sql_would(event: AstaEvent, fantaleague_id: str | None) -> dict[str, object]:
+        built = {
+            key: (fantaleague_id if alias == "a" else getattr(event, column))
+            for key, (alias, column) in mapping.items()
+        }
+        stripped = {k: v for k, v in built.items() if v is not None}  # jsonb_strip_nulls
+        return {**dict(event.payload), **stripped}  # `payload || ...`
+
+    values: dict[str, object] = {
+        "last_update_asta": 1_790_000_000_000,
+        "last_bid_time": 1_790_000_000_111,
+        "timer_in_sec": 30,
+        "last_update": 1_790_000_000_222,
+        "update_type": "bid",
+    }
+    # Every column present, every column absent, and each one absent on its own: the
+    # combination that can differ is exactly "this key is null", one key at a time.
+    absent: list[set[str]] = [set(), set(values)] + [{name} for name in values]
+
+    for missing in absent:
+        for payload in ({"player_id": "kean", "price": 3}, {"price": 3, "update_type": "stale"}):
+            for fantaleague_id in ("fl-1", None):
+                event = AstaEvent(
+                    payload=dict(payload),
+                    **{k: (None if k in missing else v) for k, v in values.items()},
+                )
+                assert event.full_payload(fantaleague_id) == as_sql_would(event, fantaleague_id), (
+                    f"missing={sorted(missing)} payload={payload} fl={fantaleague_id}"
+                )

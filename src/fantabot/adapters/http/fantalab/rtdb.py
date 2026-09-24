@@ -89,9 +89,15 @@ def place_raise(
     payload is PATCHed once and its status returned; a ``401`` (a lost race or a rule refusal) is
     reported, not raised, so the caller can count it. ``node`` is ``"auction"`` or ``"assign"``.
 
-    Participant bids need no ``token``; when one is given it rides only in the query string of the
-    live request and is **never** stored, returned, or logged — the ``BidOutcome`` holds neither
-    the token nor the URL that carried it.
+    ``token`` is **unexercised in production**: every caller in the tree is the participant path
+    (``application/asta_session.lot_router``), and a participant bid is unauthenticated (06 §10),
+    so nothing here has ever passed one. It is kept, with its test, because it is the only
+    leak-shaped path this module has — a credential in a query string — and deleting the
+    parameter would delete the assertion that the credential stays out of ``BidOutcome`` and out
+    of every log line. When one *is* given it rides only in the query string of the live request
+    and is **never** stored, returned, or logged: the ``BidOutcome`` holds neither the token nor
+    the URL that carried it, and ``tests/adapters/tokens/test_token_secrecy.py`` scans this module
+    for the rest.
     """
     from fantabot.config import live_auto_act
 

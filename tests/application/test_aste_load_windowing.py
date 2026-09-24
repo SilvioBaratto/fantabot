@@ -53,35 +53,9 @@ def test_one_pass_over_the_whole_file_keeps_the_ladder(tmp_path: Path) -> None:
     assert _ladder(read_jsonl(landing)) == [0, 1, 2, 3]
 
 
-def test_two_passes_must_not_shorten_it(tmp_path: Path) -> None:
-    """The exact shape `--follow` produces: the collector appends while the
-    loader reads, so a turn is split across passes. Whatever the loader stores
-    after the last pass must equal what a single whole-file pass stores."""
-    from fantabot.application.harvest_loader import assignments_for_pass
-
-    landing = tmp_path / "live.jsonl"
-    checkpoint = Checkpoint(landing)
-
-    _write(landing, TURN[:3])
-    first_records, offset = read_from(landing, checkpoint.read())
-    ladder_one = assignments_for_pass(landing, first_records)
-    checkpoint.write(offset)
-
-    _write(landing, TURN[3:])
-    second_records, offset = read_from(landing, checkpoint.read())
-    ladder_two = assignments_for_pass(landing, second_records)
-    checkpoint.write(offset)
-
-    stored = ladder_two or ladder_one
-    ladder = [rung["price"] for rung in stored[0]["ladder"]] if stored else []
-    assert ladder == [0, 1, 2, 3], (
-        "the second pass overwrote the complete ladder with the rungs it happened to see"
-    )
-
-
 def test_events_stay_incremental(tmp_path: Path) -> None:
-    """Assignments need the whole file; events must not re-read it, or every
-    pass re-uploads the entire evening."""
+    """Events must not re-read the file, or every pass re-uploads the entire
+    evening."""
     landing = tmp_path / "live.jsonl"
     checkpoint = Checkpoint(landing)
     _write(landing, TURN[:3])

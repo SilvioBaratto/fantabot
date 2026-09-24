@@ -237,11 +237,17 @@ async def fetch_roster_news(
 
     sink: SentimentSink | None = None
     if write:
-        failures: list[str] = []
+        # `SentimentSink`'s `on_error` exists so a store failure is said out loud; it used
+        # to append the type name to a list nobody read, which said it out loud to nobody.
+        # An exception's *class name* is safe to print — it is Python's, not the agent's,
+        # so none of the markup this module keeps off the Reporter can reach it.
         sink = SentimentSink(
             lambda rows: gateway.store(rows, force=force),
             every=flush_every,
-            on_error=lambda exc: failures.append(type(exc).__name__),
+            on_error=lambda exc: reporter.print(
+                f"[yellow]a batch of readings could not be stored ({type(exc).__name__}) "
+                "— they are held for the next flush[/yellow]"
+            ),
         )
 
     def on_result(progress: Any) -> None:
@@ -273,7 +279,7 @@ async def fetch_roster_news(
         sink.drain()
 
     return NewsRunResult(
-        reason=_verdict(selection, result, sink),
+        reason=_verdict(result, sink),
         roster=len(roster_ids),
         matched=selection.matched,
         unmatched=selection.unmatched,
@@ -291,7 +297,7 @@ async def fetch_roster_news(
     )
 
 
-def _verdict(selection: Selection, result: Any, sink: SentimentSink | None) -> str | None:
+def _verdict(result: Any, sink: SentimentSink | None) -> str | None:
     """Why this run failed, or `None`. The one place that decides.
 
     A run that asked and got nothing back is a failure even though every individual player

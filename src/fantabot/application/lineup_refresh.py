@@ -27,7 +27,7 @@ Protocol, and `LiveRefreshSources` is the one implementation that reaches the ou
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
@@ -300,14 +300,12 @@ class LiveRefreshSources:
     reporter: Reporter
     #: Injected so the tests never touch `Settings`; `None` means "read it at use".
     news_enabled: bool | None = None
-    _voti_counts: dict[int, int] = field(default_factory=dict, repr=False)
 
     def voti(self, inputs: RefreshInputs, giornate: Sequence[int]) -> SourceOutcome:
         """The targeted scrape (T24). A success is rows for `cmday - 1`, nothing less."""
         from fantabot.application.scrape import run_voti_range
 
         counts = {c.giornata: c.rows for c in run_voti_range(inputs.season, list(giornate))}
-        self._voti_counts = counts
         detail = " ".join(f"g{g}:{n}" for g, n in sorted(counts.items()))
         if voti_succeeded(counts, cmday=inputs.cmday):
             return SourceOutcome("voti", "ok", detail)

@@ -124,7 +124,6 @@ class ResolvedRoom:
     raise_mode: str | None
     counter_time: int | None
     counter_time_first: int | None
-    call_at_quotaz: bool
     #: `fantateam_id -> team name`, so a rival reads as a name rather than a uuid. Uuids are
     #: unreadable at speed, and the screen is read at speed or not at all.
     team_names: Mapping[str, str]
@@ -226,7 +225,6 @@ def resolve_room(
         raise_mode=config.raise_mode,
         counter_time=config.counter_time,
         counter_time_first=config.counter_time_first,
-        call_at_quotaz=config.call_at_quotaz,
         team_names={s.fantateam_id: s.team_name or s.fantateam_id for s in config.seats},
         admin_id=config.admin_id,
         seat_by_user={s.user_id: s.fantateam_id for s in config.seats if s.user_id is not None},

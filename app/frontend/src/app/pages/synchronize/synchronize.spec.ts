@@ -137,10 +137,7 @@ describe('SynchronizeComponent', () => {
             id: 'J9',
             kind: 'lega-sync',
             status: 'running',
-            started_at: '2026-09-05T18:00:00+00:00',
-            line_count: 3,
             ok: null,
-            stoppable: false,
           },
         ],
       });
@@ -162,10 +159,7 @@ describe('SynchronizeComponent', () => {
             id: 'J8',
             kind: 'lega-sync',
             status: 'done',
-            started_at: '2026-09-05T18:00:00+00:00',
-            line_count: 3,
             ok: true,
-            stoppable: false,
           },
         ],
       });
@@ -623,10 +617,7 @@ describe('SynchronizeComponent', () => {
             id: 'S9',
             kind: 'db-scrape',
             status: 'running',
-            started_at: '2026-09-20T18:00:00+00:00',
-            line_count: 2,
             ok: null,
-            stoppable: true,
           },
         ],
       });

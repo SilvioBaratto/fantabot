@@ -15,14 +15,17 @@ repository has had two of those.
 cases, not the edge cases. `domain/asta/prices.py` — then `asta_engine/prices.py` —
 *looked* pure: its only `sqlalchemy` mention was under `TYPE_CHECKING` and its
 repository import sat inside a function body, and it reached Postgres on every call.
-`domain/news/pool.py` and `domain/asta/stateentry.py` were the same shape, the last of
-them over `claude_agent_sdk` and `config` rather than the database. A walker that only
+`domain/news/pool.py` was the same shape, and so was `domain/asta/stateentry.py` — that
+one over `claude_agent_sdk` and `config` rather than the database. A walker that only
 read module-level imports would have reported all three as clean, which is precisely
 the reassurance nobody needs.
 
-All three have since been split, and this walker is what keeps them split: measured
-2026-09-24, none of the three imports persistence or the SDK at any level, directly or
-transitively. The shape is what the rule is about, not those three modules.
+All three were split, and this walker is what kept them split: measured 2026-09-24,
+neither of the two that remain imports persistence or the SDK at any level, directly or
+transitively. `stateentry.py` was deleted later the same day, its consumer having gone in
+`01712f2` — it is named here because it is the example that shows the *third* shape, an
+agent-SDK reach rather than a database one, and the rule is about the shape rather than
+about those three modules.
 """
 
 from __future__ import annotations

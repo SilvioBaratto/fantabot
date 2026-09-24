@@ -59,9 +59,6 @@ class TokenClaims:
         """Dead, or close enough that a call started now would race the clock."""
         return now >= self.expires_at - skew
 
-    def expires_in(self, now: datetime) -> timedelta:
-        return self.expires_at - now
-
 
 def _optional_int(payload: dict[str, Any], name: str) -> int | None:
     value = payload.get(name)

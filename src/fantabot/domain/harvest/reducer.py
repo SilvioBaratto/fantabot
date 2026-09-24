@@ -10,8 +10,15 @@ and every observed frame targets ``"/"``, but the field was parsed and then read
 by nothing — so a frame aimed at a child key was applied at the root, and a
 nested ``put`` wiped the whole auction. The spec's own Code Style snippet refuses
 a non-root path; that guard was specified and not implemented. An unhandled path
-now leaves the state alone and is **counted**, because refusing in silence is the
-failure this phase keeps finding in itself.
+now leaves the state alone.
+
+⚠ **It is refused in silence.** `apply_frame` once took a `seen=` counter and
+`unsupported_paths()` built one, so a caller could surface the refusals — but the
+one caller, `adapters/http/harvest/stream.py`, never passed it, and only a test
+ever did. Both were deleted on 2026-09-24 rather than kept as a reporting path
+nothing reported through. The observation they were written for is real: a child
+frame applied at the root is how a nested `put` wiped an auction, and if refusals
+start mattering again the counter is the shape to bring back, wired to a caller.
 
 One rule carries all the risk: **a ``null`` in a patch deletes the key.** That is
 how a close is signalled. A reducer that stores the null instead leaves a price
@@ -21,8 +28,6 @@ states shows a sale that never happened.
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Iterable
 from typing import Any
 
 from fantabot.domain.harvest.sse import Frame
@@ -37,26 +42,14 @@ State = dict[str, Any]
 ROOT = ("/", None)
 
 
-def unsupported_paths() -> Counter[str]:
-    """A counter for paths the reducer refused, so a caller can surface them."""
-    return Counter()
-
-
-def apply_frame(
-    state: State, frame: Frame, seen: Counter[str] | None = None
-) -> State:
-    """Return a new state with ``frame`` applied. Never mutates ``state``.
-
-    ``seen`` collects paths this refuses, if a caller wants to know.
-    """
+def apply_frame(state: State, frame: Frame) -> State:
+    """Return a new state with ``frame`` applied. Never mutates ``state``."""
     if frame.event in INERT:
         return dict(state)
 
     if frame.path not in ROOT:
         # Unmodelled, so not guessed at. Applying a child frame at the root is
         # how a nested `put` came to wipe an auction.
-        if seen is not None:
-            seen[str(frame.path)] += 1
         return dict(state)
 
     if frame.event == "put":
@@ -75,10 +68,3 @@ def apply_frame(
     # a watch over a frame that may simply be new.
     return dict(state)
 
-
-def fold(frames: Iterable[Frame], initial: State | None = None) -> State:
-    """Apply every frame in order."""
-    state: State = dict(initial or {})
-    for frame in frames:
-        state = apply_frame(state, frame)
-    return state

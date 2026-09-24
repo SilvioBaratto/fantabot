@@ -231,8 +231,6 @@ def _seed_schema(
     owned_players: Sequence[MantraPlayer],
     budget_left: float,
     available: Sequence[MantraPlayer],
-    value: ValueModel,
-    prices: Mapping[str, float],
     teams: Mapping[str, str],
     rules: RosterRules,
     lam: float,
@@ -287,8 +285,6 @@ def _seed_legal_xi(
     owned_players: Sequence[MantraPlayer],
     budget_left: float,
     available: Sequence[MantraPlayer],
-    value: ValueModel,
-    prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
     rules: RosterRules,
@@ -298,8 +294,7 @@ def _seed_legal_xi(
 ) -> tuple[list[str], float] | None:
     for schema in legality.values():
         seeded = _seed_schema(
-            schema, owned_players, budget_left, available, value, prices, teams, rules,
-            lam, rho, index,
+            schema, owned_players, budget_left, available, teams, rules, lam, rho, index
         )
         if seeded is not None:
             return seeded
@@ -311,7 +306,6 @@ def _build_mantra(
     by_id: Mapping[str, MantraPlayer],
     available: Sequence[MantraPlayer],
     value: ValueModel,
-    prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
     rules: RosterRules,
@@ -330,8 +324,7 @@ def _build_mantra(
     owned_players = [by_id[pid] for pid in picked]
     if not fieldable_schemi(owned_players, legality):
         seeded = _seed_legal_xi(
-            owned_players, budget_left, available, value, prices, teams, legality, rules,
-            lam, rho, index,
+            owned_players, budget_left, available, teams, legality, rules, lam, rho, index
         )
         if seeded is None:
             raise InfeasibleRoster("no schema can be seeded within budget")
@@ -389,7 +382,6 @@ def _build_mantra(
 
 def _build_classic(
     state: AstaState,
-    by_id: Mapping[str, ClassicPlayer],
     available: Sequence[ClassicPlayer],
     value: ValueModel,
     teams: Mapping[str, str],
@@ -467,7 +459,6 @@ def _build(
     by_id: Mapping[str, Candidate],
     available: Sequence[Candidate],
     value: ValueModel,
-    prices: Mapping[str, float],
     teams: Mapping[str, str],
     legality: dict[str, SchemaLegality],
     rules: CompositionRules,
@@ -479,13 +470,14 @@ def _build(
 
     Mantra (two super-roles + an L1 legal-XI seed) and Classic (four per-role bands, no schema)
     are different algorithms, so each has its own fill. The dispatch guarantees the pool type
-    matches the rules — the casts are that invariant, made explicit — which is what lets
-    `_build_mantra` keep its exact MantraPlayer signature and stay byte-identical.
+    matches the rules — the casts are that invariant, made explicit — which is what lets each
+    fill keep its own exact element type instead of widening to `Candidate` and re-narrowing.
+    `_build_classic` takes no `by_id`: it buckets by `index.band`, so the cast that used to
+    hand it one was paid for an argument the body never read (measured 2026-09-24).
     """
     if isinstance(rules, ClassicRosterRules):
         return _build_classic(
             state,
-            cast("Mapping[str, ClassicPlayer]", by_id),
             cast("Sequence[ClassicPlayer]", available),
             value,
             teams,
@@ -499,7 +491,6 @@ def _build(
         cast("Mapping[str, MantraPlayer]", by_id),
         cast("Sequence[MantraPlayer]", available),
         value,
-        prices,
         teams,
         legality,
         rules,
@@ -550,7 +541,7 @@ def optimize_roster(
         index = _Index(pool, prices, rules, value)
 
     optimal = _build(
-        state, by_id, available, value, prices, teams, legality, rules, lam, rho, index
+        state, by_id, available, value, teams, legality, rules, lam, rho, index
     )
 
     fallbacks: list[Roster] = []
@@ -559,8 +550,7 @@ def optimize_roster(
         try:
             fallbacks.append(
                 _build(
-                    state, by_id, without, value, prices, teams, legality, rules, lam, rho,
-                    index,
+                    state, by_id, without, value, teams, legality, rules, lam, rho, index
                 )
             )
         except InfeasibleRoster:

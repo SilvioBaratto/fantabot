@@ -28,7 +28,6 @@ TREE: dict[str, str] = {
     # -- domain/asta: the decision logic ------------------------------------------------
     "test_asta_bargain.py": "domain/asta",
     "test_asta_bid.py": "domain/asta",
-    "test_asta_drain.py": "domain/asta",
     "test_asta_edge.py": "domain/asta",
     "test_asta_legality.py": "domain/asta",
     "test_asta_live.py": "domain/asta",
@@ -39,7 +38,6 @@ TREE: dict[str, str] = {
     "test_asta_reservation.py": "domain/asta",
     "test_asta_resize_band.py": "domain/asta",
     "test_asta_sentiment.py": "domain/asta",
-    "test_asta_stateentry.py": "domain/asta",
     "test_asta_rules_for_room.py": "domain/asta",
     "test_asta_rules_for_lega.py": "domain/asta",
     "test_asta_room_url.py": "domain/asta",

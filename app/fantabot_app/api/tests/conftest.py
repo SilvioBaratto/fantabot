@@ -3,9 +3,12 @@
 **There is no database here, and there was never anything for one to do.** This file used
 to build a SQLite engine, `create_all` a `DeclarativeBase` and override `get_db` — three
 things that each did nothing. `Base` had no models, so `create_all` and `drop_all` built
-and dropped zero tables; no route declares `Depends(get_db)`, so
+and dropped zero tables; no route declared `Depends(get_db)`, so
 `dependency_overrides[get_db]` overrode nothing. The scaffold it served
-(`api/infrastructure/orm/`, `api/schemas/`) is deleted.
+(`api/infrastructure/orm/`, `api/schemas/`) is deleted, and so, since 2026-09-24, is
+`get_db` itself and the `api/infrastructure/database.py` that held it: the dependency no
+route ever declared outlived the override by one deletion. Sessions come from fantabot's
+`database_manager`, taken where they are used.
 
 It was also the only `create_engine`/`sessionmaker` anywhere under `api/` — the exact
 thing `tests/test_fitness.py::test_api_holds_no_second_sqlalchemy_engine` forbids, kept

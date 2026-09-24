@@ -108,24 +108,6 @@ def test_a_token_is_sent_as_a_bearer_and_omitted_without_one() -> None:
     assert seen["auth"] is None  # no token -> no Authorization header
 
 
-def test_join_team_posts_only_seat_and_user() -> None:
-    seen: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        import json
-
-        seen["path"] = request.url.path
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"message": "Fantateam Joined"})
-
-    ok = rest.join_team("80c4-seat2", "my-uid", transport=httpx.MockTransport(handler))
-
-    assert ok is True
-    assert seen["path"] == "/fantaleague/join"
-    # invitation_id is not required when the seat id is known (06 §3)
-    assert seen["body"] == {"fantateam_id": "80c4-seat2", "user_id": "my-uid"}
-
-
 class TestOurSeatInTheRoom:
     """Four id spaces are in play, and only one of them is our seat.
 
