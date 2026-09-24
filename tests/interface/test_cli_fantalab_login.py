@@ -230,3 +230,134 @@ class TestThePreflightDsnMatchesTheLegaLoginsExactly:
         assert mine == theirs
         assert "S3cr3tCanary" not in mine
         assert "%2F" not in mine
+
+
+# -- the Typer body -----------------------------------------------------------------------
+#
+# Everything above drives `application.fantalab_login.run` directly. The command that calls
+# it was measured 2026-09-24 at **0 of 11 body statements** — so the posture the file's own
+# docstring describes was pinned one layer below where an operator invokes it, and the
+# wiring that decides whether a real Chromium opens was itself untested.
+
+
+class TestFantalabLoginBody:
+    """The Typer body, with `run` faked. No browser is constructed; the autouse socket
+    guard would fail these outright if one were."""
+
+    @staticmethod
+    def _wire(monkeypatch: Any) -> dict[str, Any]:
+        from fantabot.adapters.browser import capture
+        from fantabot.application import fantalab_login as use_case
+
+        seen: dict[str, Any] = {"kwargs": None, "browsers": [], "raises": None}
+
+        def _run(**kwargs: Any) -> Any:
+            seen["kwargs"] = kwargs
+            if seen["raises"] is not None:
+                raise seen["raises"]
+            return FantalabLoginResult(user_id="u1", browser_opened=True, stored=True)
+
+        # `real_browser` is replaced with a recorder, never called by these tests — what is
+        # asserted is the argument the body would hand it, without launching Chromium.
+        monkeypatch.setattr(
+            capture, "real_browser", lambda name=None: seen["browsers"].append(name)
+        )
+        monkeypatch.setattr(use_case, "run", _run)
+        return seen
+
+    def test_a_clean_login_exits_0_and_hands_over_both_seams(
+        self, monkeypatch: Any
+    ) -> None:
+        """The command supplies a `browser_factory` and a `read_state` and does nothing
+        itself — the rule that this program types nothing and clicks nothing is kept by
+        having no page to type into on this side of the call."""
+        from typer.testing import CliRunner
+
+        from fantabot.adapters.browser.capture import read_storage_state
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+
+        result = CliRunner().invoke(app, ["auth", "fantalab-login"])
+
+        assert result.exit_code == 0
+        assert seen["kwargs"]["read_state"] is read_storage_state
+        assert callable(seen["kwargs"]["browser_factory"])
+        assert seen["kwargs"]["force"] is False
+        # Not opened: the body builds the factory and hands it over uncalled.
+        assert seen["browsers"] == []
+
+    def test_an_empty_browser_option_means_the_bundled_chromium(
+        self, monkeypatch: Any
+    ) -> None:
+        """`real_browser(None)`, not `real_browser("")` — an empty string is a name, and
+        Playwright would look for a channel called that."""
+        from typer.testing import CliRunner
+
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+        CliRunner().invoke(app, ["auth", "fantalab-login"])
+
+        seen["kwargs"]["browser_factory"]()
+
+        assert seen["browsers"] == [None]
+
+    def test_a_named_browser_is_passed_through(self, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+        CliRunner().invoke(app, ["auth", "fantalab-login", "--browser", "msedge"])
+
+        seen["kwargs"]["browser_factory"]()
+
+        assert seen["browsers"] == ["msedge"]
+
+    def test_force_reaches_the_use_case(self, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+
+        CliRunner().invoke(app, ["auth", "fantalab-login", "--force"])
+
+        assert seen["kwargs"]["force"] is True
+
+    def test_an_aborted_login_exits_with_the_code_the_exception_carries(
+        self, monkeypatch: Any
+    ) -> None:
+        """`LoginAborted` exists to carry that number: a preflight refusal is not the same
+        outcome as a window the operator closed, and a wrapper reads the difference."""
+        from typer.testing import CliRunner
+
+        from fantabot.domain.tokens.errors import LoginAborted
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+        seen["raises"] = LoginAborted("no encryption key", code=3)
+
+        result = CliRunner().invoke(app, ["auth", "fantalab-login"])
+
+        assert result.exit_code == 3
+        assert "no encryption key" in result.output
+
+    def test_a_closed_window_and_an_unreadable_capture_both_exit_1(
+        self, monkeypatch: Any
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from fantabot.application.login_wait import CaptureUnreadable
+        from fantabot.domain.tokens.errors import SignInWindowClosed
+        from fantabot.interface.app import app
+
+        for failure in (SignInWindowClosed(), CaptureUnreadable(4)):
+            seen = self._wire(monkeypatch)
+            seen["raises"] = failure
+
+            result = CliRunner().invoke(app, ["auth", "fantalab-login"])
+
+            assert result.exit_code == 1, failure
+            assert result.output.strip(), failure

@@ -117,3 +117,86 @@ class TestRenderPricing:
                 app.console = original
 
         assert "[bold]not-markup[/bold]" in captured.get()
+
+
+# -- the Typer body -----------------------------------------------------------------------
+#
+# Everything above tests `render_pricing`, the helper. The command that calls it was
+# measured 2026-09-24 at **0 of 5 body statements** — one of five commands no test entered
+# at all, and the shortest of them. Short is not the same as safe: these five statements
+# decide which listone gets priced, and `db price` writes `target_price`, which is the one
+# table in this repo whose numbers get spent as real credits.
+
+
+class TestDbPriceBody:
+    """The wiring, with `pricing.run` faked. Zero sockets, no database."""
+
+    @staticmethod
+    def _wire(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+        from fantabot.application import pricing
+        from fantabot.interface import app as app_module
+
+        seen: list[dict[str, object]] = []
+
+        def _run(system: str = "classic", top_n: int = 15) -> object:
+            seen.append({"system": system, "top_n": top_n})
+            return "report"
+
+        monkeypatch.setattr(pricing, "run", _run)
+        monkeypatch.setattr(
+            app_module,
+            "render_pricing",
+            lambda report, top_n: seen.append({"rendered": report, "with": top_n}),
+        )
+        return seen
+
+    def test_an_unknown_listone_is_refused_before_anything_is_fitted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A typo must not silently price the default one. `BadParameter` is exit 2, and
+        the fit never runs — which is what keeps a wrong `target_price` off the table."""
+        from typer.testing import CliRunner
+
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+
+        result = CliRunner().invoke(app, ["db", "price", "--system", "mantr"])
+
+        assert result.exit_code == 2
+        assert "is not a listone" in result.output
+        assert seen == []
+
+    @pytest.mark.parametrize("system", ["classic", "mantra"])
+    def test_both_listoni_reach_the_fit_with_the_row_count(
+        self, monkeypatch: pytest.MonkeyPatch, system: str
+    ) -> None:
+        """`--top-n` is one number reaching two places — the fit and the renderer — and
+        they have to be the same one, or the tables describe a different cut than the
+        one the operator asked to see."""
+        from typer.testing import CliRunner
+
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+
+        result = CliRunner().invoke(
+            app, ["db", "price", "--system", system, "--top-n", "3"]
+        )
+
+        assert result.exit_code == 0
+        assert seen == [
+            {"system": system, "top_n": 3},
+            {"rendered": "report", "with": 3},
+        ]
+
+    def test_the_default_listone_is_classic(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from fantabot.interface.app import app
+
+        seen = self._wire(monkeypatch)
+
+        CliRunner().invoke(app, ["db", "price"])
+
+        assert seen[0] == {"system": "classic", "top_n": 15}
