@@ -30,9 +30,19 @@ class TestBothLocksMustBeOpen:
         assert bid_writer(auto_act=True, arm=True, send=_send)({"price": 7}) == "SENT 7"
 
     def test_the_flag_alone_sends_nothing(self) -> None:
-        outcome = bid_writer(auto_act=False, arm=True, send=_send)({"price": 7})
+        """`send` is not called — not merely "its result was discarded".
 
-        assert outcome != "SENT 7"
+        The first assertion here read `assert outcome != "SENT 7"`, a `BidOutcome`
+        compared to a `str`: true for every object this function can return, under every
+        mutation of it, so it could not fail (2026-09-24). What it was reaching for is the
+        line below, which is the difference between a bid that was held and a bid that
+        went out and was thrown away.
+        """
+        calls: list[dict[str, Any]] = []
+
+        outcome = bid_writer(auto_act=False, arm=True, send=calls.append)({"price": 7})
+
+        assert calls == [], "the writer sent a bid with only one lock open"
         assert outcome.sent is False
         assert outcome.dry_run is True
 

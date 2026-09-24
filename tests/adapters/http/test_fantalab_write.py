@@ -88,16 +88,53 @@ def test_assign_node_is_addressable(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen["path"] == "/assign/L.json"
 
 
-def test_a_token_never_surfaces_in_the_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+#: Deliberately not JWT-shaped: `test_token_secrecy.py` refuses an `eyJ...` literal in any
+#: tracked file, and a synthetic string is all this needs to be findable in a URL.
+TOKEN = "a-secret-token-value"
+
+
+def test_a_supplied_token_rides_the_query_string_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole assertion here was `TOKEN not in repr(out)` until 2026-09-24.
+
+    `BidOutcome` is five ints/strs/bools and structurally cannot hold a token, so that
+    passed for the shape of a frozen dataclass and not for anything `place_raise` does —
+    it stayed green under `params = None`, which is what dropping the credential looks
+    like. `rtdb.py`'s docstring says why the parameter is kept at all: it is this module's
+    one leak-shaped path. So what is pinned is the claim that docstring makes — the token
+    goes to exactly one place, the live request's query string, and to nowhere else.
+    """
     _auto_act(monkeypatch, True)
+    seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        seen["params"] = dict(request.url.params)
+        seen["body"] = request.content.decode()
         return httpx.Response(200, json={})
 
-    out = rtdb.place_raise(
-        9, "L", PAYLOAD, token="a-secret-token-value", transport=httpx.MockTransport(handler)
-    )
-    assert "a-secret-token-value" not in repr(out)
+    out = rtdb.place_raise(9, "L", PAYLOAD, token=TOKEN, transport=httpx.MockTransport(handler))
+
+    assert seen["params"] == {"auth": TOKEN}, "the query string, and only the query string"
+    assert TOKEN not in seen["body"]
+    assert TOKEN not in repr(out)
+    assert not any(TOKEN in str(value) for value in vars(out).values())
+
+
+def test_no_token_sends_no_auth_parameter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The participant path, which is every caller in the tree: a bid on FantaLab's RTDB is
+    unauthenticated (`docs/fantalab/06` §10). An unconditional `{"auth": token}` would put
+    a literal `auth=None` on every bid of the evening."""
+    _auto_act(monkeypatch, True)
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json={})
+
+    rtdb.place_raise(9, "L", PAYLOAD, transport=httpx.MockTransport(handler))
+
+    assert seen["params"] == {}
 
 
 def test_the_lock_is_re_read_between_writes(monkeypatch: pytest.MonkeyPatch) -> None:

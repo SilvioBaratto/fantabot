@@ -375,8 +375,13 @@ def test_a_walk_away_of_zero_survives_serialisation_as_zero(
         "nothing — re-measure and re-seed before editing it"
     )
     for row in zeros:
-        assert row["walk_away"] == 0
-        assert row["walk_away"] is not None, "a zero collapsed to null between here and JSON"
+        # `== 0` is the whole assertion, and deliberately not paired with an `is not None`
+        # beside it: `None == 0` is False, so a collapse fails *here*. Measured 2026-09-24
+        # by simulating the defect (`priced[pid].credits or None` in `endpoints/asta.py`) —
+        # this line is what went red, and the `is not None` that used to follow it was
+        # never reached. An assertion its predecessor cannot let fail reads as a second
+        # guard and is a comment.
+        assert row["walk_away"] == 0, "a zero collapsed to null between here and JSON"
 
 
 def test_an_owned_player_needs_no_walk_away(

@@ -673,6 +673,39 @@ class TestTheInjectedRulesAreWhatDecidesTheBand:
         assert wide_frame.max_cap == 100 - (5 - 1)
         assert narrow_frame.max_cap == 100 - (2 - 1)
 
+    def test_a_slot_already_filled_stops_being_reserved_for(self) -> None:
+        """The reserve counts slots **still owed**, so owning one raises the cap by a credit.
+
+        ⚠ The test above cannot see this, and that is the whole reason this one exists. It
+        runs on an empty `owned`, where `rules.size - len(state.owned)` and `rules.size` are
+        the same number — so `asta_room.py`'s cap expression could drop the subtraction
+        entirely and every assertion up there still passes. Measured 2026-09-24: that
+        mutation left the **whole library suite** green, on the one arithmetic CLAUDE.md
+        calls "the only thing between a 'pay anything' walk-away and a rosa that cannot be
+        fielded", with `docs/fantalab/01:142` recording that the platform does not enforce
+        it server-side.
+
+        The direction matters. Dropping the subtraction over-reserves and the bot underbids,
+        which is merely bad; the dangerous mutation is the other way — any expression that
+        makes `required_left` *smaller* than the slots actually owed raises the cap and lets
+        one lot strand an obligatory purchase. Both are caught here, because the cap is
+        pinned to an exact figure rather than to an inequality.
+        """
+        rules = RosterRules(size=5, min_goalkeepers=1, min_movement=4)
+        tracker = RoomTracker(
+            seat=SEAT, bridge=BRIDGE, pool=POOL, value=VALUE, prices=PRICES, teams=TEAMS,
+            legality=SCHEMI, names=NAMES, rules=rules, budget=100.0, lam=0.0,
+            ledger=lambda: [AssignmentEvent("uuid-gk", 30, "us")],
+            journal=lambda _row: None, counter_time=10, counter_time_first=20,
+        )
+
+        frame = tracker.cycle(_lot(), now_ms=1_000)
+
+        # One of five slots filled for 30, so 70 left and three further obligations beyond
+        # this lot: 70 - 3. Under `rules.size` alone the reserve would be 4 and the cap 66.
+        assert frame.credits_left == 70
+        assert frame.max_cap == 70 - (5 - 1 - 1)
+
 
 class TestTheJournalRowsForAPollThatNeverReachedCycle:
     """Task 4.1: `run_bid_loop` short-circuits before calling `tracker.cycle` at all when no

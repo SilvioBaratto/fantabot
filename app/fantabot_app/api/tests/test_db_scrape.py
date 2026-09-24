@@ -22,8 +22,6 @@ which is also where a route that grew its own `import_module` would stop being o
 
 from __future__ import annotations
 
-import sys
-import time
 from datetime import date
 
 import pytest
@@ -31,32 +29,15 @@ from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
 
-from .conftest import redirect_home
-
-
-def _wait(predicate, timeout: float = 5.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.02)
-    return False
-
-
-def _job(client: TestClient, job_id: str) -> dict:
-    return client.get(f"/api/v1/jobs/{job_id}").json()
+from .conftest import job as _job
+from .conftest import redirect_home, stub_child_command
+from .conftest import wait_for as _wait
 
 
 @pytest.fixture
 def quick_child(monkeypatch, tmp_path):
     """A short-lived real child in place of the CLI, so argv is observable in the log."""
-    from fantabot_app.api.infrastructure import processes
-
-    monkeypatch.setattr(
-        processes,
-        "fantabot_command",
-        lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
-    )
+    stub_child_command(monkeypatch)
     redirect_home(monkeypatch, tmp_path)
     return tmp_path
 

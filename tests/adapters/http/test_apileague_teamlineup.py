@@ -11,19 +11,18 @@ formation is not fieldable.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import _tokens
 import httpx
 import pytest
-from cryptography.fernet import Fernet
+from _apileague import Recorder as _Recorder
+from _apileague import build_store, mock_transport
 
 from fantabot.adapters.http import apileague
-from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.tokens.store import TokenStore
 from fantabot.domain.lineup.errors import LineupRejected
-from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.errors import ApiUnavailable, TokenMissing, TokenRejected
 
 NOW = datetime(2026, 9, 2, tzinfo=UTC)
@@ -52,65 +51,25 @@ PAYLOAD = {
 }
 
 
-class _Result:
-    def __init__(self, value: Any) -> None:
-        self._value = value
+def a_store(*, expires_at: datetime | None = None, row: bool = True) -> TokenStore:
+    """This suite's store, over `_apileague.build_store`'s one synthetic row.
 
-    def scalar_one_or_none(self) -> Any:
-        return self._value
-
-    def all(self) -> Any:
-        return self._value if isinstance(self._value, list) else []
-
-
-class _Session:
-    def __init__(self, *answers: Any) -> None:
-        self.answers = list(answers)
-
-    def execute(self, statement: Any, params: Any = None) -> _Result:
-        return _Result(self.answers.pop(0) if self.answers else None)
-
-
-def a_store(*, row: bool = True) -> TokenStore:
-    cipher = TokenCipher(Fernet.generate_key().decode())
-    stored = (
-        LeagueToken(
-            league_id=_tokens.LEGA_MANTRA,
-            ciphertext=cipher.encrypt(PLAINTEXT),
-            key_fingerprint=cipher.fingerprint,
-            issued_at=NOW - timedelta(days=7),
-            expires_at=NOW + timedelta(days=357),
-            user_id=_tokens.USER_ID,
-            team_id=_tokens.TEAM_MANTRA,
-            league_name="Legamiallerotaie2",
-            captured_at=NOW,
-            last_seen_at=NOW,
-            last_verified_at=None,
-        )
-        if row
-        else None
+    `expires_at` is here because the copy this replaced had dropped it, which is what left
+    the submit suite unable to say "the stored token has expired". Nothing here passes it
+    yet, and nothing should: the refusal lives in `apileague._send` -> `auth_headers`,
+    shared with every read, and `test_apileague_client.py` already pins it there.
+    """
+    return build_store(
+        NOW, PLAINTEXT,
+        league_id=_tokens.LEGA_MANTRA, user_id=_tokens.USER_ID, team_id=_tokens.TEAM_MANTRA,
+        expires_at=expires_at, row=row,
     )
-    return TokenStore(_Session(stored), cipher)
-
-
-class _Recorder:
-    def __init__(self, response: httpx.Response | Exception) -> None:
-        self.response = response
-        self.requests: list[httpx.Request] = []
-
-    def __call__(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        if isinstance(self.response, Exception):
-            raise self.response
-        return self.response
 
 
 def transport_returning(
     status: int = 200, json_body: dict[str, Any] | None = None
 ) -> tuple[httpx.MockTransport, _Recorder]:
-    body = DTO_BODY if json_body is None else json_body
-    handler = _Recorder(httpx.Response(status, json=body))
-    return httpx.MockTransport(handler), handler
+    return mock_transport(status, DTO_BODY if json_body is None else json_body)
 
 
 # --- one match's detail: the per-player scores, once a round is calculated ------------

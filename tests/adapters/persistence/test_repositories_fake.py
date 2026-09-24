@@ -403,7 +403,16 @@ class TestLeagueTokenRepository:
         assert "ciphertext" not in session.statements[0]
 
     def test_the_repository_never_imports_the_cipher(self) -> None:
-        """Decryption is the store's job, and the store is the only site."""
+        """Decryption is the store's job, and the store is the only site.
+
+        One copy, not two: `repositories/tokens.py` holds both repositories, so the
+        assertion is about the module and the copy under
+        `TestTheFantalabSessionRepositoryHandlesBytesOnly` read the same bytes and made the
+        same two assertions (deleted 2026-09-24). The `decrypt(` half is also covered by
+        `test_token_secrecy.test_decrypt_is_confined_to_its_allowed_files`; the
+        `tokens.crypto` half is **not** — an import with no call is invisible to that scan,
+        measured — which is why this test stays rather than deferring to it.
+        """
         from _paths import pkg
 
         source = (pkg("db") / "repositories" / "tokens.py").read_text()
@@ -549,15 +558,6 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
 
         set_clause = session.statements[0].split("DO UPDATE SET", 1)[1]
         assert "last_used_at" in set_clause
-
-    def test_the_repository_never_imports_the_cipher(self) -> None:
-        """Decryption is the store's job, and the store is the only site."""
-        from _paths import pkg
-
-        source = (pkg("db") / "repositories" / "tokens.py").read_text()
-
-        assert "tokens.crypto" not in source
-        assert "decrypt(" not in source
 
 
 # --- LeagueRepository.purge -----------------------------------------------------------

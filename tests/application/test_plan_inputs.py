@@ -47,11 +47,17 @@ def test_the_io_half_still_can_because_that_is_its_job() -> None:
 def test_the_old_home_still_re_exports_both_names() -> None:
     """Four call sites import them from `asta_planner`, and the golden fixtures are among
     them. Moving the definition is the point; moving the import path as well would be a
-    second change riding on the first."""
-    from fantabot.application import asta_planner
+    second change riding on the first.
 
-    assert asta_planner.PlanInputs is not None
-    assert asta_planner.build_plan_inputs is not None
+    **Identity, not truthiness.** Neither name can be `None`, so the `is not None` form
+    this replaces answered a question nobody could fail: a second, separate `PlanInputs`
+    defined inside `asta_planner` — the actual failure, a re-export that quietly became a
+    fork — passed the whole default tier, measured 2026-09-24. `is` is what catches it.
+    """
+    from fantabot.application import asta_planner, plan_inputs
+
+    assert asta_planner.PlanInputs is plan_inputs.PlanInputs
+    assert asta_planner.build_plan_inputs is plan_inputs.build_plan_inputs
 
 
 class TestTheLeagueShapeIsAParameter:

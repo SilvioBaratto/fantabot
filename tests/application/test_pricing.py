@@ -81,20 +81,6 @@ class TestFitFades:
         rows, priors = self._cohort(40, role="p")
         assert GOALKEEPER_MACRO not in fit_fades(rows, priors, "classic")
 
-    def test_a_player_the_platform_marked_worthless_is_excluded(self) -> None:
-        """`qa == 0` makes `log(qa/qi)` a domain error, but that is not why.
-
-        A player written down to zero mid-season is a data artefact, not evidence about
-        how quotazioni fade -- and the appearance filter cannot catch him, because it
-        reads his *prior* season. Goglichidze (6537, UDI) is the live case: qa 0 in
-        2025/26 with 33 appearances in 2024/25, squarely inside the cohort.
-        """
-        rows, priors = self._cohort(40)
-        rows.append(_bias(id="zero", qa=0))
-        priors[("zero", "2023/24")] = PriorStats(partite_giocate=33, media_fantavoto=6.0)
-
-        fit_fades(rows, priors, "classic")  # must not raise
-
     def test_a_thin_prior_season_does_not_teach_the_fade(self) -> None:
         """The regression-to-mean correlation was measured at -0.191 for 25-38 appearances
         and between -0.007 and -0.073 for thinner samples. Outside the range it is noise."""

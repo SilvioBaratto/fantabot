@@ -167,11 +167,6 @@ class TestNeverWorse:
 
 
 class TestDeterminism:
-    def test_the_same_bank_gives_the_same_bench(self) -> None:
-        bank = _bank(absent=(40, 70))
-
-        assert _order(bank, fallback=(1, 2, 6)).bench == _order(bank, fallback=(1, 2, 6)).bench
-
     def test_a_tie_breaks_on_the_fallback_order(self) -> None:
         """Every outfield reserve scores the same and covers nothing, so the draws cannot
         separate them and the fallback's own ranking decides — not dict order, and not

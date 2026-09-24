@@ -16,8 +16,10 @@ green only by that test skipping `tests/` directories. The skip is now opt-out r
 than blanket, and this file is inside the scan.
 """
 
-from collections.abc import Generator
+import time
+from collections.abc import Callable, Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,6 +46,66 @@ def redirect_home(monkeypatch: pytest.MonkeyPatch, path: Path | str) -> Path:
     monkeypatch.setenv("HOME", str(path))
     monkeypatch.setenv("USERPROFILE", str(path))
     return Path(path)
+
+
+def job(client: TestClient, job_id: str) -> dict[str, Any]:
+    """`GET /jobs/{job_id}`, decoded.
+
+    Byte-identical copies of this two-liner sat in **nine** modules until 2026-09-24. It
+    is here rather than there for the reason `redirect_home` is: a copy is a thing that can
+    drift, and the drift is invisible until a route changes shape.
+    """
+    return client.get(f"/api/v1/jobs/{job_id}").json()  # type: ignore[no-any-return]
+
+
+def wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> bool:
+    """Poll *predicate* until it holds or *timeout* elapses. `True` if it held.
+
+    Eight copies, with the timeout drifted to 3.0, 5.0 and 10.0 seconds and the poll
+    interval to 0.02 and 0.05 — none of it decided, all of it inherited by copy.
+
+    **The ceiling is the highest of the three, and that direction is the safe one.** This
+    returns the moment the predicate holds, so the timeout is not a condition for passing:
+    it only bounds how long a *failure* takes to be reported. Raising 3.0 to 10.0 therefore
+    cannot turn a red test green — it can only stop a slow machine reporting a job that was
+    going to finish as one that never did, which is what app-ci's Windows runner is for.
+    Lowering 10.0 to 3.0 would have been the change with a failure mode.
+
+    The interval is the finer of the two for the mirror-image reason: 0.02 reaches the
+    predicate sooner, so no caller's happy path got slower.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def stub_child_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the supervisor at a short-lived real child that echoes its own argv.
+
+    A **real** child, not a fake `Popen`, and that is the decision rather than the
+    convenience: what these tests are about is what the operating system does with a pipe
+    and a signal, and a fake agrees with whatever the implementation happened to do.
+
+    Six `quick_child` fixtures each held this same `setattr` on 2026-09-24 and the line is
+    the part that has to stay in sync — it decides what `_argv` can read back. What those
+    fixtures do *around* it is deliberately theirs and stays there: `test_harvest*` set
+    `FANTABOT_HARVEST_DIR`, `test_room_*` set `FANTABOT_DATA_DIR`, `test_db_*` call
+    `redirect_home`. That is not drift; it is each route's own isolation, and one fixture
+    setting all three would isolate a route against a variable it does not read and say
+    nothing about the one it does.
+    """
+    import sys
+
+    from fantabot_app.api.infrastructure import processes
+
+    monkeypatch.setattr(
+        processes,
+        "fantabot_command",
+        lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
+    )
 
 
 @pytest.fixture

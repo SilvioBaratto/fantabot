@@ -19,13 +19,14 @@ Three properties are tested here rather than assumed:
 
 from __future__ import annotations
 
-import sys
-import time
-
 import pytest
 from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
+
+from .conftest import job as _job
+from .conftest import stub_child_command
+from .conftest import wait_for as _wait
 
 #: A real-shaped fantaleague id. `parse_room_url` takes a bare uuid or a room link.
 ROOM = "8ca35cbf-0f7a-4b3a-9e2e-3f2a1b0c4d5e"
@@ -39,28 +40,9 @@ def quick_child(monkeypatch, tmp_path):
     the implementation happened to do. `FANTABOT_DATA_DIR` moves the stop flag (and the
     journal) into `tmp_path`, so a run leaves nothing in the repository's `data/`.
     """
-    from fantabot_app.api.infrastructure import processes
-
     monkeypatch.setenv("FANTABOT_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        processes,
-        "fantabot_command",
-        lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
-    )
+    stub_child_command(monkeypatch)
     return tmp_path
-
-
-def _job(client: TestClient, job_id: str) -> dict:
-    return client.get(f"/api/v1/jobs/{job_id}").json()
-
-
-def _wait(done, timeout: float = 10.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if done():
-            return True
-        time.sleep(0.05)
-    return False
 
 
 def _watch(client: TestClient, url: str = ROOM):

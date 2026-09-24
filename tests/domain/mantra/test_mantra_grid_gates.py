@@ -10,7 +10,6 @@ A gate with no failing fixture is not a gate, so every invariant here has one.
 
 import json
 
-import pytest
 from _paths import pkg
 
 from fantabot.domain.mantra.gates import check_compat, check_schemi, check_starts_order
@@ -298,7 +297,12 @@ def test_a_matrix_without_the_4_1_4_1_exception_is_rejected() -> None:
 
 
 def test_a_matrix_naming_a_schema_the_grid_does_not_have_is_rejected() -> None:
-    assert check_compat(_matrix([*ELEVEN[:10], "6-3-1"]), _grid()) != []
+    # All eleven, *plus* one the grid lacks: the fixture used `ELEVEN[:10]`, so the matrix
+    # was also missing a schema and the test passed on the branch above it instead. Deleting
+    # the unknown-schema branch outright left the whole domain tier green.
+    problems = check_compat(_matrix([*ELEVEN, "6-3-1"]), _grid())
+
+    assert any("6-3-1" in p for p in problems)
 
 
 def test_a_cell_that_is_not_one_of_the_four_values_is_rejected() -> None:
@@ -496,8 +500,7 @@ def test_gates_report_every_problem_not_just_the_first() -> None:
     assert len(check_schemi(grid)) >= 2
 
 
-@pytest.mark.parametrize("checker", [check_schemi])
-def test_gates_return_a_list_rather_than_raising(checker: object) -> None:
+def test_gates_return_a_list_rather_than_raising() -> None:
     assert isinstance(check_schemi(_grid(ELEVEN[:3])), list)
 
 

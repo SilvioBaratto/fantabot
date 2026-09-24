@@ -19,9 +19,7 @@ import pytest
 from cryptography.fernet import Fernet
 from typer.testing import CliRunner
 
-from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.tokens.store import TokenStore
-from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.status import TokenStatus
 from fantabot.interface.app import app, token_status_rows
 
@@ -344,20 +342,6 @@ class _EmptySession:
 def test_the_stored_row_type_never_carries_a_ciphertext() -> None:
     """Nothing that renders a status needs one, so nothing gets one."""
     assert not hasattr(a_status(), "ciphertext")
-
-
-def test_a_fake_league_token_is_never_constructed_with_a_real_token() -> None:
-    """Guards the fixtures themselves: every token in this file is synthesized."""
-    cipher = TokenCipher(Fernet.generate_key().decode())
-    row = LeagueToken(
-        league_id=1,
-        ciphertext=cipher.encrypt(PLAINTEXT),
-        key_fingerprint=cipher.fingerprint,
-        issued_at=NOW,
-        expires_at=NOW,
-    )
-
-    assert PLAINTEXT.encode() not in row.ciphertext
 
 
 def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyPatch) -> None:

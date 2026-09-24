@@ -41,16 +41,22 @@ def test_the_help_says_the_token_row_is_all_that_goes() -> None:
     assert "nothing else" in _help()
 
 
-def test_the_help_names_the_app_disconnect_as_the_other_act() -> None:
-    """The one an operator reaches for by mistake, and the one a re-login does not undo."""
+def test_the_six_tables_are_attributed_to_the_app_and_never_to_this_command() -> None:
+    """The control, and the only test of the pair. Naming the purge at all is how a help
+    text drifts into claiming it: the sentence that says `six tables` has to be the one
+    that says whose act it is.
+
+    `test_the_help_names_the_app_disconnect_as_the_other_act` asserted `"Disconnect" in
+    plain` and `"six tables" in plain` and was deleted 2026-09-24 as a strict subset of
+    this one — measured both ways: dropping either phrase from the help reddens both, and
+    pushing `Disconnect` more than 140 characters away from `six tables` reddens only this
+    one. Its two assertions are kept here, ahead of the window, so a phrase that is gone
+    altogether still reports itself by name instead of as an `index` ValueError.
+    """
     plain = _help()
+
     assert "Disconnect" in plain
     assert "six tables" in plain
 
-
-def test_the_six_tables_are_attributed_to_the_app_and_never_to_this_command() -> None:
-    """The control. Naming the purge at all is how a help text drifts into claiming it: the
-    sentence that says `six tables` has to be the one that says whose act it is."""
-    plain = _help()
     around = plain[max(0, plain.index("six tables") - 140) : plain.index("six tables") + 140]
-    assert "Disconnect" in around
+    assert "Disconnect" in around, "the purge is named without saying whose act it is"

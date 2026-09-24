@@ -133,13 +133,25 @@ class TestTheClampIsAOneWayRatchet:
 
     def test_it_has_no_caller(self) -> None:
         """A ratchet that quietly acquired a caller would be a numeric channel nobody agreed
-        to. When one is wanted, this test is the conversation."""
+        to. When one is wanted, this test is the conversation.
+
+        The path is absolute and the definition is a positive control. Until 2026-09-24 this
+        shelled out to `grep -rn clamp( src/fantabot` with `check=False`: run from anywhere
+        but the repository root that is rc=2 and an empty stdout, which reads as "no caller".
+        """
         import subprocess
 
-        found = subprocess.run(
-            ["grep", "-rn", "clamp(", "src/fantabot"],
+        from _paths import PACKAGE
+
+        result = subprocess.run(
+            ["grep", "-rn", "clamp(", str(PACKAGE)],
             capture_output=True, text=True, check=False,
-        ).stdout.splitlines()
+        )
+        assert result.returncode in (0, 1), result.stderr  # 2 is "grep could not read it"
+        found = result.stdout.splitlines()
+        assert any("def clamp(" in line for line in found), (
+            "the scan found no definition, so it searched the wrong tree"
+        )
         callers = [
             line for line in found
             if "def clamp(" not in line and "domain/asta/copilot.py" not in line

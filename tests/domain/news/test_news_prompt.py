@@ -35,8 +35,23 @@ def _prompt(**overrides: object) -> str:
     return build_prompt(**kwargs)  # type: ignore[arg-type]
 
 
-def test_the_prompt_is_deterministic() -> None:
+def test_the_prompt_is_built_from_its_arguments_and_nothing_else() -> None:
+    """Two builds with the same arguments are the same string.
+
+    ⚠ This reads like `f(x) == f(x)` and was deleted as a tautology on 2026-09-24. It is
+    not one, and the mutation that proves it is one line: a clock or a nonce in the builder
+    — `domains = ", ".join(PREFERRED_DOMAINS) + f" (rev {time.time_ns()})"` — leaves the
+    entire domain tier green with this gone, and reddens it with this here. The property is
+    real because the prompt is the cache key for an expensive agent call and the run date is
+    supposed to be its only moving part: `build_prompt` takes `as_of` precisely so the
+    builder never reads the clock itself, which is the same rule `domain/` is under
+    everywhere else.
+
+    A tautology is an assertion no implementation can fail. This one has an implementation
+    that fails it, so it is a guard.
+    """
     assert _prompt() == _prompt()
+    assert build_system_prompt(14, RUN_DAY) == build_system_prompt(14, RUN_DAY)
 
 
 def test_the_prompt_identifies_the_player() -> None:
@@ -155,9 +170,14 @@ def test_system_prompt_carries_the_instructions_not_the_player() -> None:
     assert "W;T" not in system
 
 
-def test_system_prompt_is_identical_for_any_two_players() -> None:
-    # It takes no player, so within a run (same window/date) it is one constant string.
-    assert build_system_prompt(14, RUN_DAY) == build_system_prompt(14, RUN_DAY)
+def test_the_system_prompt_names_no_player_at_all() -> None:
+    """It takes no player argument, so no player's name may appear in it.
+
+    The test above pins that for `ZACCAGNI`, the one the file otherwise builds prompts for.
+    A second name nothing in this module ever passes is what separates "the caller's player
+    did not leak" from "no player is named": measured 2026-09-24, dropping this leaves a
+    worked example naming another striker uncaught by the whole domain tier.
+    """
     other = PoolPlayer(id="9", nome="Immobile", squadra="BOL", ruolo="Attaccante", ruoli_mantra="Pc")
     assert other.nome not in build_system_prompt(14, RUN_DAY)
 

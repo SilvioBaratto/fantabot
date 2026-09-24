@@ -169,11 +169,18 @@ class TestTheColumnThatMeasuresTheCeiling:
         assert row.available == 2, "gk2 is not in the plan at any point"
 
     def test_the_share_is_zero_rather_than_undefined_when_nothing_was_available(self) -> None:
-        """A corpus with no overlap is a real answer, not a division by zero."""
+        """A corpus with no overlap is a real answer, not a division by zero.
+
+        The fixture does reach the case — `available` is 0, measured — but the assertions
+        that stood here (`available >= 0`, `0.0 <= won_share <= 1.0`) were true of every
+        row the sweep can emit, so the `else 0.0` branch they exist for was pinned by
+        nothing: changing it to `else 1.0` passed all 3,713 tests.
+        """
         (row,) = _sweep([1.0], auctions=[_auction(("gk2", 99), ("a2", 99))], budget=1.0)
 
-        assert row.available >= 0
-        assert 0.0 <= row.won_share <= 1.0
+        assert row.available == 0, "neither lot was ever a plan member"
+        assert row.won == 0
+        assert row.won_share == 0.0
 
 
 def test_won_can_never_exceed_available() -> None:

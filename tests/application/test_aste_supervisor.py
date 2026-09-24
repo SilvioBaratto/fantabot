@@ -112,12 +112,6 @@ def test_the_pool_bounds_how_many_run_at_once() -> None:
     assert peak <= 4
 
 
-def test_the_default_pool_covers_a_whole_live_population() -> None:
-    """207 was the entire live list on 2026-08-27, and it did not refuse. A
-    default below that would throttle for a limit nobody imposed."""
-    assert DEFAULT_POOL >= 207
-
-
 def test_the_report_says_live_over_expected_not_just_live() -> None:
     """A heartbeat that only prints what is running cannot distinguish a quiet
     evening from half the watchers having died."""
@@ -322,7 +316,12 @@ class TestTheShortfallIsVisible:
     """
 
     def test_the_default_pool_is_above_the_population_that_has_been_seen(self) -> None:
-        """649 live at once on 2026-08-27. A default under that starves by design."""
+        """649 live at once on 2026-08-27. A default under that starves by design.
+
+        This subsumes the `>= 207` assertion it replaces: 207 was the live list read
+        earlier the same evening, and it is the number 649 corrected — a floor asserted
+        twice, once at a count that had already been measured too low.
+        """
         assert DEFAULT_POOL >= 649
 
     def test_live_against_expected_is_reported_every_cycle(self) -> None:

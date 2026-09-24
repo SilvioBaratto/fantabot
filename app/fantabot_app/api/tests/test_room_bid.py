@@ -24,14 +24,16 @@ Nothing on the server enforces it. So the app's whole job here is to decide *whe
 
 from __future__ import annotations
 
-import sys
-import time
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
+
+from .conftest import job as _job
+from .conftest import stub_child_command
+from .conftest import wait_for as _wait
 
 ROOM = "8ca35cbf-0f7a-4b3a-9e2e-3f2a1b0c4d5e"
 
@@ -43,14 +45,8 @@ def quick_child(monkeypatch, tmp_path):
     `test_room_watch.py`'s fixture, for its reason: a fake `Popen` would agree with whatever
     the implementation happened to do.
     """
-    from fantabot_app.api.infrastructure import processes
-
     monkeypatch.setenv("FANTABOT_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        processes,
-        "fantabot_command",
-        lambda *args: [sys.executable, "-c", f"print({' '.join(args)!r}, flush=True)"],
-    )
+    stub_child_command(monkeypatch)
     return tmp_path
 
 
@@ -109,19 +105,6 @@ def resolved_room(monkeypatch):
 
     monkeypatch.setattr(room_bid, "check_room", _check)
     monkeypatch.setattr(room_bid, "stored_connect", lambda: ("USER-9", lambda _p: {}))
-
-
-def _job(client: TestClient, job_id: str) -> dict:
-    return client.get(f"/api/v1/jobs/{job_id}").json()
-
-
-def _wait(done, timeout: float = 10.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if done():
-            return True
-        time.sleep(0.05)
-    return False
 
 
 def _bid(client: TestClient, **body: Any):

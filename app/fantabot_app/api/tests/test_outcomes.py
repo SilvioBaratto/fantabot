@@ -1151,11 +1151,29 @@ class TestFourFailuresFourScreens:
         assert captured, "the route did not reach build_plan"
         assert (captured[0].num_teams, captured[0].num_credits) == (10, 1000)  # type: ignore[attr-defined]
 
-    def test_the_five_refusals_are_five_distinct_screens(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The property, stated once: no two of them render the same thing."""
-        assert len(set(ASTA_PLAN_OUTCOMES)) == len(ASTA_PLAN_OUTCOMES)
+    def test_the_plan_outcomes_are_all_distinct(self) -> None:
+        """The property, stated once: no two of them render the same thing.
+
+        **Kept, and measured before it was.** It was read as a tautology on a literal
+        tuple — it is not: `ASTA_PLAN_OUTCOMES` is `api/outcomes.py`'s, and duplicating
+        `"planned"` in it on 2026-09-24 turned **this test and nothing else** red (1
+        failed, 492 passed). The `==` comparison one class up is `returned == set(pinned)`,
+        and a set cannot see a repeated element, so nothing else in the file can.
+
+        The second line is the redundant half and is kept as documentation rather than as
+        a guard: removing `"planned"` from the tuple turns
+        `test_the_outcomes_it_returns_are_exactly_the_ones_it_pins[asta.py-AstaPlan]` red
+        too, measured the same way.
+
+        Two things about it *were* wrong and are fixed here. It said **five** where the
+        tuple has held seven since `no_lega` and `unreachable` joined it, and it took a
+        `monkeypatch` it never used — a fixture parameter that does nothing reads as an
+        induced test and this one induces nothing.
+        """
+        assert len(set(ASTA_PLAN_OUTCOMES)) == len(ASTA_PLAN_OUTCOMES), (
+            f"{ASTA_PLAN_OUTCOMES} names an outcome twice; two screens with one name is "
+            "one screen the frontend cannot branch on"
+        )
         assert "planned" in ASTA_PLAN_OUTCOMES
 
 

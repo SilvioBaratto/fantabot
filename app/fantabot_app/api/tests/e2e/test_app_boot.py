@@ -34,6 +34,19 @@ def test_when_docs_requested_then_200_is_returned(client):
 
 
 @pytest.mark.e2e
+def test_when_redoc_requested_then_200_is_returned(client):
+    """when GET /redoc is requested, the CDN ReDoc page returns 200.
+
+    Moved here from ``test_openapi_metadata.py`` on 2026-09-24, with the duplicate
+    ``/docs`` test that sat beside it: reachability is this file's subject and metadata is
+    that one's. The two ``/docs`` tests were byte-identical, same name, collected in one
+    run — mutating the route to ``/docsXX`` turned both red, which is what made one of
+    them removable and this one worth keeping where the other lives.
+    """
+    assert client.get("/redoc").status_code == 200
+
+
+@pytest.mark.e2e
 def test_when_openapi_json_requested_then_200_and_schema_is_served(client):
     """when GET /openapi.json is requested, 200 and a schema with openapi key are served."""
     resp = client.get("/openapi.json")

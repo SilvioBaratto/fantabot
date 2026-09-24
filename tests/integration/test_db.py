@@ -515,24 +515,17 @@ class TestVotiSeed:
 
 
 class TestBonusMalusSeed:
+    """What is left to pin once voti and bonus/malus share one row.
+
+    Since the two were merged into `match_grain` the agreement between them is
+    **structural** — one row carries both — so the count and the orphan check that used to
+    stand here were re-running `TestVotiSeed`'s two against the same table with the same
+    predicate. Measured 2026-09-24 by deleting five seed rows and by orphaning one inside
+    the rolled-back session: each pair failed together, neither alone. What is genuinely
+    this class's is below — that every one of those rows actually carries its bonus/malus.
+    """
+
     pytestmark = pytest.mark.dbdata
-
-    def test_it_agrees_with_voti_row_for_row(self, db_session: Session) -> None:
-        """Same grain, same coach rows, same count — which is why they share
-        the two-conflict-target upsert instead of each restating it.
-
-        Since voti and bonus/malus were merged into `match_grain` the agreement is
-        structural — one row carries both — so this pins what is left to pin: the seed
-        landed whole on that shared grain. `test_no_counter_is_ever_null` below is the half
-        that says every one of those rows actually carries its bonus/malus.
-        """
-        total, coaches = db_session.execute(
-            text(
-                "SELECT count(*), count(*) FILTER (WHERE player_id IS NULL) "
-                f"FROM match_grain WHERE {IN_SEED}"
-            )
-        ).one()
-        assert (total, coaches) == (50634, 3039)
 
     def test_no_counter_is_ever_null(self, db_session: Session) -> None:
         """A player who scored no goals scored zero goals — a fact, not a gap."""
@@ -543,16 +536,6 @@ class TestBonusMalusSeed:
             )
         ).scalar()
         assert nulls == 0
-
-    def test_every_player_row_resolves(self, db_session: Session) -> None:
-        orphans = db_session.execute(
-            text(
-                "SELECT count(*) FROM match_grain b "
-                "LEFT JOIN players p ON p.id = b.player_id "
-                "WHERE b.player_id IS NOT NULL AND p.id IS NULL"
-            )
-        ).scalar()
-        assert orphans == 0
 
 
 class TestSentimentWriteAgainstALiveTable:

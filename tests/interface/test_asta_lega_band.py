@@ -52,7 +52,16 @@ def test_no_lega_plans_on_the_built_in_band_and_says_so(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The pre-2.1 behaviour, kept and labelled. `--lega 0` with nothing configured means
-    "plan on the default", which is what the goldens pin."""
+    "plan on the default", which is what the goldens pin.
+
+    `session` is a factory for a second reason, and `_boom` above is how it is checked:
+    the golden harness serves a sentinel in place of a session, and a command that opened
+    one unconditionally would either blow up there or — worse, on a real machine — make
+    the pinned output depend on the database. `test_no_lega_opens_no_database` made
+    exactly this call with exactly this `_boom` and asserted nothing further; it was
+    deleted 2026-09-24 as a strict subset, after a mutation opening a session in
+    `_lega_rules` reddened both.
+    """
     reader = _Reader((RosterRules(size=99), SNAPSHOT_DECLARED, "mantra"))
     _patch(monkeypatch, reader)
 
@@ -62,15 +71,6 @@ def test_no_lega_plans_on_the_built_in_band_and_says_so(
     assert provenance == ASSUMED_NOTHING
     assert fmt == "mantra"
     assert reader.asked == [], "it read a lega it was not given"
-
-
-def test_no_lega_opens_no_database(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`session` is a factory for this reason: the golden harness serves a sentinel in place
-    of a session, and a command that opened one unconditionally would either blow up there
-    or — worse, on a real machine — make the pinned output depend on the database."""
-    _patch(monkeypatch, _Reader((RosterRules(), SNAPSHOT_DECLARED, "mantra")))
-
-    _lega_rules(0, "", session=_boom, warn=_ignore)  # `_boom` raises if called
 
 
 def test_an_explicit_lega_is_read(monkeypatch: pytest.MonkeyPatch) -> None:

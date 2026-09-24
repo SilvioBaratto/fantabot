@@ -13,25 +13,14 @@ the read.
 from __future__ import annotations
 
 import contextlib
-import time
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
 
-
-def _job(client: TestClient, job_id: str) -> dict:
-    return client.get(f"/api/v1/jobs/{job_id}").json()
-
-
-def _wait(predicate, timeout: float = 3.0) -> bool:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if predicate():
-            return True
-        time.sleep(0.02)
-    return False
+from .conftest import job as _job
+from .conftest import wait_for as _wait
 
 
 def test_login_starts_a_job_that_reports_through_the_registry(monkeypatch) -> None:

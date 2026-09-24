@@ -78,13 +78,6 @@ def test_a_pool_too_thin_to_complete_a_rosa_is_refused() -> None:
 # --- determinism + reservations bound ---------------------------------------------------
 
 
-def test_the_optimizer_is_deterministic() -> None:
-    a = optimize_roster(AstaState(total_budget=100.0), POOL, **_kw())  # type: ignore[arg-type]
-    b = optimize_roster(AstaState(total_budget=100.0), POOL, **_kw())  # type: ignore[arg-type]
-    assert a.optimal.player_ids == b.optimal.player_ids
-    assert a.optimal.objective == b.optimal.objective
-
-
 def test_reservations_with_no_targets_is_empty() -> None:
     _, walkaways = reservations(AstaState(total_budget=100.0), POOL, n_targets=0, **_kw())  # type: ignore[arg-type]
     assert walkaways == {}

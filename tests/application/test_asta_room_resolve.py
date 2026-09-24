@@ -150,12 +150,3 @@ class TestWhatIsRefused:
         """The operator's next action is to claim one, so the message has to carry them."""
         with pytest.raises(RoomRefused, match="Libera"):
             _resolve(user_id="not-in-this-room")
-
-
-class TestItCannotReachADatabase:
-    def test_the_module_is_structurally_unable_to(self) -> None:
-        import _importgraph
-
-        assert not _importgraph.reaches(
-            "fantabot.application.asta_room", "fantabot.adapters.persistence"
-        )

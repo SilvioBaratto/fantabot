@@ -12,9 +12,6 @@ from fantabot.application import news_fetcher as pipeline
 
 
 def test_max_turns_is_bounded_to_eight() -> None:
+    # It was 12; the point of Task 3 is that it came down. `== 8` is the whole of that
+    # claim — every value that breaks the old `< 12` assertion breaks this one too.
     assert pipeline.MAX_TURNS == 8
-
-
-def test_max_turns_is_lower_than_the_old_backstop() -> None:
-    # It was 12; the point of Task 3 is that it came down.
-    assert pipeline.MAX_TURNS < 12

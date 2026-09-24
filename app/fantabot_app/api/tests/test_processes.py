@@ -30,6 +30,8 @@ from fantabot_app.api.infrastructure.processes import (
     fantabot_command,
 )
 
+from .conftest import wait_for as _wait
+
 
 def _python(script: str) -> list[str]:
     return [sys.executable, "-c", script]
@@ -92,15 +94,6 @@ while True:
             sys.exit(0)
     time.sleep(0.05)
 """
-
-
-def _wait(predicate, timeout: float = 10.0) -> bool:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if predicate():
-            return True
-        time.sleep(0.02)
-    return False
 
 
 def _run_in_thread(job: ProcessJob, reporter: BufferingReporter) -> object:

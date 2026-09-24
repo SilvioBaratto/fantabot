@@ -115,9 +115,24 @@ def _full_plan_cycle_calls(world) -> int:  # type: ignore[no-untyped-def]
     return pstats.Stats(profiler, stream=io.StringIO()).total_calls
 
 
-def test_one_cycle_stays_under_the_ceiling(world) -> None:  # type: ignore[no-untyped-def]
-    calls = _cycle_calls(world)
+@pytest.fixture(scope="module")
+def calls(world) -> int:  # type: ignore[no-untyped-def]
+    """One measurement per module, shared by the ceiling and its headroom check.
 
+    The two assertions are about the same number — the file's own docstring says it is
+    stable to the digit — and profiling it once per test cost four cycles to state two
+    facts.
+    """
+    return _cycle_calls(world)
+
+
+@pytest.fixture(scope="module")
+def full_calls(world) -> int:  # type: ignore[no-untyped-def]
+    """The same, for the `n_targets=None` cycle."""
+    return _full_plan_cycle_calls(world)
+
+
+def test_one_cycle_stays_under_the_ceiling(calls: int) -> None:
     assert calls <= CEILING, (
         f"one asta-bid cycle now costs {calls:,} calls, over the {CEILING:,} ceiling. "
         f"P10 brought this from {BASELINE_BEFORE_P10:,} to 351,393; something has "
@@ -128,7 +143,7 @@ def test_one_cycle_stays_under_the_ceiling(world) -> None:  # type: ignore[no-un
     )
 
 
-def test_the_ceiling_is_not_so_loose_that_it_would_miss_a_reversal(world) -> None:
+def test_the_ceiling_is_not_so_loose_that_it_would_miss_a_reversal(calls: int) -> None:
     """A guard that cannot fail is worse than none: it reads as coverage.
 
     The ceiling has to sit well below what the code cost before P10, or a full
@@ -137,23 +152,21 @@ def test_the_ceiling_is_not_so_loose_that_it_would_miss_a_reversal(world) -> Non
     assert CEILING < BASELINE_BEFORE_P10 / 3, (
         "the ceiling is within 3x of the pre-P10 cost — it would admit a reversal"
     )
-    assert _cycle_calls(world) < CEILING * 0.8, (
+    assert calls < CEILING * 0.8, (
         "the measurement is within 20% of the ceiling, so this will flake before it "
         "catches anything; re-measure and re-set both numbers deliberately"
     )
 
 
-def test_the_full_plan_cycle_stays_under_its_own_ceiling(world) -> None:  # type: ignore[no-untyped-def]
+def test_the_full_plan_cycle_stays_under_its_own_ceiling(full_calls: int) -> None:
     """`asta bid` prices the whole plan, so the whole plan needs its own budget.
 
     This is the cycle that runs every two seconds in a live room. Wall clock is not the
     constraint — 77 ms measured, inside a 2 s poll — but an unbounded walk-away loop is
     how that stops being true.
     """
-    calls = _full_plan_cycle_calls(world)
-
-    assert calls <= FULL_PLAN_CEILING, (
-        f"the full-plan cycle now costs {calls:,} calls, over the {FULL_PLAN_CEILING:,} "
+    assert full_calls <= FULL_PLAN_CEILING, (
+        f"the full-plan cycle now costs {full_calls:,} calls, over the {FULL_PLAN_CEILING:,} "
         "ceiling. Each walk-away is one more roster solve, so the usual cause is a target "
         "list that grew past the plan — `n_targets=None` must mean the unowned members of "
         "the optimal roster, never the pool. If the cost is deliberate, raise the ceiling "
@@ -161,15 +174,14 @@ def test_the_full_plan_cycle_stays_under_its_own_ceiling(world) -> None:  # type
     )
 
 
-def test_the_two_ceilings_measure_different_things(world) -> None:  # type: ignore[no-untyped-def]
+def test_the_two_ceilings_measure_different_things(calls: int, full_calls: int) -> None:
     """One raised ceiling would have retired the P10 tripwire.
 
     The full-plan cycle costs more than the code did before P10 was optimised at all, so a
     single ceiling loose enough to admit it could not distinguish the two. That is the whole
     reason there are two numbers instead of one.
     """
-    capped = _cycle_calls(world)
-    full = _full_plan_cycle_calls(world)
+    capped, full = calls, full_calls
 
     assert full > capped, "n_targets=None must price more targets than the default five"
     assert FULL_PLAN_CEILING > BASELINE_BEFORE_P10, (

@@ -72,12 +72,32 @@ def test_the_page_and_the_command_name_the_same_database(
 
 def test_the_endpoint_sends_every_field_the_report_holds(api: TestClient) -> None:
     """A field the mapping drops is invisible from the page and present in the command —
-    which is exactly the divergence this tier is for, and the cheapest kind to introduce."""
+    which is exactly the divergence this tier is for, and the cheapest kind to introduce.
+
+    **The four value comparisons below could not keep that promise, and were measured not
+    to.** They name the report's four fields one at a time, so they see a field whose
+    *value* diverges and are blind to a field that was never mapped at all. Measured
+    2026-09-24: a fifth field added to `ConfigReport` with `build_config` left alone kept
+    the whole parity tier green (53 passed), the app tier green (658) and the library's
+    `config_report`/`config-check` tests green (33) — the one divergence this test names
+    is the one it could not see.
+
+    The set equality is the claim the docstring was already making, and it fails in both
+    directions: a report field the response drops, and a response field no report holds.
+    `test_lineup_runs_route.py` pins its two field sets the same way, one route along.
+    """
+    import dataclasses
+
     from fantabot.application.config_report import build_report
 
     report = build_report()
     body = api.get("/api/v1/system/config").json()
 
+    assert set(body) == {field.name for field in dataclasses.fields(report)}, (
+        f"the page sends {sorted(body)} and the report holds "
+        f"{sorted(field.name for field in dataclasses.fields(report))}. A field the "
+        "mapping drops is invisible from the page and present in the command."
+    )
     assert body["settings"] == dict(report.settings)
     assert body["secrets_set"] == dict(report.secrets_set)
     assert body["database_url"] == report.database_url

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import date, time
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -77,17 +76,6 @@ class TestSplitCodes:
     def test_empty_becomes_an_empty_list_not_a_list_containing_empty(self) -> None:
         assert split_codes("") == []
         assert split_codes(";;") == []
-
-
-def test_the_parsers_do_not_reach_for_a_database() -> None:
-    """These run at scrape time now, on the hot path of every write, so they
-    must stay pure — and their tests never need the db marker."""
-    from fantabot.domain.shared import parsing as module
-
-    assert module.__file__ is not None
-    text = Path(module.__file__).read_text()
-    assert "sqlalchemy" not in text
-    assert "fantabot.adapters.persistence" not in text
 
 
 class TestSplitFlags:

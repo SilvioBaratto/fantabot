@@ -14,6 +14,8 @@ the raise anyway.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule
@@ -102,8 +104,21 @@ class TestTheObjectiveIsWhatDecides:
     def test_the_ceiling_does_not_move_with_the_lot_s_current_price(self) -> None:
         """It is a function of the state alone. That is what lets the room solve it once for
         the 20-60 s a lot lives, and what makes a lot bid past it a *named* pass rather than
-        a silent hold indistinguishable from a player we never considered."""
-        assert "ask" not in lot_ceiling.__code__.co_varnames
+        a silent hold indistinguishable from a player we never considered.
+
+        No value can pin this, because the price is exactly what the function does not take:
+        what is left is that there is no input by which the lot's current price could reach
+        the answer, and the signature is the strongest statement of that. It was
+        `"ask" not in lot_ceiling.__code__.co_varnames` until 2026-09-24 — a *local*
+        identifier, so any implementation that spelled it `price` passed.
+        """
+        parameters = inspect.signature(lot_ceiling).parameters
+
+        assert not {"ask", "price", "current", "current_price", "lot_price"} & set(parameters)
+        assert {"state", "baseline", "player_id", "hard_cap"} <= set(parameters), (
+            "the guard above is a negative; this is what keeps it from passing on a renamed "
+            "or deleted function"
+        )
 
 
 class TestTheMarginIsANoiseFloorNotATasteKnob:
@@ -358,14 +373,6 @@ class TestTheEveningHasOneBargainPurse:
         """An overshoot -- a lot won above its ceiling in a race -- must read as `0` and not
         as a negative that some later `min` would treat as a bid."""
         assert bargain_allowance(500.0, 80.0, share=0.10) == 0
-
-    def test_it_does_not_re_earn_itself_as_the_plan_spends(self) -> None:
-        """Against the *starting* budget, not the remaining one. A cap that floats with what
-        is left rises again every time the plan buys a planned player, and the aggregate
-        limit stops existing."""
-        starting = bargain_allowance(500.0, 0.0, share=0.10)
-
-        assert bargain_allowance(500.0, 0.0, share=0.10) == starting
 
     def test_a_zero_share_forbids_the_path_outright(self) -> None:
         assert bargain_allowance(500.0, 0.0, share=0.0) == 0

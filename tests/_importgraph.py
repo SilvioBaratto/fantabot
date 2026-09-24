@@ -84,9 +84,25 @@ def _package_of(module: str) -> str:
 
 
 def _imported(node: ast.AST, package: str) -> set[str]:
-    """The modules one `import` statement names; empty for any other node."""
+    """The modules one `import` statement names; empty for any other node.
+
+    **A dynamic import is an import.** ``importlib.import_module("sqlalchemy")`` is an edge
+    with no ``ast.Import`` node behind it, so a walker that only reads import statements
+    cannot see it. `domain/shared/parsing.py` used to carry a per-module guard that read its
+    own source as *text* and therefore did catch that form; when it was deleted on
+    2026-09-24 as "subsumed transitively by `test_layers.py`", the subsumption held for a
+    plain ``import sqlalchemy`` and not for the dynamic one — measured, the text guard went
+    red and the layer guard stayed green. Reading the call here closes that gap for the
+    whole of `domain/` rather than for the one module that happened to have prose about it.
+
+    Only a **literal** argument is read. `import_module(name)` over a variable is not
+    decidable from syntax, and a guard that pretended otherwise would be the third kind of
+    thing this file exists to avoid.
+    """
     if isinstance(node, ast.Import):
         return {alias.name for alias in node.names}
+    if isinstance(node, ast.Call):
+        return _dynamically_imported(node)
     if not isinstance(node, ast.ImportFrom):
         return set()
     if node.level:
@@ -100,6 +116,21 @@ def _imported(node: ast.AST, package: str) -> set[str]:
     # `from x import y` may name a module rather than an attribute; include both
     # readings, and let the resolver drop the one that is not a file.
     return {root, *(f"{root}.{alias.name}" for alias in node.names)}
+
+
+#: The call forms that import by name at run time. `__import__` is the builtin
+#: `import_module` itself is written over, and both appear in real code.
+_DYNAMIC_IMPORTERS = ("import_module", "__import__")
+
+
+def _dynamically_imported(node: ast.Call) -> set[str]:
+    """The module a dynamic-import call names, when it names one literally."""
+    func = node.func
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    if name not in _DYNAMIC_IMPORTERS or not node.args:
+        return set()
+    first = node.args[0]
+    return {first.value} if isinstance(first, ast.Constant) and isinstance(first.value, str) else set()
 
 
 @cache

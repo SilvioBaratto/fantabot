@@ -19,7 +19,6 @@ authenticated REST API. The band the domain already carries is what we have at t
 from __future__ import annotations
 
 from fantabot.domain.asta.bid import Seat, decide_bid, max_bid, pass_reason
-from fantabot.domain.asta.state import AstaState, RosterRules
 
 SEAT = Seat(fantateam_id="us", user_id="me")
 FAR = 10_000_000
@@ -84,15 +83,3 @@ class TestTheGuardChain:
             _lot(480), SEAT, "L", target="kean", walk_away=500,
             remaining_budget=500, now_ms=FAR,
         ) is not None
-
-
-class TestRequiredLeftComesFromTheBand:
-    def test_it_is_what_the_band_still_owes(self) -> None:
-        state = AstaState(owned=("a", "b"), total_budget=500.0)
-
-        assert RosterRules().size - len(state.owned) == 28
-
-    def test_a_shrunk_band_owes_less(self) -> None:
-        """`drop_unvaluable` shrinks the band; the cap has to follow it down or it would
-        reserve credits for slots that are already filled."""
-        assert RosterRules(size=29, min_movement=27).size - 2 == 27

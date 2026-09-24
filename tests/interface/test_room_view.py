@@ -38,6 +38,35 @@ def _row(name: str = "Bomber", status: str = "open", walk: int | None = 77) -> L
     )
 
 
+def _pane(painted: str, title: str) -> str:
+    """One pane out of the stack. `render` returns a `Group`, so each pane is a run of lines.
+
+    From the bordered line carrying the title down to the line before the next one — which
+    is what makes "the COPILOTA box shows no credit figure" a checkable claim rather than a
+    statement about the whole screen, where `credits 309` is drawn on purpose.
+    """
+    lines = painted.splitlines()
+    start = next(i for i, line in enumerate(lines) if f" {title} " in line)
+    rest = [i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("╭")]
+    return "\n".join(lines[start : rest[0] if rest else len(lines)])
+
+
+def _markers(painted: str) -> dict[str, str]:
+    """`{player name: the marker cell}` for every row drawn in the LISTONE pane.
+
+    The marker is the table's last column and the panel draws no edge, so the cell is what
+    sits between the final two `│` on the row's line. Read positionally rather than by
+    substring: `assert "ours" in painted` is satisfied by a *name* that happens to be
+    `ours`, and an emptied marker map still leaves every name on screen.
+    """
+    out: dict[str, str] = {}
+    for line in _pane(painted, "LISTONE").splitlines():
+        cells = [cell.strip() for cell in line.split("│")]
+        if len(cells) >= 3 and cells[1] in {"ours", "taken", "open"}:
+            out[cells[1]] = cells[-2]
+    return out
+
+
 def _paint(frame: RoomFrame, rows: list[ListoneRow] | None = None, **kw: object) -> str:
     console = Console(record=True, force_terminal=True, width=200, height=60, no_color=True)
     console.print(render(frame, rows if rows is not None else [_row()], **kw))  # type: ignore[arg-type]
@@ -53,10 +82,19 @@ class TestTheFourPanes:
         assert "credits 309" in painted, "the header pane"
 
     def test_the_lot_shows_the_player_the_price_and_the_next_rung(self) -> None:
+        """The rung is the number the operator is about to pay, so it is read as a phrase.
+
+        This asserted `"34" in painted and "35" in painted` until 2026-09-24 — two bare
+        digit pairs over a 200x60 screen carrying `credits 309`, `MAX 285`, `77`, `6.2`,
+        `9.4` and `40`. Each happens to occur once today, so the test was not yet vacuous;
+        it goes vacuous the first time any other number on the screen contains them, and
+        it never said the two were a price and its successor rather than two unrelated
+        numbers in different panes.
+        """
         painted = _paint(_frame())
 
         assert "Bomber" in painted
-        assert "34" in painted and "35" in painted
+        assert "price 34 → next 35" in painted
 
     def test_the_walkaway_shows_its_provenance_and_is_never_fused(self) -> None:
         """A number nobody can argue with is a number nobody can correct."""
@@ -113,9 +151,19 @@ class TestRenderIsTotal:
         assert "LISTONE" in _paint(_frame(), rows=[])
 
     def test_every_row_status_has_a_marker(self) -> None:
-        rows = [_row(status=s) for s in ("ours", "taken", "open")]
+        """`ours` / `sold` / nothing — the column an operator scans to find their own rosa.
 
-        assert _paint(_frame(), rows=rows)
+        The assertion was `assert _paint(...)`, a truthiness check on a rendered string,
+        under a name promising a marker check (2026-09-24). It did catch a status with no
+        entry in the marker map — that is a `KeyError` out of `_listone_pane` — and
+        nothing else: the three markers could all render empty and it stayed green.
+        """
+        rows = [_row(name=status, status=status) for status in ("ours", "taken", "open")]
+
+        marked = _markers(_paint(_frame(), rows=rows))
+
+        # `open` is deliberately blank: a marker on every row is a marker on none.
+        assert marked == {"ours": "ours", "taken": "sold", "open": ""}
 
 
 class TestTheCopilotPane:
@@ -149,7 +197,14 @@ class TestTheCopilotPane:
         assert "medium" in painted
 
     def test_the_pane_never_shows_a_credit_figure(self) -> None:
-        """The schema cannot carry one; this is the second lock, on the way out."""
+        """Two locks. The schema cannot carry one, and the pane does not add one.
+
+        Only the first was asserted until 2026-09-24: the second read `assert _paint(...)`,
+        the truthiness of a rendered string, which is green for any pane that draws at all
+        — including one that had grown a `credits {frame.credits_left}` line. The frame
+        below carries three distinctive figures and the COPILOTA box is sliced out and
+        checked for every one of them.
+        """
         from fantabot.domain.asta.copilot import Commentary
 
         said = Commentary(
@@ -159,7 +214,13 @@ class TestTheCopilotPane:
         assert set(Commentary.model_fields) == {
             "headline", "why", "risks", "watch", "confidence", "disagrees_with_plan"
         }
-        assert _paint(_frame(), advice=said)
+
+        painted = _paint(_frame(credits_left=309, max_cap=285, walk_away=77), advice=said)
+        pane = _pane(painted, "COPILOTA")
+
+        assert "ok" in pane and "niente di nuovo" in pane, "the pane did not draw at all"
+        for figure in ("309", "285", "77"):
+            assert figure not in pane, f"the copilot pane rendered {figure}"
 
 
 class TestTheStaleBanner:

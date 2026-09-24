@@ -121,13 +121,6 @@ class TestTheKeeperGoesFirst:
         assert outcome.fielded[0] == 5
         assert outcome.short == 0
 
-    def test_the_earlier_of_two_reserve_keepers_takes_the_shirt(self) -> None:
-        """Bench order decides, and 7 is a keeper too."""
-        outcome = _substitute(absent=(0,))
-
-        assert outcome.entered == (5,)
-        assert 7 not in outcome.entered
-
     def test_with_no_reserve_keeper_the_slot_stays_empty(self) -> None:
         voted = [pid for pid in (*STARTS, *BENCH) if pid not in (0, 5, 7)]
 

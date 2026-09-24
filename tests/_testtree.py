@@ -111,7 +111,6 @@ TREE: dict[str, str] = {
     "test_news_pool.py": "domain/news",
     "test_news_sink.py": "domain/news",
     "test_news_store.py": "domain/news",
-    "test_news_store_contract.py": "domain/news",
     "test_news_cost_report.py": "domain/news",
     # -- domain/classic: the Classic (P/D/C/A) engine -------------------------------------
     "test_classic_roles.py": "domain/classic",

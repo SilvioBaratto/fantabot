@@ -19,12 +19,11 @@ from typing import Any
 import _tokens
 import httpx
 import pytest
-from cryptography.fernet import Fernet
+from _apileague import Recorder as _Recorder
+from _apileague import build_store, mock_transport
 
 from fantabot.adapters.http import apileague as apileague
-from fantabot.adapters.persistence.models.tokens import LeagueToken
 from fantabot.adapters.tokens.store import TokenStore
-from fantabot.domain.tokens.crypto import TokenCipher
 from fantabot.domain.tokens.errors import (
     ApiTimeout,
     ApiUnavailable,
@@ -39,66 +38,19 @@ PLAINTEXT = _tokens.make_token(l_id=_tokens.LEGA_MANTRA, t_id=_tokens.TEAM_MANTR
 STATUS_BODY = {"sto": False, "activ": True, "sId": 21, "mday": 2, "mstr": "2026-08-28T18:45:00"}
 
 
-class _Result:
-    def __init__(self, value: Any) -> None:
-        self._value = value
-
-    def scalar_one_or_none(self) -> Any:
-        return self._value
-
-    def all(self) -> Any:
-        return self._value if isinstance(self._value, list) else []
-
-
-class _Session:
-    def __init__(self, *answers: Any) -> None:
-        self.answers = list(answers)
-
-    def execute(self, statement: Any, params: Any = None) -> _Result:
-        return _Result(self.answers.pop(0) if self.answers else None)
-
-
 def a_store(*, expires_at: datetime | None = None, row: bool = True) -> TokenStore:
-    cipher = TokenCipher(Fernet.generate_key().decode())
-    stored = (
-        LeagueToken(
-            league_id=_tokens.LEGA_MANTRA,
-            ciphertext=cipher.encrypt(PLAINTEXT),
-            key_fingerprint=cipher.fingerprint,
-            issued_at=NOW - timedelta(days=7),
-            expires_at=expires_at or NOW + timedelta(days=357),
-            user_id=_tokens.USER_ID,
-            team_id=_tokens.TEAM_MANTRA,
-            league_name="Legamiallerotaie2",
-            captured_at=NOW,
-            last_seen_at=NOW,
-            last_verified_at=None,
-        )
-        if row
-        else None
+    """This suite's store, over `_apileague.build_store`'s one synthetic row."""
+    return build_store(
+        NOW, PLAINTEXT,
+        league_id=_tokens.LEGA_MANTRA, user_id=_tokens.USER_ID, team_id=_tokens.TEAM_MANTRA,
+        expires_at=expires_at, row=row,
     )
-    return TokenStore(_Session(stored), cipher)
-
-
-class _Recorder:
-    """A MockTransport handler that records the request it was given."""
-
-    def __init__(self, response: httpx.Response | Exception) -> None:
-        self.response = response
-        self.requests: list[httpx.Request] = []
-
-    def __call__(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        if isinstance(self.response, Exception):
-            raise self.response
-        return self.response
 
 
 def transport_returning(
     status: int = 200, json_body: dict[str, Any] | None = None
 ) -> tuple[httpx.MockTransport, _Recorder]:
-    handler = _Recorder(httpx.Response(status, json=json_body or STATUS_BODY))
-    return httpx.MockTransport(handler), handler
+    return mock_transport(status, STATUS_BODY if json_body is None else json_body)
 
 
 # --- the headers ----------------------------------------------------------

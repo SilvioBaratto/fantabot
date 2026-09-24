@@ -107,9 +107,6 @@ def _plan(inputs: PlanInputs | None = None, *, seed: int = 5, **over: object):
 
 
 class TestTheSeed:
-    def test_it_is_the_coordinates_and_nothing_else(self) -> None:
-        assert seed_for(4103937, 311681, 6) == seed_for(4103937, 311681, 6)
-
     def test_every_coordinate_moves_it(self) -> None:
         base = seed_for(4103937, 311681, 6)
 

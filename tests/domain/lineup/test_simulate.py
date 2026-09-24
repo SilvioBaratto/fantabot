@@ -309,15 +309,3 @@ class TestThePatternGrouping:
         evaluation = evaluate(_bank(sigma=1.0, p=0.7, n=64), engine=_engine(), rules=RULES)
 
         assert 1 < evaluation.patterns <= 64
-
-    def test_every_draw_is_scored_and_none_is_scored_twice(self) -> None:
-        """A grouping that dropped a draw would raise the mean without changing anything a
-        reader could see, so the count is asserted against the bank's own."""
-        bank = _bank(mu=6.0, sigma=0.0, p=0.8, n=128)
-
-        evaluation = evaluate(bank, engine=_engine(), rules=RULES)
-
-        assert evaluation.fantapunti == pytest.approx(
-            evaluate(bank, engine=_engine(), rules=RULES).fantapunti, abs=0.0
-        )
-        assert evaluation.short >= 0.0

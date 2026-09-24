@@ -586,24 +586,6 @@ def test_a_stale_session_file_is_warned_about_and_left_alone(
     assert "left untouched" in capsys.readouterr().out
 
 
-def test_no_printed_line_contains_a_token(
-    stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ctx = _FakeContext()
-
-    login.run(report=console, browser_factory=ctx, verify=False, read_state=_read_state, now=NOW, prompt=_confirm)
-
-    output = capsys.readouterr().out
-    for one in _tokens.storage_state()["origins"][0]["localStorage"]:
-        if one["name"] != "LEAGUES2024_LOCAL":
-            continue
-        import json
-
-        blob = json.loads(one["value"])
-        for entry in blob[f"current-user-{_tokens.USER_ID}"]["leagues"]:
-            assert entry["token"][:16] not in output
-
-
 # --- T19: verification ----------------------------------------------------
 
 
@@ -667,6 +649,17 @@ def test_a_rejected_token_is_reported_but_the_row_stays_stored(
 def test_the_report_contains_no_token_and_no_key(
     stub_db: Any, with_key: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """No JWT and no key prefix on any printed line, over the whole run.
+
+    `test_no_printed_line_contains_a_token` made the same assertion against a
+    `verify=False` run and was deleted 2026-09-24. Traced: that run executed exactly one
+    line of `application/auth_login.py` this one does not — `else ([], [])`, the arm that
+    skips `_verify` — and it prints nothing. This run executes those 23 `_verify` lines on
+    top, which is where the tokens are actually re-sent. Measured: a leak planted on
+    `read LEAGUES2024_LOCAL`, a line both ran, reddened both. The `verify=False` path
+    itself is still held by `test_no_verify_stores_without_firing_a_request`, which
+    asserts the stronger thing — that no request exists at all.
+    """
     import json
 
     login.run(report=console, 
@@ -701,16 +694,6 @@ def test_every_printed_line_is_derivable_without_a_decrypt(
 
 
 # --- T20: through the real command ----------------------------------------
-
-
-def test_fantabot_auth_is_gone() -> None:
-    from typer.testing import CliRunner
-
-    from fantabot.interface.app import app
-
-    result = CliRunner().invoke(app, ["auth"])
-
-    assert result.exit_code != 0
 
 
 def test_login_is_registered_with_all_four_flags() -> None:

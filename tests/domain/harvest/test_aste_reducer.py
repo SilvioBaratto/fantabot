@@ -84,7 +84,7 @@ def test_the_folded_state_is_what_reconstruct_expects() -> None:
 
     live = _fold(parse(LIVE))
     assert set(live) >= {"fantaleague_id", "last_update", "update_type", "price"}
-    assert set(live) <= set(recorded) | set(live), "no invented keys"
+    assert set(live) <= set(recorded), "no invented keys"
 
     rows = [{"auction_id": live["fantaleague_id"], "state": live}]
     assert reconstruct(rows) == [], "a raise is not an assignment"

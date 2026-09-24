@@ -123,7 +123,18 @@ def test_the_dsn_password_is_not_printed_when_the_database_is_down(monkeypatch: 
 
 
 def test_it_does_not_need_league_credentials(monkeypatch: Any) -> None:
-    """db check must work before `fantabot auth login` has ever been run."""
+    """db check must work before `fantabot auth login` has ever been run.
+
+    Audited 2026-09-24 as vacuous — "three settings monkeypatched to their declared
+    defaults, two of which no code reads" — and **re-measured as the opposite**. The
+    defaults are declared `""`, but the operator's `.env` sets `lega_url` to a real value,
+    so patching it to `""` is the one thing in this file that puts `db check` in the
+    before-first-login state. With a `if not settings.lega_url: raise typer.Exit(2)`
+    planted in `db_check`, this test was the **only** one of the four here that reddened;
+    the other three inherit the configured value and stayed green. It is the sole guard on
+    the claim its name makes, and it is the `lega_url` patch — not the two inert ones —
+    that carries it.
+    """
     from fantabot import config
 
     _use_fake_session(monkeypatch)

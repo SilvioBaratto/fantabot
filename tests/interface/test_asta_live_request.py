@@ -246,15 +246,30 @@ class TestTheDeclaredFormatProbe:
         assert _declared_room("123", warn=said.append, _fetch=_no_session) is None
         assert said and "the room could not be asked" in said[0]
 
-    def test_a_silent_probe_is_the_default(self) -> None:
-        """`warn` defaults to a sink, so a caller that has nowhere to print is not forced
-        to invent one — and no module-level state carries a reason between runs."""
+    def test_a_silent_probe_is_the_default(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`warn` defaults to a **sink**, and that is the half this used to skip.
+
+        The body was byte-identical to
+        `test_a_missing_fantalab_session_degrades_rather_than_raising` until 2026-09-24 —
+        it re-proved the degradation and said nothing about the default. Measured: with
+        `warn` defaulting to `print` instead, all eight tests in this class stayed green.
+        That default is the one wrong one there is: `asta live --league` is the tokenless
+        path, so a probe that narrates its own degradation there prints a line about a
+        missing FantaLab session on a command that never needed one.
+        """
         from fantabot.domain.tokens.errors import FantalabSessionMissing
 
         def _no_session(_id: str) -> object:
             raise FantalabSessionMissing()
 
+        capsys.readouterr()
+
         assert self._probe(_fetch=_no_session) is None
+
+        said = capsys.readouterr()
+        assert said.out == "" and said.err == "", f"the default probe printed {said}"
 
 
 def _run_league(

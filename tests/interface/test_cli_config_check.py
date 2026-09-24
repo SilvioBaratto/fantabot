@@ -141,6 +141,17 @@ def test_dsn_host_and_database_are_still_shown() -> None:
 
 
 def test_env_override_is_honoured_and_still_masked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An exported DSN is what the screen shows, minus its password.
+
+    `test_a_distinctive_dsn_password_never_appears` sat below this one asserting a single
+    `"S3cr3tCanary" not in result.output` against a second DSN, and was deleted 2026-09-24:
+    its one assertion is this test's `"hunter2" not in result.output` with a different
+    literal, and the only axes its DSN added — `localhost`, the database named `fantabot` —
+    are already the `password-equals-username` parameter above. Measured: unmasking
+    `safe_dsn` reddens this test, that one and two parameters of the test above; no
+    mutation reddened that one alone, including two keyed on the port and the database its
+    DSN was the only one to carry.
+    """
     from fantabot import config
 
     monkeypatch.setattr(
@@ -155,19 +166,6 @@ def test_env_override_is_honoured_and_still_masked(monkeypatch: pytest.MonkeyPat
     assert "db.example.test" in result.output
     assert "6543" in result.output
     assert "otherdb" in result.output
-
-
-def test_a_distinctive_dsn_password_never_appears(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fantabot import config
-
-    monkeypatch.setattr(
-        config.settings,
-        "fantabot_database_url",
-        "postgresql+psycopg2://u:S3cr3tCanary@localhost:54321/fantabot",
-    )
-    result = runner.invoke(app, ["config-check"])
-
-    assert "S3cr3tCanary" not in result.output
 
 
 def test_the_league_password_is_not_printed_either(monkeypatch: pytest.MonkeyPatch) -> None:

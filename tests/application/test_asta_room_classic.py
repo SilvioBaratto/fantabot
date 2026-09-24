@@ -53,11 +53,45 @@ def test_a_classic_lot_is_priced_end_to_end() -> None:
     assert frame.max_cap >= 0  # the Classic 25... here 4-slot cap arithmetic did not crash
 
 
+#: A rosa that fields exactly one Classic module (451), so `schemi_open` can be a number the
+#: Mantra branch is unable to produce. The four-slot `POOL` above cannot: with an empty
+#: `owned` both branches of `cycle`'s `isinstance(rules, ClassicRosterRules)` return 0 —
+#: `fieldable_formations({})` is empty and `fieldable_schemi([], legality={})` is too — so the
+#: assertion that used to stand here held with the Classic branch deleted outright, measured
+#: 2026-09-24 against the whole default tier.
+XI_ROLES = ["P"] + ["D"] * 4 + ["C"] * 5 + ["A"]
+XI_POOL = [ClassicPlayer(str(i), role) for i, role in enumerate(XI_ROLES, start=1)]
+XI_RULES = ClassicRosterRules(
+    size=11, bands=(("P", 1, 1), ("D", 4, 5), ("C", 5, 5), ("A", 1, 2))
+)
+
+
 def test_schemi_open_counts_classic_formations_not_schemi() -> None:
-    # owned is empty, so no formation is fieldable yet — but the count is computed via the
-    # Classic path (formations), not the Mantra schemi matcher, and does not raise.
-    frame = _tracker().cycle(None, now_ms=1_000)
-    assert frame.schemi_open == 0
+    """1, not 0: a 1-4-5-1 rosa fields the 451 module and nothing else.
+
+    The Mantra branch would answer 0 for this same rosa — `fieldable_schemi` keeps only
+    `MantraPlayer`s and every one of these is a `ClassicPlayer` — so the number itself is
+    what says which branch ran.
+    """
+    tracker = RoomTracker(
+        seat=Seat(fantateam_id="us", user_id="me"),
+        bridge={f"u{p.id}": int(p.id) for p in XI_POOL},
+        pool=XI_POOL,
+        value=NaiveValueModel(
+            signals={p.id: 1.0 for p in XI_POOL},
+            prior_mean=1.0, base_variance=1.0, no_history_variance=1.0,
+        ),
+        prices={p.id: 1.0 for p in XI_POOL}, teams={p.id: p.id for p in XI_POOL},
+        legality={}, names={p.id: f"N{p.id}" for p in XI_POOL}, rules=XI_RULES,
+        budget=100.0, lam=0.0,
+        ledger=lambda: [AssignmentEvent(f"u{p.id}", 1, "us") for p in XI_POOL],
+        journal=lambda _row: None, counter_time=10, counter_time_first=20,
+    )
+
+    frame = tracker.cycle(None, now_ms=1_000)
+
+    assert len(frame.owned) == 11
+    assert frame.schemi_open == 1
 
 
 def test_a_won_classic_lot_folds_into_owned() -> None:

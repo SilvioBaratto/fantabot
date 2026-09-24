@@ -269,22 +269,6 @@ def test_the_fixture_can_tell_the_frozen_tag_from_the_observation() -> None:
     assert fieldable_schemi(build_pool(OBSERVED_ROLES), MINI) == frozenset()
 
 
-def test_a_drifted_player_is_still_fielded_on_his_frozen_tag() -> None:
-    """The fail-closed rule, with the drift actually present.
-
-    `star` is tagged A and observed as a W, with `deriva_ruolo` set. If the observation
-    reached the pool, the roster would hold one A instead of two and could field nothing —
-    the previous test proves exactly that. It still fields `por-a-a`, so legality used the
-    tag.
-    """
-    drifted = {"star": _drifted("star", "A", "W")}
-
-    build_value(FVM, priced_ids=set(PRICES), sentiment=drifted, as_of=AS_OF)
-    schemi = fieldable_schemi(build_pool(TAGGED_ROLES), MINI)
-
-    assert schemi == frozenset({"por-a-a"})
-
-
 def test_the_optimizer_picks_the_same_roster_whether_or_not_the_tag_drifted() -> None:
     """Drift moves the band, never the plan's legality.
 

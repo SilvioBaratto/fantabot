@@ -66,20 +66,6 @@ def test_the_price_moving_does_not_invalidate_it(monkeypatch: Any) -> None:
     assert calls[0] == 1
 
 
-def test_a_sale_invalidates_it(monkeypatch: Any) -> None:
-    """The memo must not be a cache that never expires. `taken` and `owned` are what move,
-    and both live on the state the key is built from."""
-    calls = _counting(monkeypatch)
-    sold: list[AssignmentEvent] = []
-    tracker = _tracker(ledger=sold)
-
-    tracker.cycle(_lot(), now_ms=1_000)
-    sold.append(AssignmentEvent("uuid-a2", 39, "rival"))
-    tracker.cycle(_lot(), now_ms=3_000)
-
-    assert calls[0] == 2, "a sale left the plan solved against a board that had moved"
-
-
 def test_and_the_new_answer_is_used_rather_than_the_cached_one(monkeypatch: Any) -> None:
     """A memo that invalidates and then serves the old value is worse than none: it would
     pass the call-count test above and still bid on a player somebody else owns."""

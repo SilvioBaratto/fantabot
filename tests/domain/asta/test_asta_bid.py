@@ -135,9 +135,6 @@ class TestAZeroWalkAwayCannotSpendACredit:
     `_refusal`'s ordering would have moved real money with nothing to catch it.
     """
 
-    def test_it_refuses_on_an_opening_lot(self) -> None:
-        assert _bid(_lot(price=0), walk_away=0) is None
-
     def test_it_refuses_at_every_price_a_lot_can_hold(self) -> None:
         assert [p for p in range(0, 40) if _bid(_lot(price=p), walk_away=0) is not None] == []
 

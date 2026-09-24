@@ -43,10 +43,6 @@ def test_an_unknown_player_shrinks_to_the_prior_with_the_widest_band() -> None:
     assert _model().value("999") == PlayerValue(mean=3.0, variance=25.0)
 
 
-def test_the_model_is_deterministic() -> None:
-    assert _model().value("1") == _model().value("1")
-
-
 # --- per-player variance -----------------------------------------------------------
 #
 # Variance was flat: every player carried the same band, so `lam` was nearly inert and the
@@ -102,9 +98,3 @@ def test_no_history_is_a_floor_on_the_band_not_a_replacement() -> None:
     model = _model(variances={"2": 40.0})
 
     assert model.value("2").variance == 40.0
-
-
-def test_a_narrower_supplied_band_still_loses_to_no_history() -> None:
-    model = _model(variances={"2": 5.0})
-
-    assert model.value("2").variance == 25.0

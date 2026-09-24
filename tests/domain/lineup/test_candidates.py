@@ -461,7 +461,7 @@ def test_every_candidate_is_ok_at_every_position_of_the_pinned_order() -> None:
 def test_every_candidate_starts_eleven_distinct_owned_players_keeper_first() -> None:
     by_id = {p.id: p for p in BIG}
 
-    for candidate in build_candidates(BIG, MODULES, mu=BIG_MU, p=BIG_S2, sigma2=BIG_S2):
+    for candidate in build_candidates(BIG, MODULES, mu=BIG_MU, p=BIG_P, sigma2=BIG_S2):
         assert len(candidate.starts) == 11
         assert len(set(candidate.starts)) == 11
         assert set(candidate.starts) <= set(by_id)
@@ -476,8 +476,8 @@ def test_every_module_contributes_and_the_union_is_deduplicated() -> None:
     assert {c.module for c in candidates} == set(MODULES)
 
 
-@pytest.mark.parametrize("k", [DEFAULT_K])
-def test_eleven_modules_five_lambdas_and_k_ten_run_inside_a_second(k: int) -> None:
+def test_eleven_modules_five_lambdas_and_k_ten_run_inside_a_second() -> None:
+    k = DEFAULT_K
     assert len(DEFAULT_LAMBDAS) == 5
 
     started = time.perf_counter()
