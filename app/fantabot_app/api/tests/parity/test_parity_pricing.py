@@ -179,7 +179,7 @@ def test_the_get_writes_nothing(seeded_db: SeededWorld, api: TestClient) -> None
 
     # The guard on the guard: prove the wrapper really refuses a write, or this test passes
     # on a session that would have accepted one.
-    with read_only() as probe, pytest.raises(Exception, match="(?i)read.only"):
+    with read_only() as probe, pytest.raises(Exception, match=r"(?i)read.only"):
         probe.execute(
             text("INSERT INTO teams (stagione, codice, nome_completo) VALUES "
                  "('1999/00', 'ZZZ', 'proof')")

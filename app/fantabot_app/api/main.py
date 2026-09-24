@@ -1,12 +1,14 @@
 """FastAPI application factory for FastAPI Template"""
 
-# instantiate Settings (see the comment on the call below), so those imports
-# intentionally sit after a statement. This is the documented app-factory order,
-# not a lint slip.
-
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 
 # Load configuration into os.environ FIRST, before importing anything that
 # instantiates Settings. load_configuration() walks up to the project .env
@@ -14,15 +16,27 @@ from typing import Any
 # it is a no-op because the vars are already real env vars injected by compose
 # env_file. Settings then read os.environ only.
 from fantabot_app.api.infrastructure.config import load_configuration
+from fantabot_app.api.v1.router import api_router
 
 load_configuration()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-
-from fantabot_app.api.infrastructure.settings import settings
-from fantabot_app.api.v1.router import api_router
+# The import below, and only it, sits after a statement deliberately: `settings` *is* a
+# `Settings` instance, built at the bottom of the module that defines it, so importing it
+# before `load_configuration()` has run reads the environment as the shell left it rather
+# than as the `.env` does.
+#
+# Five imports stood here until 2026-09-24 and four of them had no such constraint. The
+# three `fastapi` ones are third-party and touch nothing of ours. `api_router` was kept
+# here on the stated grounds that it "pulls in the endpoint modules that read `settings`"
+# — measured false: importing it brings in 101 `fantabot` modules and neither
+# `fantabot_app.api.infrastructure.settings` nor `fantabot.config` is among them, because
+# the endpoint modules import their settings inside function bodies. A justified exception
+# whose justification is wrong is the shape this file's own `E402` selection exists to
+# surface, so it moved up with the others.
+#
+# `E402` is selected rather than ignored precisely so the one import that still needs it
+# has to name itself.
+from fantabot_app.api.infrastructure.settings import settings  # noqa: E402 — see above
 
 # Configure structured logging
 logging.basicConfig(
@@ -38,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 # OpenAPI metadata — per-tag descriptions render as grouped sections in Swagger /
 # ReDoc. Populated as fantabot endpoints are added under app/api/v1/endpoints/.
-TAGS_METADATA: list[dict] = []
+TAGS_METADATA: list[dict[str, Any]] = []
 
 # Project identity constants — set once at scaffold time, not per-deployment, so
 # they live here rather than in Settings (env vars). Replace with your own.
@@ -47,7 +61,7 @@ LICENSE_INFO = {"name": "MIT", "identifier": "MIT"}
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup/shutdown. The schema is fantabot's (managed by alembic, provisioned by the
     launcher), so there is nothing to create here — sessions come from fantabot's lazy
     ``database_manager`` on first request."""
@@ -140,26 +154,26 @@ def setup_documentation_endpoints(app: FastAPI) -> None:
     logger.info("Setting up open documentation endpoints for local development")
 
     @app.get("/docs", include_in_schema=False)
-    def swagger_ui():
+    def swagger_ui() -> HTMLResponse:
         """Swagger UI - open access for local development"""
         return get_swagger_ui_html(
             openapi_url="/openapi.json",
-            title=f"{app.title} – API Documentation",
+            title=f"{app.title} - API Documentation",
             swagger_js_url="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js",
             swagger_css_url="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css",
         )
 
     @app.get("/redoc", include_in_schema=False)
-    def redoc_ui():
+    def redoc_ui() -> HTMLResponse:
         """ReDoc UI - open access for local development"""
         return get_redoc_html(
             openapi_url="/openapi.json",
-            title=f"{app.title} – API Documentation",
+            title=f"{app.title} - API Documentation",
             redoc_js_url="https://unpkg.com/redoc@2.1.0/bundles/redoc.standalone.js",
         )
 
     @app.get("/openapi.json", include_in_schema=False)
-    def get_openapi_json():
+    def get_openapi_json() -> dict[str, Any]:
         """OpenAPI JSON schema.
 
         Delegate to ``app.openapi()`` so the served schema reflects ALL metadata

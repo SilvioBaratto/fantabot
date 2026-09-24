@@ -201,7 +201,7 @@ def test_stdout_reaches_the_log_while_the_child_is_still_running(tmp_path: Path)
     """
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
-    job = ProcessJob(_python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing)
+    job = ProcessJob([*_python(FLAG_POLLER), str(landing)], role="loader", landing=landing)
     _run_in_thread(job, reporter)
 
     assert _wait(lambda: "polling" in reporter.lines), reporter.lines
@@ -286,7 +286,7 @@ def test_stop_polls_the_role_lock_rather_than_sleeping_out_the_grace(tmp_path: P
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing, grace_s=15.0
+        [*_python(FLAG_POLLER), str(landing)], role="loader", landing=landing, grace_s=15.0
     )
     _run_in_thread(job, reporter)
     assert _wait(lambda: "polling" in reporter.lines)
@@ -354,7 +354,7 @@ def test_the_first_stop_disarms_and_the_second_exits(tmp_path: Path) -> None:
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(FLAG_POLLER) + [str(landing)],
+        [*_python(FLAG_POLLER), str(landing)],
         role="loader",
         landing=landing,
         grace_s=0.4,
@@ -381,7 +381,7 @@ def test_the_stop_is_announced_as_a_flag_write(tmp_path: Path) -> None:
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing, grace_s=0.4
+        [*_python(FLAG_POLLER), str(landing)], role="loader", landing=landing, grace_s=0.4
     )
     _run_in_thread(job, reporter)
     assert _wait(lambda: "polling" in reporter.lines)
@@ -421,7 +421,7 @@ def test_the_flag_is_named_for_the_role_and_holds_only_the_stage(tmp_path: Path)
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing, grace_s=0.4
+        [*_python(FLAG_POLLER), str(landing)], role="loader", landing=landing, grace_s=0.4
     )
     _run_in_thread(job, reporter)
     assert _wait(lambda: "polling" in reporter.lines)
@@ -486,7 +486,7 @@ def test_a_stop_clicked_before_the_child_boots_is_not_lost(
     landing = tmp_path / "live.jsonl"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(SLOW_FLAG_POLLER) + [str(landing)],
+        [*_python(SLOW_FLAG_POLLER), str(landing)],
         role="loader",
         landing=landing,
         grace_s=0.4,
@@ -520,7 +520,7 @@ def test_start_clears_a_flag_left_by_a_killed_predecessor(tmp_path: Path) -> Non
     assert read_stop(flag) == "exit", "a killed predecessor left the flag at exit"
 
     reporter = BufferingReporter()
-    job = ProcessJob(_python(FLAG_POLLER) + [str(landing)], role="loader", landing=landing)
+    job = ProcessJob([*_python(FLAG_POLLER), str(landing)], role="loader", landing=landing)
     _run_in_thread(job, reporter)
     assert _wait(lambda: "polling" in reporter.lines), reporter.lines
 
@@ -583,7 +583,7 @@ def test_a_job_with_no_landing_zone_disarms_then_exits(tmp_path: Path) -> None:
     flag = tmp_path / "asta.stop"
     reporter = BufferingReporter()
     job = ProcessJob(
-        _python(FLAG_PATH_POLLER) + [str(flag)], flag=flag, grace_s=5.0, poll_s=0.05
+        [*_python(FLAG_PATH_POLLER), str(flag)], flag=flag, grace_s=5.0, poll_s=0.05
     )
     _run_in_thread(job, reporter)
     assert _wait(lambda: "polling" in reporter.lines), reporter.lines
@@ -629,7 +629,7 @@ def test_a_job_with_no_landing_zone_lists_and_stops_like_any_other(tmp_path: Pat
 
     flag = tmp_path / "asta.stop"
     registry = JobRegistry()
-    job = ProcessJob(_python(FLAG_PATH_POLLER) + [str(flag)], flag=flag, poll_s=0.05)
+    job = ProcessJob([*_python(FLAG_PATH_POLLER), str(flag)], flag=flag, poll_s=0.05)
     job_id = registry.start(job.run, kind="asta-watch", stop=job.stop)
     assert _wait(lambda: job.running)
 

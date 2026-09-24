@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import stat
 from collections.abc import Callable, Mapping, MutableMapping
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,10 +108,9 @@ def load_or_create_key(
     path = key_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(key, encoding="utf-8")
-    try:  # best-effort 0600; on Windows chmod is largely a no-op, so don't fail on it
+    # Best-effort 0600; on Windows chmod is largely a no-op, so don't fail on it.
+    with suppress(OSError):
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
     environ[ENV_ENCRYPTION_KEY] = key
     return key
 

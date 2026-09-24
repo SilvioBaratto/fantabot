@@ -717,9 +717,10 @@ def frozen_today(monkeypatch: pytest.MonkeyPatch) -> date:
     # Naive, mirroring what the seam actually returns: `_now` is `datetime.now()` and it
     # is compared against the platform's own naive matchday strings. A tz-aware stand-in
     # would freeze the clock and change the comparison in the same breath.
-    frozen_now = lambda: datetime(  # noqa: DTZ001 — naive, as the seam returns
-        FROZEN_TODAY.year, FROZEN_TODAY.month, FROZEN_TODAY.day
-    )
+    def frozen_now() -> datetime:
+        return datetime(  # noqa: DTZ001 — naive, as the seam returns
+            FROZEN_TODAY.year, FROZEN_TODAY.month, FROZEN_TODAY.day
+        )
     monkeypatch.setattr(lineup_cli, "_now", frozen_now)
     # The app's lineup seam, added by 3.3 with `POST /lineup/submit`'s kickoff warning. A
     # surface whose seam this fixture does not know about is one it does not freeze.

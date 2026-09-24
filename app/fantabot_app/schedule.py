@@ -2,7 +2,7 @@
 
 S5 of the scheduled-lineup agreement (2026-09-11): the bot submits lega 4103937's lineup by
 itself, several times a day, and no run touches a lineup after the matchday has started.
-S1–S4 built the switch, the cutoff, the run record and the history page. This is the part
+S1-S4 built the switch, the cutoff, the run record and the history page. This is the part
 that makes any of it fire.
 
 **Writing a plist and loading it are two different acts, and this module only does the

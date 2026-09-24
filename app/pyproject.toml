@@ -68,14 +68,71 @@ markers = [
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+# This section did not exist until 2026-09-24, and its absence was the defect: with no
+# `select`, ruff runs its own default `E4,E7,E9,F`. So `line-length = 100` above was
+# decorative (`E501` was never selected), app-ci.yml's `ruff check fantabot_app tests`
+# printed "All checks passed!" over 41 real findings, and the 21 `# noqa: BLE001` /
+# `# noqa: DTZ0xx` directives in this package suppressed rules that **nothing selected** —
+# comments shaped like enforcement, enforcing nothing. A guard that reports zero because
+# it selected nothing is worse than no guard: it answers the question it was asked.
+#
+# The base is the library's set, verbatim from the root `pyproject.toml`, per CLAUDE.md
+# ("same select/ignore as mailwise"). `BLE` and `DTZ` are added, and that deviation is
+# deliberate — recorded here because a deviation nobody wrote down is a drift.
+#
+# **Why `BLE` (blind-except).** This package already holds a written doctrine about bare
+# `except Exception`: `api/outcomes.py` — "degrade **open** on a status read, fail
+# **closed** on a decision" — and a test-side ban (`api/tests/test_outcomes.py`) that
+# forbids the construct outright on the six decision routes. What neither covered is the
+# *other* side of that doctrine: the 16 deliberate degrade-open catches, which are
+# explicitly outside the ban. Nothing noticed the 17th. Selecting `BLE` closes that: every
+# bare catch in the app must now carry a `# noqa: BLE001` and a reason, which is the shape
+# the 16 already had — measured, `--select BLE,DTZ --ignore-noqa` reports exactly 21, and
+# honouring the directives reports exactly 0. The rules cost nothing today and make 21
+# dead comments load-bearing. The library's own config does not select `BLE`, and pays for
+# it in prose: `repositories/admin.py`, `http/fantalab/room.py` and `harvest/stream.py`
+# each argue for their bare catch in several paragraphs *because no rule asks*. Prose is
+# not enforcement — which is the same lesson this section is.
+#
+# **How that sits with the decision-route ban, so the two cannot disagree.** Measured
+# against the five spellings `test_outcomes.py` enumerates: `BLE001` flags `except
+# Exception`, `except (Exception, OSError)`, `except builtins.Exception` and `except
+# BaseException`; `E722` (already in `E`) flags the truly bare `except:`; and neither
+# flags `except (*(Exception, OSError), ValueError)`, which the ban does. So ruff is
+# strictly the weaker of the two on a decision route, and it is silenceable while the ban
+# is not. A `# noqa: BLE001` on a decision route therefore cannot turn the ban green — it
+# buys a red test instead of a red lint, never a pass. Ruff is the floor (every bare catch
+# anywhere is deliberate and reviewed); the ban is the ceiling on the six routes where the
+# answer is "none at all". They are not two guards on one question, and there is no
+# `per-file-ignores` entry for the decision routes on purpose: that list would be a
+# hand-written copy of a set `_decision_routes()` discovers, which is the exact defect
+# 810d31a removed one level down.
+#
+# **Why `DTZ`.** Five calls here read a naive local clock, and each is load-bearing rather
+# than lazy: the platform's `mstr` matchday strings are naive, and the parity tier asserts
+# the app and the CLI read the same calendar. A tz-aware value would be a silent behaviour
+# change at each site. `DTZ` makes those five an explicitly reviewed exception instead of
+# an unremarked habit, so the sixth — written by someone who did not know — fails.
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "BLE", "DTZ"]
+# The library's three, unchanged. `E501` because line length is a formatter's job and
+# these docstrings are prose; `B008` for FastAPI's `Depends()` defaults; `RUF003` because
+# the prose in `#` comments uses real typographic dashes.
+ignore = ["E501", "B008", "RUF003"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
 files = ["fantabot_app"]
-# Tests are excluded from strict typing (fantabot's own convention). main.py is the
-# scaffold app-factory whose endpoint defs are not yet annotated — bring it under strict
-# during Phase 3 hardening, not in the rename.
-exclude = ["fantabot_app/api/tests/.*", "fantabot_app/api/main\\.py"]
+# Tests are excluded from strict typing (fantabot's own convention).
+#
+# `fantabot_app/api/main.py` was excluded too, with the note "bring it under strict during
+# Phase 3 hardening". Phases 3.3, 3.9b and 3.11 are all closed across the tree, so the note
+# had outlived its deadline while the exclusion kept the one module that builds the
+# application object outside the only check that reads it. The debt was five errors — one
+# missing generic argument and four missing return annotations — and it is paid, so the
+# exclusion is gone. It is the app factory: an exclusion there is not a corner.
+exclude = ["fantabot_app/api/tests/.*"]
 
 # These ship no py.typed marker / stubs; imported lazily inside functions.
 [[tool.mypy.overrides]]

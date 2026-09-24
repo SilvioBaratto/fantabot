@@ -79,10 +79,59 @@ jobs:
       - name: Integration (real bundled Postgres, no Docker)
         run: uv run pytest -m integration
 
+      # The Python half of exactly what `39e2287` fixed on the frontend, and it was
+      # hiding in this very step. It has run since `9688290` and was green the whole time
+      # over 41 real findings: `app/pyproject.toml` declared `[tool.ruff]` with a line
+      # length and **no `[tool.ruff.lint]`**, so ruff fell back to its own default
+      # `E4,E7,E9,F`. `line-length = 100` was decorative (`E501` unselected), `I`, `UP`,
+      # `B`, `SIM` and `RUF` were never asked, and 21 `# noqa` directives in the package
+      # suppressed rules nothing selected. The config now carries the library's set plus
+      # `BLE`/`DTZ`; this step is what makes a regression in it visible.
+      #
+      # Its own step rather than appended to the test line, so a red run says which of the
+      # two failed — the same shape as the frontend lint step below.
       - name: Lint + types
+        # Explicit, because this job is a three-OS matrix and the Windows runner's default
+        # shell is `pwsh`, where none of the assertions below parse.
+        shell: bash
         run: |
-          uv run ruff check fantabot_app tests
-          uv run mypy fantabot_app
+          # `set -e` explicitly: GitHub's bash is already `bash -e`, but the floors below
+          # are only guards if a non-zero exit from them stops the step, and that must not
+          # depend on a default one `shell:` line can change.
+          set -e
+          # Prove both tools are reading the tree before trusting either verdict. A dead
+          # `select`, an `exclude` that swallows the package, and a genuinely clean tree
+          # all print one green line, and telling them apart afterwards is the entire
+          # defect this step was found to have. 101 Python files and 42 mypy modules on
+          # 2026-09-24; the floors sit below both, so adding files is free and deleting a
+          # root is not.
+          # `tr` because BSD `wc` pads its count with leading spaces.
+          FILES=$(uv run ruff check . --show-files | wc -l | tr -d '[:space:]')
+          if [ "$FILES" -lt 90 ]; then
+            echo "ruff saw only $FILES files — its include/exclude matches (almost) nothing"
+            exit 1
+          fi
+          echo "ruff saw $FILES files"
+
+          # `.` and not `fantabot_app tests`: that pair silently skipped `conftest.py` —
+          # the file holding the canonical-database refusal — and all of `scripts/`.
+          # Ruff's own defaults keep `.venv/`, `frontend/` and the built `fantabot_app/web/`
+          # out, so `.` is narrower than it looks.
+          uv run ruff check .
+
+          # Captured rather than piped: a pipeline's exit status is the last command's, so
+          # `mypy | tee` would report tee's success and swallow a type error under `set -e`.
+          if ! MYPY_OUT=$(uv run mypy fantabot_app); then
+            echo "$MYPY_OUT"
+            exit 1
+          fi
+          echo "$MYPY_OUT"
+          MODULES=$(printf '%s' "$MYPY_OUT" |
+            sed -n 's/.*no issues found in \([0-9][0-9]*\) source file.*/\1/p')
+          if [ "${MODULES:-0}" -lt 35 ]; then
+            echo "mypy checked only ${MODULES:-0} modules — its exclude is eating the package"
+            exit 1
+          fi
 
   # The parity tier: the CLI and the app, in one process, against one seeded database.
   # Beside `integration` rather than inside the matrix — it needs a *migrated* Postgres,
