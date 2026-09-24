@@ -14,13 +14,17 @@ Reading the packaged JSON is the same "thin data-load edge" `asta.legality.load_
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import TypeVar
 
-from fantabot.domain.asta.legality import SlotRule, build_legality, load_compat
+from fantabot.domain.asta.legality import build_legality, load_compat
 from fantabot.domain.asta.roles import normalize_role
 from fantabot.domain.classic.formations import FORMATIONS
 from fantabot.domain.shared.resources import STARTS_ORDER_FILENAME, data_dir
+
+_Row = TypeVar("_Row")
 
 #: The Classic goalkeeper role — its `starts[0]`, the counterpart to Mantra's `POR`.
 CLASSIC_GK_ROLE = "P"
@@ -111,24 +115,58 @@ def _admissions_by_code() -> dict[str, tuple[SlotAdmission, ...]]:
         order = _by_code().get(code)
         if order is None:  # pragma: no cover - the gate holds the two files to one key set
             continue
-        by_roles: dict[frozenset[str], list[SlotRule]] = {}
-        for rule in schema_legality.slots:
-            by_roles.setdefault(_roles_of(rule.name), []).append(rule)
+        by_roles = rows_by_slot(
+            nome, ((rule.name, (rule.submission, rule.substitution)) for rule in schema_legality.slots)
+        )
         admissions: list[SlotAdmission] = []
         for natural in order:
-            rules = by_roles.get(natural)
-            if not rules:  # pragma: no cover - same gate
+            admitted = by_roles.get(natural)
+            if admitted is None:  # pragma: no cover - same gate
                 break
-            rule = rules.pop(0)
+            submission, substitution = admitted
             admissions.append(
                 SlotAdmission(
-                    natural=natural,
-                    submission=rule.submission,
-                    substitution=rule.substitution,
+                    natural=natural, submission=submission, substitution=substitution
                 )
             )
         if len(admissions) == len(order):
             table[code] = tuple(admissions)
+    return table
+
+
+def rows_by_slot(
+    schema_name: str, rows: Iterable[tuple[str, _Row]]
+) -> dict[frozenset[str], _Row]:
+    """One compat row per slot **role set**, for one schema. The shared reading.
+
+    `mantra_compat.json` is a table of labelled rows and everything downstream wants them
+    keyed by the slot they describe. Two rules make that a decision rather than a dict
+    comprehension, and both were written twice — here and in `positional` — with
+    **contradictory** answers to the second until 2026-09-24.
+
+    **By role set, never by label.** 4-2-3-1 spells one slot `T/W` in the starts order and
+    `W/T` in the compat matrix, so a `str` key silently drops a slot on exactly one of the
+    eleven — and the one it drops is the module whose `T` slot carries the `-1*` `W` cell.
+    Keyed per schema, too, never shared across them: 4-1-4-1's `T` slot refuses a `W`
+    where every other schema's says `-1*`.
+
+    **A schema whose repeated slots disagree is refused, not resolved by order.** Repeats
+    are the norm, not the edge case: 21 of the 121 shipped rows repeat a role set (three
+    `Dc`s in every three-back, two `A/Pc`s in 4-4-2), and every one of them agrees today.
+    That is a property of a transcription from a PDF, not a property anyone chose. The
+    other reading of these rows took the repeats positionally (`setdefault(...).append`
+    then `pop(0)`), which on a disagreeing artefact hands the slot at the platform's
+    position *i* the row that happened to sit at the PDF's position *i* — measured
+    2026-09-24 on a mutated matrix: `positional` raised `3-4-3: two 'Dc' rows disagree`
+    while `admissions` silently gave the two `Dc` slots different rules. One of these
+    readings guards a submission and the other picks a substitute, so "tolerate" and
+    "raise" were never equally safe. They now raise together.
+    """
+    table: dict[frozenset[str], _Row] = {}
+    for label, row in rows:
+        key = _roles_of(label)
+        if table.setdefault(key, row) != row:
+            raise ValueError(f"{schema_name}: two {label!r} rows disagree")
     return table
 
 

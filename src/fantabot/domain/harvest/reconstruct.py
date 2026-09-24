@@ -5,6 +5,13 @@ wrote them directly, and the live path reduces SSE frames into the same shape.
 Neither reaches this module as frames, which is why the recorded evening
 verifies this module and not the reducer.
 
+**The rules this shares with the resumable fold are in ``turn.py``**, not here: which
+records are records, when a turn begins, when a price is a new rung, and what closes a
+sale. They were written twice, comment for comment, until 2026-09-24, and ``incremental``
+reached across for a private ``_bid`` to do it. What is left below is what this fold does
+*differently* — an evening-scoped ``last_update`` guard read before the turn reset, and a
+``sold`` map that collapses repeated closes before returning.
+
 Three behaviours carry the weight:
 
 **Duplicates are absorbed, not counted** — but not by the ``last_update`` guard
@@ -48,23 +55,14 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from fantabot.domain.harvest.models import Assignment, Bid
-
-CLOSE = "close_auction"
-FIRST_CALL = "first_call"
-
-#: Distinguishes "no player on the block" from "this auction is new to us".
-_UNSEEN = object()
-
-#: States that put a price on the board. ``confirm`` and ``reset`` do not: the
-#: first clears the slot after a sale, the second annuls a call outright.
-BIDDING = frozenset({FIRST_CALL, "raise", CLOSE})
-
-
-def _bid(state: Mapping[str, Any]) -> Bid | None:
-    price = state.get("price")
-    if not isinstance(price, int):
-        return None
-    return Bid(price=price, team_id=state.get("fantateam_id"), at_ms=state.get("last_bid_time"))
+from fantabot.domain.harvest.turn import (
+    BIDDING,
+    append_rung,
+    bid_of,
+    closed_sale,
+    starts_new_turn,
+    state_of,
+)
 
 
 def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
@@ -82,13 +80,16 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
     assignments: list[Assignment] = []
 
     for row in rows:
-        auction_id = row.get("auction_id")
-        state = row.get("state")
-        if not isinstance(auction_id, str) or not isinstance(state, Mapping):
+        record = state_of(row)
+        if record is None:
             continue
+        auction_id, state = record
 
         # A restart re-sends what the node already held. Same last_update, same
-        # state: nothing happened, so nothing is recorded.
+        # state: nothing happened, so nothing is recorded. **Scoped to the evening,
+        # and read before the reset** — that, and the `sold` map below, are the only
+        # two things this fold does differently from `incremental`. Everything they
+        # share is in `turn.py`.
         stamp = state.get("last_update")
         if stamp is not None:
             if (auction_id, stamp) in seen_updates:
@@ -96,51 +97,29 @@ def reconstruct(rows: Iterable[Mapping[str, Any]]) -> list[Assignment]:
             seen_updates.add((auction_id, stamp))
 
         player_id = state.get("player_id")
-        # `None` is a real value here — a `confirm` state carries no player_id
-        # because the slot is empty between sales. Using it as "not seen yet"
-        # meant an auction whose first observed state had no player never got a
-        # ladder at all, and the next raise raised KeyError. Found by a live
-        # capture that began mid-turn, not by the recorded evening, which only
-        # ever started on a first_call.
         update_type = state.get("update_type")
 
-        # A turn begins on `first_call`, and a turn can begin twice for the same
-        # player: an annulled call puts him back on the block from zero. Keying
-        # the reset on the *player* changing glued those two turns together —
-        # observed in auction `ccdbe75d` on 2026-08-26, where bidding climbed to
-        # 17, the call was annulled, and the player then sold at 0. The ladder
-        # came out climbing to 17 and falling to 0, which an ascending auction
-        # cannot produce, and an opponent model fitted on it would see a bidding
-        # war that ended at zero.
-        previous = on_the_block.get(auction_id, _UNSEEN)
-        if update_type == FIRST_CALL or previous is _UNSEEN or previous != player_id:
+        if starts_new_turn(
+            update_type, player_id, on_the_block.get(auction_id),
+            seen_before=auction_id in on_the_block,
+        ):
             on_the_block[auction_id] = player_id
             ladders[auction_id] = []
 
         if update_type not in BIDDING:
             continue
 
-        rung = _bid(state)
+        rung = bid_of(state)
         ladder = ladders[auction_id]
-        # Only a change in price is a rung; a re-observation at the same price is
-        # the same offer seen twice.
-        if rung is not None and (not ladder or ladder[-1].price != rung.price):
-            ladder.append(rung)
+        append_rung(ladder, rung)
 
-        if update_type != CLOSE or not isinstance(player_id, str) or rung is None:
+        assignment = closed_sale(auction_id, player_id, update_type, rung, ladder, stamp)
+        if assignment is None:
             continue
         # Last close wins: a re-emission repeats the same price, and a re-auction
         # supersedes the annulled one. Recorded in order of first sale so the
         # output still reads chronologically.
-        key = (auction_id, player_id)
-        assignment = Assignment(
-            auction_id=auction_id,
-            player_id=player_id,
-            price=rung.price,
-            buyer_team_id=rung.team_id,
-            closed_at_ms=state.get("last_update"),
-            ladder=tuple(ladder),
-        )
+        key = (auction_id, assignment.player_id)
         if key in sold:
             assignments[sold[key]] = assignment
         else:

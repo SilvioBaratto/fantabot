@@ -59,6 +59,7 @@ from fantabot.domain.asta.state import AstaState, RosterRules, rules_for_room
 from fantabot.domain.classic.state import ClassicRosterRules
 from fantabot.interface.console import console
 from fantabot.interface.options import (
+    MAX_BRIDGE_AGE_HOURS,
     SEASON,
     BargainBeta,
     BargainShare,
@@ -68,6 +69,7 @@ from fantabot.interface.options import (
     DetectedCorpusCredits,
     DetectedCorpusTeams,
     Lega,
+    MaxBridgeAge,
     Season,
     Sentiment,
     SentimentRun,
@@ -98,6 +100,69 @@ def _arming_sentences() -> dict[str, str]:
     from fantabot.application.asta_session import STALE_BRIDGE
 
     return {**CLI_SENTENCES, STALE_BRIDGE: "the listone bridge is too old to arm on"}
+
+
+def _report_bridge_age(bridge_age: float | None) -> None:
+    """How fresh the uuid -> fantacalcio_id bridge is, in one line. Both live commands.
+
+    **The 60 seconds is a decision, not a format.** `listone.fetch(refresh=True)` degrades to
+    the cache on a transport failure rather than raising, so "the refresh landed" and "you are
+    reading a five-hour-old copy" are the same call returning the same shape — this line is
+    the only place the difference is said out loud, and the threshold is the whole of how it
+    is told. A `None` age is a pre-envelope cache: not stale, just unanswerable, and it gets
+    its own third case rather than being folded into either of the other two.
+
+    It was written out twice, byte for byte, in `asta_room` and `asta_bid` — the two bodies
+    CLAUDE.md names over `_disarm_on_sigint`: *"two copies of the live loop drifted, and the
+    one that lost the disarm was the one that spends credits."* One copy now, so a change to
+    the threshold cannot reach one command and miss the other.
+    """
+    if bridge_age is None:
+        console.print("[dim]listone bridge: age unknown (pre-envelope cache)[/dim]")
+    elif bridge_age < 60:
+        console.print("[dim]listone bridge: just refreshed[/dim]")
+    else:
+        console.print(f"[yellow]listone bridge: refresh failed, using a {bridge_age / 3600:.1f}h old cache[/yellow]")
+
+
+def _refuse_stale_bridge(bridge_age: float | None, max_bridge_age_hours: float) -> None:
+    """The third lock's refusal, carrying the measured age and the operator's own limit.
+
+    The wording is the CLI's: `application/arming` *names* this lock rather than sentencing
+    it, because no static map can hold those two numbers. Both live commands print it, from
+    what were two copies of the same four lines — identical in code and already drifted in
+    their comments, which is the shape this collapse is about.
+
+    The `assert` is kept as an assert rather than promoted to a raise: `room_arming` cannot
+    shut this lock on a `None` age, so it states an invariant of the caller. Changing it
+    would be a behaviour change, not a collapse.
+    """
+    assert bridge_age is not None  # only a real age can make that lock shut
+    console.print(
+        f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
+        f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
+    )
+
+
+def _require_format(fmt: str) -> None:
+    """Refuse a `--format` that is not a game. `""` means "detect it", and is legal.
+
+    One decision — which strings name a game, and what an operator is told when they type
+    something else — written in two spellings at three sites: `fmt and fmt not in (...)` on
+    `asta optimize`, `fmt not in ("", ...)` on `asta live` and `asta bid`. They are equal for
+    any `str`, which is exactly why a third value added to one tuple and not the others would
+    be silent.
+
+    `""` only, never a falsy-tolerant check: `--format ""` reads as "not given", which on the
+    detecting commands means "detect it", and anything else that is not a game is a typo.
+
+    **`asta calibrate` is deliberately not routed here.** It refuses with `console.print` +
+    `Exit(2)` and its own wording, and it does not accept `""` at all — its `--format`
+    defaults to `mantra` and names a *corpus*, not a room. Both differences are what an
+    operator reads, so they are reported rather than quietly unified.
+    """
+    if fmt not in ("", "mantra", "classic"):
+        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
 
 
 def _today() -> date:
@@ -459,8 +524,7 @@ def asta_optimize(
     )
     from fantabot.domain.asta.prices import NoCorpus
 
-    if fmt and fmt not in ("mantra", "classic"):
-        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
+    _require_format(fmt)
 
     ids = (
         _callable_ids(lambda note: console.print(f"[yellow]{note}[/yellow]"))
@@ -605,10 +669,8 @@ def asta_live(
     from fantabot.application.plan_request import NoSentimentRows
     from fantabot.domain.asta.prices import NoCorpus
 
-    # `""` only — never a falsy-tolerant check. `--format ""` reads as "not given", which
-    # on `--league` means "detect it"; anything else that is not a game is a typo.
-    if fmt not in ("", "mantra", "classic"):
-        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
+    # `""` is "not given", which on `--league` means "detect it" — see `_require_format`.
+    _require_format(fmt)
 
     if bool(league) == bool(replay):
         console.print("[red]Pass exactly one of --league or --replay.[/red]")
@@ -796,13 +858,7 @@ def asta_room(
     ceiling_alpha: CeilingAlpha = 1.00,
     bargain_beta: BargainBeta = 0.00,
     bargain_share: BargainShare = 0.10,
-    max_bridge_age_hours: float = typer.Option(
-        4.0,
-        help="Refuse --arm (not the run) when the listone bridge could not be refreshed and "
-        "the cached copy is older than this. 4h: strictly tighter than the 5-hour-stale copy "
-        "that missed 16 transfer-deadline signings on 2026-08-28 — the incident this guards "
-        "against, not a number picked in the abstract.",
-    ),
+    max_bridge_age_hours: MaxBridgeAge = MAX_BRIDGE_AGE_HOURS,
     copilot: bool = typer.Option(True, "--copilot/--no-copilot", help="The LLM pane."),
     brief_top: int = typer.Option(40, help="How many of the plan's targets to pre-brief."),
 ) -> None:
@@ -924,12 +980,7 @@ def asta_room(
         raise typer.Exit(code=1)
 
     bridge_age = listone.cache_age()
-    if bridge_age is None:
-        console.print("[dim]listone bridge: age unknown (pre-envelope cache)[/dim]")
-    elif bridge_age < 60:
-        console.print("[dim]listone bridge: just refreshed[/dim]")
-    else:
-        console.print(f"[yellow]listone bridge: refresh failed, using a {bridge_age / 3600:.1f}h old cache[/yellow]")
+    _report_bridge_age(bridge_age)
 
     credits = budget or resolved.budget
     with database_manager.get_session() as session:
@@ -964,13 +1015,7 @@ def asta_room(
         max_bridge_age_hours=max_bridge_age_hours,
     )
     if STALE_BRIDGE in gate.closed:
-        assert bridge_age is not None  # only a real age can make that lock shut
-        # The wording is the CLI's: this line carries the measured age and the operator's own
-        # limit, which is why the lock is named rather than sentenced in `application/`.
-        console.print(
-            f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
-            f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
-        )
+        _refuse_stale_bridge(bridge_age, max_bridge_age_hours)
 
     if not gate.armed:
         # The header badge says DRY RUN and has never said *why*: `gate.closed` was computed
@@ -1300,13 +1345,7 @@ def asta_bid(
     ceiling_alpha: CeilingAlpha = 1.00,
     bargain_beta: BargainBeta = 0.00,
     bargain_share: BargainShare = 0.10,
-    max_bridge_age_hours: float = typer.Option(
-        4.0,
-        help="Refuse --arm (not the run) when the listone bridge could not be refreshed and "
-        "the cached copy is older than this. 4h: strictly tighter than the 5-hour-stale copy "
-        "that missed 16 transfer-deadline signings on 2026-08-28 — the incident this guards "
-        "against, not a number picked in the abstract.",
-    ),
+    max_bridge_age_hours: MaxBridgeAge = MAX_BRIDGE_AGE_HOURS,
 ) -> None:
     """Chase the advisory's targets in a live room, bidding each up to its walk-away.
 
@@ -1339,8 +1378,7 @@ def asta_bid(
         room_stop_path,
     )
 
-    if fmt not in ("", "mantra", "classic"):
-        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
+    _require_format(fmt)
 
     # Fetched once for the run, not per poll: the mapping changes only when the
     # platform adds a player, and a live room does not want an HTTP round trip it
@@ -1374,12 +1412,7 @@ def asta_bid(
         raise typer.Exit(code=1)
 
     bridge_age = listone.cache_age()
-    if bridge_age is None:
-        console.print("[dim]listone bridge: age unknown (pre-envelope cache)[/dim]")
-    elif bridge_age < 60:
-        console.print("[dim]listone bridge: just refreshed[/dim]")
-    else:
-        console.print(f"[yellow]listone bridge: refresh failed, using a {bridge_age / 3600:.1f}h old cache[/yellow]")
+    _report_bridge_age(bridge_age)
 
     # **The band and the format first, then the world it selects.** These two blocks used to
     # run the other way round: `read_plan_inputs(listone=fmt)` chose the pool *and* the
@@ -1465,13 +1498,7 @@ def asta_bid(
         max_bridge_age_hours=max_bridge_age_hours,
     )
     if STALE_BRIDGE in gate.closed:
-        assert bridge_age is not None  # only a real age can make that lock shut
-        # The wording is the CLI's — this line carries the measured age and the operator's
-        # own limit, which is why `application/` names that lock rather than sentencing it.
-        console.print(
-            f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
-            f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
-        )
+        _refuse_stale_bridge(bridge_age, max_bridge_age_hours)
 
     # A list so the SIGINT handler can clear it without a global, and read by the writer on
     # every bid. This was a plain `arm` bool captured once by the write closure, with no

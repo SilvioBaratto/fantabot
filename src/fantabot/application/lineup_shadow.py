@@ -32,6 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fantabot.adapters.files.lineup_runs import SUBMITTED, UNCONFIRMED
 from fantabot.domain.lineup.backtest import Fielded, field
 from fantabot.domain.lineup.scoring import lega_fantavoto
 
@@ -43,11 +44,16 @@ if TYPE_CHECKING:
     from fantabot.domain.lineup.scoring import ScoringRules
     from fantabot.domain.lineup.substitution import SubMode
 
-#: The status a graded record must have. A skipped or failed run fielded nothing.
-SUBMITTED = "submitted"
-#: `unconfirmed` reached the platform and could not be read back — the lineup is there, so
+#: The statuses a graded record may have. A skipped or failed run fielded nothing.
+#:
+#: `UNCONFIRMED` reached the platform and could not be read back — the lineup is there, so
 #: it is graded like any other. The record's own caveat is about the *evidence*, not the XI.
-UNCONFIRMED = "unconfirmed"
+#:
+#: The two names are **imported**, not re-spelled. They are the values
+#: `adapters/files/lineup_runs.py` writes into the record this module then reads back, so a
+#: second copy here is a second answer to "what does a submitted run look like on disk" —
+#: and the copy that would lose a rename is this one, which decides what gets graded at all.
+#: `lineup_submit.py` already reads them from the same place.
 GRADABLE_STATUSES = (SUBMITTED, UNCONFIRMED)
 
 #: How far our recompute may sit from the platform's own points before it is a finding.

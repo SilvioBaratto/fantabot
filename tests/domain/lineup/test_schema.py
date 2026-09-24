@@ -12,10 +12,12 @@ than a refusal, a malus nobody would see). The order now comes from
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 import pytest
 
-from fantabot.domain.lineup import schema
+from fantabot.domain.asta.legality import load_compat
+from fantabot.domain.lineup import positional, schema
 from fantabot.domain.lineup.build import lineup_for_module
 from fantabot.domain.lineup.models import RosterPlayer
 from fantabot.domain.shared.resources import SCHEMI_FILENAME, data_dir
@@ -143,7 +145,7 @@ def test_the_two_files_describe_the_same_eleven_schemi() -> None:
     """`mantra_compat.json` and `mantra_starts_order.json` are two views of one thing — the
     PDF's row order and the platform's `starts[]` order. `admissions` matches them slot by
     slot, so they must agree on which slots exist before the match means anything."""
-    from fantabot.domain.asta.legality import build_legality, load_compat
+    from fantabot.domain.asta.legality import build_legality
 
     compat = {nome.replace("-", "") for nome in build_legality(load_compat())}
 
@@ -181,3 +183,95 @@ def test_each_module_admits_eleven_slots(code: str) -> None:
 def test_an_unknown_module_has_no_admissions_rather_than_an_empty_one() -> None:
     with pytest.raises(ValueError, match="999"):
         schema.admissions("999")
+
+
+# -- T5: the two readings of `mantra_compat.json`, collapsed into one ------------------
+
+
+def _shipped_repeats() -> list[tuple[str, str]]:
+    """Every `(schema, label)` whose role set another row of the same schema also has."""
+    matrix = load_compat()
+    out: list[tuple[str, str]] = []
+    for entry in matrix.formazioni:
+        seen: set[frozenset[str]] = set()
+        for row in entry.slots:
+            key = frozenset(part.strip().upper() for part in row.slot.split("/"))
+            if key in seen:
+                out.append((entry.schema_nome, row.slot))
+            seen.add(key)
+    return out
+
+
+def test_the_shipped_matrix_really_does_repeat_slot_role_sets() -> None:
+    """Without this the refusal below would be guarding a case that cannot arise.
+
+    Repeats are the norm, not an edge: three `Dc` rows in every three-back, two `A/Pc` in
+    4-4-2. 21 of the 121 rows, measured 2026-09-24 — and every one of them agrees, which
+    is a property of a transcription from a PDF and not one anybody chose.
+    """
+    assert len(_shipped_repeats()) == 21
+
+
+@pytest.fixture
+def disagreeing_matrix(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """3-4-3's second `Dc` row, with one cell moved. Both readings must refuse it."""
+    matrix = load_compat().model_copy(deep=True)
+    entry = next(f for f in matrix.formazioni if f.schema_nome == "3-4-3")
+    rows = [i for i, s in enumerate(entry.slots) if s.slot.strip().upper() == "DC"]
+    entry.slots[rows[1]].compat[list(matrix.ruoli).index("W")] = "ok"
+
+    monkeypatch.setattr(schema, "load_compat", lambda source=None: matrix)
+    monkeypatch.setattr(positional, "load_compat", lambda source=None: matrix)
+    schema._admissions_by_code.cache_clear()
+    positional._rows.cache_clear()
+    try:
+        yield
+    finally:
+        schema._admissions_by_code.cache_clear()
+        positional._rows.cache_clear()
+
+
+def test_both_readings_refuse_a_schema_whose_repeated_slots_disagree(
+    disagreeing_matrix: None,
+) -> None:
+    """They answered this differently until 2026-09-24, and the difference was silent.
+
+    `positional._rows` raised; `_admissions_by_code` tolerated it, taking the repeats
+    positionally (`setdefault(...).append` then `pop(0)`) — so the slot at the platform's
+    position *i* got whichever row happened to sit at the PDF's position *i*. Measured on
+    this exact matrix: `positional` raised while `admissions("343")` handed the two `Dc`
+    slots different rules, one admitting a `W` and one not. One of those readings guards a
+    submission and the other picks a substitute; they were never equally safe.
+    """
+    xi = [frozenset({"POR"})] * 11
+    with pytest.raises(ValueError, match="two 'Dc' rows disagree"):
+        positional.cells("343", xi)
+    with pytest.raises(ValueError, match="two 'Dc' rows disagree"):
+        schema.admissions("343")
+
+
+@pytest.mark.parametrize("code", sorted(PLATFORM_ORDER))
+def test_the_cells_and_the_admissions_describe_the_same_schema(code: str) -> None:
+    """The cross-check that made collapsing them safe, kept as the guard against a split.
+
+    `positional` reads the raw cells because it must tell `ok` from `-1`; `admissions`
+    reads them folded into sets. Same rows, same pairing, so `submission` is exactly the
+    `ok`/`-1` cells and `substitution` those plus `-1*`, at all 11 positions of all 11
+    modules.
+    """
+    roles = [role.upper() for role in load_compat().ruoli]
+    for position, (slot, admission) in enumerate(
+        zip(schema.slots(code), schema.admissions(code), strict=True)
+    ):
+        cells = positional.cells(code, [slot] * 11)[position]
+        assert cells.slot == slot
+        row = {
+            role: positional.cells(code, [frozenset({role})] * 11)[position].value
+            for role in roles
+        }
+        assert admission.submission == frozenset(
+            r for r, v in row.items() if v in {"ok", "-1"}
+        ), f"{code}[{position}]"
+        assert admission.substitution == frozenset(
+            r for r, v in row.items() if v in {"ok", "-1", "-1*"}
+        ), f"{code}[{position}]"

@@ -15,10 +15,10 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
-import { EMPTY, catchError, forkJoin, interval, switchMap, takeWhile } from 'rxjs';
+import { forkJoin } from 'rxjs';
 
 import { ActionsService } from '../../core/api/actions.service';
-import { JobsService } from '../../core/api/jobs.service';
+import { JobPanel, JobsService } from '../../core/api/jobs.service';
 import { NewsService } from '../../core/api/news.service';
 import { DriftRow, NewsRow } from '../../core/models/news';
 
@@ -69,6 +69,20 @@ export class NewsComponent implements OnInit {
   readonly jobOk = signal<boolean | null>(null);
   readonly jobError = signal<string | null>(null);
 
+  /**
+   * The five signals above, as the shape `JobsService.track` writes.
+   *
+   * No `jobId`: this page has no stop control, so there is no handle to hold and nothing
+   * the shared loop would have to drop.
+   */
+  private readonly panel: JobPanel = {
+    running: this.running,
+    lines: this.lines,
+    status: this.jobStatus,
+    ok: this.jobOk,
+    error: this.jobError,
+  };
+
   ngOnInit(): void {
     this.load();
     this.reattach();
@@ -115,40 +129,31 @@ export class NewsComponent implements OnInit {
    * asked for has failed, and a red banner on arrival would be about the poll, not them.
    */
   private reattach(): void {
-    this.jobs
-      .list()
-      .pipe(
-        catchError(() => EMPTY),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((list) => {
-        const live = list.jobs.find((job) => job.kind === KIND && job.status === 'running');
-        if (!live) return;
-        this.running.set(true);
-        this.jobStatus.set('running');
-        this.poll(live.id);
-      });
+    this.jobs.running(this.destroyRef).subscribe((jobs) => {
+      const live = jobs.find((job) => job.kind === KIND);
+      if (!live) return;
+      this.running.set(true);
+      this.jobStatus.set('running');
+      this.poll(live.id);
+    });
   }
 
-  /** Poll one job, asking only for the lines it has not already shown. */
+  /**
+   * Follow the fetch. `JobsService.track`, over signals this page already had.
+   *
+   * There is one job here and only ever one, so these live loose on the component rather
+   * than in a record — `panel` is the shape the shared loop writes, assembled once below,
+   * and not a second copy of the state.
+   */
   private poll(jobId: string): void {
-    interval(1500)
-      .pipe(
-        switchMap(() => this.jobs.get(jobId, this.lines().length)),
-        takeWhile((job) => job.status === 'running', true),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((job) => {
-        if (job.lines.length) this.lines.update((shown) => [...shown, ...job.lines]);
-        this.jobStatus.set(job.status);
-        if (job.status === 'running') return;
-        this.running.set(false);
-        this.jobOk.set(job.ok);
-        if (job.error) this.jobError.set(job.error);
-        // The fetch is what puts rows on this screen, so re-reading here is the one
-        // place where it says something true rather than looking busy.
-        this.load();
-      });
+    this.jobs.track({
+      jobId,
+      panel: this.panel,
+      destroyRef: this.destroyRef,
+      // The fetch is what puts rows on this screen, so re-reading here is the one place
+      // where it says something true rather than looking busy.
+      onFinish: () => this.load(),
+    });
   }
 
   load(): void {

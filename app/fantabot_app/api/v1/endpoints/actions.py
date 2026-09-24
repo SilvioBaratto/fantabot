@@ -10,15 +10,11 @@ is an upsert.
 from __future__ import annotations
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 
 from fantabot_app.api.infrastructure.jobs import BufferingReporter, registry
+from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
-
-
-class JobStarted(BaseModel):
-    job_id: str
 
 
 @router.post("/actions/lega-sync", response_model=JobStarted, tags=["actions"])

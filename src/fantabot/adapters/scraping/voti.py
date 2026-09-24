@@ -45,30 +45,31 @@ from __future__ import annotations
 import re
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 
 from fantabot.adapters.persistence import scraping as _db
+from fantabot.adapters.scraping._site import (
+    REQUEST_DELAY_SECONDS,
+    fetch_html,
+    player_id_from_href,
+)
 from fantabot.domain.shared.parsing import italian_decimal, parse_date, parse_time
 
 BASE_URL = "https://www.fantacalcio.it/voti-fantacalcio-serie-a"
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-)
 # Every season to scrape, not a pointer at the current one — `application/scrape.py:22-26`
 # argues a computed CURRENT_SEASON is "the same disease". Appended rather than derived, and
 # kept identical to `quotazioni.DEFAULT_SEASONS`: the defect was that the three disagreed.
 # `scrapables` reads this list live and warns when it stops before the season being played,
 # so the next August shows up as a warning rather than as a silent scrape of last season.
+# Deliberately *not* shared through `_site`, for that same reason — see its docstring.
 DEFAULT_SEASONS = ["2022/23", "2023/24", "2024/25", "2025/26", "2026/27"]
-REQUEST_DELAY_SECONDS = 1.0
-MAX_RETRIES = 3
 
+# Five roles, not the listone's four: a voti page grades the coach too. Kept here rather
+# than derived from `_site.CLASSIC_ROLES` — the four letters agree by coincidence, not by
+# construction, and see the `_site` docstring for why that matters.
 ROLE_LABELS = {
     "p": "Portiere",
     "d": "Difensore",
@@ -226,11 +227,9 @@ class GiornataParser(HTMLParser):
             # players: <a class="player-name player-link" href=".../<id>[/<season>]">
             # coaches (role "all"): bare <span class="player-name"> Gasperini </span>, no id
             if tag == "a":
-                href = (d.get("href") or "").rstrip("/")
-                for part in reversed(href.split("/")):
-                    if part.isdigit():
-                        self._row.player_id = part
-                        break
+                found = player_id_from_href(d.get("href"))
+                if found:
+                    self._row.player_id = found
             self._in_name_link = True
             return
 
@@ -302,22 +301,6 @@ class GiornataParser(HTMLParser):
 
 def giornata_url(season: str, giornata: int) -> str:
     return f"{BASE_URL}/{season.replace('/', '-')}/{giornata}"
-
-
-def fetch_html(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    last_error: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body: bytes = resp.read()
-            return body.decode("utf-8")
-        except (urllib.error.URLError, TimeoutError) as exc:
-            last_error = exc
-            if attempt < MAX_RETRIES:
-                time.sleep(2 * attempt)
-    assert last_error is not None
-    raise last_error
 
 
 def max_giornata(html: str) -> int:

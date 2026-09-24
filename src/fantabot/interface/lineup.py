@@ -23,6 +23,8 @@ from rich.markup import escape
 from fantabot.application.containment import contained
 from fantabot.domain.lineup.deadline import is_past_deadline as _is_past_deadline
 from fantabot.interface.console import console
+from fantabot.interface.options import SEASON
+from fantabot.interface.refusals import database_unreachable, resolve_league
 
 if TYPE_CHECKING:
     from fantabot.adapters.tokens.store import TokenStore
@@ -204,16 +206,6 @@ def format_freshness(freshness: Freshness) -> list[str]:
     return lines
 
 
-def _resolve_league(league: int) -> int:
-    from fantabot.config import settings
-
-    league_id = league or settings.fantabot_league_id
-    if not league_id:
-        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
-        raise typer.Exit(code=1)
-    return league_id
-
-
 def _show(
     league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
     competition: int = typer.Option(0, "--competition", help="Competition id (required)."),
@@ -228,7 +220,7 @@ def _show(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
     if not competition:
         console.print("[red]no competition id: pass --competition[/red]")
         raise typer.Exit(code=1)
@@ -242,8 +234,7 @@ def _show(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     for line in format_lineup(body.get("teamLineupDto", {})):
         console.print(line)
@@ -271,7 +262,7 @@ def _plan(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
     if model and model not in (INDEXCOMPARE, PROJECTION):
         console.print(f"[red]unknown model {model!r}: {INDEXCOMPARE} or {PROJECTION}[/red]")
         raise typer.Exit(code=1)
@@ -295,8 +286,7 @@ def _plan(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     for line in format_plan(plans[0], names):
         console.print(line)
@@ -341,8 +331,7 @@ def _plan_projection(league_id: int, competition: int) -> None:
         console.print(f"[red]no projection: {exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     outcome = report.projection
     console.print(
@@ -439,7 +428,7 @@ def _submit(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
 
     # The run record — `--scheduled` only: the history is the automation's, and a person at
     # the terminal has already read the answer. Stamped once, by `_now`, the lineup
@@ -483,16 +472,17 @@ def _submit(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        # The type and a fixed sentence, never `str(exc)`: a driver's message can carry the
-        # connection string, and this line ends up in a file the app renders.
+        # Recorded first, then `database_unreachable` says the rest — the type and a fixed
+        # sentence, never `str(exc)`, for the reason that module states: a driver's message
+        # can carry the connection string, and both of these end up in a file the app
+        # renders.
         record(failed_run(
             "database-unreachable",
             f"the bundled Postgres is not reachable ({type(exc).__name__}) — the token lives "
             "there. Start it with `fantabot-app db start`.",
             league_id=league_id, scheduled=scheduled, at=at, model=chosen_model(),
         ))
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     record(run_record(outcome, league_id=league_id, scheduled=scheduled, at=at))
 
@@ -591,7 +581,7 @@ def _refresh(
     cmday: int = typer.Option(
         0, "--cmday", help="Serie A giornata being planned. 0 = read it from the platform."
     ),
-    season: str = typer.Option("2026/27", "--season", help="Which stagione to refresh."),
+    season: str = typer.Option(SEASON, "--season", help="Which stagione to refresh."),
     source: list[str] = typer.Option(
         [], "--source", help="Only these sources: voti, lega, news. Repeatable."
     ),
@@ -617,7 +607,7 @@ def _refresh(
     )
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
     matchday = cmday or _read_cmday(league_id, competition)
     if matchday <= 0:
         console.print(
@@ -637,8 +627,7 @@ def _refresh(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     report = run_refresh(
         inputs,
@@ -844,7 +833,7 @@ def _backtest(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
     mode = parse_sub_mode(sub_mode)
     if mode is None:
         console.print(
@@ -901,8 +890,7 @@ def _backtest(
         console.print(f"[red]the gate could not run: {exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     for line in report.lines():
         console.print(escape(line))
@@ -912,7 +900,7 @@ def _backtest(
 
 def _shadow_report(
     league: int = typer.Option(0, "--league", help="Lega id. Defaults to FANTABOT_LEAGUE_ID."),
-    season: str = typer.Option("2026/27", "--season", help="Which stagione the votes are in."),
+    season: str = typer.Option(SEASON, "--season", help="Which stagione the votes are in."),
     sub_mode: str = typer.Option(
         "", "--sub-mode", help="basic | easy | master. Defaults to FANTABOT_LINEUP_SUB_MODE."
     ),
@@ -948,7 +936,7 @@ def _shadow_report(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
     mode = parse_sub_mode(sub_mode or live_setting(LINEUP_SUB_MODE_VAR))
     if mode is None:
         console.print(
@@ -1023,8 +1011,7 @@ def _shadow_report(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     for line in outcome.lines():
         console.print(escape(line))

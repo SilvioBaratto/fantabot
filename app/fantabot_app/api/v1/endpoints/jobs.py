@@ -10,6 +10,17 @@ from fantabot_app.api.infrastructure.jobs import registry
 router = APIRouter()
 
 
+# What every action endpoint returns: the id the UI then polls this module for. One
+# declaration, imported by the five endpoint modules that start jobs; it was five identical
+# ones. FastAPI collapsed them into a single OpenAPI schema all along — pydantic keys
+# structurally identical models by short name — so the cost was never a polluted schema, it
+# was five places to edit and five chances to drift. Written as a comment and not a
+# docstring on purpose: pydantic lifts a model docstring into `description`, and the point
+# of this collapse is a byte-identical schema.
+class JobStarted(BaseModel):
+    job_id: str
+
+
 class JobStatus(BaseModel):
     id: str
     status: str

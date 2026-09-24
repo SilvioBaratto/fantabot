@@ -8,7 +8,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import type { WritableSignal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -18,11 +17,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { LucideAngularModule } from 'lucide-angular';
-import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'rxjs';
+import { EMPTY, Observable, catchError } from 'rxjs';
 
 import { ActionsService } from '../../core/api/actions.service';
 import { HarvestService } from '../../core/api/harvest.service';
-import { JobsService } from '../../core/api/jobs.service';
+import { JobPanel, JobsService } from '../../core/api/jobs.service';
 import { BackfillCandidates } from '../../core/models/backfill';
 import { Corpus, SeedPanel } from '../../core/models/corpus';
 
@@ -36,20 +35,14 @@ const COLLECT_KIND = 'harvest-collect';
 const BACKFILL_KIND = 'harvest-backfill';
 
 /**
- * The four signals every job on this page renders through.
+ * A `JobPanel` with both of its optional signals present.
  *
- * Written down at the third one, not the first: scan, load and collect poll the same
- * endpoint and differ only in what they re-read when it finishes. Three copies of the
- * poll had already drifted once by then in the pages this one was modelled on.
+ * Every job on this page has a stop control addressing `jobId` and a place to render the
+ * server's own refusal, so declaring that once here is what keeps `start` and `stopJob`
+ * from asking whether the fields are there four times over. `synchronize`'s scrape panel
+ * is the counter-example the fields are optional *for* — see `JobsService.track`.
  */
-interface JobPanel {
-  readonly running: WritableSignal<boolean>;
-  readonly lines: WritableSignal<string[]>;
-  readonly status: WritableSignal<string>;
-  readonly ok: WritableSignal<boolean | null>;
-  readonly error: WritableSignal<string | null>;
-  readonly jobId: WritableSignal<string | null>;
-}
+type HarvestPanel = JobPanel & Required<Pick<JobPanel, 'jobId' | 'error'>>;
 
 /**
  * What the harvest actually put in the database, per format — and what the next collect
@@ -171,7 +164,7 @@ export class HarvestComponent implements OnInit {
     () => this.canBackfill() && this.backfillDryRunDone() === this.backfillChoice(),
   );
 
-  private readonly scanPanel: JobPanel = {
+  private readonly scanPanel: HarvestPanel = {
     running: this.scanning,
     lines: this.scanLines,
     status: this.scanStatus,
@@ -180,7 +173,7 @@ export class HarvestComponent implements OnInit {
     jobId: signal<string | null>(null),
   };
 
-  private readonly loadPanel: JobPanel = {
+  private readonly loadPanel: HarvestPanel = {
     running: this.loaderRunning,
     lines: this.loaderLines,
     status: this.loaderStatus,
@@ -189,7 +182,7 @@ export class HarvestComponent implements OnInit {
     jobId: this.loaderJobId,
   };
 
-  private readonly backfillPanel: JobPanel = {
+  private readonly backfillPanel: HarvestPanel = {
     running: this.backfillRunning,
     lines: this.backfillLines,
     status: this.backfillStatus,
@@ -198,7 +191,7 @@ export class HarvestComponent implements OnInit {
     jobId: this.backfillJobId,
   };
 
-  private readonly collectPanel: JobPanel = {
+  private readonly collectPanel: HarvestPanel = {
     running: this.collecting,
     lines: this.collectLines,
     status: this.collectStatus,
@@ -408,7 +401,7 @@ export class HarvestComponent implements OnInit {
    * refusal, and a generic fallback would throw it away.
    */
   private start(
-    panel: JobPanel,
+    panel: HarvestPanel,
     request: Observable<{ job_id: string }>,
     fallback: string,
     onFinish: () => void,
@@ -439,7 +432,7 @@ export class HarvestComponent implements OnInit {
    * lock. The stop sequence itself — SIGINT, the lock, then SIGKILL — is the server's,
    * and its escalation shows up in this log.
    */
-  private stopJob(panel: JobPanel): void {
+  private stopJob(panel: HarvestPanel): void {
     const jobId = panel.jobId();
     if (!jobId) return;
     this.jobs
@@ -463,49 +456,44 @@ export class HarvestComponent implements OnInit {
    * asked for has failed, and a red banner on arrival would be about the poll, not them.
    */
   private reattach(): void {
-    this.jobs
-      .list()
-      .pipe(
-        catchError(() => EMPTY),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((list) => {
-        const resume = (kind: string, panel: JobPanel, onFinish: () => void) => {
-          const live = list.jobs.find((job) => job.kind === kind && job.status === 'running');
-          if (!live) return;
-          panel.running.set(true);
-          panel.status.set('running');
-          panel.jobId.set(live.id);
-          this.track(panel, live.id, onFinish);
-        };
+    this.jobs.running(this.destroyRef).subscribe((jobs) => {
+      const resume = (kind: string, panel: HarvestPanel, onFinish: () => void) => {
+        const live = jobs.find((job) => job.kind === kind);
+        if (!live) return;
+        panel.running.set(true);
+        panel.status.set('running');
+        panel.jobId.set(live.id);
+        this.track(panel, live.id, onFinish);
+      };
 
-        resume(SCAN_KIND, this.scanPanel, () => this.readSeed());
-        resume(LOAD_KIND, this.loadPanel, () => this.load());
-        resume(COLLECT_KIND, this.collectPanel, () => this.load());
-        // No dry run is recorded on reattach, deliberately. `GET /jobs` does not say
-        // whether the running child carries `--dry-run`, and inferring one would offer
-        // the write on the strength of a run whose mode this page is guessing at.
-        resume(BACKFILL_KIND, this.backfillPanel, () => this.load());
-      });
+      resume(SCAN_KIND, this.scanPanel, () => this.readSeed());
+      resume(LOAD_KIND, this.loadPanel, () => this.load());
+      resume(COLLECT_KIND, this.collectPanel, () => this.load());
+      // No dry run is recorded on reattach, deliberately. `GET /jobs` does not say
+      // whether the running child carries `--dry-run`, and inferring one would offer
+      // the write on the strength of a run whose mode this page is guessing at.
+      resume(BACKFILL_KIND, this.backfillPanel, () => this.load());
+    });
   }
 
-  /** Poll one job into one panel, asking only for the lines it has not already shown. */
-  private track(panel: JobPanel, jobId: string, onFinish: () => void): void {
-    interval(1500)
-      .pipe(
-        switchMap(() => this.jobs.get(jobId, panel.lines().length)),
-        takeWhile((job) => job.status === 'running', true),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((job) => {
-        if (job.lines.length) panel.lines.update((shown) => [...shown, ...job.lines]);
-        panel.status.set(job.status);
-        if (job.status === 'running') return;
-        panel.running.set(false);
+  /**
+   * Poll one job into one panel — `JobsService.track`, plus the one thing this page does
+   * that the others do not.
+   *
+   * **The id is dropped when the job ends.** Every panel here has a stop control that
+   * addresses `panel.jobId()`, and a stop sent to a job that already finished is a 409
+   * the operator reads as a failure. `synchronize` keeps its id instead, so this cannot
+   * live in the shared loop without changing that page — see `JobsService.track`.
+   */
+  private track(panel: HarvestPanel, jobId: string, onFinish: () => void): void {
+    this.jobs.track({
+      jobId,
+      panel,
+      destroyRef: this.destroyRef,
+      onFinish: () => {
         panel.jobId.set(null);
-        panel.ok.set(job.ok);
-        if (job.error) panel.error.set(job.error);
         onFinish();
-      });
+      },
+    });
   }
 }

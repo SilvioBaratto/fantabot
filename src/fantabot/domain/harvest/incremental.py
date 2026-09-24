@@ -10,6 +10,11 @@ seconds.
 Carrying the ladder across passes is what removes the need to re-read. This module is
 that fold with its state named, so it can be checkpointed beside the byte offset.
 
+**It is the same fold, and the rules it shares with `reconstruct` are in `turn.py`.**
+Two things here are genuinely different and both are argued below: the `seen` guard is
+scoped to the turn rather than to the evening, and the turn reset runs *before* that
+guard rather than after it. Everything else the two loops used to state twice.
+
 **The state is small, which was not obvious and is the reason this is worth doing.**
 The planning estimate was 161 MB — large enough that writing it each pass would have
 cost more than the re-fold it replaces. Measured, it is **198 KB**, because two of the
@@ -70,7 +75,14 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from fantabot.domain.harvest.models import Assignment, Bid
-from fantabot.domain.harvest.reconstruct import BIDDING, CLOSE, FIRST_CALL, _bid
+from fantabot.domain.harvest.turn import (
+    BIDDING,
+    append_rung,
+    bid_of,
+    closed_sale,
+    starts_new_turn,
+    state_of,
+)
 
 #: Bumped when the shape of a checkpointed state changes. A file written by an older
 #: version is discarded rather than adapted: the fallback is a full re-fold, which is
@@ -134,23 +146,24 @@ def advance(
     closed: list[Assignment] = []
 
     for row in rows:
-        auction_id = row.get("auction_id")
-        raw = row.get("state")
-        if not isinstance(auction_id, str) or not isinstance(raw, Mapping):
+        record = state_of(row)
+        if record is None:
             continue
+        auction_id, raw = record
         known.add(auction_id)
 
         player_id = raw.get("player_id")
         update_type = raw.get("update_type")
 
-        # A turn begins on `first_call`, and the same player can begin twice — an
-        # annulled call puts him back on the block from zero. Keying the reset on the
-        # player changing alone glued those two turns into one ladder that climbed and
-        # then fell, which an ascending auction cannot produce. `_UNSEEN` is spelled
-        # here as "auction not in on_the_block", which is the same test across a
-        # resumed state as it was inside one pass.
-        first_time = auction_id not in on_the_block
-        if update_type == FIRST_CALL or first_time or on_the_block[auction_id] != player_id:
+        # **The reset runs before the stamp guard**, and the state it clears is scoped
+        # to the turn. Those two are the only things this fold does differently from
+        # `reconstruct`; every rule they share is in `turn.py`. `seen_before` is
+        # spelled here as "auction not in on_the_block", which is the same test across
+        # a resumed state as it was inside one pass.
+        if starts_new_turn(
+            update_type, player_id, on_the_block.get(auction_id),
+            seen_before=auction_id in on_the_block,
+        ):
             on_the_block[auction_id] = player_id if isinstance(player_id, str) else None
             ladders[auction_id] = []
             seen[auction_id] = set()
@@ -167,24 +180,13 @@ def advance(
         if update_type not in BIDDING:
             continue
 
-        rung = _bid(raw)
+        rung = bid_of(raw)
         ladder = ladders[auction_id]
-        # A re-observation at the same price is the same offer seen twice.
-        if rung is not None and (not ladder or ladder[-1].price != rung.price):
-            ladder.append(rung)
+        append_rung(ladder, rung)
 
-        if update_type != CLOSE or not isinstance(player_id, str) or rung is None:
-            continue
-        closed.append(
-            Assignment(
-                auction_id=auction_id,
-                player_id=player_id,
-                price=rung.price,
-                buyer_team_id=rung.team_id,
-                closed_at_ms=raw.get("last_update"),
-                ladder=tuple(ladder),
-            )
-        )
+        sale = closed_sale(auction_id, player_id, update_type, rung, ladder, stamp)
+        if sale is not None:
+            closed.append(sale)
 
     return (
         replace(

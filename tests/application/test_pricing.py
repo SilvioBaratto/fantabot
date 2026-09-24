@@ -14,13 +14,18 @@ several of them are decisions with a recorded reason and a named player behind t
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from typing import ClassVar
 
 import pytest
 
+from fantabot.application import pricing
 from fantabot.application.pricing import (
     GOALKEEPER_MACRO,
     MIN_QI,
+    FadeSummary,
     PricingReport,
     RoleFade,
     TargetPriceRow,
@@ -374,3 +379,204 @@ class TestObservationCounts:
         pairs = training_pairs(rows, priors, "classic")
 
         assert counts == {role: len(ps) for role, ps in pairs.items()}
+
+
+class TestFitAndRunAreOnePipeline:
+    """`fit` and `run` must compute the same model. A characterization, not a unit test.
+
+    Until 2026-09-24 they were two copies of the same six statements — `_require_known`,
+    `_read`, `fit_fades`, `discount_factors`, `price_universe`, `build_report` — with
+    `run`'s docstring claiming the opposite. Two copies means `GET /asta/target-prices`
+    (which calls `fit`) and `db price` / `POST /asta/target-prices` (which call `run`) are
+    free to drift in the model an operator is *shown* versus the one that is *stored*.
+
+    Nothing exercised either function end to end: `_db` was welded to their front, so the
+    library suite tested the pure stages and the app suite stubbed both functions out
+    whole. This class puts a fake in `_db`'s place and pins three things a shared pipeline
+    must keep true — the numbers, the read sequence, and the one difference there is
+    allowed to be.
+    """
+
+    #: Twenty-five observations, one above `MIN_OBSERVATIONS`, with the ratio rising with
+    #: the prior fantamedia so the slope is a real fitted number rather than zero.
+    BIAS: ClassVar[list[BiasRow]] = [
+        _bias(id=str(i), squadra="NAP", qi=10, qa=10 + i % 7, pct_delta=float(i % 7) * 10.0)
+        for i in range(25)
+    ]
+    PRIORS: ClassVar[dict[tuple[str, str], PriorStats]] = {
+        **{
+            (str(i), "2023/24"): PriorStats(partite_giocate=30, media_fantavoto=6.0 + i % 7)
+            for i in range(25)
+        },
+        **{
+            (str(i), "2025/26"): PriorStats(partite_giocate=30, media_fantavoto=6.0 + i % 3)
+            for i in range(3)
+        },
+    }
+    UNIVERSE: ClassVar[list[PlayerQuote]] = [
+        PlayerQuote(
+            stagione="2026/27", id=str(i), nome=f"P{i}", squadra="NAP",
+            role="c", qi=10 + i * 5, qa=10, fvm=0,
+        )
+        for i in range(3)
+    ]
+
+    class _FakeDb:
+        """`adapters.persistence.scraping`'s shape, recording every call in order.
+
+        The order is half the point: a refactor that moves a read across the upsert, or
+        opens a session the model did not need, shows up here and nowhere else.
+        """
+
+        def __init__(self) -> None:
+            self.calls: list[object] = []
+            self.written: list[dict[str, object]] = []
+
+        @contextmanager
+        def session(self) -> Iterator[str]:
+            self.calls.append("session")
+            yield "handle"
+
+        def load_bias_rows(
+            self, handle: str, system: str, *, seasons: set[str], min_qi: int
+        ) -> list[BiasRow]:
+            self.calls.append(("bias", system, tuple(sorted(seasons)), min_qi))
+            return TestFitAndRunAreOnePipeline.BIAS
+
+        def load_prior_stats(
+            self, handle: str, system: str
+        ) -> dict[tuple[str, str], PriorStats]:
+            self.calls.append(("priors", system))
+            return TestFitAndRunAreOnePipeline.PRIORS
+
+        def load_quotes(
+            self, handle: str, system: str, *, seasons: set[str]
+        ) -> list[PlayerQuote]:
+            self.calls.append(("quotes", system, tuple(sorted(seasons))))
+            return TestFitAndRunAreOnePipeline.UNIVERSE
+
+        def upsert_target_price(
+            self, handle: str, system: str, season: str, rows: list[dict[str, object]]
+        ) -> int:
+            self.calls.append(("upsert", system, season, len(rows)))
+            self.written = list(rows)
+            # Deliberately not `len(rows)`: `stored` reports what was written, and a row
+            # computed and not written is the failure that number exists to show.
+            return 999
+
+    @pytest.fixture
+    def db(self, monkeypatch: pytest.MonkeyPatch) -> _FakeDb:
+        fake = self._FakeDb()
+        monkeypatch.setattr(pricing, "_db", fake)
+        return fake
+
+    #: The three reads, in the order `_read` makes them, inside one session.
+    READS: ClassVar[tuple[object, ...]] = (
+        "session",
+        ("bias", "classic", ("2023/24", "2024/25", "2025/26"), MIN_QI),
+        ("priors", "classic"),
+        ("quotes", "classic", ("2026/27",)),
+    )
+
+    #: Captured from the code as it stood before the pipeline was shared, so an identical
+    #: report after the extraction is evidence and not a restatement of the new code.
+    EXPECTED_FADE: ClassVar[FadeSummary] = FadeSummary(
+        role="MID",
+        observations=25,
+        fade=RoleFade(
+            slope=0.07841203415906223,
+            intercept=-0.45505714218584825,
+            clamp_lo=0.0,
+            clamp_hi=0.47000362924573563,
+        ),
+    )
+    EXPECTED_BUMPS: ClassVar[tuple[TargetPriceRow, ...]] = (
+        TargetPriceRow(
+            id="2", nome="P2", squadra="NAP", role="c", macro_role="MID", qi=20,
+            prior_media_fantavoto=8.0, predicted_pct_delta=18.796187786535135,
+            team_factor=1.3, target_price=31, flags="team_discount(NAP)",
+        ),
+        TargetPriceRow(
+            id="1", nome="P1", squadra="NAP", role="c", macro_role="MID", qi=15,
+            prior_media_fantavoto=7.0, predicted_pct_delta=9.83698179819108,
+            team_factor=1.3, target_price=21, flags="team_discount(NAP)",
+        ),
+    )
+    EXPECTED_CUTS: ClassVar[tuple[TargetPriceRow, ...]] = (
+        TargetPriceRow(
+            id="0", nome="P0", squadra="NAP", role="c", macro_role="MID", qi=10,
+            prior_media_fantavoto=6.0, predicted_pct_delta=1.5534487707151712,
+            team_factor=1.3, target_price=13, flags="team_discount(NAP)",
+        ),
+        EXPECTED_BUMPS[1],
+    )
+
+    def _expected(self, stored: int) -> PricingReport:
+        return PricingReport(
+            system="classic",
+            fades=(self.EXPECTED_FADE,),
+            team_factors={"NAP": 1.3},
+            stored=stored,
+            biggest_bumps=self.EXPECTED_BUMPS,
+            biggest_cuts=self.EXPECTED_CUTS,
+            flag_counts={"team_discount": 3},
+        )
+
+    def test_the_read_only_half_is_exactly_this_report(self, db: _FakeDb) -> None:
+        assert pricing.fit("classic", top_n=2) == self._expected(stored=0)
+
+    def test_the_writing_half_is_the_same_report_with_what_was_stored(
+        self, db: _FakeDb
+    ) -> None:
+        assert pricing.run("classic", top_n=2) == self._expected(stored=999)
+
+    def test_stored_is_the_only_difference_between_them(self, db: _FakeDb) -> None:
+        """The property, asserted directly rather than inferred from the two literals.
+
+        This is what a shared pipeline buys and what two copies could lose: the page and
+        the command price identically, or the operator is shown a model that is not the
+        one on disk.
+        """
+        shown = pricing.fit("classic", top_n=2)
+        stored = pricing.run("classic", top_n=2)
+
+        assert replace(shown, stored=stored.stored) == stored
+
+    def test_the_read_only_half_opens_one_session_and_writes_nothing(
+        self, db: _FakeDb
+    ) -> None:
+        pricing.fit("classic", top_n=2)
+
+        assert tuple(db.calls) == self.READS
+        assert db.written == []
+
+    def test_the_writing_half_reads_first_and_upserts_in_a_second_session(
+        self, db: _FakeDb
+    ) -> None:
+        """Reads and writes are separate phases, and the counts are not a fourth read.
+
+        `count_observations` is pure over what `_read` already returned — the version it
+        replaced recovered it with two more queries. Pinning the call list is what says
+        so: a pipeline that shares the fit must still make exactly these six calls.
+        """
+        pricing.run("classic", top_n=2)
+
+        assert tuple(db.calls) == (*self.READS, "session", ("upsert", "classic", "2026/27", 3))
+
+    def test_the_stored_row_is_the_priced_row(self, db: _FakeDb) -> None:
+        pricing.run("classic", top_n=2)
+
+        assert db.written[0] == {
+            "player_id": 0, "squadra": "NAP", "role": "c", "macro_role": "MID", "qi": 10,
+            "prior_media_fantavoto": 6.0, "predicted_pct_delta": 1.5534487707151712,
+            "team_factor": 1.3, "target_price": 13, "flags": "team_discount(NAP)",
+        }
+
+    @pytest.mark.parametrize("call", ["fit", "run"])
+    def test_an_unknown_system_is_refused_before_anything_is_read(
+        self, db: _FakeDb, call: str
+    ) -> None:
+        with pytest.raises(pricing.UnknownSystem):
+            getattr(pricing, call)("mantrs")
+
+        assert db.calls == []

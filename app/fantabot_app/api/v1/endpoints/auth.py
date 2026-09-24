@@ -30,6 +30,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from fantabot_app.api.infrastructure.jobs import BufferingReporter, registry
+from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
 
@@ -212,10 +213,6 @@ def auth_status() -> AuthStatus:
         )
     except Exception:  # noqa: BLE001 — degrade open: no DB / no rows -> "not connected"
         return AuthStatus(leagues=[], fantalab=[], has_key=has_key)
-
-
-class JobStarted(BaseModel):
-    job_id: str
 
 
 @router.post("/auth/login", response_model=JobStarted, tags=["auth"])

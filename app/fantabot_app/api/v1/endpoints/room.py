@@ -42,6 +42,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
 from fantabot_app.api.outcomes import because
+from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
 
@@ -222,10 +223,6 @@ class WatchRequest(BaseModel):
     """
 
     url: str
-
-
-class JobStarted(BaseModel):
-    job_id: str
 
 
 def watch_flag(fantaleague_id: str) -> Path:

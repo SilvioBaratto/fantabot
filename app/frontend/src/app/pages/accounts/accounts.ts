@@ -17,7 +17,7 @@ import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
-import { EMPTY, Observable, catchError, switchMap, takeWhile, timer } from 'rxjs';
+import { Observable, switchMap, takeWhile, timer } from 'rxjs';
 
 import { AuthService } from '../../core/api/auth.service';
 import { JobsService } from '../../core/api/jobs.service';
@@ -110,23 +110,13 @@ export class AccountsComponent implements OnInit {
    * for has failed, and a red banner on arrival would be about the poll, not about them.
    */
   private reattach(): void {
-    this.jobs
-      .list()
-      .pipe(
-        catchError(() => EMPTY),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((list) => {
-        const live = list.jobs.find(
-          (job) =>
-            job.status === 'running' &&
-            (job.kind === 'auth-login' || job.kind === 'fantalab-login'),
-        );
-        if (!live) return;
-        this.jobId = live.id;
-        this.connectKind.set(live.kind === 'fantalab-login' ? 'fantalab' : 'league');
-        this.pollUntilDone();
-      });
+    this.jobs.running(this.destroyRef).subscribe((jobs) => {
+      const live = jobs.find((job) => job.kind === 'auth-login' || job.kind === 'fantalab-login');
+      if (!live) return;
+      this.jobId = live.id;
+      this.connectKind.set(live.kind === 'fantalab-login' ? 'fantalab' : 'league');
+      this.pollUntilDone();
+    });
   }
 
   load(): void {

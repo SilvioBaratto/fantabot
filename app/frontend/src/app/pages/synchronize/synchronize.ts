@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  WritableSignal,
   computed,
   inject,
   signal,
@@ -17,10 +16,10 @@ import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
-import { EMPTY, Observable, catchError, interval, switchMap, takeWhile } from 'rxjs';
+import { EMPTY, Observable, catchError } from 'rxjs';
 
 import { ActionsService } from '../../core/api/actions.service';
-import { JobsService } from '../../core/api/jobs.service';
+import { JobPanel, JobsService } from '../../core/api/jobs.service';
 import { LegaService } from '../../core/api/lega.service';
 import { ScrapeService } from '../../core/api/scrape.service';
 import { TeamsService } from '../../core/api/teams.service';
@@ -34,20 +33,10 @@ const KIND = 'lega-sync';
 const SCRAPE_KIND = 'db-scrape';
 
 /**
- * One job's worth of page state, so the poll is written once.
- *
- * The lega sync and the scrape are different shapes of work — eight reads on a daemon
- * thread, and a supervised child fetching a live site for minutes — but a poll is a poll,
- * and two copies of `?since=` bookkeeping is two places for a reattach to stop appending
- * and start replacing. `pages/harvest/harvest.ts` names the same record `JobPanel`.
+ * A `JobPanel` that carries an id, which both of this page's do: `reattach` writes one
+ * and the scrape's stop control reads it. Neither carries an `error` — see `poll`.
  */
-interface JobPanel {
-  readonly running: WritableSignal<boolean>;
-  readonly lines: WritableSignal<string[]>;
-  readonly status: WritableSignal<string>;
-  readonly ok: WritableSignal<boolean | null>;
-  readonly jobId: WritableSignal<string | null>;
-}
+type SyncPanel = JobPanel & Required<Pick<JobPanel, 'jobId'>>;
 
 /**
  * How the run reads to a person, as opposed to how the job registry spells it.
@@ -172,7 +161,7 @@ export class SynchronizeComponent {
   readonly scrapeJobId = signal<string | null>(null);
   readonly scrapeError = signal<string | null>(null);
 
-  private readonly legaPanel: JobPanel = {
+  private readonly legaPanel: SyncPanel = {
     running: this.running,
     lines: this.lines,
     status: this.jobStatus,
@@ -180,7 +169,7 @@ export class SynchronizeComponent {
     jobId: signal<string | null>(null),
   };
 
-  private readonly scrapePanel: JobPanel = {
+  private readonly scrapePanel: SyncPanel = {
     running: this.scrapeRunning,
     lines: this.scrapeLines,
     status: this.scrapeStatus,
@@ -426,27 +415,21 @@ export class SynchronizeComponent {
    * asked for has failed, and a red banner on arrival would be about the poll, not them.
    */
   private reattach(): void {
-    this.jobs
-      .list()
-      .pipe(
-        catchError(() => EMPTY),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((list) => {
-        const resume = (kind: string, panel: JobPanel) => {
-          const live = list.jobs.find((job) => job.kind === kind && job.status === 'running');
-          if (!live) return;
-          panel.running.set(true);
-          panel.status.set('running');
-          panel.jobId.set(live.id);
-          this.poll(panel, live.id);
-        };
+    this.jobs.running(this.destroyRef).subscribe((jobs) => {
+      const resume = (kind: string, panel: SyncPanel) => {
+        const live = jobs.find((job) => job.kind === kind);
+        if (!live) return;
+        panel.running.set(true);
+        panel.status.set('running');
+        panel.jobId.set(live.id);
+        this.poll(panel, live.id);
+      };
 
-        resume(KIND, this.legaPanel);
-        // A scrape is a subprocess and outlives this page. Re-enabling the button would
-        // start a second child against the same live site, which is the opposite of polite.
-        resume(SCRAPE_KIND, this.scrapePanel);
-      });
+      resume(KIND, this.legaPanel);
+      // A scrape is a subprocess and outlives this page. Re-enabling the button would
+      // start a second child against the same live site, which is the opposite of polite.
+      resume(SCRAPE_KIND, this.scrapePanel);
+    });
   }
 
   private startJob(request: Observable<{ job_id: string }>): void {
@@ -468,25 +451,20 @@ export class SynchronizeComponent {
   }
 
   /**
-   * Poll one job, asking only for the lines it has not already shown.
+   * Follow one job into one panel. `JobsService.track`, with nothing added.
    *
-   * `since` starts wherever `lines` already is, so a reattach after a refresh does not
-   * re-render the whole log, and a resumed poll appends rather than replaces.
+   * **Neither panel here declares an `error`**, so the server's own words on a crashed
+   * child are dropped and both cards fall back to their generic sentence — `harvest` and
+   * `news` render them. That is a real difference an operator sees and the fix is one
+   * line (`error: this.scrapeError` on `scrapePanel` above), so it is not made here: a
+   * collapse that changed what a page says would be a behaviour change wearing a
+   * refactor's clothes. `JobsService.track` carries the same note.
+   *
+   * Neither panel drops its `jobId` when the job ends, where `harvest` does. Unreachable
+   * today — the stop control lives inside `@if (scrapeRunning())` — and left as found for
+   * the same reason.
    */
   private poll(panel: JobPanel, jobId: string): void {
-    interval(1500)
-      .pipe(
-        switchMap(() => this.jobs.get(jobId, panel.lines().length)),
-        takeWhile((job) => job.status === 'running', true),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((job) => {
-        if (job.lines.length) panel.lines.update((shown) => [...shown, ...job.lines]);
-        panel.status.set(job.status);
-        if (job.status !== 'running') {
-          panel.running.set(false);
-          panel.ok.set(job.ok);
-        }
-      });
+    this.jobs.track({ jobId, panel, destroyRef: this.destroyRef });
   }
 }

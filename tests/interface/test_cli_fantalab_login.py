@@ -178,3 +178,55 @@ def test_no_session_file_is_written(
     monkeypatch.chdir(tmp_path)
     _run(tmp_path, monkeypatch, _FakeContext(STORAGE))
     assert list(tmp_path.rglob("*.json")) == []
+
+
+class TestThePreflightDsnMatchesTheLegaLoginsExactly:
+    """The two login screens print one DSN, rendered by `config_report.safe_dsn`.
+
+    Both called `make_url(...).render_as_string(hide_password=True)` until 2026-09-24 —
+    the idiom `application/config_report.py` exists to replace, which percent-encodes the
+    socket path and masks an *empty* password as `***`. `tests/interface/test_cli_login.py`
+    pins the three shapes; what is pinned here is that this copy did not stay behind. A
+    per-module literal would pass while the two screens disagreed, so the assertion is the
+    other preflight's own output.
+    """
+
+    @staticmethod
+    def _line(monkeypatch: pytest.MonkeyPatch, module: Any, dsn: str) -> str:
+        from sqlalchemy.exc import OperationalError
+
+        from fantabot import config
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.domain.tokens.errors import LoginAborted
+
+        monkeypatch.setattr(config.settings, "fantabot_database_url", dsn)
+
+        def boom() -> Any:
+            raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+        monkeypatch.setattr(database_manager, "get_session", lambda: boom())
+
+        with pytest.raises(LoginAborted) as caught:
+            module._preflight_database()
+        return str(caught.value).splitlines()[0]
+
+    @pytest.mark.parametrize(
+        "dsn",
+        [
+            "postgresql+psycopg2://postgres:@/fantabot?host=/Users/x/.fantabot/pgdata",
+            "postgresql+psycopg2://u:S3cr3tCanary@localhost:54321/fantabot",
+            "postgresql+psycopg2://postgres@localhost:5432/fantabot",
+        ],
+        ids=["bundled-socket", "real-password", "no-password"],
+    )
+    def test_both_preflights_say_the_same_thing(
+        self, monkeypatch: pytest.MonkeyPatch, dsn: str
+    ) -> None:
+        from fantabot.application import auth_login, fantalab_login
+
+        mine = self._line(monkeypatch, fantalab_login, dsn)
+        theirs = self._line(monkeypatch, auth_login, dsn)
+
+        assert mine == theirs
+        assert "S3cr3tCanary" not in mine
+        assert "%2F" not in mine

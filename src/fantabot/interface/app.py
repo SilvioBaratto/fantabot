@@ -13,6 +13,8 @@ from fantabot.interface.console import console
 from fantabot.interface.harvest import register as register_aste_commands
 from fantabot.interface.lega import register as register_lega_commands
 from fantabot.interface.lineup import register as register_lineup_commands
+from fantabot.interface.options import SEASON
+from fantabot.interface.refusals import database_unreachable, resolve_league
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -154,7 +156,7 @@ def news_fetch(
         10, help="Stop after N failures in a row with no success between. 0 = never stop."
     ),
     model: str = typer.Option("", help="Model id. Empty = FANTABOT_AGENT_MODEL."),
-    season: str = typer.Option("2026/27", help="Which stagione to fetch."),
+    season: str = typer.Option(SEASON, help="Which stagione to fetch."),
     run_day: str = typer.Option(
         "", "--date", help="Run day, YYYY-MM-DD. Empty = today. Pin it to resume a run."
     ),
@@ -492,8 +494,7 @@ def db_backfill_teams() -> None:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     console.print(f"resolved {changed} club name(s)")
 
@@ -523,10 +524,7 @@ def db_snapshot_team(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = league or settings.fantabot_league_id
-    if not league_id:
-        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
-        raise typer.Exit(code=1)
+    league_id = resolve_league(league)
 
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
@@ -536,8 +534,7 @@ def db_snapshot_team(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     spent = snapshot.credits_spent or 0
     initial = snapshot.credits_initial or 0

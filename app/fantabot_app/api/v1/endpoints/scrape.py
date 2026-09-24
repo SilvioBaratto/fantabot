@@ -43,6 +43,7 @@ from pydantic import BaseModel
 
 from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
+from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
 
@@ -138,10 +139,6 @@ class ScrapeRequest(BaseModel):
 
     table: str
     seasons: list[str] = []
-
-
-class JobStarted(BaseModel):
-    job_id: str
 
 
 @router.post("/db/scrape", response_model=JobStarted, tags=["system"])

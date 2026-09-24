@@ -16,19 +16,10 @@ from typing import TYPE_CHECKING
 import typer
 
 from fantabot.interface.console import console
+from fantabot.interface.refusals import database_unreachable, resolve_league
 
 if TYPE_CHECKING:
     from fantabot.application.lega_sync import SyncResult
-
-
-def _resolve_league(league: int) -> int:
-    from fantabot.config import settings
-
-    league_id = league or settings.fantabot_league_id
-    if not league_id:
-        console.print("[red]no lega id: pass --league or set FANTABOT_LEAGUE_ID[/red]")
-        raise typer.Exit(code=1)
-    return league_id
 
 
 def _print_rosters(result: SyncResult) -> None:
@@ -78,7 +69,7 @@ def _sync(
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import TokenError
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
 
     try:
         cipher = TokenCipher(settings.fantabot_encryption_key)
@@ -89,8 +80,7 @@ def _sync(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     if result.rosters:
         _print_rosters(result)
@@ -105,8 +95,7 @@ def _sync(
         with database_manager.get_session() as session:
             written = persist(result, LeagueRepository(session))
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     for table, count in written.items():
         console.print(f"[green]wrote[/green] {count:>5}  {table}")
@@ -129,7 +118,7 @@ def _show(
     from fantabot.adapters.persistence import database_manager
     from fantabot.application.lega_reads import capture_inventory
 
-    league_id = _resolve_league(league)
+    league_id = resolve_league(league)
 
     from rich.table import Table
 
@@ -142,8 +131,7 @@ def _show(
         with database_manager.get_session() as session:
             rows = capture_inventory(session, league_id)
     except SQLAlchemyError as exc:
-        console.print(f"[red]database unreachable: {type(exc).__name__}[/red]")
-        raise typer.Exit(code=1) from exc
+        database_unreachable(exc)
 
     for row in rows:
         # `league_fixture` renders an absent timestamp as empty and the five snapshot

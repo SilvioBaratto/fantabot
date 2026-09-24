@@ -1,9 +1,11 @@
 """Sketch of a target_price function for the 2026/27 asta iniziale, classic or mantra.
 
 The port W3 promised has happened: `fantabot db price` is this module's home. It has
-**two** callers, and `run`'s own docstring 490 lines below names them both —
+**two** callers, and `run`'s own docstring names them both —
 `interface/app.py::db_price`, and `app/fantabot_app/api/v1/endpoints/pricing.py`, which
-calls `run` for `POST /asta/target-prices` and `fit` for the GET. It reads no files and takes no
+calls `run` for `POST /asta/target-prices` and `fit` for the GET. Both go through
+`_fit_and_price`, which is the model itself and the only copy of it. It reads no
+files and takes no
 `Reporter` — `run` returns a `PricingReport` and `render_pricing` in the interface
 is the only part that knows what a terminal is. It called itself a research script
 until 2026-09-24. It used to say it mirrored `StatsSource.target_price()` — that
@@ -461,6 +463,64 @@ def _require_known(system: str) -> None:
         raise UnknownSystem(system)
 
 
+@dataclass(frozen=True)
+class _Fitted:
+    """One pass of the model: everything either half needs, computed once.
+
+    The intermediate between `_fit_and_price` and `build_report`, and the reason there is
+    exactly one pipeline below instead of two. It carries `observations` rather than the
+    `bias_rows` they are counted from, so nothing downstream can re-derive the count with
+    a filter that disagrees with the fit — the defect `count_observations` was written to
+    close, one layer up.
+    """
+
+    system: str
+    fades: dict[str, RoleFade]
+    observations: dict[str, int]
+    team_factors: dict[str, float]
+    rows: list[TargetPriceRow]
+
+    def report(self, *, stored: int, top_n: int) -> PricingReport:
+        """This fit as a report, saying how many rows were written."""
+        return build_report(
+            system=self.system,
+            fades=self.fades,
+            observations=self.observations,
+            team_factors=self.team_factors,
+            rows=self.rows,
+            stored=stored,
+            top_n=top_n,
+        )
+
+
+def _fit_and_price(system: str) -> _Fitted:
+    """The whole model, start to finish. **Reads; never writes.**
+
+    `fit` and `run` were two copies of these six statements until 2026-09-24, and `run`'s
+    docstring claimed the opposite — so `GET /asta/target-prices` and
+    `db price` / `POST /asta/target-prices` were free to drift in the model an operator is
+    *shown* versus the one that is *stored*. One body now, and the two public functions
+    differ only in whether they upsert what it returns.
+
+    Every stage after `_read` is pure, which is what makes the sharing safe: the counts
+    come from the rows the fit used, not from two more queries, so computing them here —
+    before `run`'s upsert rather than after it — costs nothing and reaches no database.
+    `tests/application/test_pricing.py` pins the resulting call sequence, exactly so that
+    a stage moving across the write shows up.
+    """
+    _require_known(system)
+    bias_rows, prior_stats, universe = _read(system)
+    fades = fit_fades(bias_rows, prior_stats, system)
+    team_factors = discount_factors(bias_rows)
+    return _Fitted(
+        system=system,
+        fades=fades,
+        observations=count_observations(bias_rows, prior_stats, system),
+        team_factors=team_factors,
+        rows=price_universe(universe, prior_stats, fades, team_factors, system),
+    )
+
+
 def fit(system: str = "classic", top_n: int = 15) -> PricingReport:
     """Fit, price, and report. **Reads only — nothing is written.**
 
@@ -470,24 +530,10 @@ def fit(system: str = "classic", top_n: int = 15) -> PricingReport:
     render twice. The upsert is idempotent, which is why nobody noticed.
 
     `stored` is 0 here and that is honest: nothing was stored. The report the page renders
-    is otherwise identical to `run`'s, because it is the same fit over the same rows — the
-    three stages read their tables once between them, and the fade counts come from the
-    rows the fit used rather than from two more queries.
+    is otherwise identical to `run`'s, because it is the same fit over the same rows —
+    `_fit_and_price` is one body, shared, and no longer merely described as shared.
     """
-    _require_known(system)
-    bias_rows, prior_stats, universe = _read(system)
-    fades = fit_fades(bias_rows, prior_stats, system)
-    team_factors = discount_factors(bias_rows)
-    rows = price_universe(universe, prior_stats, fades, team_factors, system)
-    return build_report(
-        system=system,
-        fades=fades,
-        observations=count_observations(bias_rows, prior_stats, system),
-        team_factors=team_factors,
-        rows=rows,
-        stored=0,
-        top_n=top_n,
-    )
+    return _fit_and_price(system).report(stored=0, top_n=top_n)
 
 
 def run(system: str = "classic", top_n: int = 15) -> PricingReport:
@@ -495,18 +541,13 @@ def run(system: str = "classic", top_n: int = 15) -> PricingReport:
 
     `db price` and `POST /asta/target-prices` — the two callers that mean to write.
 
-    ⚠ **The fit is copied from `fit()`, not shared with it.** Both bodies run the same
-    five statements — `_require_known`, `_read`, `fit_fades`, `discount_factors`,
-    `price_universe` — and then `build_report`, which differs only in `stored`. This
-    said "the read-only half has no second copy of it" until 2026-09-24; there are two
-    copies, so a change to the pipeline has to land in both or the page and the command
-    price differently.
+    The fit is `_fit_and_price`'s, run once and stored; the read-only half runs the same
+    function and skips the write. This said the fit had no second copy while it had one,
+    and then said it had one; since 2026-09-24 it has none, and
+    `TestFitAndRunAreOnePipeline` asserts that `stored` is the only difference between the
+    two reports rather than leaving it to this sentence.
     """
-    _require_known(system)
-    bias_rows, prior_stats, universe = _read(system)
-    fades = fit_fades(bias_rows, prior_stats, system)
-    team_factors = discount_factors(bias_rows)
-    rows = price_universe(universe, prior_stats, fades, team_factors, system)
+    fitted = _fit_and_price(system)
 
     # Database only. The CSV writer was removed on 2026-08-26, once the port had been
     # verified row-for-row against the pre-port capture. `target_price` is the record.
@@ -528,16 +569,8 @@ def run(system: str = "classic", top_n: int = 15) -> PricingReport:
                     "target_price": r.target_price,
                     "flags": r.flags,
                 }
-                for r in rows
+                for r in fitted.rows
             ],
         )
 
-    return build_report(
-        system=system,
-        fades=fades,
-        observations=count_observations(bias_rows, prior_stats, system),
-        team_factors=team_factors,
-        rows=rows,
-        stored=stored,
-        top_n=top_n,
-    )
+    return fitted.report(stored=stored, top_n=top_n)

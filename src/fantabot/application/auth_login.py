@@ -69,19 +69,29 @@ def _preflight_key() -> TokenCipher:
 
 
 def _preflight_database() -> None:
-    """A `SELECT 1`, worded as `db check` words it. The DSN is masked."""
+    """A `SELECT 1`, worded as `db check` words it. The DSN is masked.
+
+    Masked by `config_report.safe_dsn`, which is the module that owns how a DSN renders —
+    and this line called the exact idiom that module exists to replace until 2026-09-24.
+    `make_url(...).render_as_string(hide_password=True)` percent-encodes the socket path
+    (`%2F`, which alembic's `ConfigParser` then rejects) and masks an **empty** password as
+    `***`, inventing a credential the bundled trust-auth server does not have. Measured on
+    the derived default: it printed `postgres:***@/fantabot?host=%2FUsers%2F…`, a line that
+    is both uncopyable and lying, on the one screen an operator reaches precisely when the
+    database will not answer.
+    """
     from sqlalchemy import text
-    from sqlalchemy.engine import make_url
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.persistence import database_manager
+    from fantabot.application.config_report import safe_dsn
     from fantabot.config import settings
 
     try:
         with database_manager.get_session() as session:
             session.execute(text("SELECT 1")).fetchone()
     except SQLAlchemyError as exc:
-        dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
+        dsn = safe_dsn(settings.fantabot_database_url)
         raise LoginAborted(
             f"Cannot reach the database at {dsn}\n"
             f"{type(exc).__name__}: {str(exc).splitlines()[0]}\n"

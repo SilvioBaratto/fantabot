@@ -879,38 +879,30 @@ export class AstaComponent implements OnInit {
    * poll rather than about them.
    */
   private reattachWatch(): void {
-    this.jobs
-      .list()
-      .pipe(
-        catchError(() => EMPTY),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((list) => {
-        // `running`, not merely present: `GET /jobs` lists everything this session has
-        // ever run, and tailing a `done` row would show a room that closed hours ago and
-        // call it live.
-        const live = list.jobs.find(
-          (job) => LIVE_KINDS.includes(job.kind) && job.status === 'running',
-        );
-        if (!live) return;
-        // `armed` off the job itself, not inferred and not sniffed out of the log. Without
-        // it a reloaded tab drew a live armed bidder exactly as it draws a rehearsal: the
-        // ARMED banner needs `runArmed()` and the dry-run note needs `runReason()`, so both
-        // were suppressed and the page said nothing at all at the one moment it matters.
-        this.runArmed.set(live.armed === true);
-        this.runClosed.set([]);
-        // `GET /jobs` does not carry the band, and inventing one from the current room
-        // check would claim the run used a number nobody has checked it did.
-        this.runBand.set(null);
-        this.runReason.set(
-          live.armed === null || live.armed === undefined
+    // `JobsService.running` is already filtered to the jobs that are running: `GET /jobs`
+    // lists everything this session has ever run, and tailing a `done` row would show a
+    // room that closed hours ago and call it live.
+    this.jobs.running(this.destroyRef).subscribe((jobs) => {
+      const live = jobs.find((job) => LIVE_KINDS.includes(job.kind));
+      if (!live) return;
+      // `armed` off the job itself, not inferred and not sniffed out of the log. Without
+      // it a reloaded tab drew a live armed bidder exactly as it draws a rehearsal: the
+      // ARMED banner needs `runArmed()` and the dry-run note needs `runReason()`, so both
+      // were suppressed and the page said nothing at all at the one moment it matters.
+      this.runArmed.set(live.armed === true);
+      this.runClosed.set([]);
+      // `GET /jobs` does not carry the band, and inventing one from the current room
+      // check would claim the run used a number nobody has checked it did.
+      this.runBand.set(null);
+      this.runReason.set(
+        live.armed === null || live.armed === undefined
+          ? ''
+          : live.armed
             ? ''
-            : live.armed
-              ? ''
-              : 'this run was started without arming.',
-        );
-        this.attach(live.id, live.kind === BID_KIND ? 'bid' : 'watch');
-      });
+            : 'this run was started without arming.',
+      );
+      this.attach(live.id, live.kind === BID_KIND ? 'bid' : 'watch');
+    });
   }
 
   /**

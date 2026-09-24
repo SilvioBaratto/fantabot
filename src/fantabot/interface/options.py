@@ -1,13 +1,14 @@
 """Option groups declared by more than one command.
 
-Twelve aliases live here now. The first four — `--season`,
+Thirteen aliases live here now. The first four — `--season`,
 `--sentiment/--no-sentiment`, `--sentiment-run` and `--tilt-k` — are the ones that
 started it: they were declared once per command that takes them, thirteen declarations
 across four commands, since `asta legality` carries a `--season` too. That is thirteen
 places for a default or a help string to drift, and one of them already had: the same
-flag was documented three different ways. The other eight arrived the same way and for
+flag was documented three different ways. The other nine arrived the same way and for
 the same reason — `--ceiling-alpha`, `--bargain-beta`, `--bargain-share`, `--league`,
-and `--teams`/`--credits` in both their plain and their detecting form.
+`--max-bridge-age-hours`, and `--teams`/`--credits` in both their plain and their
+detecting form.
 
 **The help text is now one wording per flag, which changes two commands' `--help`.**
 That is a deliberate change and it is the point — the previous state was not three
@@ -27,7 +28,20 @@ from typing import Annotated
 
 import typer
 
-#: The only listone the asta engine plans against.
+#: The stagione being played, and every `--season` default in the CLI. It was the asta
+#: engine's listone and three literals: `news fetch`, `lineup refresh` and
+#: `lineup shadow-report` each spelled `"2026/27"` out in their own signature, so next July
+#: is one edit here instead of four in three modules.
+#:
+#: **Deliberately not merged with the scrapers' answer.** `application/scrape` derives the
+#: season from a date (`current_season(today)`) and its docstring argues that a pinned
+#: `CURRENT_SEASON` is "the same disease as the default it is meant to detect". That is
+#: right where it is written — `db scrape` has a report (`default_is_stale`) that notices
+#: the drift, and no `--season` default at all. A Typer default has neither: it is
+#: evaluated once, at import, so deriving it from the clock would make `--help` and the
+#: parameter tree depend on the day the process started, which is the determinism
+#: `tests/interface/test_options.py` and the golden harness read as a property. One pinned
+#: name that a grep finds is the cheaper failure.
 SEASON = "2026/27"
 
 
@@ -224,3 +238,31 @@ Lega = Annotated[
         "`lega sync`. Defaults to FANTABOT_LEAGUE_ID; 0 plans on the built-in band.",
     ),
 ]
+
+
+#: How stale the cached listone bridge may be before `--arm` is refused — **the run itself
+#: still starts**, watching only.
+#:
+#: The one option that most belonged here: `asta room` and `asta bid` declared it twice with
+#: a byte-identical five-line help string, incident note included, and they are the only two
+#: commands in the repo that can place a raise. A help string carrying a measurement is the
+#: worst kind to keep two copies of, because the copy that stops being true is still
+#: readable.
+#:
+#: The default is `MAX_BRIDGE_AGE_HOURS` below rather than a literal in each signature, for
+#: the reason `SEASON` gives: a number that encodes an incident should be greppable by one
+#: name.
+MaxBridgeAge = Annotated[
+    float,
+    typer.Option(
+        "--max-bridge-age-hours",
+        help="Refuse --arm (not the run) when the listone bridge could not be refreshed and "
+        "the cached copy is older than this. 4h: strictly tighter than the 5-hour-stale copy "
+        "that missed 16 transfer-deadline signings on 2026-08-28 — the incident this guards "
+        "against, not a number picked in the abstract.",
+    ),
+]
+
+#: `4.0`. Stated as a name because it is a measurement: strictly tighter than the
+#: 5-hour-stale bridge that missed 16 transfer-deadline signings on 2026-08-28.
+MAX_BRIDGE_AGE_HOURS = 4.0

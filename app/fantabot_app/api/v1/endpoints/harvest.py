@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
+from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
 
@@ -176,10 +177,6 @@ def harvest_seed() -> SeedPanel:
     from fantabot.config import harvest_dir
 
     return read_seed(harvest_dir() / "seed.json")
-
-
-class JobStarted(BaseModel):
-    job_id: str
 
 
 @router.post("/harvest/load", response_model=JobStarted, tags=["harvest"])

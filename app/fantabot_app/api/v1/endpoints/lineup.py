@@ -26,9 +26,10 @@ from pathlib import Path
 from typing import Any
 
 from fantabot.adapters.http.apileague import teamLineup_read
-from fantabot.application.arming import ARM, AUTO_ACT
 from fastapi import APIRouter
 from pydantic import BaseModel
+
+from fantabot_app.api.sentences import APP_SENTENCES
 
 router = APIRouter()
 
@@ -222,15 +223,6 @@ class SubmitResult(BaseModel):
     #: says "submitted", which is the true half, where a new outcome string would drop it
     #: into an unknown branch and lose that. An unknown is not a negative.
     unconfirmed: str = ""
-
-
-#: What the app says when a lock is shut. The *fact* is shared with the CLI
-#: (`application.arming`); the wording is local, because there is no `--arm` flag in an HTTP
-#: request and a message naming one sends the reader to a terminal they are not using.
-APP_SENTENCES = {
-    ARM: "the request did not ask to arm",
-    AUTO_ACT: "FANTABOT_AUTO_ACT is false",
-}
 
 
 @router.post("/lineup/submit", response_model=SubmitResult, tags=["lineup"])

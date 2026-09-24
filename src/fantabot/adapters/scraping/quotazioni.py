@@ -27,42 +27,25 @@ from __future__ import annotations
 
 import sys
 import time
-import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
 from fantabot.adapters.persistence import scraping as _db
+from fantabot.adapters.scraping._site import (
+    CLASSIC_ROLES,
+    MANTRA_ROLES,
+    REQUEST_DELAY_SECONDS,
+    fetch_once,
+    player_id_from_href,
+)
 
 BASE_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-)
+# Every season to scrape, not a pointer at the current one. Deliberately *not* in `_site`
+# with the rest of the shared constants: `application/scrape.py` reads each scraper's own
+# list live, which is what made the 2026-09-20 staleness fix one line per scraper. See the
+# `_site` docstring.
 DEFAULT_SEASONS = ["2022/23", "2023/24", "2024/25", "2025/26", "2026/27"]
-REQUEST_DELAY_SECONDS = 1.0
-
-CLASSIC_ROLES = {
-    "p": "Portiere",
-    "d": "Difensore",
-    "c": "Centrocampista",
-    "a": "Attaccante",
-}
-
-MANTRA_ROLES = {
-    "por": "Portiere",
-    "dc": "Dif. centrale",
-    "b": "Braccetto",
-    "dd": "Dif. destro",
-    "ds": "Dif. sinistro",
-    "e": "Esterno",
-    "m": "Mediano",
-    "c": "Cen.centrale",
-    "w": "Ala",
-    "t": "Trequartista",
-    "a": "Attaccante",
-    "pc": "Punta centrale",
-}
 
 
 @dataclass
@@ -121,12 +104,9 @@ class QuotazioniParser(HTMLParser):
             return
 
         if tag == "a" and "player-name" in classes.split():
-            href = (d.get("href") or "").rstrip("/")
-            # current season: .../slug/<id>; past seasons: .../slug/<id>/2022-23
-            for part in reversed(href.split("/")):
-                if part.isdigit():
-                    self._row.player_id = part
-                    break
+            found = player_id_from_href(d.get("href"))
+            if found:
+                self._row.player_id = found
             self._in_name_link = True
             return
 
@@ -165,10 +145,8 @@ def season_url(season: str) -> str:
 
 
 def fetch_html(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body: bytes = resp.read()
-    return body.decode("utf-8")
+    """One GET, no retry — `_site.fetch_once` records why, and what it would cost to change."""
+    return fetch_once(url)
 
 
 def fetch_season(season: str) -> list[PlayerRow]:

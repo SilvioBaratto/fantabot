@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
+from fantabot_app.api.sentences import APP_SENTENCES
 from fantabot_app.api.v1.endpoints.room import check_room, stored_connect
 
 router = APIRouter()
@@ -43,15 +44,6 @@ router = APIRouter()
 #: second would never match and the refusal would silently stop refusing — which looks
 #: exactly like "nothing is running".
 BID_KIND = "asta-bid"
-
-#: What this surface says when a lock is shut. The *fact* is shared with the CLI
-#: (`application.arming`); the wording is local, because there is no `--arm` flag in an HTTP
-#: request and a message naming one sends the reader to a terminal they are not using.
-APP_SENTENCES = {
-    "arm": "the request did not ask to arm",
-    "FANTABOT_AUTO_ACT": "FANTABOT_AUTO_ACT is false",
-}
-
 
 class BidRequest(BaseModel):
     """A room link and an arming intent. Nothing from the value model.

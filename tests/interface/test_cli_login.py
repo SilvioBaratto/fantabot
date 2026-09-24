@@ -17,6 +17,7 @@ import pytest
 from fantabot.application import auth_login as login
 from fantabot.application import login_wait
 from fantabot.application.auth_login import LoginAborted
+from fantabot.application.config_report import MASK
 from fantabot.domain.tokens.status import TokenStatus
 from fantabot.interface.console import console
 
@@ -205,6 +206,82 @@ def test_the_database_error_never_prints_the_dsn_password(
         login.run(report=console, browser_factory=_FakeBrowser(), now=NOW, read_state=_read_state, prompt=_confirm)
 
     assert "S3cr3tCanary" not in str(caught.value)
+
+
+class TestThePreflightDsnIsTheOneConfigReportRenders:
+    """The DSN this screen prints, byte for byte.
+
+    `_preflight_database` called `make_url(...).render_as_string(hide_password=True)`
+    until 2026-09-24 — the **exact** idiom `application/config_report.py` exists to
+    replace. Two defects, both in the rendering and neither in the value: the socket path
+    came out percent-encoded (`%2F`, which alembic's `ConfigParser` rejects with `invalid
+    interpolation syntax`), and an *empty* password was masked as `***`, inventing a
+    credential the bundled trust-auth server does not have.
+
+    So the one screen an operator reaches when the database will not answer printed a DSN
+    that could not be pasted and named a password that does not exist. Measured on the
+    derived default before the fix:
+
+        postgresql+psycopg2://postgres:***@/fantabot?host=%2FUsers%2F…%2Fpgdata
+
+    These pin the three shapes `safe_dsn` keeps apart. The two that were already right are
+    here too, because the change had to leave them alone and only the assertion says so.
+    """
+
+    @staticmethod
+    def _line(monkeypatch: pytest.MonkeyPatch, dsn: str) -> str:
+        from sqlalchemy.exc import OperationalError
+
+        from fantabot import config
+        from fantabot.adapters.persistence import database_manager
+
+        monkeypatch.setattr(config.settings, "fantabot_database_url", dsn)
+
+        def boom() -> Any:
+            raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+        monkeypatch.setattr(database_manager, "get_session", lambda: boom())
+
+        with pytest.raises(LoginAborted) as caught:
+            login._preflight_database()
+        return str(caught.value).splitlines()[0]
+
+    def test_the_bundled_socket_dsn_is_printed_unencoded_and_invents_no_password(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The shape `config.bundled_database_url` derives, and the one that was wrong."""
+        line = self._line(
+            monkeypatch,
+            "postgresql+psycopg2://postgres:@/fantabot?host=/Users/x/.fantabot/pgdata",
+        )
+
+        assert line == (
+            "Cannot reach the database at "
+            "postgresql+psycopg2://postgres:@/fantabot?host=/Users/x/.fantabot/pgdata"
+        )
+        assert "%2F" not in line, "a path alembic's ConfigParser would refuse"
+        assert MASK not in line, "the trust-auth server has no password to mask"
+
+    def test_a_real_password_is_still_masked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        line = self._line(
+            monkeypatch, "postgresql+psycopg2://u:S3cr3tCanary@localhost:54321/fantabot"
+        )
+
+        assert line == (
+            f"Cannot reach the database at postgresql+psycopg2://u:{MASK}@localhost:54321/fantabot"
+        )
+
+    def test_no_password_at_all_invents_no_colon(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        line = self._line(
+            monkeypatch, "postgresql+psycopg2://postgres@localhost:5432/fantabot"
+        )
+
+        assert line == (
+            "Cannot reach the database at "
+            "postgresql+psycopg2://postgres@localhost:5432/fantabot"
+        )
 
 
 # --- SC 7, 8, 9: when the browser does and does not open ------------------

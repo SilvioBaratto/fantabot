@@ -47,22 +47,21 @@ class Cell:
 def _rows() -> dict[str, dict[frozenset[str], dict[str, str]]]:
     """`module code -> slot role-set -> role -> cell`, from the schema's own rows.
 
-    Keyed by the schema, never shared across schemas: 4-1-4-1's T slot refuses a W where
-    every other schema's T slot says `-1*`. Two rows of one schema with the same slot must
-    agree, or the lookup would depend on which came last — that raises.
+    The cells themselves, which `schema.admissions` cannot give back: it folds them into
+    `submission`/`substitution` sets, and `ok` and `-1` are indistinguishable once folded
+    — while the whole job here is to tell them apart. The *pairing* of a row to a slot is
+    the shared decision and is `schema.rows_by_slot`, which is also where the reason for
+    both of its rules is written down.
     """
     matrix = load_compat()
     roles = [role.upper() for role in matrix.ruoli]
-    table: dict[str, dict[frozenset[str], dict[str, str]]] = {}
-    for entry in matrix.formazioni:
-        rows: dict[frozenset[str], dict[str, str]] = {}
-        for row in entry.slots:
-            key = frozenset(part.strip().upper() for part in row.slot.split("/"))
-            cells = dict(zip(roles, row.compat, strict=True))
-            if rows.setdefault(key, cells) != cells:
-                raise ValueError(f"{entry.schema_nome}: two {row.slot!r} rows disagree")
-        table[entry.schema_nome.replace("-", "")] = rows
-    return table
+    return {
+        entry.schema_nome.replace("-", ""): schema.rows_by_slot(
+            entry.schema_nome,
+            ((row.slot, dict(zip(roles, row.compat, strict=True))) for row in entry.slots),
+        )
+        for entry in matrix.formazioni
+    }
 
 
 def cells(

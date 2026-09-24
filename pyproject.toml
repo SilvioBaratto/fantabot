@@ -12,6 +12,14 @@ dependencies = [
     "playwright>=1.45",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    # Direct, not transitive. `config._dotenv_value` imports `dotenv_values` itself, and it
+    # is read by `live_auto_act` — the `FANTABOT_AUTO_ACT` arming gate. Today this resolves
+    # only through `pydantic-settings`, so a release of *that* package dropping the
+    # dependency would break the arming check with nothing in this file changing. The floor
+    # is the one `pydantic-settings>=2.3` already requires, so declaring it here changes
+    # which version installs for nobody; it only stops the arming gate depending on
+    # somebody else's dependency list.
+    "python-dotenv>=0.21",
     "rich>=13.7",
     "claude-agent-sdk>=0.2.143",
     "sqlalchemy>=2.0.50",
