@@ -321,3 +321,94 @@ def test_submit_falls_back_to_the_next_module_on_a_platform_refusal(
     assert len(tried) == 2, "it must fall back to the next module after a refusal"
     assert "trying the next module" in result.output
     assert "submitted" in result.output
+
+
+# --- submit-all: every stored lega, classified first ------------------------
+
+
+def _submit_all_fakes(
+    monkeypatch: pytest.MonkeyPatch, *, auto_act: bool, states: dict[int, str]
+) -> list[tuple[int, Any]]:
+    from fantabot import config
+    from fantabot.domain.lineup.activity import Activity
+    from fantabot.interface import lineup as lineup_module
+
+    _submit_fakes(monkeypatch, auto_act=auto_act)
+    monkeypatch.setattr(
+        lineup_module, "_stored_leagues", lambda _store: [(lid, f"L{lid}") for lid in states]
+    )
+    monkeypatch.setattr(
+        lineup_module,
+        "_classify",
+        lambda _store, lid: Activity(states[lid], "because", competition=311681),
+    )
+    posted: list[tuple[int, Any]] = []
+    from fantabot.adapters.http import apileague
+
+    monkeypatch.setattr(
+        apileague, "teamLineup_submit", lambda lid, body, **k: posted.append((lid, body))
+    )
+    monkeypatch.setattr(config.settings, "fantabot_leagues_exclude", "")
+    return posted
+
+
+def test_submit_all_only_fields_open_leagues(monkeypatch: pytest.MonkeyPatch) -> None:
+    posted = _submit_all_fakes(
+        monkeypatch, auto_act=True, states={1: "open", 2: "no_competition", 3: "idle"}
+    )
+
+    result = runner.invoke(app, ["lineup", "submit-all", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert [lid for lid, _ in posted] == [1]
+    assert "no_competition" in result.output
+
+
+def test_submit_all_is_a_dry_run_without_both_locks(monkeypatch: pytest.MonkeyPatch) -> None:
+    posted = _submit_all_fakes(monkeypatch, auto_act=True, states={1: "open"})
+
+    result = runner.invoke(app, ["lineup", "submit-all"])  # no --arm
+
+    assert result.exit_code == 0
+    assert posted == []
+    assert "dry run" in result.output
+
+
+def test_submit_all_skips_an_excluded_lega(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fantabot import config
+
+    posted = _submit_all_fakes(monkeypatch, auto_act=True, states={1: "open", 2: "open"})
+    monkeypatch.setattr(config.settings, "fantabot_leagues_exclude", "2")
+
+    result = runner.invoke(app, ["lineup", "submit-all", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert [lid for lid, _ in posted] == [1]
+    assert "excluded" in result.output
+
+
+def test_submit_all_does_not_resubmit_past_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot.adapters.http import apileague
+
+    posted = _submit_all_fakes(monkeypatch, auto_act=True, states={1: "open"})
+    monkeypatch.setattr(
+        apileague, "league_status", lambda *a, **k: {"mstr": "2000-01-01T00:00:00"}
+    )
+
+    result = runner.invoke(app, ["lineup", "submit-all", "--arm"])
+
+    assert result.exit_code == 0, result.output
+    assert posted == []
+    assert "not resubmitting" in result.output
+
+
+def test_submit_all_reports_a_relogin_and_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    posted = _submit_all_fakes(monkeypatch, auto_act=True, states={1: "relogin", 2: "open"})
+
+    result = runner.invoke(app, ["lineup", "submit-all", "--arm"])
+
+    assert result.exit_code == 1
+    assert [lid for lid, _ in posted] == [2], "one lega's token must not stop the others"
+    assert "failed: 1" in result.output

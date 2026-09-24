@@ -1,0 +1,159 @@
+{
+  "count": 2,
+  "sourcev": 1,
+  "bnMls": {
+    "bmcsh": 1,
+    "bmycsv": 0,
+    "bmgs": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "bmgc": [
+      -1,
+      -1,
+      -1,
+      -1
+    ],
+    "bmpsc": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "bmpns": [
+      -3,
+      -3,
+      -3,
+      -3
+    ],
+    "bmpsa": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "bmyc": [
+      -0.5,
+      -0.5,
+      -0.5,
+      -0.5
+    ],
+    "bmrc": [
+      -1,
+      -1,
+      -1,
+      -1
+    ],
+    "bmcg": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "bmasf": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "bmass": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "bmasg": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "bmog": [
+      -2,
+      -2,
+      -2,
+      -2
+    ],
+    "bmdg": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "bmeg": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "motm": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "step": {
+    "stlmt": 66,
+    "starni": 0,
+    "stchkd": 0,
+    "stog": 0,
+    "stchkdl": false,
+    "starnil": false,
+    "stgoal": [
+      4
+    ],
+    "stf1": [
+      1
+    ]
+  },
+  "subst": {
+    "ssdfm": 4,
+    "ssdfg": 2,
+    "sstype": 2,
+    "ssdfn": 1,
+    "ssnum": 5,
+    "ssdft": false
+  },
+  "stbdf": null,
+  "smodg": null,
+  "smodd": {
+    "smodlu": 7.25,
+    "smodld": 6,
+    "smodty": 1,
+    "smoddg": false,
+    "smodva": [
+      0,
+      1,
+      1.5,
+      2,
+      2.5,
+      3.5,
+      4.5
+    ]
+  },
+  "smodm": null,
+  "skodm": null,
+  "smodf": null,
+  "smodl": null,
+  "smodp": null,
+  "smodcp": {
+    "smodlu": 7.5,
+    "smodld": 4.5,
+    "lcap": 2,
+    "smodbd": false,
+    "smodmd": false,
+    "smodva": [
+      -1.5,
+      -1,
+      -0.5,
+      0,
+      0.5,
+      1,
+      1.5
+    ]
+  },
+  "version": "v3"
+}

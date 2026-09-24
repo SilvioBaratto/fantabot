@@ -168,3 +168,4 @@ class ApiUnavailable(TokenError):
             f"apileague returned {status}. The stored token is untouched; this is "
             "a problem at their end, not with your credentials."
         )
+        self.status = status

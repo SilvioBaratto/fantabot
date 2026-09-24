@@ -52,3 +52,6 @@ scripts/read_classic_lineup.py
 # Untracked-and-unignored is one `git add -A` from publication; ignore before going public.
 .playwright-mcp/
 _pdftext.txt
+
+# scripts/matchday.ps1 run logs
+logs/
