@@ -50,9 +50,12 @@ EXPECTED: set[str] = {
     "harvest scan",
     "lega show",
     "lega sync",
+    "lineup leagues",
     "lineup plan",
+    "lineup rules",
     "lineup show",
     "lineup submit",
+    "lineup submit-all",
     "mantra-grid",
     "news fetch",
 }

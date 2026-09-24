@@ -46,6 +46,26 @@ class PlannedLineup:
     mday: int
     cmday: int
     tid: int
+    #: Whether the lineup applies to every competition of the lega (the DTO's `allComp`).
+    #: Mirrored from the saved lineup, because a lega with a cup keeps one lineup for all.
+    all_comp: bool = False
+    #: `capt` — `(captain, vice)` or empty when the lega has no captain (`domain/lineup/extras`).
+    captains: tuple[int, ...] = ()
+    #: `(swtcA, swtcB)` — a starter and the reserve who replaces him first — or None.
+    switch: tuple[int, int] | None = None
+    #: `swtcMdl` — the module after the switch fires. None means unchanged (a same-role
+    #: switch); a cross-role one (a midfielder for a defender) turns 442 into 352.
+    switch_module: str | None = None
+    #: P(at least four defenders get a vote), for the modificatore difesa; None when unrated.
+    defence_bonus_p: float | None = None
+    #: The expected average of the votes the modifier takes, and P * E[bonus] — the points the
+    #: back four is credited with when it competes against other modules. None when unrated.
+    defence_avg_vote: float | None = None
+    defence_bonus_ev: float | None = None
+    #: The lega's substitution cap (`subst.ssnum`) the probability was computed under.
+    max_subs: int | None = None
+    #: E[captain modifier] for `captains` (a lega with `smodcp`); None where there is none.
+    captain_bonus_ev: float | None = None
 
 
 def assemble_roster(

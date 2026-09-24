@@ -61,6 +61,173 @@ def test_a_classic_roster_fields_an_xi_and_a_bench_from_fcrle() -> None:
     assert names[1] == "P1"
 
 
+def test_a_live_classic_row_without_fcrle_reads_its_role_list() -> None:
+    # the live Classic lineUpInfo (2026-09-22) has no `fcrle`; the macro role is `role: [n]`.
+    rows = [
+        {"pid": 1, "role": [1], "indexCompare": 4.3, "plyr": "Butez"},
+        {"pid": 2, "role": [4], "indexCompare": 17.4, "plyr": "Malen"},
+    ]
+    inputs, _ = inputs_from_lineup(
+        dto={"mday": 3, "cmday": 6}, lineup_info=rows, settings={"mods": [], "tbench": 12},
+        competition=7, tid=17, fmt="classic",
+    )
+    assert inputs.roles_by_id == {1: ["P"], 2: ["A"]}
+
+
+def _back_three_roster() -> list[dict[str, object]]:
+    # 3 P, 5 D (weak), 9 C, 8 A (strong): on raw sums a 3-4-3 beats every 4-back module.
+    rows: list[dict[str, object]] = []
+    pid = 1
+    for fcrle, n, val in ((1, 3, 5.0), (2, 5, 1.0), (3, 9, 6.0), (4, 8, 9.0)):
+        for i in range(n):
+            rows.append(_row(pid, fcrle, val - 0.01 * i))
+            pid += 1
+    return rows
+
+
+def test_the_defence_modifier_puts_a_four_back_module_first() -> None:
+    inputs, _ = _classic_inputs(_back_three_roster(), mods=["343", "442", "433"])
+
+    plans = plan_lineups(inputs)
+
+    assert inputs.defence_modifier
+    assert plans[0].module in ("433", "442")
+    # the sum winner is kept, but only as a fallback after every 4-back module
+    assert [p.module for p in plans][-1] == "343"
+
+
+def test_without_the_modifier_the_best_sum_wins() -> None:
+    import dataclasses
+
+    inputs, _ = _classic_inputs(_back_three_roster(), mods=["343", "442", "433"])
+
+    plans = plan_lineups(dataclasses.replace(inputs, defence_modifier=False))
+
+    assert plans[0].module == "343"
+
+
+def test_a_back_three_is_still_fielded_when_no_four_back_module_is_allowed() -> None:
+    inputs, _ = _classic_inputs(_back_three_roster(), mods=["343", "352"])
+
+    assert plan_lineup(inputs).module in ("343", "352")
+
+
+def _rules(league: int):  # type: ignore[no-untyped-def]
+    """The lega's real `settings/calculate` body, captured 2026-09-23, parsed."""
+    import json
+    from pathlib import Path
+
+    from fantabot.domain.lineup.rules import rules_from_calculate
+
+    path = Path(__file__).parents[2] / "fixtures" / "lineup" / f"calculate_{league}.json"
+    return rules_from_calculate(json.loads(path.read_text()))
+
+
+def _four_back_inputs(
+    *, doubtful_p: float, cross_role: bool, mods: list[str], league: int = 2761635
+):  # type: ignore[no-untyped-def]
+    """3 P, exactly 4 D (the 4th with `doubtful_p`), 9 C, 8 A, on realistic scores: swapping an
+    attacker for a defender costs ~1 point, which a likely bonus (~2.5 at a 6.6 vote average)
+    outweighs and an unlikely one does not. No defender on the bench."""
+    import dataclasses
+
+    from fantabot.application.lineup_planner import with_rules
+    from fantabot.domain.lineup.predict import Prediction
+
+    rows: list[dict[str, object]] = []
+    p_play: dict[int, float] = {}
+    pid = 1
+    for fcrle, n, val in ((1, 3, 5.0), (2, 4, 5.5), (3, 9, 6.0), (4, 8, 6.5)):
+        for i in range(n):
+            rows.append(_row(pid, fcrle, val - 0.01 * i))
+            p_play[pid] = doubtful_p if (fcrle == 2 and i == 3) else 0.95
+            pid += 1
+    inputs, _ = _classic_inputs(rows, mods=mods)
+    preds = {}
+    for r in rows:
+        rid, val = int(str(r["pid"])), float(str(r["indexCompare"]))
+        preds[rid] = Prediction(
+            pid=rid, p_play=p_play[rid], fv_if_plays=val, expected=p_play[rid] * val,
+            score=val, factors={}, vote_if_plays=6.6,
+        )
+    inputs = dataclasses.replace(
+        inputs, predictions=preds, switch_enabled=True, switch_cross_role=cross_role
+    )
+    return with_rules(inputs, _rules(league))
+
+
+def test_a_likely_bonus_puts_the_back_four_first() -> None:
+    plans = plan_lineups(
+        _four_back_inputs(doubtful_p=0.95, cross_role=False, mods=["343", "442"])
+    )
+
+    best = plans[0]
+    assert best.module == "442"
+    assert best.defence_bonus_p is not None and best.defence_bonus_p > 0.75
+    assert best.defence_bonus_ev is not None and best.defence_bonus_ev > 1.0
+    assert best.max_subs == 5  # the lega's own cap
+
+
+def test_an_unlikely_bonus_is_not_worth_the_points() -> None:
+    plans = plan_lineups(
+        _four_back_inputs(doubtful_p=0.2, cross_role=False, mods=["343", "442"])
+    )
+
+    assert plans[0].module == "343"  # P * E[bonus] is below the ~1 point the D costs
+
+
+def test_a_cross_role_switch_makes_the_risky_back_four_worth_it() -> None:
+    plans = plan_lineups(
+        _four_back_inputs(
+            doubtful_p=0.2, cross_role=True, mods=["343", "442", "352"], league=3677376
+        )
+    )
+
+    best = plans[0]
+    assert best.module == "442"
+    assert best.switch is not None
+    assert best.switch[0] == 7  # the doubtful 4th defender (pids 4-7 are the D)
+    assert 8 <= best.switch[1] <= 16  # a bench midfielder (pids 8-16 are the C)
+    assert best.switch_module == "352"
+
+
+def test_a_lega_without_the_modifier_does_not_chase_it() -> None:
+    import dataclasses
+
+    from fantabot.application.lineup_planner import with_rules
+    from fantabot.domain.lineup.rules import LeagueRules
+
+    inputs = _four_back_inputs(doubtful_p=0.95, cross_role=False, mods=["343", "442"])
+    inputs = with_rules(
+        dataclasses.replace(inputs), LeagueRules(defence=None, captain=None, subs=None)
+    )
+
+    assert not inputs.defence_modifier
+    assert plan_lineups(inputs)[0].module == "343"
+
+
+def test_a_zero_tbench_follows_the_saved_bench_size() -> None:
+    # lega 4219373: tbench 0, and the platform's saved bench held 13 of 14 reserves.
+    rows = _classic_roster()
+    inputs, _ = inputs_from_lineup(
+        dto={"mday": 3, "cmday": 6, "bench": list(range(100, 113))}, lineup_info=rows,
+        settings={"mods": ["352"], "tbench": 0}, competition=7, tid=17, fmt="classic",
+    )
+
+    assert inputs.bench_size == 13
+    assert len(plan_lineup(inputs).bench) == 13
+
+
+def test_a_zero_tbench_with_nothing_saved_benches_every_reserve() -> None:
+    rows = _classic_roster()  # 27 players -> 16 reserves
+    inputs, _ = inputs_from_lineup(
+        dto={"mday": 3, "cmday": 6}, lineup_info=rows,
+        settings={"mods": ["352"], "tbench": 0}, competition=7, tid=17, fmt="classic",
+    )
+
+    assert inputs.bench_size == 16
+
+
 def test_mantra_stays_the_default_source() -> None:
     # a Mantra row uses `role` marle codes, not fcrle; the default fmt must read those.
     rows = [{"pid": 1, "role": [6], "indexCompare": 5.0, "plyr": "K"}]

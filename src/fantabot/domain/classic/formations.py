@@ -30,6 +30,14 @@ def _counts(code: str) -> dict[str, int]:
 FORMATIONS: dict[str, dict[str, int]] = {code: _counts(code) for code in FORMATION_CODES}
 
 
+#: The modules with at least four defenders — the only ones the *modificatore difesa* (a
+#: bonus from the average vote of the keeper and defenders) can be earned with, per the
+#: operator's lega rules: 433, 442, 451, 532, 541.
+DEFENCE_MODIFIER_FORMATIONS: frozenset[str] = frozenset(
+    code for code, counts in FORMATIONS.items() if counts[Role.D] >= 4
+)
+
+
 def formation_counts(code: str) -> dict[str, int]:
     """The per-role starting counts for a module, or raise if the code is not one of the seven."""
     try:

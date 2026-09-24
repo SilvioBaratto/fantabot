@@ -59,6 +59,7 @@ TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 COMPETITIONS_PATH = "/onboarding/v1/league/competitions"
 LINEUP_SETTINGS_PATH = "/onboarding/v1/league/settings/lineup"
 ROSTER_SETTINGS_PATH = "/onboarding/v1/league/settings/rosters"
+CALCULATE_SETTINGS_PATH = "/onboarding/v1/league/settings/calculate"
 TEAMS_PATH = "/onboarding/v1/league/teams"
 PLAYERS_PATH = "/onboarding/v1/league/players"
 CUSTOM_ROLES_PATH = "/onboarding/v1/league/custom-roles"
@@ -294,6 +295,24 @@ def lineup_settings(
     (`mods`), bench size (`tbench`), deadline, captain (`docs/leghe-api.md`)."""
     return _get(
         LINEUP_SETTINGS_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now
+    )
+
+
+def calculate_settings(
+    league_id: int,
+    *,
+    store: TokenStore,
+    transport: httpx.BaseTransport | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    now: Any = None,
+) -> dict[str, Any]:
+    """`GET /onboarding/v1/league/settings/calculate` — how a matchday is scored: bonus/malus
+    (`bnMls`), substitutions (`subst`: `ssnum` the cap), and the modifiers (`smodd` the
+    defence one, `smodcp` the captain one; null when the lega does not play it). Read live
+    2026-09-23; parsed by `domain/lineup/rules`."""
+    return _get(
+        CALCULATE_SETTINGS_PATH, league_id, store=store, transport=transport,
+        timeout=timeout, now=now,
     )
 
 

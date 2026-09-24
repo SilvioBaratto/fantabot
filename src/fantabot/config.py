@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # in two leghe and one flat file could not tell them apart. 0 means unset.
     fantabot_league_id: int = 0
 
+    # Comma-separated lega ids `lineup submit-all` never touches, even when a matchday is
+    # open in them. Every other stored lega is classified and fielded if open.
+    fantabot_leagues_exclude: str = ""
+
     # The driver must stay +psycopg2. SPEC assumption 3: fantabot is a batch
     # process, and `postgresql+asyncpg://` breaks `alembic upgrade head`.
     fantabot_database_url: str = Field(

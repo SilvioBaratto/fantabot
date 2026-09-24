@@ -15,8 +15,10 @@ from fantabot.domain.lineup.errors import CompetitionAmbiguous, NoCompetition
 TID = 10000003
 
 
-def _c(cid: int, *, tids: list[int], deleted: bool = False) -> dict[str, object]:
-    return {"id": cid, "tmids": tids, "del": deleted, "sDay": 3, "eDay": 38}
+def _c(
+    cid: int, *, tids: list[int], deleted: bool = False, kind: int | None = None
+) -> dict[str, object]:
+    return {"id": cid, "tmids": tids, "del": deleted, "sDay": 3, "eDay": 38, "type": kind}
 
 
 def test_the_single_active_competition_with_our_team_is_chosen() -> None:
@@ -40,4 +42,18 @@ def test_several_candidates_are_ambiguous_and_named() -> None:
     comps = [_c(311681, tids=[TID]), _c(177318, tids=[TID])]
 
     with pytest.raises(CompetitionAmbiguous, match="311681"):
+        resolve_competition(comps, tid=TID)
+
+
+def test_a_championship_beside_a_cup_is_chosen() -> None:
+    # live 2761635: Campionato (type 1) and Coppa (type 4) both list our team.
+    comps = [_c(579261, tids=[TID], kind=1), _c(579295, tids=[TID], kind=4)]
+
+    assert resolve_competition(comps, tid=TID) == 579261
+
+
+def test_two_championships_stay_ambiguous() -> None:
+    comps = [_c(1, tids=[TID], kind=1), _c(2, tids=[TID], kind=1)]
+
+    with pytest.raises(CompetitionAmbiguous):
         resolve_competition(comps, tid=TID)
