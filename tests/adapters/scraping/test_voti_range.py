@@ -9,6 +9,15 @@ printing, the exiting and the whole-season walk taken out, and counts returned i
 Nothing here opens a socket or a session: the fetch, the store and the politeness sleep are
 injected. The sleep especially — the test asserts the delay is taken *between* giornate, and
 a real one would cost 2 s a pair to say so.
+
+⚠ **The rows below are hand-built and one of their shapes does not occur.** `_row` gives
+every team its own name, so `test_a_played_giornata_counts_both_sides_of_every_match` feeds
+20 distinct teams — and the real parser never produces 20. It records both tables of a match
+under the *home* side, so a played giornata yields 10, and `fixtures` reads 5 rather than 10.
+That is a defect in `GiornataParser`, not in `count_giornata`, and it is pinned against the
+recorded page in `test_voti_parser.py::TestTheMatchHeader`. Kept as it is here because these
+tests are about the counting rule in isolation; the note is so the 20 is not read as evidence
+that the page delivers one.
 """
 
 from __future__ import annotations
