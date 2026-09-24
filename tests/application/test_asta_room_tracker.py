@@ -14,6 +14,10 @@ it would give this module a path to Postgres and make its one structural guarant
 
 from __future__ import annotations
 
+import pytest
+
+from fantabot.adapters.http.fantalab.room import run_bid_loop
+from fantabot.application import asta_room
 from fantabot.application.asta_room import RoomTracker, error_row, waiting_row
 from fantabot.domain.asta.bid import Seat
 from fantabot.domain.asta.legality import SchemaLegality, SlotRule
@@ -890,3 +894,89 @@ class TestMidEveningBridgeRefresh:
 
         assert frame.decision == "hold"
         assert "listone" in (frame.note or "")
+
+
+# -- C5: what the bargain check absorbs, and what it must not ---------------------------
+#
+# `_bargain_for` wrapped its three gates in a bare `except Exception` and turned *every*
+# failure into `bargain check failed, holding: <exc>`. `application/containment.py:11-13`
+# states the repo's rule in the other direction: an `AssertionError` is a bug, and absorbing
+# one "turns a step that never worked into a step that never reported". The bargain path is
+# the newest and least-exercised in the room, which is where that matters most.
+
+
+def _raises(exc: BaseException):  # type: ignore[no-untyped-def]
+    def boom(*_args: object, **_kw: object) -> object:
+        raise exc
+
+    return boom
+
+
+class TestTheBargainCheckHoldsOnAFailureAndNotOnABug:
+    def test_an_assertion_propagates_instead_of_becoming_a_hold(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It was `note="bargain check failed, holding: "` — the empty string is not a typo,
+        a bare `assert isinstance(...)` carries no message — and a `pass` on the frame. An
+        evening of that is a bargain path that never ran and never said so."""
+        monkeypatch.setattr(
+            asta_room, "opportunistic_walkaway", _raises(AssertionError("dispatch"))
+        )
+
+        with pytest.raises(AssertionError, match="dispatch"):
+            _tracker(bargain_share=0.40).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
+
+    def test_any_other_failure_is_still_a_hold_that_names_itself(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other half of the narrowing, and the half that must not move: a bargain we
+        failed to price is a bargain we do not take, which is the pre-feature behaviour."""
+        monkeypatch.setattr(
+            asta_room, "opportunistic_walkaway", _raises(ValueError("prices went missing"))
+        )
+
+        frame = _tracker(bargain_share=0.40).cycle(_lot(uuid="uuid-a3", price=5), now_ms=1_000)
+
+        assert frame.decision == "pass"
+        assert frame.note == "bargain check failed, holding: prices went missing"
+
+    def test_the_poll_loop_contains_the_assertion_so_the_evening_does_not_end(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """**The cost of the change, measured rather than argued.** Nothing between
+        `_bargain_for` and `run_bid_loop` catches it — not `RoomTracker.cycle`, not
+        `AstaSession.cycle` — and `run_bid_loop`'s own per-poll `except Exception` does. So
+        the evening carries on: the poll is lost, the failure is counted under its type name
+        and shown, and no raise goes out for that lot.
+        """
+        beats: list[str] = []
+        tracker = _tracker(bargain_share=0.40)
+
+        def target_of(snapshot: dict[str, object]) -> tuple[str, int] | None:
+            frame = tracker.cycle(snapshot, now_ms=1_000)
+            if frame.target is None or not frame.walk_away:
+                return None
+            return frame.target, frame.walk_away
+
+        monkeypatch.setattr(
+            asta_room, "opportunistic_walkaway", _raises(AssertionError("dispatch"))
+        )
+        report = run_bid_loop(
+            seat=SEAT,
+            fantaleague_id="fl",
+            remaining_budget=100,
+            max_cap=100,
+            target_of=target_of,
+            read=lambda: _lot(uuid="uuid-a3", price=5),
+            write=lambda _payload: None,
+            now=lambda: 1_000,
+            sleep=lambda _s: None,
+            keep_going=lambda cycle: cycle < 3,
+            heartbeat=beats.append,
+            poll_seconds=0.0,
+        )
+
+        assert report.cycles == 3, "the loop kept polling"
+        assert report.errors == {"AssertionError": 3}, "and counted every one of them"
+        assert report.bids_sent == 0
+        assert "AssertionError" in beats[-1], "an operator can see it without the journal"

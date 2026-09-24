@@ -412,8 +412,11 @@
 
       <div class="scrape-state" aria-live="polite">
         @if (scrapeError(); as message) {
-          <!-- The route's own sentence. A refused season is a line to rewrite, and the
-               command prints exactly this. -->
+          <!-- Whoever refused, in their own words: the route's sentence when the run would
+               not start (a refused season is a line to rewrite, and the command prints
+               exactly this), or the crashed child's "{ExcType}: {msg}" when it started and
+               died. Ahead of the generic branch below, which is the remedy for a failure
+               nobody can name. -->
           <p class="one-shot-refusal" data-scrape-outcome="refused" role="alert">{{ message }}</p>
         } @else if (!scrapeRunning() && scrapeOk() === true) {
           <p class="one-shot-result" data-scrape-outcome="done">Scrape finished.</p>

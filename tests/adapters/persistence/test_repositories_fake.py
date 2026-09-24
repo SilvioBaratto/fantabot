@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from sqlalchemy import BigInteger, Column, MetaData, Table
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
 from fantabot.adapters.persistence.base import Base
@@ -179,6 +180,50 @@ class TestTableListIsDerivedNotHardcoded:
         ]
 
 
+class _Dbapi(Exception):
+    """A DBAPI error as psycopg2 raises it for a connection that never opened: a message.
+
+    **No `pgcode`, deliberately.** These fixtures carried one until 2026-09-24 and it made
+    them lie about what they exercised: a connection failure has no `PGresult`, so psycopg2
+    attaches no SQLSTATE to it. Measured against the bundled server, `pgcode` is `None` for a
+    missing database, an unknown role and a refused connection alike. A fixture that supplies
+    one tests a branch the driver cannot reach — which is how `classify_failure` came to key on
+    SQLSTATE and answer `unreachable` for all three.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+def _failing(exc: BaseException) -> Any:
+    class _Session:
+        def execute(self, *args: Any, **kwargs: Any) -> Any:
+            raise exc
+
+    return _Session()
+
+
+def _operational(message: str) -> OperationalError:
+    return OperationalError("SELECT 1", {}, _Dbapi(message))
+
+
+#: The three messages below are what the bundled server actually produced on 2026-09-24,
+#: copied rather than composed — the socket path elided, since the real ones carry it and
+#: that is why `HealthReport.error` is a type name and never a message.
+DOWN = _operational('connection to server at "127.0.0.1", port 1 failed: Connection refused')
+#: An unknown role and a wrong password are one case to the operator: the DSN's credentials.
+WRONG_PASSWORD = _operational(
+    'connection to server on socket "…/.s.PGSQL.5432" failed: '
+    'FATAL:  password authentication failed for user "postgres"'
+)
+#: The CLI and the app on different databases — the case `fantabot db check` exists for, and
+#: the one the SQLSTATE map got wrong by calling it `unreachable`.
+NO_DATABASE = _operational(
+    'connection to server on socket "…/.s.PGSQL.5432" failed: '
+    'FATAL:  database "fantabot" does not exist'
+)
+
+
 class TestHealth:
     def test_a_working_session_reports_ok_with_a_latency(self) -> None:
         ok, latency_ms = AdminRepository(_session(1)).health()
@@ -187,14 +232,96 @@ class TestHealth:
         assert latency_ms >= 0
 
     def test_a_broken_session_reports_not_ok_rather_than_raising(self) -> None:
-        class _Broken:
-            def execute(self, *args: Any, **kwargs: Any) -> Any:
-                raise RuntimeError("connection refused")
-
-        ok, latency_ms = AdminRepository(_Broken()).health()
+        ok, latency_ms = AdminRepository(_failing(DOWN)).health()
 
         assert ok is False
         assert latency_ms >= 0
+
+
+class TestHealthSaysWhichFailure:
+    """`(False, latency)` for everything rendered "the server is not running" and "the
+    password is wrong" as the same red word on `fantabot db check` — the screen an operator
+    reads *precisely* when the CLI and the app disagree about which database they are on
+    (`CLAUDE.md`, "One database, and it is the app's"). The two have opposite fixes.
+
+    Every case below is the same exception *type*, `OperationalError`, which is why the type
+    name alone could never have separated them: the SQLSTATE is the only discriminator, and
+    a connection that never came up carries none because no server was there to send one.
+    """
+
+    def test_a_server_that_is_not_there_is_unreachable(self) -> None:
+        report = AdminRepository(_failing(DOWN)).health_report()
+
+        assert (report.ok, report.failure, report.error) == (
+            False, "unreachable", "OperationalError",
+        )
+
+    def test_a_refused_password_is_not_the_same_answer(self) -> None:
+        report = AdminRepository(_failing(WRONG_PASSWORD)).health_report()
+
+        assert report.failure == "credentials"
+
+    def test_a_database_that_does_not_exist_is_named(self) -> None:
+        report = AdminRepository(_failing(NO_DATABASE)).health_report()
+
+        assert report.failure == "no-database"
+
+    def test_a_live_connection_whose_statement_failed_is_neither(self) -> None:
+        """`SELECT 1` failing on a connection that came up is not a connection problem, and
+        telling an operator to start a server that is already running is the wrong screen."""
+        broken = ProgrammingError("SELECT 1", {}, _Dbapi("syntax error"))
+
+        assert AdminRepository(_failing(broken)).health_report().failure == "query"
+
+    def test_a_message_it_does_not_recognise_names_no_cause(self) -> None:
+        """`None`, not a guess — and this is the assertion the whole split turns on.
+
+        A wrong name here is worse than no name. `db check` is the screen an operator reads
+        when the CLI and the app disagree about which database they are on, and the causes
+        have opposite fixes: start the server, or fix the DSN. The first version of this
+        classifier fell back to `unreachable`, whose printed remedy is
+        `fantabot-app db start` — sending the reader to the one thing that is working.
+
+        A TLS failure is the realistic way to get here — it names no database, no role and no
+        refusal, so none of the phrases fit. `LC_MESSAGES` is another: PostgreSQL translates
+        these strings, though the Italian for a missing database still contains `database "`
+        and would be classified correctly by accident, which is worth knowing before anyone
+        treats the phrase list as locale-proof.
+        """
+        unrecognised = _operational("SSL SYSCALL error: EOF detected")
+
+        report = AdminRepository(_failing(unrecognised)).health_report()
+
+        assert (report.ok, report.failure, report.error) == (False, None, "OperationalError")
+
+    def test_a_healthy_database_names_no_failure_at_all(self) -> None:
+        report = AdminRepository(_session(1)).health_report()
+
+        assert (report.ok, report.failure, report.error) == (True, None, None)
+
+    def test_the_message_never_leaves_the_repository(self) -> None:
+        """`application/containment.py`'s rule, kept here for the same reason: a driver's
+        message carries the connection string, and this value is rendered on a screen that
+        gets pasted into chats. The classification carries the meaning instead."""
+        report = AdminRepository(_failing(WRONG_PASSWORD)).health_report()
+
+        assert "password" not in repr(report)
+        assert report.error == "OperationalError"
+
+    def test_health_still_answers_the_two_tuple_its_callers_unpack(self) -> None:
+        """`db check` and the app's `/db/health` both do `ok, latency = admin.health()`."""
+        ok, latency_ms = AdminRepository(_failing(WRONG_PASSWORD)).health()
+
+        assert ok is False
+        assert latency_ms >= 0
+
+    def test_a_failure_that_is_not_the_database_s_is_not_reported_as_one(self) -> None:
+        """The narrowing. A `RuntimeError` out of `session.execute` is a wiring bug, and
+        answering it with "the database is unhealthy" is how a bug becomes a week of looking
+        at Postgres — the same rule `application/containment.py` keeps for `AssertionError`.
+        """
+        with pytest.raises(RuntimeError, match="not a database failure"):
+            AdminRepository(_failing(RuntimeError("not a database failure"))).health()
 
 
 class TestSentimentWritePath:

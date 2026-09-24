@@ -71,6 +71,28 @@ BARGAIN_BETA = 0.6
 BARGAIN_MIN_BOOK = 20
 
 
+class PoolFormatMismatch(TypeError):
+    """A Classic rule set was handed a Mantra pool player, or a Mantra one a Classic player.
+
+    The dispatch in ``opportunistic_walkaway`` reads the *rules* and then relies on the
+    *player* being the matching kind — ``rules.max_of(player.role)`` for Classic,
+    ``player.roles`` for Mantra. Nothing in the type system pairs them: ``Candidate`` and
+    ``CompositionRules`` are independent unions, so a caller that resolved the format twice
+    can hand over one of each.
+
+    **This is an error and not a hold, but it is a *domain* error.** It was two bare
+    ``assert isinstance(...)`` lines, which failed twice over: under ``python -O`` they are
+    stripped, so the invariant held in debug and in production became
+    ``AttributeError: 'MantraPlayer' object has no attribute 'role'`` from one line further
+    down; and when they did fire they raised ``AssertionError`` with an empty message out of
+    a function whose every other refusal is a ``None``. ``asta_room._bargain_for`` re-raises
+    ``AssertionError`` on purpose (it is a bug, per ``application/containment.py``), so an
+    assertion here would end the poll on a condition that is really "these two arguments do
+    not belong together" — a named domain failure the room can hold on, which is what this
+    is.
+    """
+
+
 def opportunistic_walkaway(
     player: Candidate,
     *,
@@ -112,6 +134,10 @@ def opportunistic_walkaway(
     * **band and slot** — ``max_bid`` reserves *credits* and checks no role at all. Buying a
       third POR, or a player whose roles no schema has a slot for, makes the rosa unfieldable
       and ``docs/fantalab/01:142`` says the server accepts the raise anyway.
+
+    Raises ``PoolFormatMismatch`` when ``rules`` and ``player`` are not the same format. That
+    is the one thing here that is not a ``None``: every gate above is a real answer about a
+    real lot, and a Classic rule set holding a Mantra player is not an answer at all.
     """
     if beta <= 0.0:
         return None
@@ -136,13 +162,21 @@ def opportunistic_walkaway(
     # ninth defender, makes the rosa unfieldable. Every P/D/C/A role is fielded by some
     # formation, so there is no unfillable-slot case to test (the Mantra one below).
     if isinstance(rules, ClassicRosterRules):
-        assert isinstance(player, ClassicPlayer)  # dispatch pairs Classic rules with a Classic pool
+        if not isinstance(player, ClassicPlayer):
+            raise PoolFormatMismatch(
+                f"Classic roster rules were handed {type(player).__name__} {player.id!r}; "
+                "the dispatch pairs Classic rules with a Classic pool"
+            )
         have = sum(1 for p in owned_players if isinstance(p, ClassicPlayer) and p.role == player.role)
         if have >= rules.max_of(player.role):
             return None
         return ceiling
 
-    assert isinstance(player, MantraPlayer)
+    if not isinstance(player, MantraPlayer):
+        raise PoolFormatMismatch(
+            f"Mantra roster rules were handed {type(player).__name__} {player.id!r}; "
+            "the dispatch pairs Mantra rules with a Mantra pool"
+        )
     keepers = sum(
         1 for p in owned_players if isinstance(p, MantraPlayer) and p.roles <= rules.goalkeeper_roles
     )

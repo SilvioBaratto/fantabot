@@ -846,22 +846,45 @@ def db_check() -> None:
     try:
         with database_manager.get_session() as session:
             repo = AdminRepository(session)
-            ok, latency_ms = repo.health()
+            report = repo.health_report()
             stats = repo.table_stats()
     except SQLAlchemyError as exc:
-        # An unreachable database is the normal case this command exists to
-        # report, so it exits nonzero with an instruction rather than a stack
-        # trace. The DSN is masked: cron captures stdout.
-        from sqlalchemy.engine import make_url
+        # An unreachable database is the normal case this command exists to report, so it
+        # exits nonzero with an instruction rather than a stack trace.
+        #
+        # **This is where a connection failure lands, not `health_report`.** The session is
+        # opened by `get_session()` above, so a missing database, a bad password or a server
+        # that is not running never reaches `SELECT 1` — `health_report`'s classification
+        # covers a statement that failed on a connection that came up. The same names are
+        # read here so the two paths agree about what to call a failure.
+        from fantabot.adapters.persistence.repositories.admin import classify_failure
+        from fantabot.application.config_report import safe_dsn
 
-        dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
-        console.print(f"[red]Cannot reach the database at {dsn}[/red]")
-        console.print(f"[red]{type(exc).__name__}: {str(exc).splitlines()[0]}[/red]")
-        console.print("Start it with: [bold]fantabot-app db start[/bold]")
+        # `safe_dsn`, not `render_as_string(hide_password=True)`: that form percent-encodes
+        # the socket path, so what an operator copies off this screen fails alembic's
+        # ConfigParser, and it masks an *empty* password as `***`, inventing a credential the
+        # bundled trust-auth server does not have. Both were fixed in the login preflights on
+        # 2026-09-24 and this third site was missed.
+        console.print(f"[red]Cannot reach the database at {safe_dsn(settings.fantabot_database_url)}[/red]")
+        failure = classify_failure(exc)
+        console.print(f"[red]{type(exc).__name__}{f' ({failure})' if failure else ''}[/red]")
+        if failure == "no-database":
+            console.print("The server is running; that database is not there. Check the DSN, or:")
+            console.print("Create it with: [bold]fantabot-app db create fantabot[/bold]")
+        elif failure == "credentials":
+            console.print("The server is running and refused the credentials in the DSN.")
+        else:
+            console.print("Start it with: [bold]fantabot-app db start[/bold]")
         raise typer.Exit(code=1) from None
 
-    status = "[green]ok[/green]" if ok else "[red]unhealthy[/red]"
-    console.print(f"health: {status}  latency: {latency_ms} ms")
+    # The failure name is printed, not just carried: `health_report` grew one because
+    # `(False, latency)` made "the server is down" and "the DSN names a database that is not
+    # there" the same red word, on the screen CLAUDE.md names as the one an operator reads
+    # when the CLI and the app disagree about which database they are on. A name nothing
+    # renders would be a field nobody reads. `None` prints nothing rather than a guess.
+    status = "[green]ok[/green]" if report.ok else "[red]unhealthy[/red]"
+    cause = f"  ({report.failure})" if report.failure else ""
+    console.print(f"health: {status}{cause}  latency: {report.latency_ms} ms")
 
     table = Table("table", "rows", "size")
     for row in stats:

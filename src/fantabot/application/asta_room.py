@@ -645,9 +645,23 @@ class RoomTracker:
         * `lot_ceiling` — re-solves, and answers the only question that can justify
           spending, which is whether the rosa is *better* with him in it.
 
-        **Nothing here may raise.** An exception inside a cycle ends the evening, and this is
-        the newest and least-exercised path in the room; a bargain we failed to price is a
-        bargain we do not take, which is exactly the pre-feature behaviour.
+        **A failure here is a hold, with one exception: `AssertionError` propagates.** A
+        bargain we failed to price is a bargain we do not take, which is exactly the
+        pre-feature behaviour — so a `TypeError`, a `KeyError` or an `InfeasibleRoster` out
+        of the three gates costs this poll and nothing more. An assertion is a different
+        animal, and `application/containment.py:11-13` already states the rule this mirrors:
+        it is a **bug**, and absorbing one turns a step that never worked into a step that
+        never reported. This is the newest and least-exercised path in the room, which is
+        exactly where an absorbed assertion is most likely to be the only evidence.
+
+        ⚠ **What propagating costs.** `RoomTracker.cycle` does not catch it and neither does
+        `AstaSession.cycle`; `run_bid_loop`'s own per-poll `except Exception` does. So the
+        evening does not end — the poll is lost, the failure is counted in `LoopReport.errors`
+        under its type name, journaled as an `error` row and painted by `on_error`. The cost
+        is the poll itself: `on_frame` never runs for it, so the screen holds its last frame,
+        and no raise goes out for that lot. A deterministic assertion on one lot therefore
+        costs that lot; the next lot recovers. That is the trade — a lot silently mispriced
+        becomes a lot visibly skipped.
 
         **A `None` note means "never asked"; every other gate says why, even a refusal.**
         Before the re-solve runs (beta off, allowance spent, the pre-gate itself refusing), a
@@ -686,6 +700,12 @@ class RoomTracker:
                 player_id, state=state, rules=rules, baseline=baseline, hard_cap=hard_cap,
                 plan=plan,
             )
+        except AssertionError:
+            # Re-raised before the broad catch, the same shape `containment.contained` has.
+            # `KeyboardInterrupt` is not named beside it there because it cannot reach here:
+            # it is a `BaseException`, so `except Exception` already lets it through, and a
+            # clause that can never fire is a guard nobody can test.
+            raise
         except Exception as exc:  # a hold, never an end to the evening
             return 0, f"bargain check failed, holding: {exc}"
         if not ceiling:

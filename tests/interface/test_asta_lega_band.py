@@ -21,10 +21,14 @@ from typing import Any
 
 import pytest
 import typer
+from typer.testing import CliRunner
 
 from fantabot.domain.asta.state import ASSUMED_NOTHING, SNAPSHOT_DECLARED, RosterRules
 from fantabot.domain.classic.state import ClassicRosterRules
-from fantabot.interface.asta import _lega_rules
+from fantabot.interface.app import app
+from fantabot.interface.asta import _format_refusal, _lega_rules, _require_format
+
+runner = CliRunner()
 
 
 class _Reader:
@@ -612,6 +616,142 @@ class TestBothCommandsDeclareTheSameDefault:
         ]
 
         assert fallbacks == ["fmt or 'mantra'"], f"the replay fallback moved: {fallbacks}"
+
+
+#: `(name, argv, stream)` for each of the four commands that can refuse a `--format`.
+#: The **stream** is half of what is asserted, not a detail of how the result is read: the
+#: three that raise `typer.BadParameter` are rendered by Click onto stderr, and
+#: `asta calibrate` prints onto stdout, which is what a cron wrapper or the app capturing
+#: output actually sees. Each argv carries the other required options and nothing more, so
+#: the refusal is reached with no database and no socket — `_require_format` is the first
+#: statement in all three bodies and calibrate's check is above its session.
+FORMAT_REFUSALS: list[tuple[str, list[str], str]] = [
+    ("asta optimize", ["asta", "optimize", "--format", "xyz"], "stderr"),
+    (
+        "asta live",
+        ["asta", "live", "--league", "1", "--team", "1", "--db", "1", "--format", "xyz"],
+        "stderr",
+    ),
+    (
+        "asta bid",
+        ["asta", "bid", "--league", "1", "--db", "1", "--team", "1", "--user", "1",
+         "--format", "xyz"],
+        "stderr",
+    ),
+    ("asta calibrate", ["asta", "calibrate", "--format", "xyz"], "stdout"),
+]
+
+
+class TestTheFourFormatRefusalsShareOneSentence:
+    """Four commands refuse a `--format` that names no game, in two wordings until now.
+
+    Three of them raised `typer.BadParameter("--format must be 'mantra' or 'classic'")`;
+    `asta calibrate` printed `--format xyz: not a format. Use mantra or classic.` in red and
+    raised `Exit(2)`. **Both exit 2**, so the exit code was never the difference, and the
+    measured difference was the stream: Click renders `BadParameter` under a usage block on
+    **stderr**, and calibrate's line is on **stdout**.
+
+    So the sentence was shared and the delivery was not. Routing calibrate through
+    `BadParameter` as well would have moved its refusal to stderr, and a wrapper reading
+    stdout would stop seeing it at all — a silent loss rather than a cosmetic change, which
+    is why `_require_format` keeps exactly three callers and calibrate keeps its own two
+    lines. Calibrate's accepted set genuinely differs too: `""` means "detect it" on the
+    three and is refused by calibrate, whose `--format` defaults to `mantra` and names a
+    *corpus* rather than a room.
+
+    The sentence that won is calibrate's, because it echoes what was typed. Neither
+    `BadParameter`'s wording nor Click's usage block repeats the value, so `--format mantrra`
+    used to be refused by a line that does not contain the typo.
+    """
+
+    REFUSAL = "--format 'xyz': not a format. Use 'mantra' or 'classic'."
+
+    @staticmethod
+    def _flat(text: str) -> str:
+        """The sentence, free of the box Click draws around it.
+
+        Click renders an error inside a Rich panel that hard-wraps at the terminal width and
+        pads each line out to a `│`. Asserting on the raw text would pin the padding, and a
+        longer typed value would wrap the sentence across two lines and fail for the width
+        rather than for the wording.
+        """
+        return " ".join(text.replace("│", " ").split())
+
+    @pytest.mark.parametrize(
+        ("argv", "stream"),
+        [(c[1], c[2]) for c in FORMAT_REFUSALS],
+        ids=[c[0] for c in FORMAT_REFUSALS],
+    )
+    def test_each_one_refuses_with_it_on_its_own_stream(
+        self, argv: list[str], stream: str
+    ) -> None:
+        result = runner.invoke(app, argv)
+
+        assert result.exit_code == 2
+        assert self.REFUSAL in self._flat(getattr(result, stream))
+
+    @pytest.mark.parametrize(
+        ("argv", "stream"),
+        [(c[1], c[2]) for c in FORMAT_REFUSALS],
+        ids=[c[0] for c in FORMAT_REFUSALS],
+    )
+    def test_the_other_stream_stays_empty_of_it(self, argv: list[str], stream: str) -> None:
+        """The half that is not cosmetic, asserted in the direction a collapse would break.
+
+        The test above would still pass if calibrate's line moved to stderr *and* the
+        parametrisation moved with it. This one fails instead: it says the refusal is on one
+        stream and **not** on the other, so unifying the delivery cannot be made green by
+        editing the table it is read from.
+        """
+        other = "stdout" if stream == "stderr" else "stderr"
+
+        result = runner.invoke(app, argv)
+
+        assert self.REFUSAL not in self._flat(getattr(result, other))
+
+    def test_the_empty_format_still_parts_the_two_kinds(self) -> None:
+        """`""` is "not given". On the three that detect it is legal and must stay legal;
+        on calibrate it names a corpus that does not exist and is refused.
+
+        Asserted through `_require_format` rather than the CLI for the legal half: a command
+        that gets past the gate goes on to open a database, and this suite opens nothing.
+        """
+        assert _require_format("") is None
+
+        result = runner.invoke(app, ["asta", "calibrate", "--format", ""])
+
+        assert result.exit_code == 2
+        assert "--format '': not a format." in self._flat(result.stdout)
+
+    def test_the_pair_in_the_sentence_is_read_from_the_rule_it_checks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sharing the wording is worth nothing if the wording still spells the answer out.
+
+        A third game added to `LISTONI` would be accepted by every check and named by no
+        message — the same shape as the tuple written three times that `_require_format` was
+        built to remove. So the sentence is generated from the rule, and this proves it by
+        moving the rule.
+        """
+        import fantabot.interface.asta as asta_cli
+
+        monkeypatch.setattr(asta_cli, "LISTONI", ("mantra", "classic", "sette"))
+
+        assert _format_refusal("xyz") == (
+            "--format 'xyz': not a format. Use 'mantra' or 'classic' or 'sette'."
+        )
+
+    def test_the_echoed_value_survives_the_markup_parser(self) -> None:
+        """The echo is the reason this wording won, so it has to arrive.
+
+        Click prints `BadParameter` as plain text; calibrate prints through Rich, which reads
+        `[bold]` as a style tag and removes it. `--format '[bold]x'` was echoed back as
+        `--format 'x'` — the markup eaten out of the one part of the line an operator reads
+        to spot their own typo, and only on one of the two deliveries.
+        """
+        result = runner.invoke(app, ["asta", "calibrate", "--format", "[bold]x"])
+
+        assert "--format '[bold]x': not a format." in self._flat(result.stdout)
 
 
 class TestTheSizeOverride:

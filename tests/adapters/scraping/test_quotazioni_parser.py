@@ -8,8 +8,12 @@ page with `SystemExit(1)`, and until now nothing checked that it would notice.
 
 Everything below is measured against `tests/fixtures/scraping/quotazioni-2024-25.html.gz`,
 a real page from a completed season, cross-checked when it was recorded against the 679
-players the database holds for 2024/25. No socket is opened and none can be: the parser is
-driven directly with `.feed(html)`, never through `fetch_season`.
+players the database holds for 2024/25. The parser is driven directly with `.feed(html)`.
+
+`TestTheListoneFetchRetries` is the one section that does go through `fetch_season`, and
+it does so on purpose: its subject is the *fetch*, not the parse. It still opens no
+socket — `urlopen` and `time.sleep` are injected, and `tests/conftest.py` would fail the
+node if they were not.
 
 The page changes this file is built to survive all have one shape: **the row count stays
 right and the values stop meaning what they say**. A structural collapse is loud — zero
@@ -20,12 +24,22 @@ and every corpus-level count below exists because a per-player assertion cannot 
 from __future__ import annotations
 
 import gzip
+import time
+import urllib.error
+import urllib.request
 from collections import Counter
+from collections.abc import Callable
 
 import pytest
 from _paths import FIXTURES
 
-from fantabot.adapters.scraping.quotazioni import PlayerRow, QuotazioniParser, season_url
+from fantabot.adapters.scraping._site import BACKOFF_STEP_SECONDS, MAX_RETRIES
+from fantabot.adapters.scraping.quotazioni import (
+    PlayerRow,
+    QuotazioniParser,
+    fetch_season,
+    season_url,
+)
 
 FIXTURE = FIXTURES / "scraping" / "quotazioni-2024-25.html.gz"
 
@@ -385,3 +399,182 @@ class TestThePlayerLinkCarriesTheId:
 class TestTheSeasonUrl:
     def test_the_slash_becomes_a_hyphen(self) -> None:
         assert season_url("2024/25") == "https://www.fantacalcio.it/quotazioni-fantacalcio/2024-25"
+
+
+#: One player row, enough for `fetch_season` to prove it parsed what the transport served
+#: without dragging the 679-row fixture through a retry test.
+ONE_ROW_PAGE = (
+    '<tr class="player-row" data-filter-role-classic="a" data-filter-role-mantra="a|pc">'
+    '<th class="player-name"><a class="player-name" '
+    'href="https://www.fantacalcio.it/serie-a/squadre/atalanta/retegui/6228">'
+    "<span>Retegui</span></a></th>"
+    '<td class="player-team" data-col-key="sq">ATA</td>'
+    "</tr>"
+)
+
+
+class _Served:
+    """What a fake `urlopen` hands back: a context manager whose `read()` is the body."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> _Served:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _Transport:
+    """The site, scripted. `outcomes[i]` is what attempt *i+1* meets — an exception to
+    raise or a page to serve — and the last entry repeats for any further attempt, so a
+    test that means "always refused" writes the refusal once.
+
+    A plain class and not a `@dataclass`: `dataclasses.field` would shadow the loop
+    variable `field` that `TestTheWholeListone` already uses, which ruff catches as
+    F402, and renaming a variable in the regression net to import a decorator is the
+    wrong way round."""
+
+    def __init__(self, outcomes: list[BaseException | str]) -> None:
+        self.outcomes = outcomes
+        self.requests: list[urllib.request.Request] = []
+        self.sleeps: list[float] = []
+
+    def urlopen(self, req: urllib.request.Request, timeout: float | None = None) -> _Served:
+        self.requests.append(req)
+        outcome = self.outcomes[min(len(self.requests), len(self.outcomes)) - 1]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return _Served(outcome.encode("utf-8"))
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+
+
+@pytest.fixture
+def transport(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _Transport]:
+    """Inject the transport and the clock, and record both.
+
+    `time.sleep` is patched as well as `urlopen`, and not only for speed: a retry test
+    that really slept would spend 6 seconds proving the backoff, and the *values* slept
+    are themselves part of what is pinned below. `monkeypatch` restores both, so a test
+    that raises cannot leave a scripted site behind it.
+    """
+
+    def install(*outcomes: BaseException | str) -> _Transport:
+        scripted = _Transport(list(outcomes))
+        monkeypatch.setattr(urllib.request, "urlopen", scripted.urlopen)
+        monkeypatch.setattr(time, "sleep", scripted.sleep)
+        return scripted
+
+    return install
+
+
+class TestTheListoneFetchRetries:
+    """`quotazioni` fetches through `_site.fetch_html` — three attempts, 2 s then 4 s.
+
+    **This is a behaviour change made on 2026-09-24, not a property the module always
+    had.** Until then the listone was the one page fetched single-shot: measured before
+    the change, a refused connection meant exactly one call to `urlopen`, no sleep, and
+    `URLError` out of `fetch_season` — which escaped `run` uncaught, past the
+    `SystemExit(1)` that is supposed to mean the page structure changed, and reached the
+    operator as a traceback instead of a diagnosis.
+
+    The asymmetry had an argument behind it, recorded in `_site.fetch_html`: one request
+    per season against 38 for `voti`. Nobody measured it either way, and the owner's call
+    was to make the three scrapers symmetric. So every count below is the thing to look at
+    if that is ever reconsidered — they are the change, not scaffolding around it.
+    """
+
+    def test_a_transient_refusal_is_retried_and_the_season_still_lands(
+        self, transport: Callable[..., _Transport]
+    ) -> None:
+        """The whole point. Before the change this raised on the first refusal."""
+        scripted = transport(urllib.error.URLError("[Errno 54] reset by peer"), ONE_ROW_PAGE)
+
+        rows = fetch_season("2024/25")
+
+        assert [(r.player_id, r.name, r.team) for r in rows] == [("6228", "Retegui", "ATA")]
+        assert len(scripted.requests) == 2
+
+    def test_a_persistent_refusal_still_raises_the_last_error(
+        self, transport: Callable[..., _Transport]
+    ) -> None:
+        """Retrying is not swallowing: a site that is genuinely down still fails the run,
+        and it fails with the *last* attempt's error rather than the first. Which one
+        surfaces is not cosmetic — the three can differ (a reset, then a refused
+        connection, then a 503), and the one worth showing an operator is the state the
+        site was left in."""
+        first = urllib.error.URLError("[Errno 54] reset by peer")
+        second = urllib.error.URLError("[Errno 61] connection refused")
+        last = urllib.error.URLError("[Errno 60] operation timed out")
+        scripted = transport(first, second, last)
+
+        with pytest.raises(urllib.error.URLError) as caught:
+            fetch_season("2024/25")
+
+        assert caught.value is last
+        assert len(scripted.requests) == 3
+
+    def test_the_backoff_is_two_seconds_then_four(
+        self, transport: Callable[..., _Transport]
+    ) -> None:
+        """`BACKOFF_STEP_SECONDS * attempt`, and no sleep after the final attempt.
+
+        The trailing sleep is the half of this that a count of requests cannot see: a
+        version that slept after the last failure would be correct in every other respect
+        and would still cost the operator 6 seconds of silence before an error it was
+        always going to get."""
+        refused = urllib.error.URLError("[Errno 61] connection refused")
+        scripted = transport(refused)
+
+        with pytest.raises(urllib.error.URLError):
+            fetch_season("2024/25")
+
+        assert scripted.sleeps == [2, 4]
+
+    def test_a_page_served_first_time_is_not_slept_on(
+        self, transport: Callable[..., _Transport]
+    ) -> None:
+        """The common case, and the one the retry must not tax. `REQUEST_DELAY_SECONDS`
+        is a separate, deliberate second between *seasons* and is `run`'s, not the
+        fetch's — nothing here should sleep when the first GET answers."""
+        scripted = transport(ONE_ROW_PAGE)
+
+        assert [r.name for r in fetch_season("2024/25")] == ["Retegui"]
+        assert (len(scripted.requests), scripted.sleeps) == (1, [])
+
+    def test_a_timeout_is_retried_like_a_refusal(
+        self, transport: Callable[..., _Transport]
+    ) -> None:
+        """`TimeoutError` is not a `URLError` and is caught beside it. A listone page is
+        the biggest of the three the site serves, so the slow answer is the blip this
+        scraper is likeliest to meet, and catching only `URLError` would retry everything
+        except it."""
+        scripted = transport(TimeoutError("timed out"), ONE_ROW_PAGE)
+
+        assert [r.name for r in fetch_season("2024/25")] == ["Retegui"]
+        assert len(scripted.requests) == 2
+
+    def test_the_same_request_object_is_reused_across_attempts(
+        self, transport: Callable[..., _Transport]
+    ) -> None:
+        """One `Request`, built once — which is also what carries the browser User-Agent
+        the site needs to serve a table at all. A retry that rebuilt it would work today
+        and would be the place a header quietly stops being sent."""
+        refused = urllib.error.URLError("[Errno 61] connection refused")
+        scripted = transport(refused, refused, ONE_ROW_PAGE)
+
+        assert [r.name for r in fetch_season("2024/25")] == ["Retegui"]
+        assert len({id(req) for req in scripted.requests}) == 1
+        assert scripted.requests[0].full_url == season_url("2024/25")
+
+    def test_three_attempts_and_a_two_second_step_are_the_numbers(self) -> None:
+        """The literals above are `_site`'s constants, named here so that changing one
+        fails on the constant rather than on six counts whose origin is no longer
+        obvious."""
+        assert (MAX_RETRIES, BACKOFF_STEP_SECONDS) == (3, 2)

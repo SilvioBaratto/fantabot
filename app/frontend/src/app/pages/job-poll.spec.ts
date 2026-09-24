@@ -28,12 +28,15 @@ import { SynchronizeComponent } from './synchronize/synchronize';
  * this file was written — pinning `since` at 0, replacing instead of appending, dropping
  * the `error` read, and reattaching to a `done` job — and the 348 caught none of them.
  *
- * What is pinned here is therefore not a rule but **the behaviour as found**, including
- * the part of it that is a defect: `synchronize` never reads the job's `error`, so a
- * crashed scrape child renders the generic "did not finish" and the server's
- * `"{ExcType}: {msg}"` is dropped on the floor. That is written down as an assertion and
- * not quietly fixed — a refactor that changed it would be a behaviour change smuggled in
- * under a collapse, and the two are the operator's to tell apart.
+ * What is pinned here is therefore not a rule but **the behaviour as found** — with one
+ * exception, dated. `synchronize` never read the job's `error`, so a crashed scrape child
+ * rendered the generic "did not finish" and the server's `"{ExcType}: {msg}"` was dropped
+ * on the floor. That was written down here as an assertion rather than quietly fixed,
+ * because a refactor that changed it would have been a behaviour change smuggled in under
+ * a collapse. It was then **asked for and made** on 2026-09-24 — `scrapePanel` carries an
+ * `error` and the card renders it — so the assertion below is inverted, and the card's own
+ * side of it is pinned in `synchronize/synchronize.spec.ts`. The `jobId` half is untouched
+ * and still pinned as found.
  *
  * Two ticks, never one. One tick proves the loop starts; the second is the only thing
  * that can see `since` move off zero, and moving off zero is the whole of the
@@ -276,11 +279,10 @@ describe('the job poll, as every page runs it', () => {
       }
     });
 
-    it('drops the crashed child’s own words, and keeps the job id', async () => {
-      // **Pinned as found, and it is a defect.** `harvest` renders `job.error`; this copy
-      // has no `error` on its panel and never reads the field, so the operator gets the
-      // generic sentence and the `"{ExcType}: {msg}"` the server took the trouble to
-      // carry is thrown away. The id is likewise left standing where harvest clears it —
+    it('lands the crashed child’s own words, and keeps the job id', async () => {
+      // `harvest` renders `job.error` and so, since 2026-09-24, does this one: `scrapePanel`
+      // declares an `error` and `track` writes the `"{ExcType}: {msg}"` the server took the
+      // trouble to carry into it. The id is still left standing where harvest clears it —
       // unobservable today only because the stop control is inside `@if (scrapeRunning())`.
       vi.useFakeTimers();
       try {
@@ -305,7 +307,7 @@ describe('the job poll, as every page runs it', () => {
         expect(page.scrapeStatus()).toBe('error');
         expect(page.scrapeRunning()).toBe(false);
         expect(page.scrapeOk()).toBe(false);
-        expect(page.scrapeError()).toBeNull();
+        expect(page.scrapeError()).toBe('ConnectError: fantacalcio.it refused the connection');
         expect(page.scrapeJobId()).toBe('S2');
       } finally {
         vi.useRealTimers();

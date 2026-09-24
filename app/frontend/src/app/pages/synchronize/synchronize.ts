@@ -34,7 +34,7 @@ const SCRAPE_KIND = 'db-scrape';
 
 /**
  * A `JobPanel` that carries an id, which both of this page's do: `reattach` writes one
- * and the scrape's stop control reads it. Neither carries an `error` — see `poll`.
+ * and the scrape's stop control reads it. Only the scrape carries an `error` — see `poll`.
  */
 type SyncPanel = JobPanel & Required<Pick<JobPanel, 'jobId'>>;
 
@@ -175,6 +175,7 @@ export class SynchronizeComponent {
     status: this.scrapeStatus,
     ok: this.scrapeOk,
     jobId: this.scrapeJobId,
+    error: this.scrapeError,
   };
 
   /** The chosen table's row from the picker, or null before one is chosen. */
@@ -453,16 +454,26 @@ export class SynchronizeComponent {
   /**
    * Follow one job into one panel. `JobsService.track`, with nothing added.
    *
-   * **Neither panel here declares an `error`**, so the server's own words on a crashed
-   * child are dropped and both cards fall back to their generic sentence — `harvest` and
-   * `news` render them. That is a real difference an operator sees and the fix is one
-   * line (`error: this.scrapeError` on `scrapePanel` above), so it is not made here: a
-   * collapse that changed what a page says would be a behaviour change wearing a
-   * refactor's clothes. `JobsService.track` carries the same note.
+   * **`scrapePanel` declares an `error`, and that is the whole of what the card shows on a
+   * crash.** It used not to, so `track`'s `panel.error?.set(job.error)` had nothing to
+   * write into and the registry's `"{ExcType}: {msg}"` was dropped — measured 2026-09-24,
+   * the real crash frame (`status: "error"`, `error` set, `ok` never written) matched no
+   * branch in the template at all and `.scrape-state` rendered empty. The operator watching
+   * a scrape die saw the card go quiet. `harvest` and `news` had rendered it all along;
+   * this was the odd one out, not a house style.
+   *
+   * The generic "did not finish" is still the branch under it and is still reached: a child
+   * that merely exits nonzero ends `done` with `ok: false` and no `error`, and that
+   * sentence is the only place the remedy — every write is an upsert, so re-run — is
+   * written down.
+   *
+   * `legaPanel` deliberately still has none. Its card has no place to put one: a job
+   * failure there reads as the `failed` outcome row, and `errorMsg` is the page-level
+   * banner for a request that would not start. Giving it an `error` would be a second
+   * behaviour change nobody asked for.
    *
    * Neither panel drops its `jobId` when the job ends, where `harvest` does. Unreachable
-   * today — the stop control lives inside `@if (scrapeRunning())` — and left as found for
-   * the same reason.
+   * today — the stop control lives inside `@if (scrapeRunning())` — and left as found.
    */
   private poll(panel: JobPanel, jobId: string): void {
     this.jobs.track({ jobId, panel, destroyRef: this.destroyRef });

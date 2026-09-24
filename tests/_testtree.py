@@ -126,6 +126,9 @@ TREE: dict[str, str] = {
     "test_league.py": "domain/shared",
     "test_parsing.py": "domain/shared",
     "test_resources.py": "domain/shared",
+    # The FantaLab `update_type` vocabulary: `domain/asta/live` and `domain/harvest/turn`
+    # read one node and each declared `close_auction`. About the home, not either reader.
+    "test_update_types.py": "domain/shared",
     "test_token_capture.py": "domain/tokens",
     "test_token_claims.py": "domain/tokens",
     "test_token_crypto.py": "domain/tokens",

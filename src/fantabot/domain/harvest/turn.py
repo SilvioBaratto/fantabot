@@ -29,15 +29,15 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from fantabot.domain.harvest.models import Assignment, Bid
-
-#: The state that closes a player's auction -- i.e. a sale.
-CLOSE = "close_auction"
-#: The state that puts a player on the block and starts his ladder from nothing.
-FIRST_CALL = "first_call"
+from fantabot.domain.shared.update_types import CLOSE, FIRST_CALL, RAISE
 
 #: States that put a price on the board. ``confirm`` and ``reset`` do not: the
 #: first clears the slot after a sale, the second annuls a call outright.
-BIDDING = frozenset({FIRST_CALL, "raise", CLOSE})
+#:
+#: The tokens themselves live in ``domain/shared/update_types``: ``domain/asta/live`` reads the
+#: same ``auction/`` node and declared ``close_auction`` a second time. This set is not a
+#: token, it is which of them this fold treats as a price, so it stays with the fold.
+BIDDING = frozenset({FIRST_CALL, RAISE, CLOSE})
 
 
 def state_of(row: Mapping[str, Any]) -> tuple[str, Mapping[str, Any]] | None:

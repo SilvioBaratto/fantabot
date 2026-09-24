@@ -15,7 +15,7 @@ between `statistiche.py` and `voti.py`, `MAX_RETRIES` and its backoff included;
 written three times; the last-numeric-path-segment id rule was written three times and
 explained in only one of them, which is the drift signature exactly.
 
-**Four things stay where they are, on purpose.**
+**Three things stay where they are, on purpose.**
 
 `DEFAULT_SEASONS` stays three separate lists. `application/scrape.py` reads each
 scraper's **own** list live and compares it against a derived current season, and
@@ -33,8 +33,12 @@ and a *listone* has no such role, so they agree today by coincidence of four let
 not by construction. Deriving one from the other would make a future edit to the
 listone's four roles silently rewrite what a coach is called.
 
-`fetch_once` vs `fetch_html` is the one difference here that is real, and it is now
-stated instead of being a shape you would have to `diff` to see. See `fetch_once`.
+**A fourth used to, and stopped on 2026-09-24.** `quotazioni` fetched through a
+single-shot `fetch_once` while `statistiche` and `voti` retried. That asymmetry was
+**removed deliberately, on the owner's instruction**, and `fetch_once` deleted with it:
+all three scrapers now call `fetch_html`. It was never measured either way — both
+arguments are kept, in `fetch_html`, so the next reader weighs them instead of
+"restoring" the old shape on the strength of the one that is cheaper to state.
 
 **The parsers themselves were left alone**, and that is a judgment rather than an
 omission. Measured on the bodies of the three `handle_starttag` methods: `quotazioni` and
@@ -141,25 +145,6 @@ def _read(req: urllib.request.Request) -> str:
     return body.decode("utf-8")
 
 
-def fetch_once(url: str) -> str:
-    """One GET, one chance: whatever it raises, the caller sees immediately.
-
-    This is `quotazioni`'s fetch, and the asymmetry with `fetch_html` is **deliberate and
-    unmeasured** — recorded here rather than left as a shape you would have to `diff` two
-    files to notice. The argument for it: a listone run is one request per season where a
-    `voti` season is 38 and a `statistiche` season is 3, so a transient failure costs a
-    retyped command rather than half an hour, and an operator watching a single GET fail
-    is better served by the error than by 6 seconds of silence.
-
-    The argument against it is just as short: one request is also the cheapest thing in
-    the repo to retry, and `run` turns "no rows" into `SystemExit(1)`, so a blip reads as
-    a changed page. **Nobody has measured which is right**, and giving `quotazioni` the
-    retry would change behaviour, so it has not been done from inside a refactor. If it
-    is ever decided, the whole change is `fetch_once` -> `fetch_html` in `quotazioni.py`.
-    """
-    return _read(_request(url))
-
-
 def fetch_html(url: str) -> str:
     """Up to `MAX_RETRIES` GETs, sleeping 2 s then 4 s, then the last failure re-raised.
 
@@ -171,6 +156,19 @@ def fetch_html(url: str) -> str:
 
     The `Request` object is built once and reused across attempts, as it was in both
     copies this replaces.
+
+    **`quotazioni` fetches through this too, since 2026-09-24, and that is a deliberate
+    change of behaviour rather than a tidy-up.** It used to call a single-shot
+    `fetch_once`, on this argument: a listone run is one request per season where a
+    `voti` season is 38 and a `statistiche` season is 3, so a blip cost a retyped command
+    rather than half an hour, and an operator watching one GET fail is better served by
+    the error than by 6 seconds of silence. The argument that won: one request is also
+    the cheapest thing in the repo to retry, and the blip did not surface as a scraper
+    diagnosis at all — `URLError` escaped `run` uncaught, past the `SystemExit(1)` that
+    is supposed to mean the page changed, and reached the operator as a traceback.
+    Neither side was ever measured. Both are written down here so that restoring the
+    asymmetry is a decision and not a reflex; the tests that pin this live in
+    `tests/adapters/scraping/test_quotazioni_parser.py`.
     """
     req = _request(url)
     last_error: Exception | None = None

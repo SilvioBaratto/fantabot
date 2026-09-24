@@ -604,6 +604,111 @@ describe('SynchronizeComponent', () => {
     expect(page.scrapeRunning()).toBe(false);
   });
 
+  /**
+   * A crashed scrape child, and the two things the card can say about one.
+   *
+   * The registry writes `"{ExcType}: {msg}"` onto the job when the child dies holding an
+   * exception (`api/infrastructure/jobs.py`), and `api/outcomes.because` exists so a reader
+   * gets the type plus the first line rather than a traceback. `harvest` and `news` render
+   * it; this card did not — `scrapePanel` declared no `error` signal, so
+   * `JobsService.track`'s `panel.error?.set(job.error)` had nothing to write into and the
+   * sentence was dropped on the floor.
+   *
+   * The two cases are kept apart on purpose. A child that died *with* words shows them; a
+   * child that merely exited nonzero has none to show and keeps the generic sentence, which
+   * is the one carrying the remedy — re-running is safe because every write is an upsert.
+   */
+  const scrapeFrame = async (frame: {
+    status: string;
+    ok: boolean | null;
+    error: string | null;
+  }) => {
+    const fixture = bootPage();
+    const page = fixture.componentInstance;
+    page.setScrapeTable('voti');
+    page.runScrape();
+    httpMock.expectOne(`${environment.apiUrl}db/scrape`).flush({ job_id: 'S7' });
+
+    await vi.advanceTimersByTimeAsync(1600);
+    httpMock
+      .expectOne(`${environment.apiUrl}jobs/S7?since=0`)
+      .flush({ id: 'S7', lines: ['giornata 1'], ...frame });
+    await vi.advanceTimersByTimeAsync(0);
+    fixture.detectChanges();
+    return fixture;
+  };
+
+  /** What the pane says, with the whitespace the template indents it with collapsed. */
+  const scrapePane = (fixture: { nativeElement: HTMLElement }) =>
+    (fixture.nativeElement.querySelector('.scrape-state') as HTMLElement).textContent
+      ?.replace(/\s+/g, ' ')
+      .trim() ?? '';
+
+  it("shows the crashed child's own words, where the pane used to say nothing", async () => {
+    // This is the frame the server really sends: `JobState.ok` is written only on the
+    // success branch, so a crash carries a status and an error and no `ok` at all.
+    // Under the old panel that matched no branch in the template whatever — measured
+    // 2026-09-24, `.scrape-state` rendered as three empty containers and the operator
+    // watching a scrape die saw the card go quiet.
+    vi.useFakeTimers();
+    try {
+      const fixture = await scrapeFrame({
+        status: 'error',
+        ok: null,
+        error: 'ConnectError: fantacalcio.it refused the connection',
+      });
+      const page = fixture.componentInstance;
+
+      expect(page.scrapeError()).toBe('ConnectError: fantacalcio.it refused the connection');
+      expect(scrapePane(fixture)).toBe('ConnectError: fantacalcio.it refused the connection');
+      expect(fixture.nativeElement.querySelector('[data-scrape-outcome="refused"]')).not.toBeNull();
+      fixture.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("puts the child's words ahead of the generic sentence, not beside it", async () => {
+    // A frame that carries both an `ok: false` and an error — what the registry would send
+    // if a supervised child ever reported one and then raised. The words win: the generic
+    // sentence is a remedy for a failure nobody can name, and naming it is strictly more.
+    vi.useFakeTimers();
+    try {
+      const fixture = await scrapeFrame({
+        status: 'error',
+        ok: false,
+        error: 'OperationalError: could not connect to server',
+      });
+
+      expect(scrapePane(fixture)).toBe('OperationalError: could not connect to server');
+      expect(scrapePane(fixture)).not.toContain('did not finish');
+      fixture.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the generic sentence for a child that died without words', async () => {
+    // The fallback, and it is not dead code: a child that merely exits nonzero ends `done`
+    // with `ok: false` and no `error` at all, which is the ordinary failure. The remedy
+    // lives in this sentence and nowhere else, so the branch has to survive the one above.
+    vi.useFakeTimers();
+    try {
+      const fixture = await scrapeFrame({ status: 'done', ok: false, error: null });
+      const page = fixture.componentInstance;
+
+      expect(page.scrapeError()).toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-scrape-outcome="refused"]')).toBeNull();
+      expect(scrapePane(fixture)).toBe(
+        'The scrape did not finish. Nothing partial was lost — every write is an upsert, so ' +
+          're-running picks up where it stopped.',
+      );
+      fixture.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reattaches to a scrape that is still running after a refresh', () => {
     // A scrape is a subprocess and outlives the page. Re-enabling the button would start
     // a second child against the same live site, which is the opposite of polite.

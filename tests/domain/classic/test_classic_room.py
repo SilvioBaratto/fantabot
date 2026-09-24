@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+
+import pytest
+
 from fantabot.domain.asta.bid import max_bid
-from fantabot.domain.asta.reservation import opportunistic_walkaway
+from fantabot.domain.asta.reservation import PoolFormatMismatch, opportunistic_walkaway
+from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, RosterRules, drop_unvaluable
 from fantabot.domain.classic.roles import ClassicPlayer
 from fantabot.domain.classic.state import ClassicRosterRules
@@ -54,3 +61,83 @@ def test_opportunistic_walkaway_admits_an_open_role() -> None:
         plan=["c9"], owned=[], legality={}, rules=TINY, max_cap=100, beta=0.6,
     )
     assert cap == 18  # min(int(0.6*30), share 40, max_cap 100)
+
+
+# -- The dispatch pairs a format's rules with that format's pool, and says so ------------
+#
+# `Candidate` and `CompositionRules` are independent unions, so nothing in the type system
+# stops a caller handing over one of each. The two sites below were bare
+# `assert isinstance(...)`: stripped entirely under `python -O`, and an `AssertionError`
+# with an empty message when they did fire — out of a function inside the room's poll loop,
+# whose every other refusal is a `None` and whose caller now re-raises `AssertionError` on
+# purpose (`application/containment.py`: an assertion is a bug).
+
+
+def test_a_mantra_player_under_classic_rules_is_a_named_domain_error() -> None:
+    with pytest.raises(PoolFormatMismatch) as caught:
+        opportunistic_walkaway(
+            MantraPlayer("a1", frozenset({"A"})),
+            owned_players=[], prices={"a1": 30.0, "c9": 40.0},
+            plan=["c9"], owned=[], legality={}, rules=TINY, max_cap=100, beta=0.6,
+        )
+
+    assert "Classic roster rules were handed MantraPlayer 'a1'" in str(caught.value)
+
+
+def test_a_classic_player_under_mantra_rules_is_a_named_domain_error() -> None:
+    with pytest.raises(PoolFormatMismatch) as caught:
+        opportunistic_walkaway(
+            ClassicPlayer("a1", "A"),
+            owned_players=[], prices={"a1": 30.0, "c9": 40.0},
+            plan=["c9"], owned=[], legality={}, rules=RosterRules(), max_cap=100, beta=0.6,
+        )
+
+    assert "Mantra roster rules were handed ClassicPlayer 'a1'" in str(caught.value)
+
+
+def test_the_mismatch_is_a_domain_error_and_not_an_assertion() -> None:
+    """`asta_room._bargain_for` re-raises `AssertionError` and holds on everything else, so
+    which base this picks decides whether a mismatch costs the poll or the lot."""
+    assert issubclass(PoolFormatMismatch, TypeError)
+    assert not issubclass(PoolFormatMismatch, AssertionError)
+
+
+def test_the_guard_still_holds_under_python_O_where_an_assert_would_not() -> None:
+    """A subprocess because `-O` is decided at compile time and cannot be turned on here.
+
+    This is the half of the defect no in-process test can reach: with the asserts stripped
+    the mismatch fell through to the next line and surfaced one frame later as
+    `AttributeError: 'MantraPlayer' object has no attribute 'role'` — a message that names
+    neither the rules nor the dispatch that paired them wrong.
+    """
+    script = textwrap.dedent(
+        """
+        from fantabot.domain.asta.reservation import (
+            PoolFormatMismatch, opportunistic_walkaway,
+        )
+        from fantabot.domain.asta.roles import MantraPlayer
+        from fantabot.domain.classic.state import ClassicRosterRules
+
+        if __debug__:
+            raise SystemExit(4)  # not an `assert`: -O would strip the guard itself
+        try:
+            opportunistic_walkaway(
+                MantraPlayer("a1", frozenset({"A"})),
+                owned_players=[], prices={"a1": 30.0, "c9": 40.0},
+                plan=["c9"], owned=[], legality={}, rules=ClassicRosterRules(),
+                max_cap=100, beta=0.6,
+            )
+        except PoolFormatMismatch:
+            raise SystemExit(0)
+        except BaseException as exc:
+            print(f"{type(exc).__name__}: {exc}")
+            raise SystemExit(2)
+        raise SystemExit(3)
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-O", "-c", script], capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"

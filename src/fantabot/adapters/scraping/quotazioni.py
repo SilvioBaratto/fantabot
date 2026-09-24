@@ -21,6 +21,11 @@ Upserts, tagged by "stagione" and "listone" so both role systems share a table:
 This must run before scrape_voti and scrape_statistiche on a fresh database:
 it is the only scraper that writes players and teams, and the others point at
 them.
+
+The GET retries, like the other two scrapers': `_site.fetch_html`, three attempts
+with a 2 s then 4 s backoff. It did not until **2026-09-24**, when the asymmetry was
+removed deliberately — `_site.fetch_html` holds both arguments, so that the shape is
+not "restored" by someone who has only met one of them.
 """
 
 from __future__ import annotations
@@ -36,7 +41,7 @@ from fantabot.adapters.scraping._site import (
     CLASSIC_ROLES,
     MANTRA_ROLES,
     REQUEST_DELAY_SECONDS,
-    fetch_once,
+    fetch_html,
     player_id_from_href,
 )
 
@@ -142,11 +147,6 @@ class QuotazioniParser(HTMLParser):
 
 def season_url(season: str) -> str:
     return f"{BASE_URL}/{season.replace('/', '-')}"
-
-
-def fetch_html(url: str) -> str:
-    """One GET, no retry — `_site.fetch_once` records why, and what it would cost to change."""
-    return fetch_once(url)
 
 
 def fetch_season(season: str) -> list[PlayerRow]:

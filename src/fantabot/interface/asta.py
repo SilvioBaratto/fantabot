@@ -20,6 +20,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import typer
+from rich.markup import escape
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
@@ -29,6 +30,11 @@ if TYPE_CHECKING:
 
 from pathlib import Path
 
+# Which strings name a game, imported rather than spelled again. `choose_listone`
+# already refuses a `--format` that is in neither, one layer down, and a tuple written
+# twice is a third game added to one copy — the exact shape `_require_format` was built
+# to remove from three command bodies. See `_format_refusal`.
+from fantabot.application.asta_format import LISTONI
 from fantabot.application.asta_planner import read_plan_inputs
 
 # `DEFAULT_LAM` is `--lam`'s default for all six commands below, and it is *imported*
@@ -144,6 +150,34 @@ def _refuse_stale_bridge(bridge_age: float | None, max_bridge_age_hours: float) 
     )
 
 
+def _format_refusal(fmt: str) -> str:
+    """The one sentence a `--format` that names no game is refused with, at all four sites.
+
+    **The wording is shared and the delivery deliberately is not.** `asta optimize`,
+    `asta live` and `asta bid` raise `typer.BadParameter`, which Click renders on **stderr**
+    under a usage block; `asta calibrate` prints it in red on **stdout** and raises
+    `Exit(2)`. Both exit 2 — the exit code was never the difference — so routing calibrate
+    through `BadParameter` too would buy one spelling and pay for it in the half that is not
+    cosmetic: a cron wrapper or the app capturing stdout would stop seeing that refusal at
+    all, which is a silent loss and not a relocation. So the rule (`LISTONI`) and the
+    sentence live once, and each site keeps its own stream.
+
+    **The sentence is calibrate's, not `BadParameter`'s.** `--format must be 'mantra' or
+    'classic'` states the rule and never echoes what was typed — and Click's usage block
+    does not either — so `--format mantrra` was refused by a line that does not contain the
+    typo, leaving the operator to re-read their own shell history for it. The value is the
+    half an operator acts on.
+
+    Two changes to calibrate's own wording, both from `!r`. The value is quoted, because
+    unquoted `--format ""` printed `--format : not a format.` and refused over something
+    invisible. And the legal pair is built from `LISTONI` rather than spelled, which is what
+    makes a third game reach the message and not only the check; that spelling is already
+    `choose_listone`'s, so `asta live`'s two refusal paths — this one and `FormatUnknown` —
+    now read alike.
+    """
+    return f"--format {fmt!r}: not a format. Use {' or '.join(repr(g) for g in LISTONI)}."
+
+
 def _require_format(fmt: str) -> None:
     """Refuse a `--format` that is not a game. `""` means "detect it", and is legal.
 
@@ -156,13 +190,15 @@ def _require_format(fmt: str) -> None:
     `""` only, never a falsy-tolerant check: `--format ""` reads as "not given", which on the
     detecting commands means "detect it", and anything else that is not a game is a typo.
 
-    **`asta calibrate` is deliberately not routed here.** It refuses with `console.print` +
-    `Exit(2)` and its own wording, and it does not accept `""` at all — its `--format`
-    defaults to `mantra` and names a *corpus*, not a room. Both differences are what an
-    operator reads, so they are reported rather than quietly unified.
+    **`asta calibrate` shares the sentence and not the route.** It still refuses with
+    `console.print` + `Exit(2)`, on stdout, and it still does not accept `""` at all — its
+    `--format` defaults to `mantra` and names a *corpus*, not a room, so `""` there would be
+    a legal way to ask for a corpus that does not exist. Both differences are real and both
+    are kept; what it no longer has is a second wording for the same refusal. See
+    `_format_refusal` for which half was shared and why the other could not be.
     """
-    if fmt not in ("", "mantra", "classic"):
-        raise typer.BadParameter("--format must be 'mantra' or 'classic'")
+    if fmt not in ("", *LISTONI):
+        raise typer.BadParameter(_format_refusal(fmt))
 
 
 def _today() -> date:
@@ -1258,8 +1294,17 @@ def asta_calibrate(
     from fantabot.application.asta_calibrate import HEADER, Lot, RecordedAuction, sweep
     from fantabot.domain.classic.state import ClassicRosterRules
 
-    if fmt not in ("mantra", "classic"):
-        console.print(f"[red]--format {fmt}: not a format. Use mantra or classic.[/red]")
+    # Stdout and `Exit(2)`, deliberately, where the other three raise `BadParameter` onto
+    # stderr: the sentence is shared, the stream is not. `_format_refusal` has the argument.
+    #
+    # `escape` last, after the `!r`, and it is what makes the sentence *arrive* shared rather
+    # than only be written once: Click prints `BadParameter` as plain text, this side prints
+    # through Rich, and `--format '[bold]x'` was echoed back as `--format 'x'` — the markup
+    # eaten out of the one part of the line an operator reads to spot their own typo. The
+    # fixed half of the sentence has no brackets, so escaping the whole of it is the same
+    # thing as escaping `fmt` and cannot go stale if the wording gains a word.
+    if fmt not in LISTONI:
+        console.print(f"[red]{escape(_format_refusal(fmt))}[/red]")
         raise typer.Exit(code=2)
 
     alphas = list(alpha) or [0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15]

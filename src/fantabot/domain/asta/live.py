@@ -12,7 +12,9 @@ Two ways in, both producing the same ``AssignmentEvent`` the rolling optimizer r
 
 * **A close state** (``parse_assignment`` / ``normalize``) — kept for **replays** of a captured
   ``auction/`` snapshot stream, where each snapshot at close-time carries the last raise's price
-  and buyer. Not used for the live path.
+  and buyer. Not used for the live path. The token it matches on comes from
+  ``domain/shared/update_types``, because ``domain/harvest`` folds that same captured stream and
+  the two packages owned one literal between them.
 
 All four are pure — one record/state in, an event or ``None`` out — so the reaction logic is
 tested without a socket. The async subscription to a real room is a thin shell over
@@ -28,8 +30,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-#: The room state that closes a player's auction — i.e. a sale.
-CLOSE = "close_auction"
+from fantabot.domain.shared.update_types import CLOSE
 
 
 @dataclass(frozen=True)
