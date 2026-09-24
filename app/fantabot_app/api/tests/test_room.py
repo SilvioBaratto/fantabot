@@ -16,11 +16,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from fantabot_app.api.main import app
 from fantabot_app.api.v1.endpoints.room import check_room
+
+from .test_outcomes import outcomes_returned
 
 OUR_UID = "uid-ours"
 ROOM = "3f2a1b4c-1111-4222-8333-444455556666"
@@ -171,15 +173,27 @@ def test_a_string_that_is_not_a_room_link_is_its_own_outcome() -> None:
 
 
 def test_a_failing_fetch_is_unreachable_and_names_the_exception() -> None:
-    """Not `refused`: the room said nothing, we could not ask it."""
+    """Not `refused`: the room said nothing, we could not ask it.
+
+    **The exception is a real one now.** This raised a bare `RuntimeError("401
+    Unauthorized")` until 2026-09-24 — a stand-in that passed only because the handler
+    under it was `except Exception`, so the test could not tell a named family from an
+    unnamed one and quietly asserted that the route swallowed *anything*. A `401` from
+    this host arrives as `httpx.HTTPStatusError` out of `fetch_league`'s
+    `raise_for_status()`, which is what is raised here.
+    """
 
     def boom(_: str) -> Any:
-        raise RuntimeError("401 Unauthorized")
+        raise httpx.HTTPStatusError(
+            "401 Unauthorized",
+            request=httpx.Request("POST", "https://api.fantalab.it/fantaleague/fetch"),
+            response=httpx.Response(401),
+        )
 
     check = check_room(ROOM_URL, connect=_connect(fetch=boom))
 
     assert check.outcome == "unreachable"
-    assert "RuntimeError" in check.reason
+    assert "HTTPStatusError" in check.reason
     assert "401" in check.reason
 
 
@@ -269,10 +283,17 @@ def test_a_row_written_under_another_key_is_no_credential_not_no_session() -> No
 def test_the_endpoint_answers_rather_than_500ing_when_the_database_is_gone(
     monkeypatch: Any,
 ) -> None:
+    """A driver error, not a `RuntimeError` — for the reason above, and one more.
+
+    `stored_connect` opens a session; a database that will not open raises out of the
+    driver, and `SQLAlchemyError` is the family `room.py` names for it. The old
+    `RuntimeError` proved nothing about the route beyond that it caught everything.
+    """
     from fantabot.adapters.persistence import database_manager
+    from sqlalchemy.exc import OperationalError
 
     def boom() -> Any:
-        raise RuntimeError("db unreachable")
+        raise OperationalError("SELECT 1", {}, OSError("db unreachable"))
 
     monkeypatch.setattr(database_manager, "get_session", boom)
 
@@ -280,13 +301,70 @@ def test_the_endpoint_answers_rather_than_500ing_when_the_database_is_gone(
 
     assert response.status_code == 200
     assert response.json()["outcome"] == "unreachable"
+    assert "OperationalError" in response.json()["reason"]
 
 
-@pytest.mark.parametrize(
-    "outcome", ["resolved", "refused", "bad_link", "no_credential", "unreachable"]
-)
-def test_every_outcome_is_a_distinct_name(outcome: str) -> None:
-    """Pinned as a list because §3.4's defect was four failures wearing one label."""
+def test_a_failure_outside_the_named_families_reaches_fastapi_as_a_500(
+    monkeypatch: Any,
+) -> None:
+    """The other half of `api/outcomes.py`'s rule, and the half nothing asserted.
+
+    "Fail closed on a decision" is not only that each named failure gets its own screen —
+    it is that an **un**named one is loud. A bare handler turns an unanticipated bug into
+    a tidy page saying we could not ask, which is a true-looking sentence about a fault
+    nobody will now investigate. `room.py` caught bare `Exception` twice until 2026-09-24;
+    without this test, putting either one back would turn nothing red.
+
+    A `RuntimeError` out of the session factory is a bug in this repository, so it is a
+    500 with a traceback in the log rather than an `unreachable` the operator reads as an
+    outage.
+    """
+    from fantabot.adapters.persistence import database_manager
+
+    def boom() -> Any:
+        raise RuntimeError("a bug, not an outage")
+
+    monkeypatch.setattr(database_manager, "get_session", boom)
+
+    response = TestClient(app, raise_server_exceptions=False).get(
+        "/api/v1/asta/room", params={"url": ROOM_URL}
+    )
+
+    assert response.status_code == 500
+
+
+def test_the_route_returns_exactly_the_outcomes_it_pins() -> None:
+    """`OUTCOMES` and what `check_room` actually builds, compared for equality.
+
+    This was five hand-typed literals and `assert outcome in OUTCOMES` — a subset check,
+    in the direction that cannot fail. Both halves of it were latent:
+
+    * a **sixth** name in `OUTCOMES` that no branch of `check_room` returns passed for
+      ever, and the frontend would carry a branch for a screen the route cannot render;
+    * a branch **deleted** from the route passed too, as long as its name stayed in the
+      tuple — and the hand-typed list, being a third copy, could drift from both.
+
+    The two sets were measured as agreeing on 2026-09-24, so nothing was wrong; the test
+    was simply incapable of saying so. It now asks `test_outcomes.py`'s own scan — the
+    same function that holds `asta.py`, `lineup.py` and `pricing.py` to this, rather than
+    a second copy of it here that could answer differently.
+    """
     from fantabot_app.api.v1.endpoints.room import OUTCOMES
 
-    assert outcome in OUTCOMES
+    scan = outcomes_returned("room.py", "RoomCheck")
+
+    assert not scan.unreadable, (
+        f"the scan could not read {scan.unreadable} — an outcome it cannot read is a "
+        "screen it cannot police."
+    )
+    assert scan.named, "room.py names no outcome at all — this scan reads nothing"
+    assert scan.named == set(OUTCOMES), (
+        f"check_room returns {sorted(scan.named)} and room.py pins {sorted(OUTCOMES)}. A "
+        "name in the tuple that no branch returns is a screen the frontend has a branch "
+        "for and the route cannot reach; a branch whose name is gone from the tuple is "
+        "the opposite."
+    )
+    assert len(set(OUTCOMES)) == len(OUTCOMES), (
+        f"{OUTCOMES} repeats a name — §3.4's defect was four failures wearing one label, "
+        "and a tuple with a duplicate in it is that defect written down."
+    )

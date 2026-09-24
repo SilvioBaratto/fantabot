@@ -243,6 +243,14 @@ def test_the_route_returns_only_what_it_pins() -> None:
     """The same discipline as `api/outcomes.py`: a route that returns an unlisted outcome
     renders a screen the frontend has no branch for.
 
+    **Equality, in both directions.** This read `set(SUBMIT_OUTCOMES) >= returned` until
+    2026-09-24, which is only the first half: a route that *loses* an outcome passed, and a
+    name left behind in the tuple after its branch was deleted passed forever. That is
+    verbatim the failure `api/outcomes.py` says this ratchet exists to prevent — "a set
+    that only ever grows stops meaning anything" — and `test_outcomes.py` had already been
+    comparing its six tuples with `==` while this one, the route that submits a lineup to
+    the live platform, was pinned the weak way.
+
     **Scanned per function, not per module.** It used to read `lineup.py` whole and subtract
     the *other* route's outcomes by name — which worked while the file held two routes and
     stopped the day it held three: `lineup_current`'s `read` arrived as an unpinned outcome
@@ -277,8 +285,10 @@ def test_the_route_returns_only_what_it_pins() -> None:
     }
 
     assert returned, "the scan found no outcome at all: it is measuring nothing"
-    assert set(SUBMIT_OUTCOMES) >= returned, (
-        f"the route returns {sorted(returned)} and pins {sorted(SUBMIT_OUTCOMES)}"
+    assert returned == set(SUBMIT_OUTCOMES), (
+        f"the route returns {sorted(returned)} and pins {sorted(SUBMIT_OUTCOMES)}; "
+        "a route that gains an outcome must say so, and one that loses an outcome must "
+        "delete its name"
     )
 
 

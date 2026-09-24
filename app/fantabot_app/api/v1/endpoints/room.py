@@ -28,8 +28,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
 from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
@@ -110,7 +112,14 @@ def check_room(url: str, *, connect: Connect) -> RoomCheck:
         return RoomCheck(
             outcome="no_credential", reason=str(exc), fantaleague_id=fantaleague_id
         )
-    except Exception as exc:  # noqa: BLE001 — a database that will not open is its own answer
+    except (SQLAlchemyError, OSError) as exc:
+        # A database that will not open is its own answer. Named rather than caught bare:
+        # `stored_connect` opens a session, reads one row and builds a cipher, so the only
+        # non-`TokenError` ways it can fail are the driver's and the socket's. Anything
+        # else here is a bug in this repository and reaches FastAPI as a 500 — which is
+        # `api/outcomes.py`'s rule, and this file is the one that module calls the model.
+        # It held two bare handlers until 2026-09-24 and was the sole thing the widened
+        # ban turned red.
         return RoomCheck(
             outcome="unreachable", reason=because(exc), fantaleague_id=fantaleague_id
         )
@@ -121,7 +130,18 @@ def check_room(url: str, *, connect: Connect) -> RoomCheck:
         # The room answered, and what it answered is no. Carrying the id says the link
         # was fine — only the room is not one we can drive.
         return RoomCheck(outcome="refused", reason=str(exc), fantaleague_id=fantaleague_id)
-    except Exception as exc:  # noqa: BLE001 — a fetch that failed is not a refusal
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        # A fetch that failed is not a refusal: the room said nothing, we could not ask it.
+        #
+        # ⚠ **`httpx.HTTPError` is named because `rest` is not `apileague`.**
+        # `apileague._send` maps every transport failure onto `ApiTimeout`/`ApiUnavailable`,
+        # so a route reading *that* host never meets a raw httpx error. `rest.fetch_league`
+        # maps nothing, and `httpx.HTTPError` inherits from `Exception` directly rather
+        # than from `OSError` — so a clause naming only the socket would let it past.
+        # `raise_for_status()` is how a room answering `401` arrives here, and `ValueError`
+        # covers the malformed body (`json.JSONDecodeError` is one) that `parse_league` is
+        # handed. The same three families as `endpoints/asta.py`'s advisory, which reads
+        # this same host through `rtdb` for the same reason.
         return RoomCheck(
             outcome="unreachable", reason=because(exc), fantaleague_id=fantaleague_id
         )
