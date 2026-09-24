@@ -26,7 +26,6 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
-    Integer,
     SmallInteger,
     Text,
     func,
@@ -34,6 +33,25 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from fantabot.adapters.persistence.base import Base
+
+#: **Sixteen columns were dropped from four of these tables on 2026-09-24** (migration
+#: `b61ab22e8fac`), having been written by every `lega sync` and read by nothing —
+#: no attribute, no `text()` SQL, no app route, no frontend field: `league_snapshot`'s
+#: `season_id`, `matchday_start`, `active`, `stopped` and `captain_slots`;
+#: `league_team_snapshot`'s `division` and `user_id`; `league_player_pool`'s `quotazione`,
+#: `fvm_classic`, `fvm_mantra` and `ruoli_codice`; `league_competition`'s `nome`, `tipo`,
+#: `start_day`, `end_day` and `team_ids`.
+#:
+#: The tables stay append-only and the drift is still the point — what changed is which
+#: facts are worth a row per capture. Two of them are now key-only: `league_player_pool`
+#: records *which* players the lega listed, `league_competition` *which* competitions
+#: existed and whether each was deleted, and that is the whole of what anything ever read
+#: off either. The per-player numbers are what `quotazioni` and the listone already hold,
+#: per season, without a copy per sync.
+#:
+#: `league_custom_role`'s four columns measure unread too and were **kept**: dropping them
+#: would leave that table saying a player had *an* override without saying what it was, and
+#: `domain/lega/models.CustomRole` records that the override is stored on purpose.
 
 
 class LeagueSnapshot(Base):
@@ -47,11 +65,7 @@ class LeagueSnapshot(Base):
     league_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     competition_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    season_id: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     matchday: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    matchday_start: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
     budget: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     roster_size: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
 
@@ -59,14 +73,11 @@ class LeagueSnapshot(Base):
     # They live here rather than in a table of their own because they change with the
     # same event that changes the matchday — an admin editing the lega — and reading
     # "what were the rules on the day we submitted" should be one row, not a join.
-    active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    stopped: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     role_groups: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     min_roles: Mapped[list[int] | None] = mapped_column(ARRAY(SmallInteger), nullable=True)
     max_roles: Mapped[list[int] | None] = mapped_column(ARRAY(SmallInteger), nullable=True)
     modules: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     bench_size: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    captain_slots: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
 
     def __repr__(self) -> str:
         return f"<LeagueSnapshot {self.captured_at} league={self.league_id}>"
@@ -87,7 +98,6 @@ class LeagueTeamSnapshot(Base):
     league_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     team_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
-    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     nome: Mapped[str] = mapped_column(Text, nullable=False)
     owner: Mapped[str] = mapped_column(Text, nullable=False)
     credits_initial: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
@@ -99,7 +109,6 @@ class LeagueTeamSnapshot(Base):
     # arrays because that is what they are, and because a player id belongs in a column
     # a query can unnest, not inside a string. Every team in the lega is here, not only
     # ours: this is the one read that shows what the opponents bought and paid.
-    division: Mapped[str | None] = mapped_column(Text, nullable=True)
     roster_ids: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger), nullable=True)
     roster_costs: Mapped[list[int] | None] = mapped_column(ARRAY(SmallInteger), nullable=True)
 
@@ -108,7 +117,13 @@ class LeagueTeamSnapshot(Base):
 
 
 class LeaguePlayerPool(Base):
-    """The platform's own player list at one moment — 541 rows per capture.
+    """Which players the lega listed at one moment — 541 rows per capture, keys only.
+
+    It carried the lega's own ``quotazione``, both FVMs and the role codes until
+    2026-09-24; nothing ever read them, and `quotazioni`/the listone hold the same facts
+    per season rather than per sync. What is left is the fact no other table states: the
+    *membership* of the pool on a date, which is how a player arriving or leaving mid-season
+    is visible at all.
 
     ``player_id`` deliberately carries **no foreign key** to ``players``. The two
     lists are drawn from different places: ``players`` is seeded from the scraped
@@ -125,21 +140,20 @@ class LeaguePlayerPool(Base):
     league_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     player_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
-    quotazione: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    fvm_classic: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    fvm_mantra: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    ruoli_codice: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
-
     def __repr__(self) -> str:
         return f"<LeaguePlayerPool {self.captured_at} player={self.player_id}>"
 
 
 class LeagueCompetition(Base):
-    """One competition of the lega, at one moment.
+    """Which competitions the lega had at one moment, and whether each was deleted.
 
     Snapshot-keyed like its siblings for the reason `docs/leghe-api.md` records: the
     array grows and an id in it went stale inside a week, so "which competitions existed
     when we planned" is a question with a date in it.
+
+    That question — and ``deleted``, whose one reader is
+    `LineupHistoryRepository.calculated_scores` — is all anything ever asked here. The name,
+    the type, the day range and the member team ids went on 2026-09-24.
     """
 
     __tablename__ = "league_competition"
@@ -150,11 +164,6 @@ class LeagueCompetition(Base):
     league_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     competition_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
-    nome: Mapped[str] = mapped_column(Text, nullable=False)
-    tipo: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    start_day: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    end_day: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    team_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     def __repr__(self) -> str:

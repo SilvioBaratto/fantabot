@@ -394,8 +394,11 @@ guessed, per this document's standing rule. Two observations worth recording:
 id rather than a lega id despite the name; and `trnsf`/`trsfd` plausibly concern
 transfers. Neither is confirmed.
 
-This is the endpoint behind `league_player_pool` in the schema, which keeps four
-of these fields: `quotd`, `fvmfc`, `fvmma`, `marle`.
+This is the endpoint behind `league_player_pool` in the schema. It kept four of these
+fields — `quotd`, `fvmfc`, `fvmma`, `marle` — until 2026-09-24; all four were dropped,
+written every sync and read by nothing. The table now records the *membership* of the
+lega's pool on a date, which nothing else does, and the per-player numbers are read from
+`quotazioni` and the listone, which hold them per season rather than per sync.
 
 ### `GET /onboarding/v1/league/competition/calendar/{competitionId}`
 

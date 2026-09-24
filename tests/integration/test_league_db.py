@@ -68,7 +68,7 @@ def test_a_new_capture_is_appended_alongside_an_older_one_not_over_it(
     db_session.execute(
         insert(LeagueTeamSnapshot).values(
             captured_at=earlier, league_id=LEAGUE_ID, team_id=TEAM_ID,
-            user_id=None, nome="Team C", owner="Owner C",
+            nome="Team C", owner="Owner C",
             credits_initial=500, credits_spent=0, credits_remaining=500,
         )
     )

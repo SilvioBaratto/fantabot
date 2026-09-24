@@ -70,12 +70,16 @@ class LeagueRepository(RepositoryBase):
 
     def record_team_snapshot(self, snapshot: TeamSnapshot) -> None:
         """Insert one new `league_team_snapshot` row. `captured_at` is the table's own
-        `now()` default — every call is a new capture, never a correction of the last."""
+        `now()` default — every call is a new capture, never a correction of the last.
+
+        `snapshot.user_id` is deliberately **not** written: the column went on 2026-09-24
+        with fifteen others, all written every sync and read by nothing. The value type
+        keeps the field because `apileague.my_team` returns it; the table does not store
+        it because nothing ever asked."""
         self.session.add(
             LeagueTeamSnapshot(
                 league_id=snapshot.league_id,
                 team_id=snapshot.team_id,
-                user_id=snapshot.user_id,
                 nome=snapshot.nome,
                 owner=snapshot.owner,
                 credits_initial=snapshot.credits_initial,
@@ -89,33 +93,31 @@ class LeagueRepository(RepositoryBase):
         self.session.add(
             LeagueSnapshot(
                 league_id=state.league_id,
-                season_id=state.season_id,
                 matchday=state.matchday,
-                matchday_start=state.matchday_start,
                 budget=state.budget,
                 roster_size=state.roster_size,
-                active=state.active,
-                stopped=state.stopped,
                 role_groups=state.role_groups,
                 min_roles=list(state.min_roles) or None,
                 max_roles=list(state.max_roles) or None,
                 modules=list(state.modules) or None,
                 bench_size=state.bench_size,
-                captain_slots=state.captain_slots,
             )
         )
 
     def record_team_rosters(self, rosters: Sequence[TeamRoster]) -> int:
-        """Insert one `league_team_snapshot` per team, rosa and costs included."""
+        """Insert one `league_team_snapshot` per team, rosa and costs included.
+
+        `team.user_id` and `team.division` are dropped on the floor here for the reason
+        `record_team_snapshot` states: both columns went on 2026-09-24. `division` held
+        only `'A'` and `NULL` over every capture — the note at `apileague.DEFAULT_DIVISION`
+        records that the one column that could have contradicted that constant is gone."""
         for team in rosters:
             self.session.add(
                 LeagueTeamSnapshot(
                     league_id=team.league_id,
                     team_id=team.team_id,
-                    user_id=team.user_id,
                     nome=team.nome,
                     owner=team.owner,
-                    division=team.division,
                     credits_initial=team.credits_initial,
                     credits_spent=team.credits_spent,
                     credits_remaining=team.credits_remaining,
@@ -126,16 +128,16 @@ class LeagueRepository(RepositoryBase):
         return len(rosters)
 
     def record_competitions(self, competitions: Sequence[Competition]) -> int:
+        """Insert which competitions exist, and whether each is deleted.
+
+        The name, `tipo` and the day range went with the 2026-09-24 column drop; the
+        `Competition` value type still carries them, because they are what the endpoint
+        returns and `lega sync` reports on."""
         for comp in competitions:
             self.session.add(
                 LeagueCompetition(
                     league_id=comp.league_id,
                     competition_id=comp.competition_id,
-                    nome=comp.name,
-                    tipo=comp.tipo,
-                    start_day=comp.start_day,
-                    end_day=comp.end_day,
-                    team_ids=list(comp.team_ids),
                     deleted=comp.deleted,
                 )
             )
@@ -156,17 +158,19 @@ class LeagueRepository(RepositoryBase):
         return len(roles)
 
     def record_pool(self, pool: Sequence[PoolEntry]) -> int:
-        """Insert the lega's own player list. `league_player_pool` had no producer until
-        this method: the rows in it were captured by hand (`models/league.py`)."""
+        """Insert *which* players the lega listed. `league_player_pool` had no producer
+        until this method: the rows in it were captured by hand (`models/league.py`).
+
+        `PoolEntry` still carries the lega's `quotazione`, both FVMs and the role codes —
+        it models what `GET /league/players` returns, and `lega sync` prints from it. The
+        table stopped storing them on 2026-09-24: written every sync, read by nothing, and
+        already held per season by `quotazioni`/the listone. What is left here is the
+        membership, which nothing else records."""
         for entry in pool:
             self.session.add(
                 LeaguePlayerPool(
                     league_id=entry.league_id,
                     player_id=entry.player_id,
-                    quotazione=entry.quotazione,
-                    fvm_classic=entry.fvm_classic,
-                    fvm_mantra=entry.fvm_mantra,
-                    ruoli_codice=list(entry.ruoli_codice),
                 )
             )
         return len(pool)

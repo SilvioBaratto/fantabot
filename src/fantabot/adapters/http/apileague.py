@@ -39,8 +39,6 @@ from fantabot.domain.tokens.errors import (
     ApiTimeout,
     ApiUnavailable,
     AppKeyRejected,
-    TokenExpired,
-    TokenMissing,
     TokenRejected,
 )
 
@@ -74,6 +72,14 @@ TEAMS_PAGE_SIZE = 50
 
 # The lineup lives under a different microservice, `gaming/v1`, not `onboarding/v1`
 # (`docs/leghe-api.md`). `division` is the divisione tag, `A` for this account's leghe.
+#
+# That is a **documented single-account assumption, and it is no longer checkable in the
+# database.** `league_team_snapshot.division` recorded what the platform actually said per
+# team and was the one column that could have contradicted this constant. It held only
+# `'A'` and `NULL` over every capture, was read by nothing, and was dropped on 2026-09-24
+# with fifteen others (migration `b61ab22e8fac`). `domain/lega/parse.py` defaults the same way. So if a lega with a
+# second divisione ever appears, the symptom will be a lineup POSTed to the wrong division
+# with nothing in the schema to notice — re-add the column before assuming otherwise.
 DEFAULT_DIVISION = "A"
 
 
@@ -510,8 +516,6 @@ __all__ = [
     "ApiTimeout",
     "ApiUnavailable",
     "AppKeyRejected",
-    "TokenExpired",
-    "TokenMissing",
     "TokenRejected",
     "auth_headers",
     "calculate_settings",
