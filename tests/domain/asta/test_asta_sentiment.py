@@ -1,6 +1,6 @@
 """The pure sentiment algebra: gate, confidence shrink, age decay, normalization.
 
-Every decision recorded in ``docs/spec-asta-sentiment.md`` that can be expressed as an
+Every decision recorded in ``docs/archive/asta-sentiment-spec.md`` that can be expressed as an
 assertion lives here. Three of them are load-bearing rather than descriptive:
 
 * **No effect is ever 0.** Task 1's measurement found the original formula used

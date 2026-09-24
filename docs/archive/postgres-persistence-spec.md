@@ -14,7 +14,7 @@ Phase 3 of fantabot. Replaces flat-file persistence with a dockerized Postgres
 database, an Alembic migration chain, and a repository layer — following the
 structure already proven in the sibling `optimizer/` project.
 
-Previous phase: [`docs/spec-news-sentiment.md`](spec-news-sentiment.md)
+Previous phase: [`docs/archive/news-sentiment-spec.md`](news-sentiment-spec.md)
 (complete except the 523-player run).
 
 ---

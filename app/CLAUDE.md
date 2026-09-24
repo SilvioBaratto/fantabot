@@ -3,8 +3,9 @@
 Guidance for Claude Code when working in `app/`. **This file is the app's own record** —
 the rules below are the ones a reader cannot infer from the code. There is no app spec
 to point at: the root `SPEC.md` holds only the phase in flight and was overwritten by
-later ones, and the closed phases' specs are on no disk and in no git history, so this tree
-cites them by phase name. `BACKLOG.md` is maintainer-local (`~/.fantabot/tasks-archive/`).
+later ones. Closed phases archive to `docs/archive/<phase>-spec.md` from 2026-09-24; the
+ones closed before that date went to `tasks/archive/`, which is gitignored, so they are on
+no disk and in no git history and this tree cites them by phase name. `BACKLOG.md` is maintainer-local (`~/.fantabot/tasks-archive/`).
 
 ## What this is
 

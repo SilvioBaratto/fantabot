@@ -157,7 +157,7 @@ from; they are gone from disk and nothing reads them — the scrapers, the analy
 `fantabot_data_dir` defaults to `./data`, the live room writes `data/room_journal.jsonl`
 there, and `$FANTABOT_HARVEST_DIR` may point the harvest home at `data/aste_live`. See
 [`data/README.md`](data/README.md) for the table dictionary, and
-`docs/spec-postgres-persistence.md` for why
+`docs/archive/postgres-persistence-spec.md` for why
 each departure from the file layout was made.
 
 ```bash

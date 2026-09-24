@@ -11,7 +11,7 @@ floor (it was a veto, see L1), and the pool-mean normalization must hold uncover
 
 Original status: **draft, awaiting review.** Supersedes nothing; extends the advisory engine
 described in `tasks/archive/asta-copilota-plan.md`
-and consumes the feed specified in [`docs/spec-news-sentiment.md`](spec-news-sentiment.md).
+and consumes the feed specified in [`docs/archive/news-sentiment-spec.md`](news-sentiment-spec.md).
 
 ## Objective
 
@@ -276,7 +276,7 @@ tests/
   test_strategy.py               extended (L4).
   test_db_boundary.py            extended — sentiment.py imports no I/O.
 
-docs/spec-asta-sentiment.md      this file
+docs/archive/asta-sentiment-spec.md      this file
 tasks/plan.md, tasks/todo.md     Phase 2 (per CLAUDE.md, archive the current pair first)
 ```
 

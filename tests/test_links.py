@@ -201,7 +201,17 @@ def test_an_unterminated_fence_is_detected_at_all() -> None:
     assert _unterminated_from("prose\n\n````\ncode\n```\n") == 3
     assert _unterminated_from("```\ncode\n```\n") is None
     assert _unterminated_from("no fences here\n") is None
-    assert _unterminated_from((REPO / "app" / "CLAUDE.md").read_text(encoding="utf-8")) == 252
+    # Against a real file too, because the four above are all synthetic and a detector that
+    # only ever sees three-line strings is not the one the guard runs. Not pinned to a
+    # literal line number: it was `== 252`, and an unrelated edit to that file's header
+    # shifted it to 253 on 2026-09-24 — a number that churns on every edit above it is one
+    # the next person deletes rather than updates. The exact positions are pinned by the
+    # synthetic cases; what this adds is that it fires on the real corpus and points at a
+    # real fence opener.
+    app_claude = (REPO / "app" / "CLAUDE.md").read_text(encoding="utf-8")
+    line = _unterminated_from(app_claude)
+    assert line is not None, "app/CLAUDE.md is the only file that trips this; if it stopped, repin"
+    assert FENCE.match(app_claude.splitlines()[line - 1])
 
 
 def test_a_link_shown_as_an_example_is_not_a_link() -> None:

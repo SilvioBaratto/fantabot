@@ -212,7 +212,7 @@ src/fantabot/
   — `fvm` and `titolarita` share R² ≈ 0.37–0.43 of their rank variance. `DISP_FLOOR = 0.50`
   fixes a horizon mismatch instead: `disponibilita` asks "available *now*" and an asta
   buys a season. `--no-sentiment` is the ablation control, asserted to reproduce the
-  pre-sentiment field for field. Spec: `docs/spec-asta-sentiment.md`.
+  pre-sentiment field for field. Spec: `docs/archive/asta-sentiment-spec.md`.
 * **`application/asta_planner.py`** — the one place the value model is built. Three
   commands each had their own copy and they drifted: `asta bid` was still planning on
   plain `fvm` after `asta optimize` had moved to the sentiment-adjusted model, which on
@@ -435,7 +435,7 @@ src/fantabot/
   `clearing_sales` after a `0x0` cell, refusing in the operator's name for the room's
   doing.
 - **Stats source**: still unchosen. News sentiment is covered by
-  `fantabot news fetch` (see `docs/spec-news-sentiment.md`), which is a different
+  `fantabot news fetch` (see `docs/archive/news-sentiment-spec.md`), which is a different
   thing: it is opinion and availability, not per-matchday projected scores. When one
   is picked, write the interface against the consumer that exists then.
 - ~~**Bearer token**~~ **Resolved.** Encrypted in Postgres (`league_tokens`),
@@ -443,7 +443,7 @@ src/fantabot/
   the archived token-store spec — recovered from commit
   `edb693c` on 2026-08-30, because `SPEC.md` had been overwritten by four later
   phases and nine links still pointed at it. `SPEC.md` holds only the **current**
-  phase; a closing phase copies its spec to `docs/spec-<phase>.md` first.
+  phase; a closing phase copies its spec to `docs/archive/<phase>-spec.md` first.
 - **Mantra vs Classic**: the user plays **one league, `4103937` (Legamiallerotaie2), and
   it is Mantra** (`sroles=2`, `minrl=[2,28]`, 30-man). **`3584692` (Legamiallerotaie) is
   last season's Classic league and nobody plays it any more** — the operator, 2026-09-11.
@@ -637,9 +637,15 @@ src/fantabot/
   still drives the CLI warning and the route's stale branch. The same trap is worth
   expecting wherever a test pins a defect rather than a behaviour.
 - **Archive `SPEC.md`, `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
-  `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:27`
-  ignores it, which is how the token-store spec came to survive only in git history. Repoint that phase's spec
-  at the archived path in the same commit. Those two filenames are reused by
+  `docs/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Repoint that phase's spec
+  at the archived path in the same commit.
+  ⚠ **This said `tasks/archive/` until 2026-09-24, and that is why 52 references now name a
+  directory that exists nowhere.** `tasks/` is gitignored (`.gitignore:70`), so an archive
+  written there never entered git and never survived a clone — the rule instructed a
+  destination that could not hold. The stated reason for avoiding `docs/` was that
+  `.gitignore` ignored it too; `docs/` is tracked as of the same day, so that reason is
+  gone. The specs archived before the change are on no disk and in no git history and are
+  not recoverable; the repairs name their phase instead of a path. Those two filenames are reused by
   every phase, so an inbound link to them silently starts describing different
   work — four references had rotted this way by 2026-08-28, in
   `domain/tokens/status.py`, `tests/adapters/tokens/test_token_secrecy.py` and two older specs. A spec is a

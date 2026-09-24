@@ -6,6 +6,6 @@ whole surface is testable without a database or a socket.
 
 Its edges are elsewhere: `application/asta_planner.py` reads the two tables and assembles
 the value model, `adapters/http/fantalab/` reads the live room, and `interface/asta.py` is
-the command. See ``docs/spec-asta-copilota.md``, and the asta-copilota phase's plan
+the command. See ``docs/archive/asta-copilota-spec.md``, and the asta-copilota phase's plan
 (archived, and not in this checkout — ``tasks/`` has always been gitignored).
 """
