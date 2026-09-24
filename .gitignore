@@ -82,3 +82,8 @@ _pdftext.txt
 # ids and unfixed defects on the acting path.
 tasks
 todo
+
+# coverage.py — a local measurement artifact, and it embeds absolute paths
+.coverage
+.coverage.*
+htmlcov/
