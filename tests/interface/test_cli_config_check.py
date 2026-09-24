@@ -15,12 +15,107 @@ from fantabot.interface.app import app
 runner = CliRunner()
 
 
-def test_default_dsn_password_is_not_printed() -> None:
-    """The default DSN embeds postgres:postgres, which must not reach stdout."""
+#: The DSN shapes this screen has to render. `None` means "whatever this machine is
+#: really configured with" — the only case that reads the resolved default, and the one
+#: the replaced assertion pretended to be about.
+#:
+#: The other three are here because the resolved default has an **empty** password
+#: (`postgresql+psycopg2://postgres:@/fantabot?host=…`, trust auth), so a test that
+#: branched on it ran only the `else` arm — in every tier, on every machine that has not
+#: exported `FANTABOT_DATABASE_URL`. The password-leak assertions were live code that
+#: never executed, and two mutations of `safe_dsn`'s masking were measured surviving
+#: because of it. Parametrising is what makes the branch run rather than merely exist.
+_DSN_SHAPES = (
+    pytest.param(None, id="resolved-default"),
+    # The password **equals the username**, which is CI's own shape
+    # (`.github/workflows/ci.yml` sets `postgres:postgres@localhost`). A bare
+    # `password not in output` would fail here on a correctly masked line, which is why
+    # the assertion anchors on the userinfo slot instead.
+    pytest.param(
+        "postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot",
+        id="password-equals-username",
+    ),
+    pytest.param(
+        "postgresql+psycopg2://bot:Tr0ub4dor3@db.example.test:6543/otherdb",
+        id="distinct-password",
+    ),
+    # The bundled server's own shape, spelled out rather than depending on this machine
+    # being configured with it.
+    pytest.param(
+        "postgresql+psycopg2://postgres:@/fantabot?host=/Users/me/.fantabot/pgdata",
+        id="empty-password-socket",
+    ),
+)
+
+
+@pytest.mark.parametrize("dsn", _DSN_SHAPES)
+def test_the_resolved_dsn_is_printed_whole_and_carries_no_password(
+    dsn: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The DSN line, rendered for every shape it can have. Both branches live.
+
+    Replaces (2026-09-24) `assert "postgres:postgres@" not in result.output`, under a
+    docstring claiming "the default DSN embeds postgres:postgres". It does not:
+    `config.bundled_database_url` builds `postgresql+psycopg2://postgres:@/...` — empty
+    password, trust auth — so the assertion was a `not in` on a string the command cannot
+    print, green forever and green after deletion.
+
+    The literal is not *repo-wide* absent, which is worth saying because it looks like the
+    docstring's excuse: `.github/workflows/ci.yml:78` really does set
+    `postgres:postgres@localhost` — but only on the **`test-db`** job, which runs
+    `-m "db and not dbdata"`, and nothing in this file carries that marker. The job that
+    collects this test exports no DSN at all and falls through to the bundled default.
+
+    The first replacement had the same disease one level down. It asserted
+    `safe_dsn(resolved) in result.output` — which is real, and is the whole of what the
+    `empty-password-socket` case checks — and then branched `if make_url(resolved).
+    password:` for the password-leak assertions. On the resolved default that password is
+    `''`, so **the branch holding every password assertion never ran in any tier**, and
+    two mutations of `safe_dsn`'s masking were measured surviving. The parameters above
+    are what make it run.
+
+    Asserting that `safe_dsn` of the value appears **verbatim** covers all three T28
+    defects at once — the percent-encoded socket path, the invented `***`, the
+    hard-wrapped line — for every shape rather than for the one this machine happens to
+    have.
+    """
+    from sqlalchemy.engine import make_url
+
+    from fantabot import config
+    from fantabot.application.config_report import MASK, safe_dsn
+
+    if dsn is not None:
+        monkeypatch.setattr(config.settings, "fantabot_database_url", dsn)
+    resolved = config.settings.fantabot_database_url
+
     result = runner.invoke(app, ["config-check"])
 
     assert result.exit_code == 0
-    assert "postgres:postgres@" not in result.output
+    assert safe_dsn(resolved) in result.output, (
+        "the resolved DSN did not reach stdout the way `safe_dsn` renders it — "
+        f"expected {safe_dsn(resolved)!r} in:\n{result.output}"
+    )
+
+    url = make_url(resolved)
+    if url.password:
+        # Anchored on the userinfo slot, `<user>:<secret>@`, not on a bare
+        # `password not in output`. A DSN password may equal something the screen
+        # legitimately shows — CI's own is `postgres`, which is also the username, and
+        # the database is called `fantabot` on a line of its own — so the bare form
+        # fails on a correctly masked line and the `not in` form is unavailable. The
+        # userinfo slot is the only place a DSN password occurs, so anchoring there
+        # loses nothing.
+        assert resolved not in result.output
+        assert f":{url.password}@" not in result.output
+        # ...and the mask is in that slot, with the username still beside it: masking
+        # that also hides which account is configured answers a different question than
+        # the one the operator ran this to ask.
+        assert f"{url.username}:{MASK}@" in result.output
+    else:
+        # Nothing to mask, so a mask here is a credential invented for the operator to
+        # go looking for. Anchored on the `@` because `MASK` alone also matches a
+        # masked *field* elsewhere on the screen.
+        assert f"{MASK}@" not in result.output
 
 
 def test_dsn_host_and_database_are_still_shown() -> None:

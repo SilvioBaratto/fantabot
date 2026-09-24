@@ -17,8 +17,10 @@ store is in memory, and `now` is a parameter.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import os
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -115,6 +117,45 @@ class _Recorder:
 
     def print(self, *objects: Any, **_kw: Any) -> None:
         self.lines.append(" ".join(str(o) for o in objects))
+
+
+@pytest.fixture
+def news_setting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Callable[[str | None, str], None]:
+    """Both layers `_news_on` reads, under the test's control instead of the operator's.
+
+    `_news_on` goes through `config.live_setting`, which answers from `os.environ` when the
+    name is there and otherwise **re-reads `.env` from disk on every call** (`config.py`,
+    and for the reason recorded there). A test that only touched `os.environ` therefore left
+    the second layer pointed at the repository's own `.env` — audit finding 1.11: the case
+    that deleted the variable and asserted the gate was off was reading
+    `FANTABOT_LINEUP_NEWS=on` back out of that file, failed from the repository root, and
+    passed from any cwd without one.
+
+    So: chdir into an empty `tmp_path`, which is the `.env` `live_setting` will resolve
+    (`Path(".env")`, relative to the working directory), and clear the injection registry,
+    which is the only thing that makes an exported variable lose to the file. Both layers
+    then say nothing until a test says something, and `setter(raw, source)` says it through
+    exactly one of them.
+    """
+    import fantabot.config as config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(config.LINEUP_NEWS_VAR, raising=False)
+    monkeypatch.setattr(config, "_DOTENV_INJECTED", {})
+
+    def setter(raw: str | None, source: str) -> None:
+        if raw is None:
+            return  # absent from both layers: the file is not written and the var is unset
+        if source == "environment":
+            monkeypatch.setenv(config.LINEUP_NEWS_VAR, raw)
+        elif source == "dotenv":
+            (tmp_path / ".env").write_text(f"{config.LINEUP_NEWS_VAR}={raw}\n", encoding="utf-8")
+        else:  # pragma: no cover - a typo in a parametrize id must not read as "nothing set"
+            raise ValueError(f"unknown setting source {source!r}")
+
+    return setter
 
 
 def _run(sources: _Sources, store: _MemoryMarker, **over: Any) -> RefreshReport:
@@ -441,22 +482,66 @@ class TestTheLiveSources:
 
         assert outcome == SourceOutcome("news", "skipped", "disabled")
 
+    @pytest.mark.parametrize("source", ["environment", "dotenv"])
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [("1", True), ("true", True), ("TRUE", True), ("on", True), ("yes", True),
          (None, False), ("", False), ("0", False), ("no", False), ("maybe", False)],
     )
     def test_the_news_gate_fails_closed(
-        self, monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: bool
+        self,
+        news_setting: Callable[[str | None, str], None],
+        raw: str | None,
+        expected: bool,
+        source: str,
     ) -> None:
-        """AD4: parsed at use, and anything but an explicit yes leaves it off."""
+        """AD4: parsed at use, and anything but an explicit yes leaves it off.
+
+        Run twice over each value, once through each layer `live_setting` reads, because
+        `_news_on` does not know which one answered and the rule must not either.
+
+        This used to `monkeypatch.delenv` and stop there (audit 1.11). `config.live_setting`
+        re-reads the `.env` **from disk** when the variable is absent from `os.environ` —
+        deliberately, for the reason its own docstring records — and this repository's `.env`
+        sets `FANTABOT_LINEUP_NEWS=on`, so the `None` case asserted `False` against a file
+        that said `on`: it failed from the repository root and every case passed from any cwd
+        without a `.env`. The suite's answer depended on the operator's `.env`, which is the
+        one input a test of "anything but an explicit yes" must own outright.
+        """
         from fantabot.application.lineup_refresh import LiveRefreshSources
 
-        monkeypatch.delenv("FANTABOT_LINEUP_NEWS", raising=False)
-        if raw is not None:
-            monkeypatch.setenv("FANTABOT_LINEUP_NEWS", raw)
+        news_setting(raw, source)
 
         assert LiveRefreshSources(reporter=_Recorder())._news_on() is expected
+
+    def test_the_gate_reads_the_env_file_at_all(
+        self, news_setting: Callable[[str | None, str], None]
+    ) -> None:
+        """The `dotenv` half of the parametrize above is only worth running if it reaches
+        the file, and a fixture that quietly wrote nowhere would make all ten of those cases
+        pass for the reason the old test did: nothing set, gate off, `expected is False` for
+        half of them. One positive, through the file alone, with `os.environ` empty."""
+        from fantabot.application.lineup_refresh import LiveRefreshSources
+        from fantabot.config import LINEUP_NEWS_VAR
+
+        news_setting("on", "dotenv")
+
+        assert LINEUP_NEWS_VAR not in os.environ
+        assert LiveRefreshSources(reporter=_Recorder())._news_on() is True
+
+    def test_an_exported_variable_outranks_the_env_file(
+        self, news_setting: Callable[[str | None, str], None], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`live_setting`'s precedence, at the one gate that spends money on being wrong.
+        The operator speaking later than the file wins — root `CLAUDE.md`, on
+        `FANTABOT_HARVEST_DIR`: *"An exported variable still wins"*."""
+        from fantabot.application.lineup_refresh import LiveRefreshSources
+        from fantabot.config import LINEUP_NEWS_VAR
+
+        news_setting("on", "dotenv")
+        monkeypatch.setenv(LINEUP_NEWS_VAR, "no")
+
+        assert LiveRefreshSources(reporter=_Recorder())._news_on() is False
 
     def test_news_with_no_roster_is_a_failure_and_not_a_silent_success(
         self, monkeypatch: pytest.MonkeyPatch

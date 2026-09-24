@@ -10,11 +10,11 @@ updates in place rather than appending a second row that the reader would keep.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import date
 from typing import Any
 
 import pytest
+from conftest import synthetic_id
 from sqlalchemy import text
 from typer.testing import CliRunner
 
@@ -51,8 +51,17 @@ TODAY = RUN_DAY
 
 #: A player id far outside the real range, so nothing the weekly run collects
 #: can ever share a key with this file's writes.
-CANARY_ID = 9_000_000_001
+#:
+#: From `tests/conftest.py`'s one base rather than this file's own constant: these rows are
+#: **committed**, so an id that happened to sit where `make_synthetic_players` allocates
+#: would be visible to a rolled-back test that believes it made its own player.
+#: `synthetic_id` refuses that range outright.
+CANARY_ID = synthetic_id(2_000)
 CANARY_NAME = "CANARY — test fixture, not a real player"
+
+#: The pool's second member in the resume test. Never stored and never written, so it gets
+#: no `players` row either — it exists only to keep the filtered pool non-empty.
+UNSTORED_POOL_ID = synthetic_id(2_001)
 
 
 def _row(player_id: str, riassunto: str) -> dict[str, str]:
@@ -129,28 +138,51 @@ def _news_fetch(*args: str) -> Any:
     return runner.invoke(app, argv)
 
 
-@contextmanager
-def _already_stored_pool_player() -> Any:
-    """Store a reading for the first player `load_pool` returns, then remove it.
+def _a_pool_of_two_with_the_canary_already_stored(
+    monkeypatch: pytest.MonkeyPatch, canary_player: str
+) -> None:
+    """Make the pool the canary plus one unstored player, and store the canary's reading.
 
-    Committed, not rolled back: this file drives the real CLI through
-    `database_manager.get_session()`. It writes with `force=True` and then hard-DELETEs, so
-    the run day it lands on must be one no real run can ever occupy — see RUN_DAY.
+    The resume filter can only be watched skipping a player `load_pool` returns, and the
+    canary deliberately has no `quotazioni` row. This used to close that gap by borrowing
+    a real one — ``load_pool(session, "2026/27")[0].id`` — force-overwriting that player's
+    reading and then hard-DELETEing it, **committed**, against the canonical database.
+    Nothing but the 1900-01-01 run day kept it off a reading CLAUDE.md says cannot be
+    regenerated, and a mitigation is not a guard: the thing the file borrowed was still a
+    real row, and `tests/test_integration_isolation.py`'s substring check could not see a
+    borrow spelled as a repository call.
+
+    The pool *reader* is replaced instead, so every row this file writes belongs to it.
+    `news fetch` imports `load_pool` from `news_pool` inside the Typer body, so patching
+    the module attribute reaches it — and nothing else is faked: `existing_keys`, the
+    filter and the counts are the real code over rows that are really in Postgres. Which
+    players the reader returns is settled separately, by `TestPoolFromPostgres` in
+    `test_db.py`, against the seed.
+
+    **Two** players, not one. The filter's visible effect is the `resuming: R of C` line,
+    and the CLI returns early with "Nothing to do" when the filter empties the pool — so a
+    pool of one already-stored player exercises the filter and prints nothing about it.
+    The second one is never written: `fetch_all` is faked, and no row is stored for it.
+
+    No teardown of its own: `canary_player` already DELETEs every `player_sentiment` row
+    for the canary, and nothing is ever written for `UNSTORED_POOL_ID`.
     """
-    from fantabot.adapters.persistence.news_pool import load_pool
+    from fantabot.adapters.persistence import news_pool
     from fantabot.adapters.persistence.repositories.sentiment import SentimentRepository
+    from fantabot.domain.news.pool import PoolPlayer
 
+    def _pool_player(player_id: str, nome: str) -> PoolPlayer:
+        return PoolPlayer(
+            id=player_id, nome=nome, squadra="ATA", ruolo="Difensore", ruoli_mantra="B;DS"
+        )
+
+    pool = [
+        _pool_player(canary_player, "Canary"),
+        _pool_player(str(UNSTORED_POOL_ID), "Unstored"),
+    ]
+    monkeypatch.setattr(news_pool, "load_pool", lambda session, season: pool, raising=True)
     with database_manager.get_session() as session:
-        player_id = str(load_pool(session, "2026/27")[0].id)
-        SentimentRepository(session).upsert_rows([_row(player_id, "già stored")], force=True)
-    try:
-        yield player_id
-    finally:
-        with database_manager.get_session() as session:
-            session.execute(
-                text("DELETE FROM player_sentiment WHERE data_run = :d AND player_id = :p"),
-                {"d": RUN_DAY, "p": int(player_id)},
-            )
+        SentimentRepository(session).upsert_rows([_row(canary_player, "già stored")], force=True)
 
 
 def _fake_fetch(rows: list[dict[str, str]]) -> Any:
@@ -363,14 +395,20 @@ def test_a_second_run_says_what_it_is_resuming_from(
     never had it to skip and `resumed` was always 0. It passed anyway, because the shared
     database happened to hold real readings for today and those were what got skipped. The
     assertion was real; the thing satisfying it was not the test's own doing.
+
+    Fixed once by borrowing a real pool member, which traded one shared-database dependency
+    for a committed write to a real player's row; fixed properly by making the canary the
+    pool (`_a_pool_of_two_with_the_canary_already_stored`). The count is asserted —
+    `resuming: 1 of 2` — because "resuming" alone was satisfied by any skip in a pool of
+    523, including somebody else's.
     """
     from fantabot.application import news_fetcher as pipeline
 
-    with _already_stored_pool_player():
-        monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([]))
-        result = _news_fetch("--write", "--limit", "1")
+    _a_pool_of_two_with_the_canary_already_stored(monkeypatch, canary_player)
+    monkeypatch.setattr(pipeline, "fetch_all", _fake_fetch([]))
+    result = _news_fetch("--write", "--limit", "1")
 
-    assert "resuming" in result.output, result.output
+    assert "resuming: 1 of 2" in result.output, result.output
     assert "already stored" in result.output
 
 

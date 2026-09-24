@@ -23,7 +23,7 @@ replay must show, used by the CLI and the test rather than restated by each.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -157,6 +157,64 @@ BENCH_SCENARIOS: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
+def _vicario_checks(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    """SPEC §8 item 2: never a target; item 3: never silently held."""
+    failures: list[str] = []
+    if not all(r["decision"] == "pass" for r in rows):
+        failures.append("expected every rung to be a `pass` (never a target)")
+    if not all(r["walk_away"] == 0 for r in rows):
+        failures.append("expected `walk_away == 0` on every rung")
+    if not all(r["provenance"] == "bargain" for r in rows):
+        failures.append("expected `provenance == 'bargain'` on every rung (considered, not held)")
+    return failures
+
+
+def _ostigard_checks(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    """The free materiality pre-gate: his book is under `BARGAIN_MIN_BOOK`, so no re-solve runs."""
+    failures: list[str] = []
+    if not all(r["decision"] == "hold" for r in rows):
+        failures.append("expected every poll to `hold` (the free materiality pre-gate)")
+    if not all(r["provenance"] is None for r in rows):
+        failures.append("expected `provenance is None` on every poll (never asked, book < BARGAIN_MIN_BOOK)")
+    return failures
+
+
+def _malen_checks(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    """SPEC §8 item 2: priced above the minimum, and refused once the price passes the ceiling."""
+    failures: list[str] = []
+    if not all(r["provenance"] == "bargain" for r in rows):
+        failures.append("expected `provenance == 'bargain'` on every poll")
+    if not all(isinstance(r["walk_away"], int) and r["walk_away"] >= 40 for r in rows):
+        failures.append("expected a ceiling >= 40 on every poll")
+    for r in rows:
+        price = r["price"]
+        assert isinstance(price, int)
+        if price < r["walk_away"]:  # type: ignore[operator]
+            if r["decision"] != "bid":
+                failures.append(f"price {price} is under the ceiling; expected `bid`")
+        elif not (r["decision"] == "pass" and r["reason"] == "walk_away"):
+            failures.append(f"price {price} is at/over the ceiling; expected `pass`/`walk_away`")
+    return failures
+
+
+#: `scenario name -> the invariants that scenario's replay must show`. A table, because
+#: what this was — an `if`/`elif`/`elif` on the same three literals with **no `else`** —
+#: answered `[]` for every other name: rename a scenario, or add a fourth, and the
+#: acceptance gate reported PASS for a lot it held no opinion about, while all three tests
+#: kept asserting `bench_checks(NAME, rows) == []` and checking nothing. It is the same
+#: silent emptying that `tests/test_layers.py`'s
+#: `test_every_writing_name_still_exists_in_the_adapter_it_names` exists to close, one
+#: layer over. Keyed by the names :data:`BENCH_SCENARIOS` carries;
+#: `test_asta_bench.py::TestTheGateHasAnOpinionAboutEveryScenarioItRuns` pins the two
+#: tables equal **in both directions**, so a fourth scenario with no checks, and a check
+#: for a scenario nobody replays, each fail there rather than passing here.
+BENCH_CHECKS: Mapping[str, Callable[[Sequence[Mapping[str, object]]], list[str]]] = {
+    "Vicario": _vicario_checks,
+    "Ostigard": _ostigard_checks,
+    "Malen": _malen_checks,
+}
+
+
 def bench_checks(name: str, rows: Sequence[Mapping[str, object]]) -> list[str]:
     """Every failed invariant for one scenario's replay, or `[]` if it holds.
 
@@ -164,34 +222,27 @@ def bench_checks(name: str, rows: Sequence[Mapping[str, object]]) -> list[str]:
     scenarios — `interface/asta.py`'s `asta bench` command and `test_asta_bench.py` both
     call this rather than each restating the same real, measured evidence in their own
     words, which is exactly how the two drifted apart before this function existed.
+
+    **Two things it refuses rather than answering `[]` to**, because `[]` is what this
+    function says PASS with and an acceptance gate that passes by having nothing to say is
+    the worst shape it could take:
+
+    * a *name* it holds no invariants for — raised, not returned, since that is a table out
+      of sync with :data:`BENCH_SCENARIOS` and not a property of the evening being replayed;
+    * a replay that journaled **no rows at all** — every check here is an `all(...)` over
+      `rows`, each of which is vacuously true when there are none, so a `RoomTracker` that
+      silently stopped cycling would have read as three green scenarios.
     """
-    failures: list[str] = []
-    if name == "Vicario":
-        if not all(r["decision"] == "pass" for r in rows):
-            failures.append("expected every rung to be a `pass` (never a target)")
-        if not all(r["walk_away"] == 0 for r in rows):
-            failures.append("expected `walk_away == 0` on every rung")
-        if not all(r["provenance"] == "bargain" for r in rows):
-            failures.append("expected `provenance == 'bargain'` on every rung (considered, not held)")
-    elif name == "Ostigard":
-        if not all(r["decision"] == "hold" for r in rows):
-            failures.append("expected every poll to `hold` (the free materiality pre-gate)")
-        if not all(r["provenance"] is None for r in rows):
-            failures.append("expected `provenance is None` on every poll (never asked, book < BARGAIN_MIN_BOOK)")
-    elif name == "Malen":
-        if not all(r["provenance"] == "bargain" for r in rows):
-            failures.append("expected `provenance == 'bargain'` on every poll")
-        if not all(isinstance(r["walk_away"], int) and r["walk_away"] >= 40 for r in rows):
-            failures.append("expected a ceiling >= 40 on every poll")
-        for r in rows:
-            price = r["price"]
-            assert isinstance(price, int)
-            if price < r["walk_away"]:  # type: ignore[operator]
-                if r["decision"] != "bid":
-                    failures.append(f"price {price} is under the ceiling; expected `bid`")
-            elif not (r["decision"] == "pass" and r["reason"] == "walk_away"):
-                failures.append(f"price {price} is at/over the ceiling; expected `pass`/`walk_away`")
-    return failures
+    try:
+        check = BENCH_CHECKS[name]
+    except KeyError:
+        raise ValueError(
+            f"no bench invariants declared for scenario {name!r}; "
+            f"BENCH_CHECKS knows {sorted(BENCH_CHECKS)}"
+        ) from None
+    if not rows:
+        return [f"expected at least one journaled poll; the replay produced none for {name}"]
+    return check(rows)
 
 
 def load_scenario(directory: Path, name: str, filename: str, *, uuid_key: str, rung_key: str) -> BenchScenario:

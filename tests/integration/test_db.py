@@ -7,13 +7,23 @@ the stack up first: ``fantabot-app db start && alembic upgrade head``.
 from __future__ import annotations
 
 import pytest
+from conftest import synthetic_id
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-#: This module reads what has actually been scraped, harvested and synced, so it runs
-#: against the canonical database rather than the tier's own empty one. There is no
-#: fixture for 614,163 rows; the session is still rolled back.
-pytestmark = [pytest.mark.db, pytest.mark.dbdata]
+#: `dbdata` is granted **per class**, not to the module.
+#:
+#: Most of what is below asserts against what has actually been scraped, harvested and
+#: synced: there is no fixture for 614,163 rows, so those classes carry `dbdata` and read
+#: the canonical database, inside the same rolled-back transaction as everything else. The
+#: rest — the three connection canaries, the sentiment write and read paths, and the
+#: backfill-on-a-fresh-database case — write synthetic rows and need a **schema**, nothing
+#: more. Those belong in `fantabot_test` and now go there.
+#:
+#: The module-wide marker is what let `test_with_no_fixtures_the_backfill_writes_nothing`
+#: run `DELETE FROM match_grain` — some 50,000 recorded rows — against the canonical
+#: database with the outer rollback as the only thing between that and a re-scrape.
+pytestmark = pytest.mark.db
 
 #: The seasons the one-time seed covered, and so the only ones whose row counts are facts.
 #:
@@ -46,7 +56,11 @@ def _synthetic(db_session: Session, count: int) -> list[int]:
     return [int(player_id) for player_id in make_synthetic_players(db_session, count)]
 
 CANARY_TABLE = "players"
-CANARY_ID = 999_999_999
+
+#: From `tests/conftest.py`'s one base. This was `999_999_999` — nine digits and no
+#: relation to anything, one of three competing conventions in the suite; six of those
+#: digits in `test_exclusions.py` were inside the range a real `players.id` can reach.
+CANARY_ID = synthetic_id(1_000)
 
 
 def test_the_session_reaches_a_migrated_database(db_session: Session) -> None:
@@ -95,6 +109,8 @@ by the branch that also leaves ``predicted_pct_delta`` as None."""
 class TestPlayersSeed:
     """The referential root. Eight later tables carry a foreign key to it."""
 
+    pytestmark = pytest.mark.dbdata
+
     def test_the_union_seed_is_at_least_1474_not_quotazioni_s_1414(
         self, db_session: Session
     ) -> None:
@@ -125,6 +141,8 @@ class TestPlayersSeed:
 
 class TestTeamsSeed:
     """The only bridge between the two team vocabularies in the source data."""
+
+    pytestmark = pytest.mark.dbdata
 
     def test_twenty_clubs_in_every_one_of_the_five_seasons(self, db_session: Session) -> None:
         rows = db_session.execute(
@@ -169,20 +187,6 @@ class TestTeamsSeed:
         assert changed == 0
         assert db_session.execute(text(digest)).scalar() == before
 
-    def test_with_no_fixtures_the_backfill_writes_nothing(self, db_session: Session) -> None:
-        """A July `scrape_quotazioni` against a fresh database must not die.
-
-        The listone lands before any fixture exists, so there are no full names
-        to map from. That is not an error — the placeholder codes stay until
-        fixtures arrive. Run inside the rolled-back fixture transaction.
-        """
-        from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
-
-        db_session.execute(text("DELETE FROM match_grain"))
-        db_session.execute(text("DELETE FROM match_grain"))
-
-        assert ReferenceRepository(db_session).backfill_team_names() == 0
-
     def test_a_prefix_collision_refuses_and_writes_nothing(self, db_session: Session) -> None:
         """Fail closed. A partial mapping leaves NULLs that later joins drop."""
         from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
@@ -221,7 +225,39 @@ class TestTeamsSeed:
         assert count == 20
 
 
+class TestBackfillOnAFreshDatabase:
+    """The July case: a listone has landed and no fixture has. Schema only, so no `dbdata`.
+
+    `backfill_team_names` reads the club names out of `match_grain`, and this asserts the
+    branch it takes when there are none — a `scrape_quotazioni` in July must return 0 and
+    succeed, not die on an empty `voti`. What it needs is an **empty** `match_grain`,
+    which is the definition of a test that wants a schema and not the seed.
+
+    It used to live in `TestTeamsSeed`, so it ran against the canonical database and got
+    there by executing `DELETE FROM match_grain` — some 50,000 recorded rows — twice, the
+    second a no-op. Only the outer rollback put them back. The `DELETE` is kept, because
+    the branch under test is reached only on an empty table and the statement is what says
+    so; what is new is that its `rowcount` is **asserted to be zero**. On the tier's own
+    database it removes nothing, and if this class ever drifts back onto the seed it fails
+    with 50,000 rather than quietly deleting them.
+    """
+
+    def test_with_no_fixtures_the_backfill_writes_nothing(self, db_session: Session) -> None:
+        from fantabot.adapters.persistence.repositories.reference import ReferenceRepository
+
+        removed = db_session.execute(text("DELETE FROM match_grain")).rowcount
+
+        assert removed == 0, (
+            f"{removed} recorded match_grain rows were deleted — this test is running "
+            "against the seeded database, where the branch it asserts is reachable only "
+            "by emptying it"
+        )
+        assert ReferenceRepository(db_session).backfill_team_names() == 0
+
+
 class TestQuotazioniSeed:
+    pytestmark = pytest.mark.dbdata
+
     def test_the_two_listoni_stay_in_step(self, db_session: Session) -> None:
         """The invariant that survives a scrape: both listoni describe the same
         players, so their counts move together. news/pool.py raises if they
@@ -259,6 +295,8 @@ class TestQuotazioniSeed:
 
 
 class TestStatisticheSeed:
+    pytestmark = pytest.mark.dbdata
+
     def test_both_listoni_hold_8034_rows_across_three_sources(self, db_session: Session) -> None:
         rows = db_session.execute(
             text(f"SELECT listone, count(*) FROM statistiche WHERE {IN_SEED} GROUP BY 1 ORDER BY 1")
@@ -302,6 +340,8 @@ class TestQiBiasSeed:
     the derivation reproduces it.
     """
 
+    pytestmark = pytest.mark.dbdata
+
     def test_it_is_a_view_not_a_table(self, db_session: Session) -> None:
         kind = db_session.execute(
             text("SELECT table_type FROM information_schema.tables WHERE table_name='qi_bias'")
@@ -344,6 +384,8 @@ class TestQiBiasSeed:
 
 class TestTargetPriceSeed:
     """The only table whose numbers get spent as real credits."""
+
+    pytestmark = pytest.mark.dbdata
 
     def test_every_player_in_the_listone_has_a_price(self, db_session: Session) -> None:
         """Not a fixed 523: the pool grew to 544 on 2026-08-26. What must hold
@@ -430,6 +472,8 @@ class TestTargetPriceSeed:
 class TestVotiSeed:
     """The largest table, and the only place a nullable foreign key is required."""
 
+    pytestmark = pytest.mark.dbdata
+
     def test_all_50634_rows_land_with_3039_coach_rows(self, db_session: Session) -> None:
         total, coaches = db_session.execute(
             text(
@@ -471,6 +515,8 @@ class TestVotiSeed:
 
 
 class TestBonusMalusSeed:
+    pytestmark = pytest.mark.dbdata
+
     def test_it_agrees_with_voti_row_for_row(self, db_session: Session) -> None:
         """Same grain, same coach rows, same count — which is why they share
         the two-conflict-target upsert instead of each restating it.
@@ -510,7 +556,11 @@ class TestBonusMalusSeed:
 
 
 class TestSentimentWriteAgainstALiveTable:
-    """The upsert semantics, where a fake session cannot settle them."""
+    """The upsert semantics, where a fake session cannot settle them.
+
+    "Live" means a real Postgres table with the real constraints on it, not the seeded
+    one: every row here is synthetic, so this needs a schema and carries no `dbdata`.
+    """
 
     @staticmethod
     def _row(player_id: int, **overrides: str) -> dict[str, str]:
@@ -614,7 +664,12 @@ class TestSentimentWriteAgainstALiveTable:
 
 
 class TestSentimentReadPath:
-    """The four behaviours the natural SQL translation quietly breaks."""
+    """The four behaviours the natural SQL translation quietly breaks.
+
+    Synthetic rows only, so no `dbdata`: on the tier's own database `drifted()` returns
+    this test's three players and nothing else, which is stricter than ranking them
+    among whatever the canonical table happens to hold.
+    """
 
     @staticmethod
     def _write(db_session: Session, player_id: int, runs: list[tuple[str, str, str]]) -> None:
@@ -753,6 +808,8 @@ class TestSentimentReadPath:
 
 class TestPoolFromPostgres:
     """The pool the Wednesday run queries, now built from quotazioni."""
+
+    pytestmark = pytest.mark.dbdata
 
     def test_the_season_produces_the_whole_current_listone(self, db_session: Session) -> None:
         """Not a fixed 523. The listone grew to 544 on 2026-08-26 when a scrape

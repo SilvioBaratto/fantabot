@@ -257,19 +257,47 @@ def test_an_unknown_league_is_reported_missing(monkeypatch: pytest.MonkeyPatch) 
 def test_a_dead_database_prints_an_instruction_not_a_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """And the DSN it names on the way out is masked.
+
+    The masking half used to read `assert "postgres:postgres@" not in result.output`.
+    Nothing this command can print contains that: `config.py` derives
+    `postgresql+psycopg2://postgres:@/...` — empty password, trust auth — and the only
+    place the literal exists is `.github/workflows/ci.yml`, on the **`test-db`** job,
+    which runs `-m "db and not dbdata"` and never selects this file. So the assertion
+    could not fail in any tier that ran it, and the test survived its own deletion.
+
+    Replaced 2026-09-24 with a canary the error path actually has to mask. The DSN is
+    asserted *present* as well: this line exists to tell the operator which database
+    could not be reached, and a mask that swallowed the whole line would be green on
+    the `not in` and useless on the screen.
+
+    ⚠ The rendering here is `render_as_string(hide_password=True)`, not
+    `application/config_report.safe_dsn` — so this line still percent-encodes a socket
+    path and still masks an empty password as `***`, which are T28 defects 1 and 2,
+    fixed for `config-check` and never lifted to the two error paths in
+    `interface/app.py`. Out of scope for the guard; the canary below is about the
+    password, which both renderings do hide.
+    """
     from sqlalchemy.exc import OperationalError
 
+    from fantabot import config
     from fantabot.adapters.persistence import database_manager
 
     def boom() -> Any:
         raise OperationalError("SELECT 1", {}, Exception("connection refused"))
 
+    monkeypatch.setattr(
+        config.settings,
+        "fantabot_database_url",
+        "postgresql+psycopg2://bot:DeadDbCanary42@db.example.test:6543/otherdb",
+    )
     monkeypatch.setattr(database_manager, "_session_factory", lambda: boom())
     result = runner.invoke(app, ["auth", "status"])
 
     assert result.exit_code == 1
     assert "fantabot-app db start" in result.output
-    assert "postgres:postgres@" not in result.output
+    assert "DeadDbCanary42" not in result.output
+    assert "db.example.test:6543/otherdb" in result.output
 
 
 def test_no_output_contains_a_token_or_the_key(monkeypatch: pytest.MonkeyPatch) -> None:

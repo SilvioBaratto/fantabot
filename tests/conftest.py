@@ -232,7 +232,36 @@ def db_session(db_connection: Connection) -> Generator[Session, None, None]:
 #: That is not hypothetical: it is how `pytest -m db` came to be deleting a real player's
 #: weekly reading (see `canary_player` in test_news_fetch_write.py), and how a shared
 #: database made these tests depend on whatever `news fetch` last wrote.
+#:
+#: **One base, and this is it.** Three conventions had grown up beside it — `9_000_000_001`
+#: in `test_news_fetch_write.py`, `999_999_999` in `test_db.py`, and nine hand-rolled
+#: `999_00N` in `test_exclusions.py`. The last of those is six digits, inside the range a
+#: real `players.id` can reach, which is the whole reason this one sits at 9.1e9.
 SYNTHETIC_PLAYER_BASE = 9_100_000_000
+
+#: Where `make_synthetic_players` allocates from: offsets 0..999, handed out per call and
+#: therefore reused by every test that asks. Safe because each one runs inside the
+#: `db_session` transaction and is rolled back.
+SYNTHETIC_FIXTURE_RANGE = 1_000
+
+
+def synthetic_id(offset: int) -> int:
+    """A synthetic id a test names for itself, with **no** `players` row made for it.
+
+    For the two things `make_synthetic_players` cannot give: an id that must not resolve
+    (the tests about what happens when `players` does not carry it), and an id a test
+    *commits* — `test_news_fetch_write.py` drives the real CLI, so its rows outlive the
+    transaction and must not land on an offset the rolled-back fixture also uses.
+
+    Offsets start above `SYNTHETIC_FIXTURE_RANGE` for exactly that reason.
+    """
+    if offset < SYNTHETIC_FIXTURE_RANGE:
+        raise ValueError(
+            f"offset {offset} is inside the {SYNTHETIC_FIXTURE_RANGE}-wide range "
+            "make_synthetic_players hands out; a committed row there would be seen by a "
+            "test that expects to have made its own"
+        )
+    return SYNTHETIC_PLAYER_BASE + offset
 
 
 def make_synthetic_players(session: Session, count: int = 2) -> list[str]:
@@ -244,6 +273,11 @@ def make_synthetic_players(session: Session, count: int = 2) -> list[str]:
     five lines and of the base constant — is how the two definitions this replaced came to
     exist, each free to drift from the other.
     """
+    if count > SYNTHETIC_FIXTURE_RANGE:
+        raise ValueError(
+            f"{count} synthetic players would run past offset {SYNTHETIC_FIXTURE_RANGE} "
+            "and into the ids `synthetic_id` hands out for committed and unresolvable rows"
+        )
     ids = [str(SYNTHETIC_PLAYER_BASE + offset) for offset in range(count)]
     for player_id in ids:
         session.execute(

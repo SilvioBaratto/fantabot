@@ -15,10 +15,17 @@ from __future__ import annotations
 import json
 from datetime import date
 
+import pytest
 from _golden import load_clearing_sales, load_listone_bridge, load_quotazioni, load_sentiment
 from _paths import GOLDEN
 
-from fantabot.application.asta_bench import BENCH_SCENARIOS, bench_checks, load_scenario, replay
+from fantabot.application.asta_bench import (
+    BENCH_CHECKS,
+    BENCH_SCENARIOS,
+    bench_checks,
+    load_scenario,
+    replay,
+)
 from fantabot.application.plan_inputs import PlanInputs, build_plan_inputs
 from fantabot.domain.asta.prices import Sale, mean_prices
 from fantabot.domain.asta.sentiment import SentimentWeights
@@ -124,3 +131,41 @@ class TestMalenIsPricedAboveTheMinimumAndRefusedOnceHePassesTheCeiling:
 
         assert len(rows) == len(scenario.rungs)
         assert bench_checks("Malen", rows) == []
+
+
+class TestTheGateHasAnOpinionAboutEveryScenarioItRuns:
+    """Audit 1.4: `bench_checks` was an `if`/`elif`/`elif` on three string literals with no
+    `else`, so every other name returned `[]` — which is what this function says PASS with.
+    All three tests in this file assert `bench_checks(NAME, rows) == []`, so a renamed or a
+    newly added scenario made them pass while checking nothing, and made `asta bench` print
+    PASS for a lot no invariant had been written for.
+
+    These three close both halves. The first is what makes the other three classes above
+    unable to go vacuous: they are green because the table has an entry for the name they
+    pass, and the table is pinned to `BENCH_SCENARIOS` with `==` rather than `>=` — a
+    dropped check is as red as a missing one (audit 1.6's reason).
+    """
+
+    def test_the_scenario_table_and_the_check_table_name_the_same_scenarios(self) -> None:
+        replayed = {name for name, _filename, _uuid_key, _rung_key in BENCH_SCENARIOS}
+
+        assert replayed == set(BENCH_CHECKS), (
+            "every scenario `asta bench` replays needs invariants, and every set of "
+            "invariants needs a scenario that runs it"
+        )
+
+    def test_a_scenario_with_no_invariants_is_refused_and_not_answered_with_no_failures(
+        self,
+    ) -> None:
+        """The rename this closes: a real replay's rows, under a name the table lost."""
+        rows = [{"decision": "pass", "walk_away": 0, "provenance": "bargain", "price": 1}]
+
+        with pytest.raises(ValueError, match="no bench invariants declared"):
+            bench_checks("Vicari", rows)
+
+    @pytest.mark.parametrize("name", sorted(BENCH_CHECKS))
+    def test_a_replay_that_journaled_nothing_is_not_a_pass(self, name: str) -> None:
+        """Every check is an `all(...)` over `rows` and so is vacuously true over none: a
+        `RoomTracker` that silently stopped cycling would have read as three green
+        scenarios and an `asta bench` exit code of 0."""
+        assert bench_checks(name, []) != []
