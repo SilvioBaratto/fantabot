@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
+from fantabot_app.api.outcomes import because
 
 router = APIRouter()
 
@@ -76,12 +77,6 @@ class RoomCheck(BaseModel):
     roster_provenance: str = ""
 
 
-def _because(exc: Exception) -> str:
-    """One line, typed. The idiom `tests/conftest.py` uses for the same reason: a driver
-    traceback says the call failed and not which of five things failed."""
-    return f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
-
-
 #: Opens the credential and returns `(user_id, fetch)`. A callable rather than two
 #: arguments so that **nothing touches the store until a link has parsed** — the first
 #: live probe answered `not a link` with a decryption failure, which is a true statement
@@ -117,7 +112,7 @@ def check_room(url: str, *, connect: Connect) -> RoomCheck:
         )
     except Exception as exc:  # noqa: BLE001 — a database that will not open is its own answer
         return RoomCheck(
-            outcome="unreachable", reason=_because(exc), fantaleague_id=fantaleague_id
+            outcome="unreachable", reason=because(exc), fantaleague_id=fantaleague_id
         )
 
     try:
@@ -128,13 +123,11 @@ def check_room(url: str, *, connect: Connect) -> RoomCheck:
         return RoomCheck(outcome="refused", reason=str(exc), fantaleague_id=fantaleague_id)
     except Exception as exc:  # noqa: BLE001 — a fetch that failed is not a refusal
         return RoomCheck(
-            outcome="unreachable", reason=_because(exc), fantaleague_id=fantaleague_id
+            outcome="unreachable", reason=because(exc), fantaleague_id=fantaleague_id
         )
 
     rules, provenance = rules_for_room(
         selection=resolved.number_of_players_selection,
-        min_player=resolved.min_player,
-        max_player=resolved.max_player,
         min_goalkeepers=resolved.min_goalkeepers,
         min_others=resolved.min_others,
         classic_band=resolved.players_settings_data,

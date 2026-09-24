@@ -2,8 +2,9 @@
 
 ``AstaState`` is what we hold right now: the players already bought (``owned``, their cost
 sunk in ``spent``), the players anyone has bought (``taken``, unavailable), and the total
-budget. ``RosterRules`` is the league's composition — for lega 4103937, 30 players with the
-``minrl=[2,28]`` split. ``Roster`` and ``OptimizationResult`` are what the optimizer emits.
+budget. ``RosterRules`` is the league's composition — for lega 4103937 as it last synced, a
+32-man rosa with the ``minrl=[2, 23]`` floors and the ``maxrl=[4, 28]`` ceilings.
+``Roster`` and ``OptimizationResult`` are what the optimizer emits.
 """
 
 from __future__ import annotations
@@ -19,9 +20,63 @@ if TYPE_CHECKING:
     from fantabot.domain.classic.roles import ClassicPlayer
 
 
+def _satisfiable_ceiling(declared: int, floor: int) -> int:
+    """A declared ceiling, read so that its own floor can still be met. Pure.
+
+    A declared ceiling *below its own floor* is a lega contradicting itself (``maxrl[i] <
+    minrl[i]``, which the platform has never sent). Read literally it is unsatisfiable, and
+    ``optimize_roster`` would say so as an ``InfeasibleRoster`` once per two-second cycle for
+    a whole evening. So the floor wins: "exactly this many" is the one reading of a
+    contradictory band that can still be bought.
+
+    One function rather than the same ``max`` at both sites, because ``max_goalkeepers()``
+    and ``declared_ceiling_total()`` answer the same question — how many players this half
+    may supply — and two copies of it can disagree: a total counting a contradictory ceiling
+    at its literal value refuses a size the accessors say the band fills.
+    """
+    return max(declared, floor)
+
+
+def _binding_ceiling(derived: int, declared: int | None, floor: int) -> int:
+    """The tighter of the ceiling the size forces and the one the lega declared. Pure.
+
+    ``declared is None`` means no ``maxrl`` was stated for this half, and then the derivation
+    is the whole answer, untouched — including where it is nonsense. A bare
+    ``replace(rules, size=25)`` over the built-in ``30/2/28`` reports **-3** keepers; that is
+    the trap ``resize_band`` exists to prevent and ``test_asta_resize_band`` pins by name, and
+    clamping it here would hide it rather than fix it.
+    """
+    if declared is None:
+        return derived
+    return min(derived, _satisfiable_ceiling(declared, floor))
+
+
+def _declared_ceiling(max_roles: Sequence[int] | None, index: int) -> int | None:
+    """One half of a ``maxrl``, or ``None`` where the lega stated nothing for that half. Pure.
+
+    **Per entry, never all-or-nothing.** A ``maxrl`` that is short, or carries a 0 beside a
+    real number, used to discard *both* ceilings — which throws away the tighter of the two
+    constraints because the other one looked odd, and that is the fail-open direction the
+    whole defect is made of. The half that was stated is read; the half that was not derives,
+    exactly as every band predating the 2026-09-02 drift does.
+
+    **A 0 is an absence, not a ceiling.** ``domain/lega/parse.py`` renders an absent ``maxrl``
+    as ``()`` and never as zeros, and a lega permitting zero goalkeepers would contradict the
+    platform's own Mantra minimum of two (``rules/leghe-private.md`` §Mantra). CLAUDE.md
+    states the same rule for FantaLab — "a room that states 0 is not stating anything". The
+    other reading is not the neutral one either: a literal 0 is clamped up to its floor by
+    ``_satisfiable_ceiling``, which pins that half to exactly its minimum for a whole
+    auction — a band no lega declared, arrived at from a field it left blank.
+    """
+    if not max_roles or index >= len(max_roles):
+        return None
+    ceiling = int(max_roles[index])
+    return ceiling if ceiling > 0 else None
+
+
 @dataclass(frozen=True)
 class RosterRules:
-    """League roster composition. **Two goalkeepers, confirmed twice.**
+    """League roster composition: two super-roles, and the band a lega declares over them.
 
     Two super-roles (Mantra ``sroles=2``): goalkeepers and everyone else.
 
@@ -29,13 +84,27 @@ class RosterRules:
       goalkeepers, no per-role slot constraints at all" —
       ``rules/leghe-private.md`` §Mantra, from fantacalcio.it/regolamenti/leghe-private.
       Two is the floor for every Mantra league, not a per-league choice.
-    * **This league's setting.** The roster settings endpoint returns
-      ``minrl = maxrl = [2, 28]`` for lega 4103937 (``docs/leghe-api.md``, fetched
-      2026-08-26). ``minrl`` and ``maxrl`` are *equal*, so the split is fixed rather than
-      ranged: exactly 2 goalkeepers and exactly 28 movement players in a 30-man rosa.
+    * **This league's setting, and it moved under us.** On 2026-08-26 the roster settings
+      endpoint returned ``minrl = maxrl = [2, 28]`` over a 30-man rosa for lega 4103937
+      (``docs/leghe-api.md``). They were *equal*, so the split was pinned and
+      ``max_goalkeepers()`` deriving ``size - min_movement = 2`` was the declared ceiling as
+      well as the arithmetic one. **Since 2026-09-02 it reads 25/32 with ``minrl=[2, 23]``
+      and ``maxrl=[4, 28]``** (CLAUDE.md, "the lega's roster rules changed under us"): a
+      variable size and a real band, where that same derivation gives **9** keepers against
+      a declared **4**. This docstring asserted the equal split as current fact until
+      2026-09-24, and it is what kept ``maxrl`` unread on the Mantra path for three weeks.
 
-    Either source alone gives 2, and they agree, so ``max_goalkeepers()`` deriving 2 from
-    ``size - min_movement`` is not a coincidence of the arithmetic — it is the setting.
+    So a declared ceiling is carried, not derived. ``max_goalkeepers_declared`` /
+    ``max_movement_declared`` hold each half of ``maxrl`` when a lega states that half — one
+    without the other is a real band — and are ``None`` for "nothing was declared", which is
+    what a band read from a room, or built from these defaults, still is. Both constraints are real, so the accessors return whichever binds
+    first: a 25-man rosa owing 23 movement players has room for two keepers whatever
+    ``maxrl`` allows, and a 32-man one owing 23 has room for nine that ``maxrl`` forbids.
+
+    Nothing downstream catches a ceiling this band gets wrong. ``optimizer._build_mantra``
+    and ``reservation.opportunistic_walkaway`` read these two methods and both fail open,
+    ``max_bid`` reserves credits and checks no role at all, and ``docs/fantalab/01:142``
+    records that the platform's own MAX is client-enforced with no server backstop.
 
     It stays here as data rather than baked into the algorithm because the *other* lega
     (3584692) is Classic with ``[3, 8, 8, 6]``, a different shape entirely.
@@ -45,12 +114,41 @@ class RosterRules:
     goalkeeper_roles: frozenset[str] = frozenset({"POR"})
     min_goalkeepers: int = 2
     min_movement: int = 28
+    #: ``maxrl`` as a lega declared it, or ``None`` for "nothing was declared". Optional and
+    #: last so every band built without one — a room's, a test's, these defaults — keeps
+    #: meaning exactly what it meant.
+    max_goalkeepers_declared: int | None = None
+    max_movement_declared: int | None = None
 
     def max_goalkeepers(self) -> int:
-        return self.size - self.min_movement
+        return _binding_ceiling(
+            self.size - self.min_movement, self.max_goalkeepers_declared, self.min_goalkeepers
+        )
 
     def max_movement(self) -> int:
-        return self.size - self.min_goalkeepers
+        return _binding_ceiling(
+            self.size - self.min_goalkeepers, self.max_movement_declared, self.min_movement
+        )
+
+    def declared_ceiling_total(self) -> int | None:
+        """How many players the *declared* band can supply, or ``None`` if none was declared.
+
+        The Mantra twin of ``sum(rules.max_of(role) for role in rules.roles())``, which
+        ``resize_band`` already uses to refuse a Classic growth no band can fill. Both halves
+        have to be present: one declared ceiling says nothing about how many the other may
+        supply, and since ``rules_for_lega`` reads ``maxrl`` per entry a band really can carry
+        one and not the other.
+
+        Each half is counted at ``_satisfiable_ceiling``, the same value the accessors report,
+        so a ceiling read up to its floor supplies that many players here too. Counting the
+        literal number instead would have this refuse a size ``max_goalkeepers()`` says the
+        band fills.
+        """
+        if self.max_goalkeepers_declared is None or self.max_movement_declared is None:
+            return None
+        return _satisfiable_ceiling(
+            self.max_goalkeepers_declared, self.min_goalkeepers
+        ) + _satisfiable_ceiling(self.max_movement_declared, self.min_movement)
 
 
 @dataclass(frozen=True)
@@ -117,6 +215,30 @@ def rules_for_lega(
     An incomplete snapshot is **assumed, never invented**: the default band under
     `ASSUMED_NOTHING`, because a band nobody declared and a band the lega stated are
     different facts and only one is worth planning on.
+
+    **`maxrl` is read on both paths, and the Mantra one dropped it on the floor.** The
+    Classic branch has always carried it into the per-role bands; the Mantra return built
+    `RosterRules(size, minrl[0], minrl[1])` and there was no field for a declared ceiling to
+    land in, so `max_goalkeepers()` fell back to `size - min_movement`: **9** on the live
+    `32 / [2, 23] / [4, 28]`, against the 4 this lega permits. Both readers of that method
+    fail open and the platform does not backstop the cap, so `asta optimize` planned — and
+    `asta bid` would have bought — keepers the rosa may not hold. A lega that declares no
+    `maxrl` keeps the derivation and is unchanged.
+
+    **A declared ceiling is read per half and never discarded.** A `maxrl` arriving short, or
+    carrying a 0, is a half nobody stated (`_declared_ceiling`): that half derives and **the
+    other half is still honoured**. The first version of this read dropped *both* whenever
+    one looked odd, which is the fail-open direction twice over.
+
+    **Ceilings that cannot fill `roster_size` bind the total; they do not lose.** `xsltc = 33`
+    against a `maxrl` supplying 32 is not a lega contradicting itself — it is one whose
+    per-role ceilings run out before its declared maximum does, and 32 is the buyable reading.
+    So the size is clamped to what the band supplies. The first version discarded the pair
+    instead and still returned `SNAPSHOT_DECLARED`, which reinstates the 9-keeper derivation
+    under a provenance saying the lega declared it. The margin was **zero** on the live lega
+    (`4 + 28 = 32 = xsltc`) and the test was `<`, so one added to `xsltc`, or one taken off
+    either ceiling, turned the whole cap back off in silence — the 2026-08-26 drift again,
+    one notch along.
     """
     classic = role_groups == 1
     default: RosterRules | ClassicRosterRules = ClassicRosterRules() if classic else RosterRules()
@@ -136,21 +258,34 @@ def rules_for_lega(
 
     if len(min_roles) < 2:
         return default, ASSUMED_NOTHING
-    return (
-        RosterRules(
-            size=int(roster_size),
-            min_goalkeepers=int(min_roles[0]),
-            min_movement=int(min_roles[1]),
-        ),
-        SNAPSHOT_DECLARED,
+    # Read per entry, unlike the Classic `highs` above: that one falls back to `min_roles`
+    # wholesale, and a `maxrl` half the Mantra path cannot read must stay *unread* — a ceiling
+    # silently equal to the floor would pin the split the 2026-09-02 drift widened.
+    rules = RosterRules(
+        size=int(roster_size),
+        min_goalkeepers=int(min_roles[0]),
+        min_movement=int(min_roles[1]),
+        max_goalkeepers_declared=_declared_ceiling(max_roles, 0),
+        max_movement_declared=_declared_ceiling(max_roles, 1),
     )
+    # The ceilings bind the total too. `xsltc` is a *maximum* roster size and `maxrl` caps
+    # each half, so a pair supplying fewer than `xsltc` players means the rosa stops where
+    # they stop — that is the size to plan against, and `optimize_roster` fills `rules.size`
+    # exactly. Clamping rather than refusing because this runs unattended over two numbers
+    # the lega itself stated; `resize_band` refuses the same shortfall because there an
+    # operator typed `--size` and can be told.
+    # Written as a `min` and not as a `size > fillable` test: at equality — which is where
+    # the live lega sits — the two are the same object, so the boundary is unobservable and
+    # nothing could ever pin which side of it the code is on.
+    fillable = rules.declared_ceiling_total()
+    if fillable is not None:
+        rules = replace(rules, size=min(rules.size, fillable))
+    return rules, SNAPSHOT_DECLARED
 
 
 def rules_for_room(
     *,
     selection: str | None,
-    min_player: int | None,
-    max_player: int | None,
     min_goalkeepers: int | None = None,
     min_others: int | None = None,
     target_size: int | None = None,
@@ -159,13 +294,18 @@ def rules_for_room(
     """`RosterRules`, derived from what a room actually declares, with a stated provenance.
 
     **Reading the room too literally is the named risk (`tasks/archive/parity-plan.md` §2).** A room under
-    `"no-limit-per-role"` — the common case — has no per-role floor to read at all, and
-    `min_player`/`max_player` alone say only "at least this many total," never how many must
-    be goalkeepers. Deriving `min_goalkeepers=0` from that silence would be a room-declared
-    zero-keeper floor no room actually stated, not the honest "unknown" it is. So only
-    `selection == "min-max-goalie-others"` with both halves of the band present counts as
-    "the room said something"; everything else — nothing parsed, the wrong selection mode,
-    only one half of the band — returns today's default (`RosterRules()`:
+    `"no-limit-per-role"` — the common case — has no per-role floor to read at all, and the
+    room's own `min_player`/`max_player` totals say only "at least this many players," never
+    how many of them must be goalkeepers. Deriving `min_goalkeepers=0` from that silence
+    would be a room-declared zero-keeper floor no room actually stated, not the honest
+    "unknown" it is. **That argument is why the two totals are not parameters here.** They
+    were, from 3.3 until 2026-09-24, and in that whole time neither was ever read: a
+    signature that takes the room's totals and branches on none of them reads, at both call
+    sites, as though the room's shape were being honoured.
+
+    So only `selection == "min-max-goalie-others"` with both halves of the band present
+    counts as "the room said something"; everything else — nothing parsed, the wrong
+    selection mode, only one half of the band — returns today's default (`RosterRules()`:
     `size=30, min_goalkeepers=2, min_movement=28`) labelled `ASSUMED_NOTHING`.
 
     Measured over the live registry (`tests/golden/seed_live_sample.json`, a trimmed real
@@ -215,9 +355,22 @@ def resize_band(
     minimums. Deriving `min_movement = size - min_goalkeepers` there would invent a floor
     seven players above what the lega declared.
 
+    **A declared ceiling rides along unchanged, and is refused rather than stretched.**
+    `maxrl` is a rule about the rosa, not about its total, so one now above the new size just
+    stops binding — `max_movement()` already takes the tighter of it and `size -
+    min_goalkeepers`. A size the declared pair cannot *fill* is the Classic refusal below,
+    reached by the Mantra route: derived ceilings always leave room for `size` players and a
+    declared pair need not, and the alternative is `optimize_roster` running out of legal
+    candidates an hour later, inside the bidding loop. **`rules_for_lega` answers that same
+    shortfall by clamping the size instead**, and the asymmetry is the point: there a cron run
+    reconciles two numbers the lega itself stated and nobody is watching, here an operator
+    typed one and can be told which of the two he is fighting.
+
     So: **keep the floors, and clamp only as far as the new size forces.** On a shrink that
-    reproduces `drop_unvaluable` exactly — 30 → 25 gives `min_movement=23`, which is its
-    `28 - 5` — and on a growth it leaves the declared floor alone. Classic goes through
+    reproduces `drop_unvaluable`'s floors exactly — 30 → 25 gives `min_movement=23`, which is
+    its `28 - 5` — and on a growth it leaves the declared floor alone. (The *ceilings* are
+    where the two part company, and deliberately: `drop_unvaluable` shrinks the declared one
+    because a slot is consumed, and here nothing is.) Classic goes through
     `ClassicRosterRules.shrunk`, which already trims floors largest-first to keep
     `sum(min) <= size`; a second copy of that arithmetic would be a second answer.
 
@@ -240,7 +393,17 @@ def resize_band(
         raise ValueError(
             f"--size {size} is below the {rules.min_goalkeepers} goalkeepers this band requires"
         )
-    return replace(rules, size=size, min_movement=min(rules.min_movement, size - rules.min_goalkeepers))
+    # The Classic refusal above, in Mantra's two-super-role shape, and it can only bite when
+    # a lega actually sent `maxrl` — `declared_ceiling_total()` is `None` otherwise and every
+    # band that predates the drift resizes exactly as it did.
+    declared = rules.declared_ceiling_total()
+    if declared is not None and size > declared:
+        raise ValueError(
+            f"--size {size} cannot be filled: this band allows at most {declared} players"
+        )
+    return replace(
+        rules, size=size, min_movement=min(rules.min_movement, size - rules.min_goalkeepers)
+    )
 
 
 def drop_unvaluable(
@@ -266,6 +429,13 @@ def drop_unvaluable(
     deliberate approximation, and it is why the caller names him — a human reading the
     heartbeat can correct an assumption a silent fallback would hide.
 
+    **A declared movement ceiling shrinks with the floor beneath it**, under that same
+    assumption: `maxrl` counts the whole rosa and he is in it, so a ceiling left alone would
+    let the plan buy its full movement allowance *on top of* him. It is deliberately not what
+    `resize_band` does — there the size was wrong and the band was not, and no slot is
+    consumed. Feasibility survives either way: both the size and the ceiling fall by the same
+    count, so a band that could fill itself still can.
+
     One live instance on 2026-09-01: fantacalcio id 7581, Konaté A., in FantaLab's listone
     and absent from our ``quotazioni``.
     """
@@ -281,6 +451,11 @@ def drop_unvaluable(
         rules,
         size=max(0, rules.size - len(dropped)),
         min_movement=max(0, rules.min_movement - len(dropped)),
+        max_movement_declared=(
+            None
+            if rules.max_movement_declared is None
+            else max(0, rules.max_movement_declared - len(dropped))
+        ),
     )
     return kept, shrunk, dropped
 

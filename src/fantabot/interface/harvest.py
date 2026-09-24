@@ -162,10 +162,9 @@ def fantalab_login(
     in the clear; they go from browser memory through Fernet into Postgres.
     """
     from fantabot.adapters.browser.capture import read_storage_state, real_browser
-    from fantabot.application.fantalab_login import LoginAborted
     from fantabot.application.fantalab_login import run as run_login
     from fantabot.application.login_wait import CaptureUnreadable
-    from fantabot.domain.tokens.errors import SignInWindowClosed
+    from fantabot.domain.tokens.errors import LoginAborted, SignInWindowClosed
 
     try:
         run_login(

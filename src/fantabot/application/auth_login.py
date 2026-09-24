@@ -28,19 +28,15 @@ from fantabot.application.login_wait import (
 from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.capture import CapturedToken, parse_storage_state
 from fantabot.domain.tokens.crypto import TokenCipher
-from fantabot.domain.tokens.errors import KeyMissing, NoLeaguesFound, TokenError
+from fantabot.domain.tokens.errors import (
+    KeyMissing,
+    LoginAborted,
+    NoLeaguesFound,
+    TokenError,
+)
 from fantabot.domain.tokens.status import TokenStatus, is_usable
 
 LOGIN_URL = "https://leghe.fantacalcio.it"
-EXIT_PREFLIGHT = 2
-
-
-class LoginAborted(Exception):
-    """A preflight refused. Carries the exit code the command should use."""
-
-    def __init__(self, message: str, code: int = EXIT_PREFLIGHT) -> None:
-        super().__init__(message)
-        self.code = code
 
 
 @dataclass(frozen=True)

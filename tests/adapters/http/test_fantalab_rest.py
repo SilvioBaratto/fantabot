@@ -1,10 +1,16 @@
 """The own-room REST reads, on `httpx.MockTransport`. **Zero sockets.**
 
-`fantalab/rest.py` wraps the two unauthenticated reads the live advisory needs — one league
-record and the public live list — so the parse is pinned on fixtures and the HTTP call is
-proven to send the right shape without opening a socket (the autouse guard in `conftest` would
-fail the test if it did). The shard resolution is the load-bearing detail: a room's `db` field
-routes every realtime subscription, and `null` means the default namespace, not shard 0.
+`fantalab/rest.py` wraps the reads the live advisory needs to discover a room — the league
+record and the seat claim — so the parse is pinned on fixtures and the HTTP call is proven to
+send the right shape without opening a socket (the autouse guard in `conftest` would fail the
+test if it did). The shard resolution is the load-bearing detail: a room's `db` field routes
+every realtime subscription, and `null` means the default namespace, not shard 0.
+
+The live list is **not** covered here. Its second wrapper, `rest.live_leagues`, was deleted on
+2026-09-24 — it had no production caller, and the one the app does use lives in
+`harvest/client.py` (`test_aste_client.py`), where the bare-array parse and the configured host
+are pinned instead. The array shape this file used to assert on is the same shape `from_card`
+reads there.
 """
 
 from __future__ import annotations
@@ -86,15 +92,6 @@ def test_fetch_league_posts_the_right_shape_without_a_socket() -> None:
     assert seen["path"] == "/fantaleague/fetch"
     assert seen["body"] == {"fantaleague_id": "90c5fa2c-league", "type": "fantaleague"}
     assert room.db == 9 and room.raise_mode == "free" and len(room.seats) == 2
-
-
-def test_live_leagues_parses_a_bare_array() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/fantaleagues/live"
-        return httpx.Response(200, json=[FETCH_BODY, {**FETCH_BODY, "db": None}])
-
-    rooms = rest.live_leagues(transport=httpx.MockTransport(handler))
-    assert [r.db for r in rooms] == [9, None]
 
 
 def test_a_token_is_sent_as_a_bearer_and_omitted_without_one() -> None:

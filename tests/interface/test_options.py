@@ -96,3 +96,69 @@ class TestBargainShareRejectsNonFinite:
                 "--bargain-share", "nan",
             ]
         )
+
+
+# -- one default per flag, across every command that declares it -------------------------
+
+import click  # noqa: E402 — grouped with the tests that need it
+import typer.main  # noqa: E402
+
+from fantabot.interface.asta import DEFAULT_LAM  # noqa: E402
+
+
+def _lam_defaults() -> dict[str, object]:
+    """Every `asta` subcommand that takes `--lam`, and the default Click would apply.
+
+    Asked of Typer's Click tree rather than grepped out of `--help`, for
+    `test_cli_harvest_home.py::_param`'s reason: a boxed help row is prose, and "what does
+    this option default to" is a property, not a number that happens to appear in the box.
+    """
+    root: click.Command = typer.main.get_command(app)
+    group = root.get_command(click.Context(root), "asta")  # type: ignore[attr-defined]
+    assert group is not None
+    ctx = click.Context(group)
+    defaults: dict[str, object] = {}
+    for name in group.list_commands(ctx):  # type: ignore[attr-defined]
+        command = group.get_command(ctx, name)  # type: ignore[attr-defined]
+        for param in command.params:
+            if param.name == "lam":
+                defaults[name] = param.default
+    return defaults
+
+
+class TestEveryCommandOptimisesTheSameObjective:
+    """`--lam` is the risk aversion in `sum(mu) - lam*Var`, so two defaults are two objectives.
+
+    `asta optimize` shipped `0.0` while the five commands that touch a live room shipped
+    `0.3`. `asta optimize` is the *offline preview* of what those commands do, so unless the
+    operator remembered the flag the preview solved a different problem from the bidder —
+    silently, since both numbers are legal. `README.md:164` writes the example as
+    `--lam 0.3` explicitly, which is a doc working around a default rather than one
+    documenting it, and two commands word their help as "as the live commands use".
+
+    Written as "they all agree" rather than "optimize is 0.3", because a pinned literal on
+    one command is exactly the shape that let six declarations drift in the first place.
+    """
+
+    def test_the_six_declarations_are_all_still_here(self) -> None:
+        """Pinned so a rename cannot leave the agreement below with one case, or none —
+        which is a comparison that passes by having nothing to compare."""
+        assert sorted(_lam_defaults()) == [
+            "bench", "bid", "calibrate", "live", "optimize", "room",
+        ]
+
+    def test_no_command_disagrees_with_another_about_lam(self) -> None:
+        defaults = _lam_defaults()
+        assert set(defaults.values()) == {DEFAULT_LAM}, (
+            f"--lam defaults disagree across commands: {defaults}"
+        )
+
+    def test_the_offline_preview_defaults_to_what_the_live_commands_use(self) -> None:
+        """The specific pair the drift was between, named so the failure says which."""
+        defaults = _lam_defaults()
+        assert defaults["optimize"] == defaults["bid"] == defaults["room"] == defaults["live"]
+
+    def test_the_shared_default_is_the_live_value(self) -> None:
+        """`0.3` is what the five live commands have always shipped and what `README.md`
+        passes by hand; agreeing on `0.0` would satisfy the two tests above."""
+        assert DEFAULT_LAM == 0.3

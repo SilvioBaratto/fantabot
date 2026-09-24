@@ -132,13 +132,31 @@ TARGET_PRICES_OUTCOMES = ("priced", "no_data", "unknown_system", "unreachable")
 
 
 def because(exc: Exception) -> str:
-    """One line, typed. `endpoints/room.py`'s idiom, and `tests/conftest.py`'s before it.
+    """One line, typed. `endpoints/room.py`'s idiom, and `tests/conftest.py`'s before it —
+    room.py held a second copy until 2026-09-24 and now calls this one.
 
     A driver traceback says the call failed; it does not say which of five things failed,
     and it is not something to put on a page. The type plus the first line is the most a
     reader can act on and the least that identifies the fault.
+
+    **An exception with no message is the ordinary case here, not the exotic one.** `str()`
+    of a bare `OSError`, `TimeoutError` or `ConnectionResetError`, of `SQLAlchemyError("")`
+    and of `httpx.ConnectError("")` is `""` — measured, this venv, 2026-09-24 — and
+    `"".splitlines()` is `[]`, so the unguarded `[0]` raised `IndexError` *inside* the
+    `except` clause that exists to keep a fault off the 500 path. The families it fired on
+    are exactly the ones these routes name: a socket that times out, a database handle that
+    will not open, a transport error carrying its cause's empty string.
+    Both copies carried it, which is why there is now one.
+
+    The type alone is returned in that case, deliberately: `"OSError: "` is a colon
+    promising a reason that is not there, and the name is the whole of what is known. That
+    is not a fresh call — `interface/harvest.py::_constraint_of` is the one copy of this
+    idiom that already carried the guard, and it renders the bare type for the same reason.
+    The first line is stripped for the same rule's sake: a message that is only whitespace
+    says nothing, so it reads as nothing rather than as a colon and three spaces.
     """
-    return f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
+    first = (str(exc).splitlines() or [""])[0].strip()
+    return f"{type(exc).__name__}: {first}" if first else type(exc).__name__
 
 
 __all__ = [

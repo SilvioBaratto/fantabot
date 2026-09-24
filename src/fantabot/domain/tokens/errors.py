@@ -170,6 +170,41 @@ class NoLeaguesFound(TokenError):
         )
 
 
+# --- the preflight ---------------------------------------------------------
+
+#: The exit code a refused preflight gives the command. Distinct from 1, which is
+#: "we opened a browser and still got nothing", so a wrapper can tell a
+#: misconfiguration from a login that went nowhere.
+EXIT_PREFLIGHT = 2
+
+
+class LoginAborted(Exception):
+    """A preflight refused. Carries the exit code the command should use.
+
+    **One class, and that is the point.** `application/auth_login.py` and
+    `application/fantalab_login.py` each defined their own `LoginAborted` with a
+    word-for-word identical body until 2026-09-24, so `except
+    auth_login.LoginAborted` could not catch the FantaLab one. Nothing failed at
+    the time — each command imported its own — which is exactly why it was worth
+    fixing before a shared handler was written: the symptom of that bug is a
+    traceback in front of an operator mid-login, and it only appears once the two
+    paths meet. Both use cases now import this name, so a handler that catches
+    either catches both.
+
+    **Deliberately not a `TokenError`.** It says the run was refused before the
+    browser opened; the `TokenError` family describes a credential, and
+    `login_wait` treats members of that family as "not ready yet, look again".
+
+    Lives here rather than in `application/` for the same reason
+    `SignInWindowClosed` does: an exception class is pure, and this is where this
+    feature's taxonomy is read.
+    """
+
+    def __init__(self, message: str, code: int = EXIT_PREFLIGHT) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 # --- the transport ---------------------------------------------------------
 
 

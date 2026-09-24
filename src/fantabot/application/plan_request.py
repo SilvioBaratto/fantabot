@@ -85,6 +85,28 @@ class SentimentSource(Protocol):
 DEFAULT_NUM_TEAMS = 8
 DEFAULT_NUM_CREDITS = 500
 
+#: Risk aversion: the `lam` in the optimizer's `sum(mu) - lam*Var`
+#: (`domain/asta/optimizer.py`). **One value, named once, because every surface that plans a
+#: rosa has to agree** — the six `asta` commands and `GET /asta/plan` / `GET /asta/advisory`.
+#:
+#: It lives *here*, beside `PlanRequest`, and not in `interface/asta.py` where it was first
+#: named, for CLAUDE.md's rule: "`interface/` holds no decision the app also needs". A
+#: constant the app cannot import is a constant the app retypes, and a retyped constant is
+#: what this whole module exists to stop — `asta optimize` and `GET /asta/plan` drifting in
+#: ten inputs. The CLI shipped `0.0` against the live commands' `0.3` until it was named;
+#: naming it in the CLI layer alone then left the *route* on `0.0`, which is the same
+#: divergence one surface along: the page and the command planning two different rosters for
+#: one lega, `sum(mu)` against `sum(mu) - 0.3*Var`, with no flag typed anywhere.
+#: `api/tests/parity/test_parity_asta_defaults.py` reads both defaults back out of the
+#: running code and pins them equal, because a test that passes `lam` explicitly on both
+#: sides is exactly the blind spot that let the split through.
+#:
+#: 0.3 rather than 0.0 because the live bidder is the surface that spends credits and
+#: `asta optimize` is its offline preview; `README.md:164` was already typing `--lam 0.3` by
+#: hand, which is a doc working around a default rather than documenting one. Re-splitting
+#: them is the regression: state the constant, never a literal.
+DEFAULT_LAM = 0.3
+
 
 @dataclass(frozen=True, slots=True)
 class PlanRequest:
@@ -103,7 +125,10 @@ class PlanRequest:
     budget: float
     rules: RosterRules | ClassicRosterRules
     owned: frozenset[str] = frozenset()
-    lam: float = 0.0
+    #: Risk aversion. Defaulted from the shared constant rather than a literal `0.0`,
+    #: so a caller who omits it gets what the CLI and the page pass — a third,
+    #: quieter value here would be the same split the constant was lifted to close.
+    lam: float = DEFAULT_LAM
     n_fallbacks: int = 0
     tilt_k: float = 0.25
     #: Whether to consult the feed at all. `False` is the ablation control and is a

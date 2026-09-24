@@ -23,7 +23,19 @@ if TYPE_CHECKING:
 from pathlib import Path
 
 from fantabot.application.asta_planner import read_plan_inputs
-from fantabot.application.plan_request import DEFAULT_NUM_CREDITS, DEFAULT_NUM_TEAMS
+
+# `DEFAULT_LAM` is `--lam`'s default for all six commands below, and it is *imported*
+# rather than declared here. It was declared here, and that was half a fix: naming it in
+# the CLI layer made the six commands agree with each other and left `GET /asta/plan` —
+# which may not import `fantabot.interface` — on the `0.0` this file used to ship, so one
+# lega got two rosters depending on whether the operator typed a command or opened a page.
+# CLAUDE.md's rule is the general form: "`interface/` holds no decision the app also
+# needs." The reasoning for 0.3 is written down beside the constant.
+from fantabot.application.plan_request import (
+    DEFAULT_LAM,
+    DEFAULT_NUM_CREDITS,
+    DEFAULT_NUM_TEAMS,
+)
 from fantabot.domain.asta.legality import build_legality, fieldable_schemi, load_compat
 from fantabot.domain.asta.live import normalize
 from fantabot.domain.asta.opponents import format_advisory, format_opponents
@@ -62,6 +74,23 @@ class _SentimentSource(Protocol):
     def all_latest(
         self, *, data_run: date | None = ...
     ) -> dict[str, SentimentRow]: ...
+
+
+def _arming_sentences() -> dict[str, str]:
+    """The CLI's wording for every lock a live asta command can shut. One map, both commands.
+
+    `application/arming.CLI_SENTENCES` covers the two the operator holds. The bridge is named
+    rather than sentenced over there — its *own* refusal line carries the measured age and the
+    operator's `--max-bridge-age-hours`, which no static map can hold — so the summary line
+    needs a short entry for it here, beside the other two.
+
+    Imported inside the body, as `interface/lineup.py` does: this module is on the CLI's
+    import path and `asta_session` pulls in the RTDB adapters.
+    """
+    from fantabot.application.arming import CLI_SENTENCES
+    from fantabot.application.asta_session import STALE_BRIDGE
+
+    return {**CLI_SENTENCES, STALE_BRIDGE: "the listone bridge is too old to arm on"}
 
 
 def _today() -> date:
@@ -385,7 +414,7 @@ def _report_stopped(report: Any) -> None:
 def asta_optimize(
     owned: str = typer.Option("", help="Player ids already owned, comma/space separated."),
     budget: float = typer.Option(500.0, help="Remaining credits to spend."),
-    lam: float = typer.Option(0.0, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    lam: float = typer.Option(DEFAULT_LAM, "--lam", help="Risk aversion; higher diversifies across clubs."),
     fallbacks: int = typer.Option(3, help="How many next-best plans to show."),
     callable_only: bool = typer.Option(
         True,
@@ -520,7 +549,7 @@ def asta_live(
         help="Our starting credits. 0 reads the room's own num_credits on --league, and "
         "is 500 on --replay — the same idiom asta room uses.",
     ),
-    lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    lam: float = typer.Option(DEFAULT_LAM, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
     fmt: str = typer.Option(
         "", "--format",
@@ -577,6 +606,11 @@ def asta_live(
         console.print("[red]Pass exactly one of --league or --replay.[/red]")
         raise typer.Exit(1)
 
+    #: fantateam id -> the name that seat plays under, for the opponents block at the end.
+    #: Empty on `--replay` and on a `--league` run whose probe degraded: those really have no
+    #: seat list, and `format_opponents` falls back to the id, which is what it is for.
+    rival_names: Mapping[str, str] = {}
+
     if league:
         if db < 0:
             console.print("[red]--league needs --db (the room's RTDB shard).[/red]")
@@ -591,6 +625,14 @@ def asta_live(
         # Resolved **before** the ledger read, so a refusal costs no network — and off ONE
         # probe, because the `RoomConfig` that answers the format carries the shape too.
         room = _declared_room(league, warn=lambda m: console.print(f"[dim]{m}[/dim]"))
+
+        # A fourth fact off the same probe, free: the seat list is what turns the opponents
+        # block's uuids into the names on screen in the room. `getattr` because `room` is
+        # `None` whenever the probe degraded, which is never fatal here.
+        rival_names = {
+            seat.fantateam_id: seat.team_name or seat.fantateam_id
+            for seat in getattr(room, "seats", None) or ()
+        }
 
         # Three rungs for the format, most specific first: `--format`, the room's own
         # `asta_type`, the recorded corpus. There is no fourth. `mantra` was the fourth and
@@ -711,7 +753,17 @@ def asta_live(
         return
 
     console.print(format_advisory(advisory.result, advisory.walkaways, advisory.world.names))
-    console.print(format_opponents(advisory.rivals, names={}, total_budget=int(budget)))
+    # `rival_names`, not the `{}` literal this passed. `format_opponents` falls back to
+    # `names.get(team_id, team_id)`, so an empty mapping printed a raw fantateam uuid per
+    # rival for every run — the column was structurally unable to ever show a name.
+    #
+    # **Not `advisory.world.names`**, which is the mapping one line up: that one is keyed by
+    # *player* id (`plan_inputs.py:126`, `{pid: row.nome}`) and these keys are fantateam ids.
+    # Handing it over would still fall back for every rival, and would print a player's name
+    # for any id that happened to collide. The real mapping is the room's seat list, the same
+    # one `asta_room.py:228` builds `RoomRules.team_names` from — and `--replay` genuinely has
+    # none, so it keeps the empty mapping and its goldens.
+    console.print(format_opponents(advisory.rivals, names=rival_names, total_budget=int(budget)))
 
 
 def asta_room(
@@ -726,7 +778,7 @@ def asta_room(
         0.0, help="Our starting credits. 0 reads the room's own num_credits."
     ),
     limit: int = typer.Option(40, help="Listone rows rendered."),
-    lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    lam: float = typer.Option(DEFAULT_LAM, "--lam", help="Risk aversion; higher diversifies across clubs."),
     poll: float = typer.Option(2.0, help="Seconds between polls."),
     season: Season = SEASON,
     sentiment: Sentiment = True,
@@ -831,8 +883,6 @@ def asta_room(
 
     rules, rules_provenance = rules_for_room(
         selection=resolved.number_of_players_selection,
-        min_player=resolved.min_player,
-        max_player=resolved.max_player,
         min_goalkeepers=resolved.min_goalkeepers,
         min_others=resolved.min_others,
         classic_band=resolved.players_settings_data,
@@ -906,6 +956,17 @@ def asta_room(
         console.print(
             f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
             f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
+        )
+
+    if not gate.armed:
+        # The header badge says DRY RUN and has never said *why*: `gate.closed` was computed
+        # here and read only for the `STALE_BRIDGE` membership test above, so the one command
+        # that already knew every shut lock was the one that named none of them. Said before
+        # the live view takes the screen, so it survives above the first paint — and worded
+        # exactly as `asta bid` words it, because two live bidding commands answering
+        # "why is this a rehearsal?" differently is the drift this gate exists to prevent.
+        console.print(
+            f"[dim]DRY RUN — nothing will be sent ({gate.because(_arming_sentences())})[/dim]"
         )
 
     # `armed` is a list so the SIGINT handler can disarm it without a global.
@@ -1111,7 +1172,7 @@ def asta_calibrate(
     teams: CorpusTeams = DEFAULT_NUM_TEAMS,
     credits: CorpusCredits = DEFAULT_NUM_CREDITS,
     season: Season = SEASON,
-    lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
+    lam: float = typer.Option(DEFAULT_LAM, "--lam", help="Risk aversion, as the live commands use."),
     fmt: str = typer.Option(
         "mantra", "--format",
         help="Which recorded corpus to sweep: mantra or classic. There is no lega to detect "
@@ -1198,7 +1259,7 @@ def asta_bid(
         False, "--arm", help="Second, positive lock. Bidding is OFF without it."
     ),
     budget: float = typer.Option(500.0, help="Our starting credits."),
-    lam: float = typer.Option(0.3, "--lam", help="Risk aversion; higher diversifies across clubs."),
+    lam: float = typer.Option(DEFAULT_LAM, "--lam", help="Risk aversion; higher diversifies across clubs."),
     season: Season = SEASON,
     fmt: str = typer.Option(
         "", "--format",
@@ -1277,7 +1338,13 @@ def asta_bid(
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.news_sentiment import NewsSentimentSource
     from fantabot.application.asta_room import RoomFrame
-    from fantabot.application.asta_session import lot_router, session_from, stop_poll
+    from fantabot.application.asta_session import (
+        STALE_BRIDGE,
+        lot_router,
+        room_arming,
+        session_from,
+        stop_poll,
+    )
     from fantabot.config import journal_path, live_auto_act
     from fantabot.domain.asta.bid import Seat, max_bid
 
@@ -1366,16 +1433,31 @@ def asta_bid(
 
     seat = Seat(fantateam_id=team, user_id=user)
 
-    # A stale bridge (the refresh above failed and fell back) refuses *arming*, not the run
-    # — see `asta_room`'s identical guard. `bridge_age is None` (a pre-envelope cache) is not
-    # penalised: there is no age to compare yet.
-    if listone.is_stale(bridge_age, max_hours=max_bridge_age_hours):
-        assert bridge_age is not None  # `is_stale` only returns True with a real age
+    # Three locks, weighed in `application/` — the same `room_arming` call `asta room` makes,
+    # and for its reason: a second copy of the arming contract is a second opinion nobody is
+    # told about. A stale bridge (the refresh above failed and fell back) still refuses
+    # *arming*, not the run, and `bridge_age is None` (a pre-envelope cache) is still not
+    # penalised — there is no age to compare yet. What changed is who decides.
+    #
+    # This body held that second copy, in two halves that could each name only one cause: a
+    # bare `arm = False` when the bridge was stale, and then a ternary over the other two. So
+    # an operator with both locks shut was told about one, fixed it, retried, and was told
+    # about the other — and once the bridge had silently cleared `arm`, the ternary said
+    # "--arm not given" to an operator who had typed `--arm`.
+    gate = room_arming(
+        arm=arm,
+        auto_act=live_auto_act(),
+        bridge_age=bridge_age,
+        max_bridge_age_hours=max_bridge_age_hours,
+    )
+    if STALE_BRIDGE in gate.closed:
+        assert bridge_age is not None  # only a real age can make that lock shut
+        # The wording is the CLI's — this line carries the measured age and the operator's
+        # own limit, which is why `application/` names that lock rather than sentencing it.
         console.print(
             f"[red]arming refused: listone bridge is {bridge_age / 3600:.1f}h old, over the "
             f"{max_bridge_age_hours:.0f}h limit (--max-bridge-age-hours). Watching only.[/red]"
         )
-        arm = False
 
     # A list so the SIGINT handler can clear it without a global, and read by the writer on
     # every bid. This was a plain `arm` bool captured once by the write closure, with no
@@ -1383,10 +1465,9 @@ def asta_bid(
     # `except KeyboardInterrupt` and ended the run. The one command that places real raises
     # was the one live command that could not be told "stop bidding, keep watching".
     #
-    # The ambient lock is read once for the banner and again on every write by
-    # `live_auto_act`; `armed` is the per-invocation half, which only a Ctrl-C can clear.
-    auto_act_now = live_auto_act()
-    armed = [bool(auto_act_now and arm)]
+    # The ambient lock is read once for `gate` and again on every write by `live_auto_act`;
+    # `armed` is the per-invocation half, which only a Ctrl-C can clear.
+    armed = [gate.armed]
 
     # Said before the first poll, not after: the operator has to be able to tell an armed run
     # from a rehearsal at a glance, and the heartbeat that follows looks identical either way.
@@ -1396,8 +1477,10 @@ def asta_bid(
             "Ctrl-C once stops bidding and keeps watching; twice exits.[/bold red]"
         )
     else:
-        why = "--arm not given" if auto_act_now else "FANTABOT_AUTO_ACT is false"
-        console.print(f"[dim]DRY RUN — nothing will be sent ({why})[/dim]")
+        # Every shut lock, not the first: this is the one command that spends real credits.
+        console.print(
+            f"[dim]DRY RUN — nothing will be sent ({gate.because(_arming_sentences())})[/dim]"
+        )
 
     journal = RoomJournal(journal_path())
     # `cycle_ms` measured here, not in `application/` — see `asta_room`'s identical wiring,
@@ -1534,7 +1617,7 @@ def asta_bench(
             "clearing_sales.csv, listone_map.json."
         ),
     ),
-    lam: float = typer.Option(0.3, "--lam", help="Risk aversion, as the live commands use."),
+    lam: float = typer.Option(DEFAULT_LAM, "--lam", help="Risk aversion, as the live commands use."),
     tilt_k: TiltK = SentimentWeights().k,
 ) -> None:
     """Replay the 2026-09-01 evening's three problem lots through a real `RoomTracker`.

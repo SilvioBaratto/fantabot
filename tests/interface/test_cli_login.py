@@ -871,3 +871,30 @@ def test_the_skip_message_speaks_only_of_the_lega_it_checked(
     assert "3584692" in out
     assert "4103937" not in out, "it vouched for a lega it did not check"
     assert "All stored tokens valid" not in out, "it spoke for tokens outside its scope"
+
+
+def test_both_logins_abort_with_one_and_the_same_class() -> None:
+    """One `LoginAborted`, so one `except` clause covers both login commands.
+
+    `auth_login` and `fantalab_login` each carried their own class with a
+    word-for-word identical body until 2026-09-24: `except
+    auth_login.LoginAborted` could not catch the FantaLab one. Nothing was red at
+    the time, because each command imported its own — the cost was owed by the
+    first shared handler anyone wrote, as a traceback in front of an operator
+    mid-login.
+
+    Identity is the assertion, not `isinstance` inside one module: that check
+    passed against the bug. The raise loop is the behaviour the identity buys, and
+    it is separately worth pinning — a subclass would satisfy the loop and fail
+    the identity, and only one of those two is "one class".
+    """
+    from fantabot.application import fantalab_login
+    from fantabot.domain.tokens.errors import LoginAborted as canonical
+
+    assert login.LoginAborted is canonical
+    assert fantalab_login.LoginAborted is canonical
+
+    for module in (login, fantalab_login):
+        with pytest.raises(canonical) as caught:
+            raise module.LoginAborted("the preflight refused")
+        assert caught.value.code == 2, "the preflight exit code travels with the class"

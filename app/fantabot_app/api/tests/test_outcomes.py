@@ -29,7 +29,7 @@ from typing import Any, Self
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from fantabot_app.api.main import app
 from fantabot_app.api.outcomes import (
@@ -341,6 +341,36 @@ def test_because_is_one_typed_line_and_not_a_traceback() -> None:
 
     assert line == "RuntimeError: could not connect"
     assert "\n" not in line
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OSError(),
+        TimeoutError(),
+        ConnectionResetError(),
+        SQLAlchemyError(""),
+        RuntimeError(""),
+        # Whitespace says nothing either, and reads as `"OSError:    "` without the strip.
+        OSError("   \n  "),
+    ],
+    ids=lambda exc: type(exc).__name__,
+)
+def test_an_exception_with_nothing_to_say_is_named_rather_than_raising(exc: Exception) -> None:
+    """The families these routes actually name, and every one of them stringifies to
+    nothing — `""` for the first five, whitespace for the last.
+
+    `"".splitlines()` is `[]`, so `[0]` raised `IndexError` *inside* the `except` clause
+    that called `because` to keep the fault off the 500 path: the helper turned the tidy
+    page it exists to build into the 500 it exists to avoid. A socket that times out, a
+    database handle that will not open and a transport error carrying its cause's empty
+    string are not exotic; they are what an outage looks like.
+
+    Equality, not "it did not raise". A fix that only stopped the crash would render
+    `"OSError: "` — a colon promising a reason that is not there — and pass a test that
+    asked for no more than survival.
+    """
+    assert because(exc) == type(exc).__name__
 
 
 # -- helpers ------------------------------------------------------------------------------

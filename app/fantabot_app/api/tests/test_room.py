@@ -183,6 +183,56 @@ def test_a_failing_fetch_is_unreachable_and_names_the_exception() -> None:
     assert "401" in check.reason
 
 
+def test_a_failure_with_nothing_to_say_is_named_rather_than_a_500() -> None:
+    """`str(TimeoutError())` is `""` and `"".splitlines()` is `[]`.
+
+    The helper that builds this `reason` raised `IndexError` on that, inside the very
+    `except` clause that calls it — so a room check against a room that simply stopped
+    answering returned a 500 instead of the outcome this module exists to name. The type
+    alone is the reason here: a colon with nothing after it promises a sentence there is
+    not.
+    """
+
+    def boom(_: str) -> Any:
+        raise TimeoutError
+
+    check = check_room(ROOM_URL, connect=_connect(fetch=boom))
+
+    assert check.outcome == "unreachable"
+    assert check.reason == "TimeoutError"
+    assert check.fantaleague_id == ROOM  # the link parsed; only the room did not answer
+
+
+def test_a_message_less_connect_failure_is_named_too() -> None:
+    """The other call site, and the one `test_the_endpoint_answers_rather_than_500ing...`
+    below covers only with a talkative exception. A database handle that will not open
+    raises `OSError` with nothing to say far more often than with a sentence."""
+
+    def no_database() -> tuple[str, Callable[[str], Any]]:
+        raise OSError
+
+    check = check_room(ROOM_URL, connect=no_database)
+
+    assert check.outcome == "unreachable"
+    assert check.reason == "OSError"
+
+
+def test_the_room_route_holds_no_second_copy_of_the_one_line_reason() -> None:
+    """One sentence, one implementation.
+
+    `room.py` carried its own `_because` until 2026-09-24, identical to
+    `api/outcomes.because` down to the unguarded `[0]` — so the bug had two homes and
+    fixing either would have left the other. Pinned by identity rather than by behaviour
+    because a re-added copy would pass every behavioural test in this file on the day it
+    was written, and drift afterwards.
+    """
+    from fantabot_app.api.outcomes import because
+    from fantabot_app.api.v1.endpoints import room
+
+    assert not hasattr(room, "_because"), "the second copy is back"
+    assert getattr(room, "because", None) is because
+
+
 def test_nothing_stored_is_no_credential_and_names_the_remedy() -> None:
     """A missing credential is a remedy, not a failure — and it names the remedy."""
     from fantabot.domain.tokens.errors import FantalabSessionMissing

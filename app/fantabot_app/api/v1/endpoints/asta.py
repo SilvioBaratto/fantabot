@@ -40,6 +40,7 @@ from fantabot.adapters.http.fantalab.feed import ledger_events
 from fantabot.adapters.http.fantalab.listone import fetch as listone_fetch
 from fantabot.application.asta_advisory import build_advisory
 from fantabot.application.plan_request import (
+    DEFAULT_LAM,
     DEFAULT_NUM_CREDITS,
     DEFAULT_NUM_TEAMS,
     WALK_AWAY_UNPRICED,
@@ -125,7 +126,25 @@ class AstaPlan(BaseModel):
     budget: float = 0.0
     #: The knobs the CLI exposes as options, echoed so the page says what it planned on.
     #: `lam` was fixed at 0.0 and untunable; `owned` did not exist, so every plan the page
-    #: has ever shown was for an empty roster.
+    #: has ever shown was for an empty roster. Both are query parameters now, and `lam`'s
+    #: default is the CLI's — `application.plan_request.DEFAULT_LAM`.
+    #:
+    #: The `0.0` still on this line is **this model's** default, not the route's, and it is
+    #: reached only by the `found=False` screens, which carry no plan to have planned on. A
+    #: planned response always overwrites it with what was asked for.
+    #:
+    #: It stays `0.0` deliberately, and `test_parity_asta_defaults.py` pins it there so the
+    #: next sweep for stray `lam = 0.0` does not "finish the job" here. This field *echoes*
+    #: what a plan was solved at; it never decides anything. On a `found=False` response
+    #: nothing was solved, so `0.3` would be a claim — a risk aversion the page could print
+    #: beside a failure that never reached the optimizer — where `0.0` is the same "nothing
+    #: here" that `total_cost`, `objective` and `budget` already say one line above.
+    #:
+    #: Measured: with this at `0.0` and the route at `DEFAULT_LAM`, deleting `lam=lam,` from
+    #: the planned return below fails `test_parity_asta_plan.py::
+    #: test_the_page_says_what_it_planned_on` with `assert 0.0 == 0.3`. Align the two and
+    #: that deletion survives — the page would echo the route's default whether or not the
+    #: plan was ever told it. The difference is what makes the echo observable.
     lam: float = 0.0
     owned: list[str] = []
     #: `None` means "not narrowed" — the listone was unreachable and the plan degraded
@@ -152,7 +171,12 @@ def _today() -> date:
 def asta_plan(
     league_id: int,
     season: str = "2026/27",
-    lam: float = 0.0,
+    # `DEFAULT_LAM`, never a literal. The page sends no `lam` at all
+    # (`core/api/asta.service.ts:15` sends the lega and nothing else), so this default *is*
+    # the objective every plan the operator ever sees is solved against — and while it read
+    # `0.0` the page solved `sum(mu)` for a lega whose `asta optimize` solved
+    # `sum(mu) - 0.3*Var`. Two rosters, one lega, on the pair CLAUDE.md names by name.
+    lam: float = DEFAULT_LAM,
     fallbacks: int = 3,
     owned: str = "",
     teams: int = DEFAULT_NUM_TEAMS,
@@ -160,9 +184,12 @@ def asta_plan(
 ) -> AstaPlan:
     """The optimal roster for a lega, built from the same request the CLI builds.
 
-    `fallbacks` defaults to 3, the CLI's default, and `owned` exists at all — the page has
-    only ever shown the plan for an empty roster, which is the right answer on the morning
-    of the asta and the wrong one on every evening after it.
+    `fallbacks` and `lam` default to the CLI's defaults — 3, and
+    `application.plan_request.DEFAULT_LAM` — and `owned` exists at all: the page has only
+    ever shown the plan for an empty roster, which is the right answer on the morning of the
+    asta and the wrong one on every evening after it. `lam` is read from the shared constant
+    rather than restated, because restating it is how it came to be 0.0 here against 0.3 on
+    the command; `api/tests/parity/test_parity_asta_defaults.py` pins the two defaults.
 
     `teams`/`credits` name the recorded corpus cell to price against — a riparazione or a
     friend's league is a different shape, and pricing it off ours would be somebody else's
@@ -171,7 +198,10 @@ def asta_plan(
     **Latency, re-measured after 1.12** on the live 529-player narrowed Mantra pool
     (2026-09-07, `lam=0`, empty roster, warm database): the plan is **0.12 s** and pricing
     all thirty walk-aways adds **1.23 s** — **1.35 s end to end**, inside the 2 s budget T1
-    set for a synchronous panel read, so this stays a read and does not become a job.
+    set for a synchronous panel read, so this stays a read and does not become a job. Those
+    numbers were taken at `lam=0`, which was this route's default then and is not now; the
+    default path is `DEFAULT_LAM` and the figures are a record of a measurement, not a
+    claim about today's default.
 
     The numbers this docstring carried before (0.07 s for thirty, 0.12 s total) were
     `reservations`' and are gone with it: that call was 12.7x cheaper and returned an
@@ -571,7 +601,13 @@ def asta_advisory(
     listone: Literal["mantra", "classic"],
     season: str = "2026/27",
     budget: float = 500.0,
-    lam: float = 0.0,
+    # The same shared default, for the same reason one route along: `asta.service.ts`'s
+    # `advisory()` sends no `lam` either, and the command this route mirrors is
+    # `asta live --league`, whose `--lam` is `DEFAULT_LAM`. A literal here would have this
+    # page advising on `sum(mu)` while the operator's own live view advised on
+    # `sum(mu) - 0.3*Var` — the `/asta/plan` split, on the surface that is watched during
+    # the auction rather than before it.
+    lam: float = DEFAULT_LAM,
     teams: int = DEFAULT_NUM_TEAMS,
     credits: int = DEFAULT_NUM_CREDITS,
 ) -> AstaAdvisory:

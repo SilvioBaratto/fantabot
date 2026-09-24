@@ -85,12 +85,17 @@ def _cli_plan(
         return planned
 
     with patch.object(pr, "build_plan", spy):
+        # **No `--lam`, deliberately.** It read `--lam 0` while the endpoint was called
+        # without one, so the comparison held the CLI to a number the page was never told
+        # and could not see the two *defaults* splitting — which is exactly how the route
+        # kept `0.0` after the command moved to `0.3`. Both sides now take their own
+        # default, so this test fails on that split too, and
+        # `test_parity_asta_defaults.py` says which surface moved when it does.
         cli(
             "asta", "optimize",
             "--season", world.season,
             "--lega", str(world.league_id),
             "--budget", str(world.budget),
-            "--lam", "0",
             "--fallbacks", "0",
         )
 
@@ -212,12 +217,13 @@ def test_both_sides_build_the_same_request(
     from_page = captured[-1]
 
     captured.clear()
+    # No `--lam` here either, and `PlanRequest.lam` is one of the fields compared whole —
+    # so the two defaults are pinned by this assertion as well as by introspection.
     cli(
         "asta", "optimize",
         "--season", seeded_db.season,
         "--lega", str(seeded_db.league_id),
         "--budget", str(seeded_db.budget),
-        "--lam", "0",
         "--fallbacks", "3",
     )
     assert captured, "`asta optimize` did not reach build_plan"
@@ -234,13 +240,19 @@ def test_the_page_says_what_it_planned_on(
     `callable_pool` is `None` when the listone was unreachable and the plan degraded open —
     never `0`, because an empty exclusion set and an unknown one are different facts and
     the second is the one that widens the pool.
+
+    `lam` is asserted against the shared constant rather than a literal. It read `0.0` here,
+    which was the route's own default and therefore true of any number the route happened to
+    hold — including the `0.0` that was three tenths away from the command's.
     """
+    from fantabot.application.plan_request import DEFAULT_LAM
+
     body = api.get(
         "/api/v1/asta/plan",
         params={"league_id": seeded_db.league_id, "season": seeded_db.season},
     ).json()
 
-    assert body["lam"] == 0.0
+    assert body["lam"] == DEFAULT_LAM
     assert body["owned"] == []
     assert body["callable_pool"] == len(seeded_db.player_ids)
     assert body["fallbacks"], "the CLI prints three next-best plans; the page printed none"
@@ -344,12 +356,19 @@ def test_a_walk_away_of_zero_survives_serialisation_as_zero(
 
     This one names a specific row and asserts what came back for it, so a collapse anywhere
     in the chain — endpoint, Pydantic, JSON — turns it red.
+
+    **`lam=0` is stated, and it is not the route's default.** The held member is a measured
+    property of this seed at `lam=0`; at the route's `DEFAULT_LAM` the same nineteen players
+    produce no zero-ceiling row at all and the guard above fires. This test is about `0` and
+    `null` surviving Pydantic and JSON as different values, not about which objective built
+    the plan — so it names the condition its fixture was measured under instead of riding a
+    default that is free to move.
     """
     from fantabot.application.plan_request import WALK_AWAY_HOLD
 
     body = api.get(
         "/api/v1/asta/plan",
-        params={"league_id": seeded_db.league_id, "season": seeded_db.season},
+        params={"league_id": seeded_db.league_id, "season": seeded_db.season, "lam": 0},
     ).json()
     zeros = [row for row in body["players"] if row["walk_away_provenance"] == WALK_AWAY_HOLD]
 

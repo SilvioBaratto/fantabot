@@ -89,8 +89,7 @@ def test_the_shrink_moves_both_bands_together_on_a_room_derived_rules_too() -> N
     often in its own test fixtures.
     """
     room_rules, provenance = rules_for_room(
-        selection="min-max-goalie-others", min_player=25, max_player=25,
-        min_goalkeepers=2, min_others=23,
+        selection="min-max-goalie-others", min_goalkeepers=2, min_others=23,
     )
     assert provenance == "read from the room"
     state = AstaState(owned=("1", "7581"), total_budget=500.0)

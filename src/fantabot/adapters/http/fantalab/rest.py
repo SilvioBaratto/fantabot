@@ -2,9 +2,15 @@
 
 `docs/fantalab/06-asta-write-path.md` §3: ``POST /fantaleague/fetch`` and ``GET /fantaleagues/live``
 **require a Bearer** (measured `401` unauthenticated, 2026-08-28) — only the RTDB nodes and the
-player CDN are public. This module wraps the reads the live advisory uses to *discover* a room —
-``fetch_league`` (config, seats, RTDB shard) and ``live_leagues`` — plus ``join_team``. Each takes
-an optional ``token``; without one the call is unauthenticated and will `401`.
+player CDN are public. This module wraps the read the live advisory uses to *discover* a room —
+``fetch_league`` (config, seats, RTDB shard) — plus ``join_team``. Each takes an optional
+``token``; without one the call is unauthenticated and will `401`.
+
+``GET /fantaleagues/live`` is **not** here. It had a wrapper (``live_leagues``) that no
+production caller ever reached, while the live path — ``harvest/client.LiveAuctionsClient`` —
+carried its own copy with the host hardcoded. Two wrappers of one endpoint is how one of them
+stops obeying ``FANTABOT_FANTALAB_BASE_URL`` without anything saying so, so the unused one was
+deleted on 2026-09-24 and the surviving one taught to read the setting (``client._live_url``).
 
 A **participant bot needs none of these**: told its shard, seat and uid, it reads the live lot and
 bids entirely over the unauthenticated RTDB (``rtdb``). These calls matter only when discovering a
@@ -27,7 +33,6 @@ import httpx
 from fantabot.domain.tokens.errors import FantalabSessionMissing
 
 FETCH_PATH = "/fantaleague/fetch"
-LIVE_PATH = "/fantaleagues/live"
 JOIN_PATH = "/fantaleague/join"
 DEFAULT_TIMEOUT = 10.0
 
@@ -323,28 +328,6 @@ def fetch_league(
     return parse_league(body if isinstance(body, dict) else {})
 
 
-def live_leagues(
-    *,
-    token: str | None = None,
-    transport: httpx.BaseTransport | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
-) -> list[RoomConfig]:
-    """``GET /fantaleagues/live`` → the list of running auctions. **Needs a Bearer** (`401` without)."""
-    with httpx.Client(
-        base_url=_base_url(), headers=_headers(token), timeout=timeout, transport=transport
-    ) as client:
-        response = client.get(LIVE_PATH)
-    response.raise_for_status()
-    body = response.json()
-    if isinstance(body, list):
-        rows: Any = body
-    elif isinstance(body, dict):
-        rows = body.get("data", [])
-    else:
-        rows = []
-    return [parse_league(row) for row in rows if isinstance(row, Mapping)]
-
-
 def join_team(
     fantateam_id: str,
     user_id: str,
@@ -374,7 +357,6 @@ __all__ = [
     "fetch_league",
     "fetcher_from",
     "join_team",
-    "live_leagues",
     "parse_league",
     "shard_of",
 ]

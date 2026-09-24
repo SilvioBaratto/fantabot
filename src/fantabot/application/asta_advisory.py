@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, cast
 
 from fantabot.application.plan_inputs import PlanInputs
 from fantabot.application.plan_request import (
+    DEFAULT_LAM,
     DEFAULT_NUM_CREDITS,
     DEFAULT_NUM_TEAMS,
     EmptyPool,
@@ -69,7 +70,21 @@ class AdvisoryRequest:
     #: surface, and it is not this layer.
     as_of: date
     budget: float
-    lam: float = 0.0
+    #: Risk aversion: the `lam` in the optimizer's `sum(mu) - lam*Var`. **From the shared
+    #: constant, never a literal.** This was the *third* declaration of that number and it
+    #: read `0.0` until 2026-09-24, after both the six CLI commands and both routes had
+    #: been unified on `DEFAULT_LAM` — the same split the constant was lifted to close,
+    #: one layer down and invisible because both of this object's callers state `lam`.
+    #:
+    #: What a wrong default here buys is a mutation that compiles, runs and says nothing:
+    #: drop `lam=lam` from `GET /asta/advisory`'s `AdvisoryRequest(...)` and the surface an
+    #: operator watches *during* the auction prices every lot against `sum(mu)` while the
+    #: plan it was briefed from and the bidder spending the credits solve
+    #: `sum(mu) - 0.3*Var`. `api/tests/parity/test_parity_asta_defaults.py` sweeps the
+    #: application package for this field rather than naming it, because the version that
+    #: named two sites is the version that wrote *this* one down in a comment instead of
+    #: failing on it.
+    lam: float = DEFAULT_LAM
     tilt_k: float = 0.25
     sentiment: bool = True
     sentiment_run: date | None = None

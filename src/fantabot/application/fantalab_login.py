@@ -32,19 +32,10 @@ from fantabot.application.login_wait import (
 )
 from fantabot.application.reporting import Reporter
 from fantabot.domain.tokens.crypto import TokenCipher
-from fantabot.domain.tokens.errors import KeyMissing, TokenError
+from fantabot.domain.tokens.errors import KeyMissing, LoginAborted, TokenError
 from fantabot.domain.tokens.fantalab import FantalabSession, parse_fantalab_storage
 
 LOGIN_URL = "https://app.fantalab.it/aste-live"
-EXIT_PREFLIGHT = 2
-
-
-class LoginAborted(Exception):
-    """A preflight refused. Carries the exit code the command should use."""
-
-    def __init__(self, message: str, code: int = EXIT_PREFLIGHT) -> None:
-        super().__init__(message)
-        self.code = code
 
 
 @dataclass(frozen=True)

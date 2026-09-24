@@ -9,6 +9,12 @@ GET api.fantalab.it/fantaleagues/live      401 unauthenticated · 200 with a ses
 Authorization: Bearer <id_token>           measured 2026-08-27: 189 auctions
 ```
 
+The host in that line is the **default**, not a constant: :func:`_live_url` resolves
+``FANTABOT_FANTALAB_BASE_URL`` from the environment on every call and falls back to the
+value `Settings` declares. This is the only wrapper of the endpoint — ``fantalab/rest.py``
+carried a second, config-respecting one (``live_leagues``) that nothing called, and the two
+were collapsed into this one on 2026-09-24 rather than left to disagree.
+
 **``asta_type`` is deliberately omitted.** It is an optional filter, and passing
 it is how the poller threw away 85% of the population. We play both formats, so
 the format is a column to select on later, never a decision taken here.
@@ -24,7 +30,63 @@ from typing import Any, Protocol
 
 from fantabot.domain.harvest.registry import AuctionConfig, from_card
 
-LIVE_URL = "https://api.fantalab.it/fantaleagues/live"
+LIVE_PATH = "/fantaleagues/live"
+"""The endpoint's path. The host is configured, so the whole URL cannot be a constant."""
+
+BASE_URL_FIELD = "fantabot_fantalab_base_url"
+"""The `Settings` field the host comes from, spelled once.
+
+Both the variable :func:`_live_url` reads and the value it falls back to are derived from
+it: `Settings.model_config` declares no ``env_prefix``, so pydantic-settings resolves the
+field from the field name uppercased, and the declared default is the field's own. Writing
+either out a second time is how a renamed setting goes on reading a name nothing sets, or
+falls back to a host `config.py` stopped declaring — silently, in both directions.
+"""
+
+BASE_URL_VAR = BASE_URL_FIELD.upper()
+"""``FANTABOT_FANTALAB_BASE_URL``, as the operator exports it or types it into `.env`.
+
+Derived rather than transcribed, and checked against pydantic's own resolution in
+`tests/adapters/http/test_aste_client.py` — a name only this module believes in would read
+a variable nobody sets while `Settings` read another.
+"""
+
+
+def _live_url() -> str:
+    """The live-list URL, with the host read from the environment **on every call**.
+
+    It used to be the whole URL, hardcoded. ``FANTABOT_FANTALAB_BASE_URL`` therefore
+    moved ``rest.fetch_league`` and ``rest.join_team`` and left the scan pointed at the
+    real site — the worst half-obedience available to a knob whose only purpose is to
+    point the app somewhere else, because nothing said the scan had not moved.
+
+    **Read through `config.live_setting`, not off the `settings` singleton**, which is the
+    second half of that same defect rather than a flourish. `settings` is built once, at
+    first import of `fantabot.config`, so a field read off it answers with the state of the
+    world at that moment: a variable exported after the process started, or a `.env` edited
+    under a running `fantabot_app`, is obeyed by the next CLI invocation and ignored by the
+    server — so the scan behind ``POST /actions/harvest-scan`` would go on hitting the real
+    site while a `fantabot config-check` typed in a terminal, being a fresh process, printed
+    the override. That is the failure `config.live_auto_act` was written for, and this reads
+    the same way: `os.environ` first, because an exported variable
+    is the operator speaking later than the file, and otherwise the `.env` itself, re-read
+    from disk, for the names a launcher copied out of it at boot.
+
+    `live_setting` returns the raw string and leaves the parsing here, which is `config.py`'s
+    rule and here means deciding what *unset* is: absent, empty, whitespace or a bare ``/``
+    all mean unset, and unset is the default `Settings` declares. Never ``None`` and never an
+    empty host — that would leave the relative path ``/fantaleagues/live``, which is not a
+    misconfiguration any reader of the resulting error would recognise as one.
+
+    ⚠ A site that reads ``settings.fantabot_fantalab_base_url`` directly is bound to process
+    start — ``rest._base_url`` does, as of 2026-09-24. Both obey the variable; on a change
+    made *mid-process* they differ in when.
+    """
+    from fantabot.config import Settings, live_setting
+
+    configured = (live_setting(BASE_URL_VAR) or "").strip().rstrip("/")
+    base = configured or str(Settings.model_fields[BASE_URL_FIELD].default).rstrip("/")
+    return f"{base}{LIVE_PATH}"
 
 
 class AuthExpired(RuntimeError):
@@ -94,9 +156,10 @@ class LiveAuctionsClient:
         Raises rather than returning empty on both failure modes, because both
         of them look like success from a caller that only counts rows.
         """
+        url = _live_url()
         # The credential goes in a header and never in the URL: a URL reaches
         # logs, proxies and error messages that a header does not.
-        response = self._get(LIVE_URL, {"Authorization": f"Bearer {self._token}"})
+        response = self._get(url, {"Authorization": f"Bearer {self._token}"})
 
         if response.status_code == 401:
             raise AuthExpired(
@@ -104,11 +167,11 @@ class LiveAuctionsClient:
                 "run `fantabot auth fantalab-login --force`"
             )
         if response.status_code != 200:
-            raise RuntimeError(f"{LIVE_URL} answered {response.status_code}")
+            raise RuntimeError(f"{url} answered {response.status_code}")
 
         payload = response.json()
         if not isinstance(payload, list):
-            raise RuntimeError(f"{LIVE_URL} did not answer with a list")
+            raise RuntimeError(f"{url} did not answer with a list")
         if not payload:
             raise ScanEmpty("the endpoint reports no live auctions")
 
