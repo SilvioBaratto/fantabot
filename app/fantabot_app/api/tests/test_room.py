@@ -1,14 +1,17 @@
 """The room check — the only call that proves a stored FantaLab session authenticates.
 
-Today the credential is captured by the Accounts page and read by nothing in the app, so
-"is FantaLab connected?" has no answer beyond "a row exists". This endpoint asks the room
-itself.
+The credential is captured by the Accounts page and read by two other things:
+`POST /asta/room/bid`, which reaches it through `check_room` before starting the bidder,
+and `POST /actions/harvest-scan`, which builds its own store and finds out through
+`AuthExpired`. So this endpoint is where "is FantaLab connected?" is asked *of the room*,
+and the route that spends credits depends on the answer.
 
-**It does not degrade open, and that is the point.** T31 (`tasks/BACKLOG.md`) records what
-`except Exception -> found=False` costs: a database outage, a missing season, an
-infeasible roster and a wrong `--format` all rendered as "No plan yet". Degrade-open is
-right for a status read and wrong for the one call that tells the operator whether they
-can bid tonight — so the five outcomes below each carry their own reason.
+**It does not degrade open, and that is the point.** T31 (§3.3 of the app's
+maintainer-local `BACKLOG.md`) records what `except Exception -> found=False` costs: a
+database outage, a missing season, an infeasible roster and a wrong `--format` all
+rendered as "No plan yet". Degrade-open is right for a status read and wrong for the one
+call that tells the operator whether they can bid tonight — so the five outcomes below
+each carry their own reason.
 """
 
 from __future__ import annotations

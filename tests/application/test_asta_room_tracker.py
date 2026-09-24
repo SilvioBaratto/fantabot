@@ -556,9 +556,10 @@ class TestTheEveningHasOneBargainPurse:
 
 
 class TestTwoWinsLandingInTheSamePollAreStillSafe:
-    """Task 1.2's ledger-settlement-lag test (`tasks/archive/parity-plan.md` §2, risk row 3): the room's own
-    ledger read can lag a raise that already won, so two decisions made a poll apart can each
-    look individually justified against a purse that has not yet caught up with the other.
+    """Task 1.2's ledger-settlement-lag test (the parity phase's plan, archived and not in
+    this checkout, §2 risk row 3): the room's own ledger read can lag a raise that already
+    won, so two decisions made a poll apart can each look individually justified against a
+    purse that has not yet caught up with the other.
     That gap is not closed here — `bargain_allowance` already guards the case where we made
     both decisions ourselves (`TestTheEveningHasOneBargainPurse`, above) — this pins the
     fallback for when it is not: once the ledger *does* catch up and shows both wins landing

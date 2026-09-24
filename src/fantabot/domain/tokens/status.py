@@ -6,14 +6,15 @@ repository is what makes them testable with no database and no key at all. Same
 pure/shell split CLAUDE.md already mandates.
 
 **A sixth module under `tokens/` where SPEC's Project Structure lists five** —
-recorded as a departure in `tasks/archive/token-store-plan.md`.
+recorded as a departure in the token-store phase's plan (archived; not in this
+checkout, and not in git history either — `tasks/` has always been gitignored).
 
 `TokenStatus` is defined here, and it is the input type of both `orphaned()` and
-`render_state()`. `db/repositories/tokens.py` imports it and constructs the
-values, so the dependency points **`db` → `tokens.status` and never back**: under
-`mypy --strict` these parameters need real annotations, and a type owned by the
-repository would drag a `fantabot.adapters.persistence` import into the module whose whole purpose
-is to have none.
+`render_state()`. `adapters/persistence/repositories/tokens.py` imports it and
+constructs the values, so the dependency points **persistence → `tokens.status`
+and never back**: under `mypy --strict` these parameters need real annotations,
+and a type owned by the repository would drag a `fantabot.adapters.persistence`
+import into the module whose whole purpose is to have none.
 """
 
 from __future__ import annotations
@@ -119,14 +120,14 @@ def session_state(row_fingerprint: str, *, key_fingerprint: str | None) -> str:
 def is_usable(row: TokenStatus, *, now: datetime, key_fingerprint: str) -> bool:
     """Can this row be used to act, with the key we hold, at this moment?
 
-    The same two facts `describe` ranks, as a decision instead of a sentence — and
-    in one place, because they were in two and the second only checked expiry.
+    The same two facts `render_state` ranks, as a decision instead of a sentence —
+    and in one place, because they were in two and the second only checked expiry.
     `auth status` said KEY MISMATCH while `auth login` said "All stored tokens
     valid" about the very same row, and the command that repairs a dead credential
     was the one that got it wrong.
 
-    `key_fingerprint` is required, not optional. `describe` takes `None` because a
-    status table must still render its plaintext expiry columns with no key
+    `key_fingerprint` is required, not optional. `render_state` takes `None` because
+    a status table must still render its plaintext expiry columns with no key
     configured; a caller *acting* on a token has a key by then, and defaulting to
     "assume it matches" is the defect this function exists to remove.
     """

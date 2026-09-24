@@ -1,8 +1,12 @@
 """Lega overview and rosters — read from the latest snapshot capture.
 
 The roster rules here (roster_size, min/max roles, bench) are the live, snapshotted
-settings — the same ones the asta planner should read instead of the RosterRules(size=30)
-default. Both endpoints degrade open (empty on DB error).
+settings, and `GET /asta/plan` reads the same band through the same reader —
+`application.lega_reads.rules_for_league`, called in `endpoints/asta.py` — rather than
+the `RosterRules(size=30)` default it used to fall back on. That is pinned:
+`api/tests/test_asta.py::test_the_route_reads_the_band_through_the_shared_reader` fails
+if the route stops reading it or grows a second reader of its own.
+Both endpoints degrade open (empty on DB error).
 """
 
 from __future__ import annotations

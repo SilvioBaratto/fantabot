@@ -3,9 +3,10 @@
 ``context()`` — a headless context that reused a saved ``storage_state.json`` — was
 removed with its only two callers, ``lineup.py`` and ``auction.py``. Both were
 unimplemented stubs that raised on the line after they opened it, so the path had
-never run.
-The saved-session file it depended on is still written under ``login --save-session``
-and is still read by nothing; that is recorded at ``state.py``.
+never run, and neither module exists any more. The saved-session file it depended
+on is still written under ``auth login --save-session`` and is still read by
+nothing; that is recorded at ``adapters/browser/storage_state.py``, which was
+called ``state.py`` when this paragraph was written.
 """
 
 from collections.abc import Iterator, Mapping
@@ -35,8 +36,8 @@ def interactive_login_context(channel: str | None = None) -> Iterator[BrowserCon
     wanted it. That produced a plaintext file holding live cookies and every
     lega's bearer token, which — measured — nothing read.
 
-    `login.py` now reads the state in the body and persists it only under
-    `--save-session`.
+    `application/auth_login` now reads the state in the body and persists it only
+    under `--save-session`.
     """
     with sync_playwright() as pw:
         launch: dict[str, object] = {"headless": False}

@@ -1272,10 +1272,13 @@ def test_league_tokens_has_no_text_column_that_could_hold_a_jwt() -> None:
 # The instruction surface: files that tell a human what to run. `tasks/` and
 # `docs/spec-*.md` are excluded deliberately — planning artefacts and archived
 # specs are *records*, and amending one to remove a command that existed when it
-# was written falsifies it. A repo-wide form is also unsatisfiable:
-# `tasks/archive/token-store-plan.md` is tracked and names the command thirty
-# times, so the guard would fail on the commit that introduced it. This file
-# excludes itself for the same reason.
+# was written falsifies it. A repo-wide form is also unsatisfiable: the
+# token-store phase's plan named the command thirty times, so a guard that read
+# it would fail on the commit that introduced it. (Measured 2026-09-24: that plan
+# is in no checkout and no git history — `.gitignore` ignores `tasks` whole — so
+# `git grep` never reached it either way. The pathspec below is what makes the
+# exclusion explicit rather than accidental.) This file excludes
+# itself for the same reason.
 INSTRUCTION_SURFACE = (
     "src",
     "tests",

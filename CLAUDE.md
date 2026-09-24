@@ -12,9 +12,16 @@ architecture in the sibling workspace — a cron-driven bot with an interactive
 one-time auth step, not a request/response API.
 
 Console script: `fantabot` → `fantabot.interface.app:app`. Python ≥3.11. Build backend:
-hatchling. No frontend, no BAML (yet — see "Future: BAML upgrade path" below).
+hatchling. No BAML (yet — see "Future: BAML upgrade path" below). The CLI itself has no
+frontend; `app/` in this repository wraps it in a local web app whose Angular sources are
+under `app/frontend/` and whose compiled bundle ships as `app/fantabot_app/web`.
 
 ## Common commands
+
+**A selection, not the surface.** `fantabot --help` is the surface: 35 commands in seven
+groups (`asta`, `auth`, `db`, `harvest`, `lega`, `lineup`, `news`) plus two one-offs
+(`config-check`, `mantra-grid`). The set is pinned by
+`tests/interface/test_cli_command_set.py`, which is the list to read rather than this one.
 
 ```bash
 conda activate fanta        # the only environment; there is no .venv
@@ -38,7 +45,9 @@ fantabot lega sync --write              # the weekly run: 8 reads, 6 tables
 fantabot lega show                      # what is stored, per table, and when
 
 fantabot news fetch --limit 5           # smoke test, queries but writes nothing
-fantabot news fetch --write             # the weekly run: all 523, both leagues
+fantabot news fetch --write             # the weekly run: the season's whole quotati
+                                        # pool, joined over both listoni (595 on
+                                        # 2026-09-24; the scrapers read a live site)
 fantabot mantra-grid --write            # one-off, collects the Mantra schema grid
 
 fantabot auth fantalab-login                 # headed, manual; session encrypted into Postgres
@@ -47,7 +56,31 @@ fantabot harvest scan                      # which auctions are live, both forma
 fantabot harvest collect --pool 800        # subscribe, append to the landing zone
 fantabot harvest load --follow             # landing zone -> Postgres
 fantabot harvest backfill events.jsonl     # a recorded evening
-fantabot-app harvest adopt --from ./data/aste_live   # one-time move into the home
+# One-time move into the home — and it refuses (`samefile`) when the source already IS
+# the home, which is the case on this machine: `FANTABOT_HARVEST_DIR` is exported from
+# ~/.zshenv as ./data/aste_live. `fantabot config-check` prints the resolved home.
+fantabot-app harvest adopt --from <the old landing zone>
+
+fantabot lineup show                    # the saved XI for a competition. Read-only
+fantabot lineup plan                    # the best legal formation for this matchday
+fantabot lineup refresh                 # bring the history up to date before projecting
+fantabot lineup submit                  # the acting one: two locks, dry run by default
+fantabot lineup backtest                # Gate 1 over three recorded seasons. Long
+fantabot lineup shadow-report           # what was fielded vs what the shadow would field
+
+fantabot asta optimize                  # the roster to aim for. Read-only
+fantabot asta legality --rosa "1,2,3"   # which of the 11 schemi a rosa can field
+fantabot asta room <link>               # the live room on one screen
+fantabot asta bid                       # the acting one: two locks, dry run by default
+fantabot asta live --league 4103937     # the rolling advisory, live or off a replay
+fantabot asta calibrate                 # replay recorded aste at several ceiling premiums
+fantabot asta bench                     # the 2026-09-01 evening's three problem lots
+
+fantabot db scrape quotazioni           # also statistiche, voti. Reads a live site
+fantabot db price --system mantra       # fit the target-price model
+fantabot db dump                        # a restore point, outside the repository
+fantabot db exclude / exclusions / unexclude    # keep a player out of every plan
+fantabot db snapshot-team / backfill-teams      # the two one-shot team commands
 
 # The unattended weekly lineup (macOS launchd). `install` writes the plist and loads
 # NOTHING — it prints the `launchctl bootstrap` line, which stays the operator's keystroke.
@@ -79,37 +112,52 @@ graph — an AST walk that counts imports inside function bodies and under
 src/fantabot/
   domain/        Pure. No I/O, no network, no clock, no framework import.
     asta/        legality, optimizer, reservation, roles, sentiment, state, value,
-                 bid, drain, live, opponents, prices, report, stateentry
+                 bid, drain, live, opponents, prices, report, stateentry, copilot
     classic/     roles, formations, state — the P/D/C/A engine: one role per player,
                  so legality is counting, not matching
     lega/        models, parse — the platform's own JSON, translated
-    lineup/      build, schema, models, bench, value, payload, marle, competition, errors
+    lineup/      the XI: models, schema, marle, build, candidates, choose, positional,
+                 bench, bench_mc, substitution, value, competition, payload, errors
+                 the projection model and the gate that grades it: history,
+                 freshness, presence, projection, scoring, dependence, opponent,
+                 simulate, refresh, deadline, gate, backtest, backtest_corpus
     harvest/     sse, reducer, reconstruct, incremental, registry, compare, backfill,
                  models
-    news/        models, mantra, prompt, pool, store, sink, pipeline
+    news/        models, mantra, prompt, pool, store, sink
     mantra/      models, gates, prompt
-    shared/      parsing, club_names, resources, values
+    shared/      parsing, club_names, league, resources, values
     tokens/      claims, crypto, capture, fantalab, status, errors
   application/   Use cases. Orchestrates domain through ports.
-                 asta_planner, plan_inputs, asta_room, asta_copilot, asta_bench,
-                 asta_calibrate, lineup_planner, harvest_loader, harvest_supervisor,
-                 news_fetcher, mantra_collector, pricing, auth_login, fantalab_login,
-                 reporting, lega_sync
+    asta         asta_planner, plan_request, plan_inputs, asta_room, asta_session,
+                 asta_copilot, asta_advisory, asta_format, asta_bench, asta_calibrate,
+                 exclusions, pricing
+    lineup       lineup_planner, lineup_submit, lineup_projection, lineup_refresh,
+                 lineup_backtest, lineup_shadow
+    everything   harvest_loader, harvest_backfill, harvest_supervisor, news_fetcher,
+    else         news_roster, mantra_collector, lega_sync, lega_reads, scrape,
+                 team_maintenance, db_dump, auth_login, fantalab_login, login_wait,
+                 arming, containment, config_report, reporting
   adapters/      The outside world, one subpackage per kind.
-    persistence/ engine, base, models/, repositories/, upserts, scraping, news_pool,
-                 news_sentiment
+    persistence/ engine, base, upserts, scraping, news_pool, news_sentiment,
+                 models/{league,aste,matches,reference,sentiment,tokens,exclusions},
+                 repositories/{_base,league,aste,reference,sentiment,tokens,
+                 lineup_history,admin}
     http/        apileague, fantalab/{rest,rtdb,feed,room,listone}, harvest/{client,
                  transport,stream}
     agent/       env, options, runner
     browser/     capture (Playwright), storage_state
-    files/       landing, news_sink, mantra_writer
+    files/       landing, lock, room_journal, lineup_runs, refresh_marker, stopflag,
+                 mantra_writer
     tokens/      store, fantalab_store
     scraping/    quotazioni, statistiche, voti
+    process.py   a child command in its own process group, taken down together
   interface/     Typer only. Nothing else may import typer.
                  app (the root, and the one Console), asta, harvest, lega, lineup,
                  room_view, console, options
   config.py      settings; the one module both sides may read
-  data/          mantra_schemi.json, mantra_compat.json — package data, not runtime state
+  __main__.py    `python -m fantabot`, for a launcher that has no useful PATH
+  data/          mantra_schemi.json, mantra_compat.json, mantra_starts_order.json —
+                 package data, not runtime state
 ```
 
 `tests/` mirrors this. Which file goes where is a written table,
@@ -134,10 +182,12 @@ src/fantabot/
   print, and choose an exit code. The sharpest form of that is the acting one, and it is
   the form `test_layers.py` enforces: no module under `interface/` may name a **writing**
   call from `adapters/http/apileague.py` or `adapters/http/fantalab/rtdb.py`. Reads stay
-  legal — the printers need `my_team` and `read_snapshot`. The ratchet holds exactly two
-  entries, `lineup.py`'s `teamLineup_submit` and `asta.py`'s `place_raise`, and both are
-  emptied by the phase that lifts them into `application/`. What the rule is really about
-  is the *other* copy: a decision the app cannot call is a decision the app reimplements,
+  legal — the printers need `my_team` and `read_snapshot`. The ratchet is **empty**, and
+  has been since 3.11. It held two entries, `lineup.py`'s `teamLineup_submit` and
+  `asta.py`'s `place_raise`; each was emptied by the phase that lifted it into
+  `application/`, which is the direction that makes it a ratchet and not an allowlist.
+  What the rule is really about is the *other* copy: a decision the app cannot call is a
+  decision the app reimplements,
   which is how `GET /asta/plan` came to build a plan differing from `asta optimize`'s in
   ten inputs.
 * **The database is never on the collection path.** `tests/application/test_aste_outage.py`
@@ -213,8 +263,8 @@ src/fantabot/
   on that path are decisions, not plumbing.
   **It builds only on natural roles, in the platform's slot order** — the "ok" cells of
   `mantra_schemi.json`, never the `-1` ones, laid into `starts[]` in the order pinned from
-  the platform's JS bundle (`data/mantra_starts_order.json`). ⚠ This bullet used to say
-  natural roles alone made a lineup malus-free and submission-legal. They did not: the
+  the platform's JS bundle (`src/fantabot/data/mantra_starts_order.json`). ⚠ This bullet
+  used to say natural roles alone made a lineup malus-free and submission-legal. They did not: the
   matcher sees role *sets*, the platform judges `starts[i]` at *its* slot i, and in the
   PDF's row order a C-only player landed in a pure-M slot. On 2026-09-21 the walk had
   seven of the lega's eleven modules refused with `LUP009` before one stuck — and a `-1`
@@ -232,12 +282,18 @@ src/fantabot/
   coordinates do come from the DTO, and a missing one (0) refuses to POST rather than
   guess.
   **The format is detected, never configured**: `sroles=1` is Classic, `sroles=2` is
-  Mantra (`interface/lineup.py`). This is the cron path, and a per-lega flag the operator
+  Mantra. The read is `application/lineup_submit.py` — it was in `interface/lineup.py`
+  until the eight submit decisions left the Typer body, and `interface/lineup.py` still
+  records that it was one of the two things duplicated there. This is the cron path, and a per-lega flag the operator
   has to remember is a footgun.
   **The value signal is the platform's own `indexCompare`** (`domain/lineup/value.py`) —
-  not a projection, and not sentiment: the scraped `quotazioni`/news ids do not join the
-  league roster, so that seam was removed rather than left dangling. This is the same hole
-  as **Stats source** below, and it is where a better lineup has to come from.
+  not a projection, and not sentiment. ⚠ The reason given here was that the scraped
+  `quotazioni`/news ids do not join the league roster. `domain/lineup/value.py:7-10`
+  retracts that with a measurement: they do — `match_grain`, `quotazioni` and `players`
+  hold 596 of the lega's 597 pool players by the same id, and `player_sentiment` 554
+  (measured 2026-09-22). **The conclusion is unchanged** and the seam stays removed; what
+  is gone is the claim that it could not have been joined. Where a better lineup comes
+  from is the projection half of `domain/lineup/` and **Stats source** below.
   Two fields are deliberately open, both confirmed to save: `capt` is empty (no captain)
   and `swtcMdl` mirrors `mdl`. Submission keeps the usual two locks — `FANTABOT_AUTO_ACT`
   **and** `--arm` — and is a dry run by default.
@@ -261,14 +317,20 @@ src/fantabot/
 - **The lega's roster rules changed under us, and nothing noticed.** On 2026-08-26
   `settings/rosters` read `msltc`/`xsltc` = 30/30 and `minrl`=`maxrl`=`[2, 28]`; on
   2026-09-02 it reads **25/32 with `minrl=[2, 23]` and `maxrl=[4, 28]`** — a variable
-  roster size and a real per-role band where there was none. `domain/asta/state.py:44`
-  still defaults `size: int = 30`. The settings are now snapshotted per sync, so the drift
-  is at least visible, and `rules_for_room` derives a real band from what an asta room
+  roster size and a real per-role band where there was none. `RosterRules` in
+  `domain/asta/state.py` still defaults `size: int = 30`, and that default is what a lega
+  with no snapshot gets, under `ASSUMED_NOTHING`. The settings are snapshotted per sync, so
+  the drift is visible, and `rules_for_room` derives a real band from what an asta room
   declares, with a stated provenance (`ROOM_DECLARED` / `ASSUMED_NOTHING`) rather than
-  prose composed per call site. What is still not done is reading `settings/rosters` *into*
-  `RosterRules`: the lineup path calls that endpoint and takes only `sroles` from it, to
-  detect the format. **This is now an asta-side default, not a lineup hazard** — the weekly
-  lineup fields an XI out of whatever roster exists and never asks how big it may be.
+  prose composed per call site.
+  **`settings/rosters` does reach `RosterRules` now.** `application/lega_reads.py` resolves
+  the latest snapshot through `domain/asta/state.rules_for_lega`, which is the one door to
+  "what band does this lega play". That path was dropping the lega's `maxrl` on the Mantra
+  branch — found and fixed 2026-09-24, commit `e82aa7a`; `maxrl` is read per entry now, so
+  a short list or a 0 beside a real number no longer discards *both* ceilings. The lineup
+  path still calls that endpoint only for `sroles`, to detect the format.
+  **This is an asta-side default, not a lineup hazard** — the weekly lineup fields an XI
+  out of whatever roster exists and never asks how big it may be.
 - ~~**Asta mechanics**~~ **Resolved.** Not the leghe.fantacalcio.it room at all —
   the asta runs on FantaLab, and `asta bid` drives its unauthenticated RTDB
   directly. See `docs/fantalab/06-asta-write-path.md`, verified live 2026-08-28.
@@ -453,17 +515,26 @@ src/fantabot/
   assertion in the file without turning any of them red. Never pass the encryption key
   on argv — `ps` shows it and the shell keeps it in history.
 - **Decision logic stays pure — no Playwright, no network, no clock.** That is what
-  `domain/` means, and it is enforced rather than intended: 3,514 tests in the default tier
-  plus 195 in `db`, opening zero sockets and making zero agent calls. Keep new logic in a
-  pure module and the I/O in a thin shell around it. The clock counts as I/O: the asta
-  feature reads the calendar in exactly one place (`interface/asta.py::_today`),
-  enforced by `tests/domain/asta/test_asta_clock.py`, because the golden harness has to
-  freeze it.
+  `domain/` means, and it is enforced rather than intended: 3,718 tests in the default tier
+  plus 195 in `db` (measured 2026-09-24), opening zero sockets and making zero agent
+  calls. Keep new logic in a pure module and the I/O in a thin shell around it. The clock
+  counts as I/O: the asta feature reads the calendar in exactly one place
+  (`interface/asta.py::_today`), enforced by `tests/domain/asta/test_asta_clock.py`,
+  because the golden harness has to freeze it.
 - **The test suite makes zero agent calls and opens zero sockets.** Runners and
   sleepers are injected so the fan-out is testable with fakes. Keep it that way;
   a suite that queries is a suite nobody runs.
 - Ruff: line length 100, target py311, same `select`/`ignore` as mailwise.
   `mypy --strict` on `src/fantabot` (tests excluded).
+  **`app/` is a second package with its own config, and it is linted and typed too**:
+  `cd app && ./.venv/bin/ruff check .` and `./.venv/bin/mypy --config-file pyproject.toml`.
+  `app/pyproject.toml` had `[tool.ruff]` and **no `[tool.ruff.lint]`** until 2026-09-24, so
+  ruff fell back to its own `E4,E7,E9,F`, `line-length = 100` was decorative, and app-ci's
+  `Lint + types` step printed "All checks passed!" over 41 real findings — closed in
+  `0c6b960`, which takes the library's set verbatim and adds `BLE`/`DTZ`. The Angular
+  sources under `app/frontend/` gained an eslint config in `39e2287`
+  (`npm run lint`, `--max-warnings 0`); before that the conventions were observed and
+  unenforced.
 - **One harvest home, and it is derived.** `config.harvest_dir()` — `~/.fantabot/aste_live`
   by default, `FANTABOT_HARVEST_DIR` when set — holds `<home>/live.jsonl`, its `.offset`
   and `.state`, `<home>/seed.json` and `<home>/listone_map.json`. Same argument as the
@@ -503,16 +574,30 @@ src/fantabot/
   rejects `%2F` with `invalid interpolation syntax`.
   **`pytest -m db` writes to `fantabot_test`, never to `fantabot`** — `tests/conftest.py`
   refuses to run otherwise, by database name alone. The `dbdata` subset is the exception:
-  those five files read the recorded 614k-row seed, so they run against the canonical
-  database inside the same rolled-back transaction.
-- **The database is the source of truth.** `data/`'s CSVs were the one-time seed and
-  nothing reads them any more; the scrapers and `news fetch` write to Postgres. Row
-  counts in `data/README.md` are floors, not fixtures — the scrapers read a live site
-  and it moves. The two Mantra JSON artefacts are the exception and are **package data**
-  at `src/fantabot/data/`, reached through `domain/shared/resources.py`: they are the
-  matcher's input, and reading them relative to the working directory meant
-  `asta legality` and `mantra-grid --write` agreed only when both ran from the
-  repository root.
+  **thirteen** test modules reach the recorded seed, so they run against the canonical
+  database inside the same rolled-back transaction. Two numbers in this sentence were wrong
+  until 2026-09-24 and both mattered. It said *five files*, and the marker is granted **per
+  test, not per file** — `tests/integration/test_corpus_summary.py` and
+  `tests/integration/test_lineup_history_db.py` each carry it on a read-only class while
+  their writes sit in `db`-only classes, so a count taken at module granularity says
+  nothing about what reaches `fantabot`. And it said *read*: one module,
+  `tests/integration/test_news_fetch_write.py`, still writes and **commits** outside the
+  rollback — deliberately, against synthetic canaries and a `RUN_DAY` of `1900-01-01`,
+  which is a mitigation and not the claim the word "read" made.
+  `tests/integration/test_db.py` no longer belongs in that sentence: its whole-table
+  `DELETE FROM match_grain` moved to `TestBackfillOnAFreshDatabase`, which needs a schema
+  and not the seed and so carries no `dbdata` at all.
+- **The database is the source of truth.** `data/`'s CSVs were the one-time seed, they are
+  gone from disk, and nothing reads them any more; the scrapers and `news fetch` write to
+  Postgres. Row counts in `data/README.md` are floors, not fixtures — the scrapers read a
+  live site and it moves. **`data/` itself is not dead**, which is the half of this bullet
+  that had rotted: `config.py` still defaults `fantabot_data_dir` to `./data`, the live
+  room writes `data/room_journal.jsonl` there, and on this machine `FANTABOT_HARVEST_DIR`
+  points the 1.4 GB harvest home at `data/aste_live`. The two Mantra JSON artefacts are
+  the exception and are **package data** at `src/fantabot/data/`, reached through
+  `domain/shared/resources.py`: they are the matcher's input, and reading them relative to
+  the working directory meant `asta legality` and `mantra-grid --write` agreed only when
+  both ran from the repository root.
 - **The `league_*` tables are append-only, with two exceptions — `league_fixture` and a
   whole-lega purge.**
   The snapshot tables are keyed from `captured_at` outward because the point of them is
@@ -552,7 +637,7 @@ src/fantabot/
   still drives the CLI warning and the route's stale branch. The same trap is worth
   expecting wherever a test pins a defect rather than a behaviour.
 - **Archive `SPEC.md`, `tasks/plan.md` and `tasks/todo.md` when a phase closes**, to
-  `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:23`
+  `tasks/archive/<phase>-spec.md`, `-plan.md` and `-todo.md`. Not to `docs/` — `.gitignore:27`
   ignores it, which is how the token-store spec came to survive only in git history. Repoint that phase's spec
   at the archived path in the same commit. Those two filenames are reused by
   every phase, so an inbound link to them silently starts describing different

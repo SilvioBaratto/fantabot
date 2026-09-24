@@ -6,9 +6,15 @@ excluded from every average.** That value means "no coverage was found", not
 destroys the distinction the schema exists to preserve — so a player whose only
 rows are silent has no trailing average at all, and says so by returning ``None``.
 
-This is the read side of ``fantabot news fetch``. The lineup layer does not consume
-it yet; wiring ``disponibilita``/``rigorista`` into ``decide_bid`` and
-``titolarita`` into ``pick_starting_lineup`` is a later phase.
+This is the read side of ``fantabot news fetch``, and both halves of the bot read
+these rows now — this paragraph said neither did until 2026-09-24, and named a
+``pick_starting_lineup`` that has never existed. The **asta** reads them through
+this module, into ``domain/asta/sentiment.py``, which gates on ``disponibilita``
+and ``titolarita`` and tilts on ``rigorista``/``piazzati``/``forma``/``mercato``
+before the plan ``decide_bid`` bids from. The **lineup** reads the same table
+through ``repositories/lineup_history.latest_sentiment``, into
+``domain/lineup/presence.py``, where ``titolarita`` and ``disponibilita`` become
+P(he gets a vote). That is a second reader of one table, not of this class.
 
 **No longer a snapshot.** The CSV version slurped the whole file at construction
 and answered from that dict forever. ``asta bid`` polls a live room for hours, so

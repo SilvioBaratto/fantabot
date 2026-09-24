@@ -18,8 +18,8 @@ Two details a parser written from memory gets wrong. Playwright's
 The parameter is typed ``Mapping[str, Any]``, never Playwright's ``StorageState``:
 that TypedDict lives in ``playwright._impl._api_structures``, a private module,
 and importing it would put Playwright and a private-API dependency on a module
-SPEC declares pure. ``login.py`` passes ``dict(ctx.storage_state())`` across the
-boundary.
+SPEC declares pure. ``application/auth_login`` passes ``dict(ctx.storage_state())``
+across the boundary.
 """
 
 from __future__ import annotations
@@ -122,8 +122,9 @@ def parse_storage_state(
 ) -> list[CapturedToken]:
     """Every lega's token, or nothing at all.
 
-    Fail-closed, in ``mantra_grid/gates.py`` posture: a failed gate returns
-    nothing, and the output is never patched to satisfy a check.
+    Fail-closed, in ``domain/mantra/gates.py`` posture (``mantra_grid/gates.py`` when
+    this was written): a failed gate returns nothing, and the output is never patched
+    to satisfy a check.
 
     The ``l_id`` gate refuses the **entire** capture rather than skipping the
     offending entry. A crossed id means the blob is not the shape we believe it

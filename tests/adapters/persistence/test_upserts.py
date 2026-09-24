@@ -1,7 +1,8 @@
 """The match-grain chunking. No database — the batching is arithmetic.
 
 Moved from ``tests/test_importers.py`` when ``upsert_two_passes`` moved out of
-the seed package. The two-pass behaviour itself is exercised for real by every
+the seed package; that file went with the importers themselves and is in no
+checkout now (``945abfb``). The two-pass behaviour itself is exercised for real by every
 ``scrape_voti`` run and asserted by the coach-row counts in the integration
 tier; what is pinned here is that no row is dropped or duplicated at a chunk
 boundary.

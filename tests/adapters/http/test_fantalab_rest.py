@@ -129,8 +129,9 @@ def test_join_team_posts_only_seat_and_user() -> None:
 class TestOurSeatInTheRoom:
     """Four id spaces are in play, and only one of them is our seat.
 
-    `docs/lega-legamiallerotaie2.md` records a leghe.fantacalcio.it team id (`10000003`) and
-    user id; FantaLab uses uuids for both. The RTDB validates neither — a bid naming a foreign
+    The lega's captured profile — `docs/lega-legamiallerotaie2.md`, which is in no
+    checkout now — recorded a leghe.fantacalcio.it team id (`10000003`) and user id;
+    FantaLab uses uuids for both. The RTDB validates neither — a bid naming a foreign
     seat is accepted with a 200 (`docs/fantalab/06 §10.1`, test 7) — so a mistyped or
     wrong-space id does not fail, it quietly drives somebody else's team.
 

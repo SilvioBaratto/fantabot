@@ -81,9 +81,10 @@ def get_job(job_id: str, since: int = 0) -> JobStatus:
 def stop_job(job_id: str) -> dict[str, bool]:
     """Ask a job to stop, or say plainly that it cannot be.
 
-    Every job today is a daemon thread, and a thread cannot be interrupted from outside.
-    409 with a reason is the honest answer; a button that appeared to work and did nothing
-    would be worse than no button. Jobs that *can* stop set a callable when they start.
+    A job running on the job runner's own thread cannot be interrupted from outside, and
+    for those 409 with a reason is the honest answer; a button that appeared to work and
+    did nothing would be worse than no button. Jobs that *can* stop set a callable when
+    they start — the seven supervised children, against five that still cannot.
     """
     try:
         stopped = registry.stop(job_id)

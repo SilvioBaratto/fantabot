@@ -1,18 +1,21 @@
 """The harvest commands: scan, collect, load, backfill — and FantaLab sign-in.
 
 Lifted out of ``cli.py``, which had grown to 951 lines with two thirds of the
-growth from this one phase. They belong here for a better reason than size: the
-rest of the CLI drives *our* leagues on leghe.fantacalcio.it, while these five
-read a different site for training data, and nothing is shared between the two
-but the console.
+growth from this one phase. That module is ``interface/app.py`` now; the name
+``cli.py`` is kept in this paragraph only because it is what was split. They
+belong here for a better reason than size: the rest of the CLI drives *our*
+leagues on leghe.fantacalcio.it, while these five read a different site for
+training data, and nothing is shared between the two but the console.
 
-Registered rather than decorated, because ``app`` lives in ``cli.py`` and
-importing it back would close the circle. ``register`` runs last there, so
-these five now list together at the end of ``--help`` rather than interleaved
-with the league commands — the one visible difference the move makes.
+Registered rather than decorated, because ``app`` lives in ``interface/app.py``
+and importing it back would close the circle. ``register`` takes **two** groups:
+four commands go to ``harvest`` and ``fantalab-login`` to ``auth``, which is
+where a sign-in belongs. They listed together at the end of ``--help`` while the
+CLI was flat; since the groups landed they do not, and this said they still did
+until 2026-09-24.
 
 **Import-light, like its parent.** Every body imports what it needs when it
-runs. ``cli.py`` imports this module at start-up, so a module-level
+runs. ``interface/app.py`` imports this module at start-up, so a module-level
 ``sqlalchemy`` or ``playwright`` here would land in every ``fantabot --help``
 — which a test in ``test_db_boundary.py`` refuses.
 """

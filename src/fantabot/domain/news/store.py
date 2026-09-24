@@ -1,8 +1,8 @@
 """Flattening one validated record into the columns the store holds.
 
 The storage itself is Postgres now —
-``db/repositories/sentiment.py::SentimentRepository`` owns writing and the
-resume index, and ``(data_run, player_id)`` is a primary key rather than a set
+``adapters/persistence/repositories/sentiment.py::SentimentRepository`` owns writing
+and the resume index, and ``(data_run, player_id)`` is a primary key rather than a set
 rebuilt by re-reading the whole file. What stays here is ``build_row``, which is
 pure and is still the one place ``deriva_ruolo`` is computed.
 

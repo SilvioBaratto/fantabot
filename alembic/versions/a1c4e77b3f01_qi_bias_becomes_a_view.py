@@ -1,7 +1,8 @@
 """qi_bias becomes a view over quotazioni
 
-Every one of its 5,356 rows is derivable, and the proof is in ``tasks/w4-proofs.out``
-§1: all 5,356 join ``quotazioni`` on ``(stagione, player_id, listone)``, all agree on
+Every one of its 5,356 rows is derivable. Measured in the W4 phase, §1 of its proof
+run (that file is in no checkout and no git history; what it showed is restated here):
+all 5,356 join ``quotazioni`` on ``(stagione, player_id, listone)``, all agree on
 ``qi``, ``qa``, ``fvm``, ``squadra`` and ``ruoli_codice``, and ``delta`` is exactly
 ``qa - qi`` on every row. Storing it was a denormalisation for three analysis scripts,
 and all three were deleted on 2026-08-30.
@@ -26,8 +27,9 @@ migration a provable no-op for every reader.
       to fetch", and nothing else in the schema knows that.
 
 ``created_at``/``updated_at`` are not carried: they are storage metadata about rows
-that no longer exist, and no reader selects them (``db/scraping.py::load_bias_rows``
-takes stagione, player_id, nome, squadra, ruoli_codice, qi, delta, pct_delta).
+that no longer exist, and no reader selects them
+(``adapters/persistence/scraping.py::load_bias_rows`` takes stagione, player_id,
+nome, squadra, ruoli_codice, qi, delta, pct_delta).
 
 Revision ID: a1c4e77b3f01
 Revises: 1942efd6a2dc

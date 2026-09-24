@@ -1,9 +1,11 @@
 """The player as the lineup builder needs him, and the assembler that produces him. Pure.
 
 `RosterPlayer` carries only what the value model and the matcher use: the fantacalcio id,
-the canonical Mantra roles, and the Mantra fvm. Roles and fvm both come from `quotazioni`
-(the asta side reads the same table); the application layer builds the two maps and calls
-`assemble_roster`, so this stays free of any adapter.
+the canonical Mantra roles, and the ranking signal. Neither comes from `quotazioni`: both
+are read off the lega's own `lineUpInfo`, through
+`application/lineup_planner.inputs_from_lineup`: the roles from `role`/`fcrle` and the
+signal from `indexCompare`. The application layer builds
+the two maps and calls `assemble_roster`, so this stays free of any adapter.
 """
 
 from __future__ import annotations

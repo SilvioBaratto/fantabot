@@ -39,8 +39,8 @@ def _world(session: Session) -> PlanInputs:
     what the commands actually plan with.
 
     `sentiment=None` keeps the pre-sentiment model these invariants were written against;
-    the sentiment path has its own coverage in `tests/test_asta_sentiment_wiring.py` and
-    in the golden harness.
+    the sentiment path has its own coverage in
+    `tests/domain/asta/test_asta_sentiment_wiring.py` and in the golden harness.
     """
     return read_plan_inputs(
         session, season="2026/27", sentiment=None, as_of=None, tilt_k=0.25,

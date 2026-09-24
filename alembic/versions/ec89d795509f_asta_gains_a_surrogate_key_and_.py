@@ -10,8 +10,9 @@ next revision. Measured: `asta.id` is 36 characters on all 1,411 rows and matche
 
 **`fantaleague_id`** is lifted out of every event payload, where it was measured
 strictly bijective with `asta_id` — 0 auctions under two leagues, 0 leagues under
-two auctions, across 486,803 rows and 224 distinct values (`tasks/w4-proofs.out`
-§3d). Storing it per event was 486,803 copies of 224 facts.
+two auctions, across 486,803 rows and 224 distinct values. Measured in the W4 phase,
+§3d of its proof run; that file is in no checkout and no git history, and the numbers
+here are what it showed. Storing it per event was 486,803 copies of 224 facts.
 
 It is backfilled from the payloads here, which is the only place that mapping
 exists. Auctions with no observed event keep NULL — 1,411 rows in `asta`, 224 of

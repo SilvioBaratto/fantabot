@@ -1,10 +1,21 @@
 # data/
 
-**The database is the source of truth, and now the only copy.** The ten scraped
-CSVs that seeded it were removed on 2026-08-28, once each one was verified row
-for row against the table it had filled. What remains here is the two Mantra
-reference files, which have no table and are still read from disk, and
-`aste_live/`, the auction landing zone.
+**The database is the source of truth for the scraped data, and now the only
+copy of it.** The ten scraped CSVs that seeded it were removed on 2026-08-28,
+once each one was verified row for row against the table it had filled.
+
+**The two Mantra reference files are no longer here either.** They moved to
+`src/fantabot/data/` and are **package data**, reached through
+`src/fantabot/domain/shared/resources.py` (`importlib.resources`) rather than
+from a path relative to the working directory — see *Package data, not here*
+below.
+
+**This directory is still live, though.** `fantabot_data_dir` defaults to
+`./data` in `src/fantabot/config.py`, so what is left is runtime state the app
+and the CLI both address: `room_journal.jsonl`, the live room's only record
+(`config.journal_path()`, written by `asta room`/`asta bid`, paged by the app's
+`GET /asta/journal`); `storage_state.json` when `auth login --save-session`
+writes one; and `aste_live/`, the auction landing zone.
 
 Every CSV was checked two ways before deletion — a row count against its table,
 and **key-level containment**: every `(stagione, player_id, listone)` in the file
@@ -29,9 +40,25 @@ fantabot db check             # health, row counts, sizes
 
 | path | why it stays |
 |---|---|
-| `mantra_schemi.json` | the Mantra engine's input; no table models an 11-schema grid |
-| `mantra_compat.json` | the full out-of-position matrix, 1,452 cells; same reason |
 | `aste_live/` | the auction landing zone — **the durable record**, and Postgres is derived from it |
+| `room_journal.jsonl` | the live room's own record, one line per cycle; `config.journal_path()` |
+| `storage_state.json` | Playwright's cookies, opt-in and usually absent — see *Still read from disk* |
+
+`aste_live/` is here by an **exported** `FANTABOT_HARVEST_DIR`, not by default.
+`config.harvest_dir()` is `~/.fantabot/aste_live` when nothing overrides, and the
+root `CLAUDE.md` ("One harvest home, and it is derived") is where that rule is
+written. The directory this README sits beside is what the variable happens to
+point at on the machine that collected the 2026-08/09 evenings.
+
+## Package data, not here
+
+`mantra_schemi.json`, `mantra_compat.json` and `mantra_starts_order.json` live at
+`src/fantabot/data/`. They are the matcher's and the submitter's inputs — code in
+every sense that matters — and they are read through
+`src/fantabot/domain/shared/resources.py`, which resolves them with
+`importlib.resources` instead of a path relative to the working directory. Read
+from `./data` they were correct only when the process had been started from the
+repository root, and a non-editable `pip install` had no `data/` at all.
 
 ## Tables
 
@@ -49,12 +76,23 @@ column tells them apart.
 | `target_price` | player × season × listone | 1,046 → 1,088 | `fantabot db price` |
 | `match_grain` | player × matchday | 50,634 | `fantabot db scrape voti` |
 | `player_sentiment` | player × run day | 0 | `fantabot news fetch --write` |
-| `bot_state` | one lega | 0 | `lineup.py` |
-| `auction_bids` | one bid | 0 | `auction.py` |
-| `league_snapshot`, `league_team_snapshot`, `league_player_pool` | point in time | 0 | not yet produced — SPEC open question 5 |
+| `league_snapshot`, `league_team_snapshot`, `league_player_pool` | point in time | 0 | `fantabot lega sync --write` |
 
 Row counts are what the CSVs held. They are **floors, not fixtures**: the
 scrapers read the live site and it moves.
+
+**Two tables in the seed are gone.** `bot_state` and `auction_bids` were dropped
+by `alembic/versions/1942efd6a2dc_drop_bot_state_and_auction_bids.py`, both at
+zero rows; their stated sources, `lineup.py` and `auction.py`, were the W2
+scaffolding and were deleted with them. The live room's record is
+`room_journal.jsonl` (above), not a table.
+
+**And the dictionary above is the seed's, not the whole schema.** Added since:
+`league_competition`, `league_fixture`, `league_custom_role` (with the three
+snapshot tables, `lega sync --write`); `asta`, `asta_event`, `asta_assignment`
+(`harvest load` / `harvest backfill`); `player_exclusion` (`db exclude`);
+`fantalab_session` (`auth fantalab-login`). `alembic/versions/` is the record;
+`fantabot db check` prints the live counts.
 
 ### `players` — 1,474, not 1,414
 
@@ -87,14 +125,23 @@ not a grade of zero, and 2,846 rows carry it. Stored as 0 they would drag every
 average computed from this table toward zero and nothing would look wrong. The
 counter columns are the opposite case and are NOT NULL.
 
-### `voti` / `bonus_malus` — `squadra_raw` is corrupt
+### `match_grain` — `squadra_raw` is corrupt
+
+The two tables this section was written about, `voti` and `bonus_malus`, are
+**one table** since 2026-08-30:
+`alembic/versions/b7d2f5a91c34_merge_voti_and_bonus_malus.py` merged them into
+`match_grain` on the natural key `(stagione, giornata, nome)` — 50,634 rows each,
+matching 50,634 for 50,634 with no orphans either way, and the six shared
+descriptor columns disagreeing on zero rows. Everything below is about the merged
+table; the two names survive only where a *file* or a *command* still carries them
+(`voti.csv`, `fantabot db scrape voti`).
 
 ⚠️ The scraper labels **every row in a match block with the fixture's home
 team**, so the column cannot say which side a player played for. Nothing keys,
 indexes or joins on it, and a test enforces that. The full statement lives on
-`db/models/matches.py`; the analysis script that measured it in 2026 has since
-been deleted, so the finding was moved into the code rather than left as a
-citation.
+`src/fantabot/adapters/persistence/models/matches.py`; the analysis script that
+measured it in 2026 has since been deleted, so the finding was moved into the code
+rather than left as a citation.
 
 What does survive is the fixture: `squadra_raw` and `avversario_raw` identify
 home and away correctly, and the two goal columns are that fixture's score. A
@@ -102,7 +149,7 @@ player's real club for a season comes from `quotazioni`.
 
 3,039 rows per file are coach (`Allenatore`) rows with no player id. Postgres
 forbids a nullable column in a primary key, and those rows would collide with
-each other anyway, so each table has a surrogate key plus two disjoint partial
+each other anyway, so the table has a surrogate key plus two disjoint partial
 unique indexes — one for rows with a player, one for rows without.
 
 ### `target_price` — the season the CSV never had
@@ -139,7 +186,7 @@ One row per lega: the `apileague.fantacalcio.it` bearer token, encrypted with
 
 | Column | Type | Note |
 |---|---|---|
-| `league_id` | `bigint` PK | The `l_id` claim. Same key as `bot_state`. |
+| `league_id` | `bigint` PK | The `l_id` claim, and the key every `league_*` table is joined on. |
 | `ciphertext` | `bytea` | The Fernet token. The only place the JWT exists. |
 | `key_fingerprint` | `varchar(16)` | `sha256(key)[:8]`, of the *key*. Turns a wrong-key failure into a sentence naming both keys. |
 | `issued_at` / `expires_at` | `timestamptz` | The `iat` / `exp` claims. **Plaintext by design** — `token-status` must answer "is it expired" when the key is missing, and `auth_headers` must refuse before opening a socket. |
@@ -156,15 +203,18 @@ its `exp`.
 
 ## Still read from disk
 
-- `mantra_schemi.json`, `mantra_compat.json` — the 11 Mantra schemas and the
-  out-of-position matrix, collected once by `fantabot mantra-grid` and verified
-  by hand. Tracked in git.
-- `storage_state.json` — Playwright's cookies. **Opt-in and usually absent**:
-  `fantabot auth login` writes it only under `--save-session`, because as of
-  2026-08-26 no working code path reads it. Git-ignored either way.
+- `mantra_schemi.json`, `mantra_compat.json`, `mantra_starts_order.json` — the 11
+  Mantra schemas, the out-of-position matrix and the platform's positional
+  `starts[]` order. Collected once by `fantabot mantra-grid` and verified by hand,
+  tracked in git — but **not from this directory**: they ship as package data at
+  `src/fantabot/data/`. See *Package data, not here* above.
+- `storage_state.json` — Playwright's cookies, under `fantabot_data_dir` and so
+  under `data/` by default. **Opt-in and usually absent**: `fantabot auth login`
+  writes it only under `--save-session`, because as of 2026-08-26 no working code
+  path reads it. Git-ignored either way.
 
   It no longer holds the bearer token. That moved to `league_tokens`, encrypted
-  — see below.
+  — see the section above.
 
 ## What the migration found
 
@@ -174,7 +224,8 @@ Two things that were invisible while the data lived in files:
   first database-backed scrape picked up 21 signings added since the CSVs were
   captured on 2026-08-19 — Elmas to Atalanta, Badiashile to Napoli, Grabara to
   Juventus among them. Nothing was dropped, and re-running `target_price.py`
-  priced all 544 — the 21 newcomers included.
+  priced all 544 — the 21 newcomers included. (That script is gone; the pricing
+  is `fantabot db price` over `application/pricing.py` now.)
 - **`voti.csv` has no blank cells at all**, in any of its six grade columns
   across 50,634 rows. The blanks are in `target_price`. Earlier notes described
   the opposite.
@@ -182,9 +233,10 @@ Two things that were invisible while the data lived in files:
 ## Historical: resolved open questions
 
 - **Open question 2** — this file is a table dictionary now, not a CSV one.
-- **Open question 3** — `voti.squadra_raw` is stored corrupt-but-labelled rather
-  than repaired at import. Repairing it would hide a scraper bug that is still
-  live.
+- **Open question 3** — `voti.squadra_raw` — `match_grain.squadra_raw` since the
+  merge — is stored corrupt-but-labelled rather than repaired at import.
+  Repairing it would hide a scraper bug that is still live.
 - **Open question 4** — `docs/fantalab/`'s asta price model is out of scope for
-  this phase. `target_price` and `auction_bids` are built to SPEC's Schema, and
-  may be reshaped when that model lands.
+  this phase. `target_price` and `auction_bids` were built to SPEC's Schema, and
+  may be reshaped when that model lands. `auction_bids` has since been dropped
+  (above); the asta's own tables are `asta`/`asta_event`/`asta_assignment`.

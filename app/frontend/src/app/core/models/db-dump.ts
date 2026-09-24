@@ -1,8 +1,9 @@
 /**
  * `fantabot db dump`, over the wire — a path, never the bytes.
  *
- * `tasks/archive/parity-spec.md` §8 Never #4 forbids the app from offering a browser download of a dump: the
- * file carries the `league_tokens` rows, encrypted but still credentials, and a download
+ * The archived parity-phase spec, §8 Never #4, forbids the app from offering a browser
+ * download of a dump: the file carries the `league_tokens` rows, encrypted but still
+ * credentials, and a download
  * puts it wherever the browser puts downloads — a directory covered by neither the
  * `/Volumes/` refusal nor `.gitignore`'s `*.dump`. Both guards are about where the file
  * is, so there is nothing in these two shapes that could carry it.

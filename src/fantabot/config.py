@@ -251,12 +251,14 @@ def bundled_database_url(database: str = "fantabot") -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Kept, but used by nothing that signs in. `login.py` opens a headed window and
-    # the human types the credentials; CLAUDE.md forbids scripting that, so these
-    # three can never be what authenticates. `lega_email` and `lega_password` are
+    # Kept, but used by nothing that signs in. `application/auth_login` opens a headed
+    # window and the human types the credentials; CLAUDE.md forbids scripting that, so
+    # these three can never be what authenticates. `lega_email` and `lega_password` are
     # read only by `config-check`, which prints whether they are set and masks the
-    # password. `lega_url` is read by nobody — `login.py:213` explains that it
-    # deliberately navigates to the site root instead. See tasks/todo.md P3-A9.
+    # password. `lega_url` is read by nobody — the comment above `page.goto(LOGIN_URL)`
+    # in `auth_login._capture` explains that it deliberately navigates to the site
+    # root instead. (This cited `login.py:213`, a module that no longer exists, and an
+    # anchor `P3-A9` in a `tasks/todo.md` that four phases have since overwritten.)
     lega_email: str = ""
     lega_password: str = ""
     lega_url: str = ""

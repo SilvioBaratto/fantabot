@@ -4,10 +4,11 @@ End users run `fantabot-app`, which starts one uvicorn process that answers the 
 (``/api/v1``, ``/health``, ``/docs``) and serves the prebuilt Angular bundle for
 everything else, then opens the browser. No Node, no second server.
 
-The compiled frontend is bundled into the package at ``fantabot_app/web`` (added in S13);
-until then, ``mount_spa`` serves a small placeholder so the app still boots. The app
-factory, runner and browser opener are injected so the wiring is testable without a real
-server or browser.
+The compiled frontend is bundled into the package at ``fantabot_app/web``. It is built
+and staged there by ``scripts/build_frontend.py`` and is git-ignored, so a released wheel
+carries it and a fresh checkout does not; ``mount_spa`` serves a small placeholder in that
+one case, so the app still boots. The app factory, runner and browser opener are injected
+so the wiring is testable without a real server or browser.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ _PLACEHOLDER = (
 
 
 def default_dist() -> Path:
-    """The bundled compiled-frontend directory (populated in S13)."""
+    """The bundled compiled-frontend directory — ``scripts/build_frontend.py``'s output."""
     return Path(__file__).parent / "web"
 
 

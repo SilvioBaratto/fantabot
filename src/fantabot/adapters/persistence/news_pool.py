@@ -1,16 +1,17 @@
 """The reads a news run needs. The I/O edge of this package, and all of it.
 
 Everything else under `news/` is pure — the join, the prompt, the row flattening, the
-fan-out — and that is not incidental. `pipeline.fetch_all` returns rows rather than
-persisting them so the whole fan-out (concurrency cap, backoff, failure isolation,
-ordering) is testable with fakes and no database, and a test enforces it by refusing to
-let the string `fantabot.adapters.persistence` appear in that module at all.
+fan-out — and that is not incidental. `application/news_fetcher.fetch_all` returns rows
+rather than persisting them so the whole fan-out (concurrency cap, backoff, failure
+isolation, ordering) is testable with fakes and no database, and a test enforces it by
+refusing to let the string `fantabot.adapters.persistence` appear in that module at all.
+It was `domain/news/pipeline.py` when this was written; that module is gone.
 
 `load_pool` used to live in `pool.py`, with its repository import inside the function
 body. Two modules import `PoolPlayer` from there for the dataclass alone, so that one
 import pulled `prompt.py` and `store.py` into the database's import graph as well. It
-was tried in `pipeline.py` next, which is what the never-writes check is for -- it is a
-read, not a write, but the check is deliberately blunt and weakening it to admit one
+was tried in the fan-out module next, which is what the never-writes check is for -- it
+is a read, not a write, but the check is deliberately blunt and weakening it to admit one
 read is how it stops meaning anything.
 
 So the query gets its own module. One function is a small file; the alternative was

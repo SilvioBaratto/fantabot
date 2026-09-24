@@ -4,7 +4,8 @@ A run with no end — the exit summary is never reached — so it emits a heartb
 counts refusals per guard, the numbers you need to tell a lost race from a bid never sent
 (``docs/fantalab/06-asta-write-path.md`` §9). Every effect is **injected** — the snapshot read,
 the write, the clock, the sleep, the heartbeat sink, and the target picker — so the whole loop is
-tested with fakes: no socket, no PATCH. The decision itself is the pure ``asta_engine.bid``.
+tested with fakes: no socket, no PATCH. The decision itself is the pure
+``domain/asta/bid.py`` (``asta_engine.bid`` when this was written).
 
 Participant only: the loop bids, it never settles. ``close_auction``/``confirm`` are the admin's,
 so a human (or an admin bot) closes each lot; this loop just chases its targets to their

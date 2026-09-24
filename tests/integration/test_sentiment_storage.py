@@ -1,7 +1,7 @@
 """The storage contracts the CSV suite used to pin, now against the table.
 
-Each test here replaces one from ``tests/test_news_store.py``'s append_rows and
-existing_keys sections. The mechanics changed completely — a primary key instead
+Each test here replaces one from ``tests/domain/news/test_news_store.py``'s
+append_rows and existing_keys sections. The mechanics changed completely — a primary key instead
 of a rescan, a transaction instead of an append — so the tests are rewritten
 rather than ported. What is preserved is what each one was actually protecting.
 """

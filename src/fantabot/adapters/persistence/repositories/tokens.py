@@ -2,8 +2,8 @@
 
 This module imports no cipher, and no decryption happens here.
 That is the store's job (`tokens/store.py`), which is the single decryption site
-in the codebase — a boundary `tests/test_token_secrecy.py` enforces with a
-source scan, so this file must not even name the call.
+in the codebase — a boundary `tests/adapters/tokens/test_token_secrecy.py` enforces
+with a source scan, so this file must not even name the call.
 """
 
 from __future__ import annotations

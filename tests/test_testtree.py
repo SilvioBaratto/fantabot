@@ -1,9 +1,11 @@
 """The test tree mirrors the source tree, and the table saying so is complete.
 
-Three ways this goes wrong quietly, so three checks. A file with no entry stays at the
+Four ways this goes wrong quietly, so four checks. A file with no entry stays at the
 root and nobody notices; an entry with no file is a decision about something that no
-longer exists; and two files sharing a basename break pytest's module naming, since
-`tests/` has no `__init__.py` and the name is derived from the path.
+longer exists; an entry that names a file which *does* exist somewhere else is a table
+that has stopped describing the tree; and two files sharing a basename break pytest's
+module naming, since `tests/` has no `__init__.py` and the name is derived from the
+path.
 """
 
 from __future__ import annotations

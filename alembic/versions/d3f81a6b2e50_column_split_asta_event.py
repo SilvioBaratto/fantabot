@@ -3,7 +3,8 @@
 381 MB and 486,803 rows, of which the payload was 489 bytes each and **38.6% of
 those bytes were JSON keys** — the same handful, repeated on every row.
 
-Three changes, each measured before it was written (``tasks/w4-proofs.out`` §3):
+Three changes, each measured before it was written, in the W4 phase, §3 of its proof
+run (that file is in no checkout and no git history; what it showed is restated here):
 
 * **``asta_id`` → ``asta_key``.** A 36-character UUID stored 486,803 times over 224
   distinct auctions, in the heap and in both indexes. There is no in-place

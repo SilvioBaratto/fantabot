@@ -15,7 +15,7 @@ first word of every boxed row, and a boxed row can be an option description — 
 reports eighteen commands, one of which is `ledger`, a word out of `asta live`'s
 help. That is harmless here, because the same regex is applied to both invocations
 and the property under test is that they *agree*. The actual command set is pinned
-by `tests/test_cli_command_set.py`, which walks Typer's Click tree.
+by `tests/interface/test_cli_command_set.py`, which walks Typer's Click tree.
 """
 
 from __future__ import annotations

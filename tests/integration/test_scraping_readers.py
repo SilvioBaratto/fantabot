@@ -1,9 +1,9 @@
 """The scraping readers actually execute against the real schema.
 
 **Why this is separate from `test_invariants.py`.** That file reads
-`db/scraping.py` as *text* and checks its hand-written column lists against the
-live catalogue — which catches a renamed or dropped column, and catches nothing
-about whether the SQL runs. These three readers were never executed by any test:
+`adapters/persistence/scraping.py` as *text* and checks its hand-written column
+lists against the live catalogue — which catches a renamed or dropped column, and
+catches nothing about whether the SQL runs. These three readers were never executed by any test:
 `grep -rn 'load_bias_rows' tests/` returned nothing before this file existed.
 They lived in `scripts/`, which `ruff` does not lint, `mypy` does not type
 (`files = ["src"]`) and no test imported, so "it parses" was the whole of their
@@ -80,10 +80,11 @@ def test_quotes_load_and_carry_a_role(db_session: Session, listone: str) -> None
 def test_the_readers_order_their_rows(db_session: Session) -> None:
     """Two calls return the same sequence.
 
-    `db/scraping.py`'s docstring states the rule and the reason: these used to read
-    files, so row order was stable by accident, and `target_price` fits regressions
-    over what they return. An unordered scan makes a model's coefficients wobble
-    between runs with nothing to show for it.
+    `adapters/persistence/scraping.py`'s docstring states the rule and the reason: these
+    used to read files, so row order was stable by accident, and `application/pricing.py`
+    — `target_price` before the port — fits regressions over what they return. An
+    unordered scan makes a model's coefficients wobble between runs with nothing to show
+    for it.
     """
     first = load_quotes(db_session, "mantra")
     second = load_quotes(db_session, "mantra")

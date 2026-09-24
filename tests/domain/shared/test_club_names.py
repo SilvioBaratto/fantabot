@@ -1,7 +1,8 @@
 """The code-to-name mapping, and the reason it refuses rather than guesses.
 
 Moved from ``tests/test_importers.py`` when the mapping moved out of the seed
-package. It never read a file — it takes two iterables — so it outlives the
+package; that file went with the importers themselves and is in no checkout now
+(``945abfb``). It never read a file — it takes two iterables — so it outlives the
 CSVs unchanged, fed from ``quotazioni.squadra`` and ``voti.squadra_raw``.
 
 The failure it guards against is the quiet one: a partial mapping leaves

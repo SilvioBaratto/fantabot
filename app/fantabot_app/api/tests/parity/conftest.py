@@ -2,9 +2,11 @@
 
 **Why a tier and not a handful of asserts.** A missing screen is a gap the operator can
 see; a screen answering a *different question* is one they cannot. `GET /asta/plan` and
-`asta optimize` differ in ten inputs today — `sentiment` is `None` on the page, which is
-the ablation control of an experiment being shown to an operator as advice, and `tilt_k`
-is 1.0 against the CLI's 0.25. Nothing anywhere compared the two, so nothing could say so.
+`asta optimize` **used to** differ in ten inputs — `sentiment` was `None` on the page,
+which is the ablation control of an experiment being shown to an operator as advice, and
+`tilt_k` was 1.0 against the CLI's 0.25. Nothing anywhere compared the two, so nothing
+could say so. They agree now (see `test_parity_asta_plan.py`, green since 1.5), and this
+tier is what keeps them agreeing rather than what reports the gap.
 
 Four decisions this file makes, each of which has a wrong version that looks fine:
 
@@ -192,7 +194,7 @@ _CAPTURED_AT = datetime(1999, 1, 1, tzinfo=UTC)
 #: three rows where the newest capture has one.
 _EARLIER_AT = datetime(1998, 6, 1, tzinfo=UTC)
 
-#: Eighteen players over three clubs, of which the lega's rosa holds twelve — so the
+#: Nineteen players over three clubs, of which the lega's rosa holds twelve — so the
 #: optimizer *chooses*, and a difference in the value model shows up as a difference in
 #: membership.
 #:
@@ -250,7 +252,7 @@ _POOL: tuple[tuple[str, str, str, int, str, str], ...] = (
     ("Pun Rotta", "CAG", "Pc", 88, "0.05", "0.10"),
 )
 
-#: What the seeded lega declares. Twelve of eighteen, so the plan is a choice.
+#: What the seeded lega declares. Twelve of nineteen, so the plan is a choice.
 _ROSTER_SIZE = 12
 _MIN_ROLES = (1, 11)
 _MAX_ROLES = (2, 12)

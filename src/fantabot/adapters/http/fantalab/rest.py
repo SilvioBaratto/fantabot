@@ -91,8 +91,9 @@ class RoomConfig:
     call_at_quotaz: bool = False
     #: The Classic per-role band under `number_of_players_selection == "static"` — a
     #: `{P,D,C,A}` map of exact counts (`min == max`). Confirmed live 3584692:
-    #: `{"P":3,"D":8,"C":8,"A":6}` (`docs/classic/task0-capture.md`). `None` for a Mantra room,
-    #: which declares its band through the goalkeeper/others keys instead.
+    #: `{"P":3,"D":8,"C":8,"A":6}` — the Classic phase's Task 0 capture, which is not in
+    #: this checkout. `None` for a Mantra room, which declares its band through the
+    #: goalkeeper/others keys instead.
     players_settings_data: Mapping[str, int] | None = None
 
     def free_seats(self) -> tuple[Seat, ...]:

@@ -3,8 +3,8 @@
 Guidance for Claude Code when working in `app/`. **This file is the app's own record** —
 the rules below are the ones a reader cannot infer from the code. There is no app spec
 to point at: the root `SPEC.md` holds only the phase in flight and was overwritten by
-later ones, and closed phases are archived under `tasks/archive/` (maintainer-only, and
-git-ignored, so a checkout does not carry them). `tasks/BACKLOG.md` holds the open work.
+later ones, and the closed phases' specs are on no disk and in no git history, so this tree
+cites them by phase name. `BACKLOG.md` is maintainer-local (`~/.fantabot/tasks-archive/`).
 
 ## What this is
 
@@ -65,7 +65,7 @@ app/
       #  "the lega's latest capture" cannot be checked against each other. Both call
       #  `fantabot.application.lega_reads` now.
     web/                    # compiled Angular bundle (git-ignored build artifact; in the wheel)
-  frontend/                 # Angular 21 (Tailwind v4, signals, standalone, OnPush)
+  frontend/                 # Angular 21 + Angular Material 3 (signals, standalone, OnPush)
   scripts/build_frontend.py # ng build -> fantabot_app/web (run before install / in CI)
   tests/                    # launcher + fitness + doctor tests
 ```
@@ -183,7 +183,7 @@ cd frontend && npx ng test --watch=false  # vitest
   rules below implementable at all. Its Windows backend is written and was
   unverified for as long as `app-ci`'s path filter was `app/**` — the one Windows runner
   never triggered on the file. T42c put `lock.py` in the filter, so it is now exercised
-  on every change to it (`tasks/BACKLOG.md`, T42).
+  on every change to it (T42 — no `BACKLOG.md` on disk carries that entry; this is its record).
 - **The supervisor is a subprocess, and cancellation is not the reason.**
   `api/infrastructure/processes.py`. `adapters/files/landing.py` states the invariant: a
   frame that never reached disk is gone, and an evening of auctions does not come back. A

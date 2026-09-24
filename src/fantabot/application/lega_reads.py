@@ -1,7 +1,8 @@
 """Reading a lega back out of its snapshots — one implementation, two surfaces.
 
-`interface/lega.py::_show` and `api/reads/league.py` hand-wrote SQLAlchemy over the same
-two models, in two places, with no shared function. The app's existed for a real reason:
+`interface/lega.py::_show` and the app's lega route (`api/v1/endpoints/lega.py`) hand-wrote
+SQLAlchemy over the same two models, in two places, with no shared function. The second was
+at `api/reads/league.py`, a module that is gone. The app's existed for a real reason:
 `LeagueRepository` is write-only, because the `league_*` tables are append-only snapshots
 and the point of them is the drift — the roster-rules change of 2026-09-02 is only knowable
 because two captures disagree, and an upsert would have erased it. That is a reason for a

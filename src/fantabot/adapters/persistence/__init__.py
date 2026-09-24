@@ -1,12 +1,14 @@
 """The database shell: engine, models, repositories.
 
-Everything in this package is I/O. Decision logic stays in the pure modules —
-``asta_engine/optimizer|sentiment|value``, ``news/models|mantra|prompt``,
-``mantra_grid/gates.py`` —
-per CLAUDE.md's working rules.
+Everything in this package is I/O. Decision logic stays in the pure modules under
+``domain/`` — ``domain/asta/``, ``domain/news/``, ``domain/mantra/gates.py`` — per
+CLAUDE.md's working rules, and ``tests/test_layers.py`` enforces it over the whole
+tree. Those three were spelled ``asta_engine/``, ``news/`` and ``mantra_grid/gates.py``
+here until 2026-09-24; the first and third are packages that no longer exist under
+those names.
 
 Importing this package must never construct an Engine or open a socket:
-``fantabot --help`` has to work with the compose stack down — and so does
+``fantabot --help`` has to work with the database down — and so does
 ``fantabot auth login --help``, which is what SC 22 pins — and the default test run
 has to stay socket-free.
 """

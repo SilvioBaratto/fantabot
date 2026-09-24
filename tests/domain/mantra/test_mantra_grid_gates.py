@@ -460,7 +460,8 @@ def test_the_gates_touch_neither_the_sdk_nor_the_filesystem() -> None:
     `test_only_agentkit_imports_the_sdk`, which broke in P11-5 for exactly that reason.
 
     The SDK half is gone from here; that boundary is enforced once, over every module,
-    in `tests/test_agentkit_runner.py`. What is left is the claim only this module makes.
+    in `tests/adapters/agent/test_agentkit_runner.py`. What is left is the claim only this
+    module makes.
     """
     import ast
 

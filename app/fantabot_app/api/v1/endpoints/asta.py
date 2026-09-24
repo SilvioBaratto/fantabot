@@ -1,8 +1,8 @@
 """Asta plan — the optimal roster for a lega, on its real (snapshotted) roster rules.
 
 **It calls the CLI's planner rather than mirroring it.** It used to assemble its own
-inputs and they had drifted in ten of them (`tasks/archive/parity-spec.md` §11.1). Three were wrong rather than
-merely narrower: `sentiment=None` is not "no opinion" but the sentiment model's **ablation
+inputs and they had drifted in ten of them (the archived parity-phase spec, §11.1).
+Three were wrong rather than merely narrower: `sentiment=None` is not "no opinion" but the sentiment model's **ablation
 control** — plain `fvm`, which on the 2026-08-28 data chases a player with a metatarsal
 fracture to 62 credits — so the page was showing an operator the control arm of an
 experiment as advice; `tilt_k=1.0` was four times the CLI's and inert only because there
@@ -17,9 +17,9 @@ lega's own snapshot rather than a hardcoded 30 (2.1 gives the CLI the same), and
 is derived from `role_groups` rather than typed. Read-only.
 
 It also serves the **room journal** — `data/room_journal.jsonl`, which the CLI writes
-and, until this endpoint, nothing read. Same page, per §7 of the archived phase spec
-(`tasks/archive/fantalab-in-the-app-spec.md`): the room check and the journal are sections
-of the Asta page rather than a tenth nav entry.
+and, until this endpoint, nothing read. Same page, per §7 of the archived
+fantalab-in-the-app-phase spec: the room check and the journal are sections of the Asta
+page rather than a tenth nav entry.
 """
 
 from __future__ import annotations
@@ -54,8 +54,9 @@ router = APIRouter()
 
 #: How many plan members get a walk-away. **An explicit bound, never `None`.**
 #:
-#: `tasks/archive/parity-plan.md:357` says "choose the target count deliberately and say so in the docstring
-#: **rather than defaulting to `None`**", and an earlier version of this file set exactly the
+#: The archived parity-phase plan says "choose the target count deliberately and say so in
+#: the docstring **rather than defaulting to `None`**", and an earlier version of this file
+#: set exactly the
 #: sentinel it forbade. 40 sits above the largest roster the platform has declared (32, per
 #: the 2026-09-02 settings drift), so in practice the whole plan is priced — but it is a
 #: stated ceiling, so a pool that grew past it would truncate *visibly*.
@@ -537,7 +538,7 @@ def asta_journal(
 
     Resolved absolute deliberately: `fantabot_data_dir` defaults to `./data`, which is
     only the repository's `data/` when the process was started from the repository root.
-    That is §3.1's footgun in `tasks/archive/fantalab-in-the-app-spec.md`, and it is *not*
+    That is §3.1's footgun in the archived fantalab-in-the-app-phase spec, and it is *not*
     fixed here — moving the journal would move an artefact the CLI owns and the 2026-09-01
     audit was done against — so the screen says which file it read instead of implying
     there is only one.
@@ -632,8 +633,8 @@ def asta_advisory(
 
     The fold, the id resolution and the world read are `application/asta_advisory`'s; this
     is a serialiser and a choice of screen per outcome. `--replay` is deliberately absent:
-    `tasks/archive/parity-spec.md` T20 keeps it as developer machinery, and it is the one input this surface has
-    no way to hand over.
+    the archived parity-phase spec's T20 keeps it as developer machinery, and it is the
+    one input this surface has no way to hand over.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.application.asta_advisory import AdvisoryRequest

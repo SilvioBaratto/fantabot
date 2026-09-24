@@ -61,9 +61,10 @@ def _main() -> None:
     """Root callback: make every command's TLS verification use the OS trust store."""
     _enable_os_trust_store()
 
-# The five groups. Declared here and nowhere else: every command in the package is
+# The seven groups. Declared here and nowhere else: every command in the package is
 # attached to one of these, so `fantabot --help` is the whole tool and there is one
-# place to look for where a command comes from.
+# place to look for where a command comes from. (Five when this was written; `lineup`
+# and `lega` landed with their phases.)
 #
 # `config-check` and `mantra-grid` stay top-level. They are one-offs that belong to no
 # family, and a group of one reads as a capability with more behind it than there is.
@@ -568,7 +569,7 @@ def db_scrape(
     sentences, rather than inventing a second idea of a scrapable table.
     """
     # Imported inside the body, like every other command that touches the database:
-    # `tests/test_db_boundary.py` asserts that importing the CLI loads neither
+    # `tests/adapters/persistence/test_db_boundary.py` asserts that importing the CLI loads neither
     # sqlalchemy nor playwright, and these modules pull in the whole persistence stack.
     from fantabot.application.scrape import (
         InvalidScrape,

@@ -1,4 +1,4 @@
-"""FastAPI application factory for FastAPI Template"""
+"""FastAPI application factory for fantabot-app."""
 
 import logging
 from collections.abc import AsyncIterator
@@ -12,9 +12,9 @@ from fastapi.responses import HTMLResponse
 
 # Load configuration into os.environ FIRST, before importing anything that
 # instantiates Settings. load_configuration() walks up to the project .env
-# (CWD-independent, so `cd api && uvicorn` finds the root-level .env); in Docker
-# it is a no-op because the vars are already real env vars injected by compose
-# env_file. Settings then read os.environ only.
+# (CWD-independent, so `cd api && uvicorn` finds the root-level .env); where there is
+# no .env — a wheel install, CI, an exported shell — it is a no-op and the real
+# environment variables are the whole configuration. Settings then read os.environ only.
 from fantabot_app.api.infrastructure.config import load_configuration
 from fantabot_app.api.v1.router import api_router
 

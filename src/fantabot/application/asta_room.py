@@ -13,8 +13,10 @@ observed; the first live `--resolve-only` is what confirms them.
 **Three rooms are refused rather than entered**, each because bidding in one would be wrong in
 a way the platform will not tell us about:
 
-* not Mantra — `domain/asta` is Mantra only, and a Classic room has no schema matrix to check
-  a rosa against;
+* a room that declares no format, or one that is neither `mantra` nor `classic` — the two are
+  different games and we can only field what we model. Both *are* fielded (Mantra through the
+  11 schemi, Classic through the P/D/C/A bands); this bullet read "not Mantra" until
+  2026-09-24, which stopped being true when the Classic seam landed on 2026-09-03/04;
 * `raise_mode: ordered` — the `raise_state` array such a room expects is undecoded
   (`docs/fantalab/06 §8`), so our payload would be malformed, and a malformed raise returns
   the same `401` as a lost race;

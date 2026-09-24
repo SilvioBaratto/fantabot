@@ -1,10 +1,11 @@
 """Shared database reads for the analysis scripts.
 
 Replaces three divergent copies of the same loaders. Before this module,
-``parse_decimal`` was defined in ``target_price.py:145``,
+``parse_decimal`` was defined in ``scripts/target_price.py`` and in
 two of the analysis scripts, and ``load_prior_stats`` in the same three files —
-same intent, drifting details. Those analyses were deleted on 2026-08-30; this
-module survives them because ``target_price.py`` reads it too.
+same intent, drifting details. Those analyses were deleted on 2026-08-30 and the
+script itself was ported; this module survives them because its successor,
+``application/pricing.py``, reads it too.
 
 **Every query has an explicit ORDER BY.** These scripts used to read files, so
 row order was whatever the file held and was stable by accident. Postgres has no
@@ -200,9 +201,10 @@ def upsert_target_price(
             "stagione": stagione,
             "ruoli_codice": split_codes(str(row.pop("role"))),
             # split_flags, not split_codes: these are opaque strings from
-            # target_price.py and upper-casing them would turn
-            # team_discount(MIL) into something that no longer matches the
-            # script that emits it. 122 live rows depend on that casing.
+            # application/pricing.py — scripts/target_price.py when this was
+            # written — and upper-casing them would turn team_discount(MIL) into
+            # something that no longer matches the code that emits it. 122 live
+            # rows depend on that casing.
             "flags": split_flags(str(row.pop("flags"))),
         }
         for row in rows

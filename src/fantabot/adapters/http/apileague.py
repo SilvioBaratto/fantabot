@@ -1,13 +1,15 @@
-"""The `apileague.fantacalcio.it` client. Two endpoints, and the headers they need.
+"""The `apileague.fantacalcio.it` client. Thirteen endpoints, and the headers they need.
 
 Reference: `docs/leghe-api.md`. Every request needs two headers — the static
 `app_key`, and a `Bearer` token scoped to one lega.
 
 **The read surface is now the whole lega**, not just our own team: `lega sync` needs
 every team's rosa, the calendar, the pool and the custom roles, so `teams`, `players`,
-`roster_settings`, `custom_roles` and `calendar` are wrapped here alongside the two
-originals. `market/v1/time` stays documented and unwrapped — nothing needs the server
-clock.
+`roster_settings`, `custom_roles`, `calculate_settings` and `calendar` are wrapped here
+alongside the originals, and the lineup phase added the three `gaming/v1` calls
+(`teamLineup_read`, `match_detail`, `teamLineup_submit`). This line said "two endpoints"
+until 2026-09-24. `market/v1/time` stays documented and unwrapped — nothing needs the
+server clock.
 
 **`GET /onboarding/v1/league/profile` is deliberately NOT wrapped.** It returns the
 lega's join password in `parola`, and a wrapper is an invitation to store or print it.
@@ -267,8 +269,10 @@ def my_team(
     """`GET /onboarding/v1/league/teams/my` — the caller's own team: credits and roster.
 
     Same shape as one item of `GET /onboarding/v1/league/teams` (`docs/leghe-api.md`),
-    which stays unwrapped — every team in the lega is a different, larger claim than
-    this one, and nothing needs it yet.
+    which is a different, larger claim than this one — megabytes where this is one team.
+    It is wrapped too, as `teams()` below, and `application/lega_sync` calls it; this
+    said it stayed unwrapped and unneeded until 2026-09-24, contradicting the module
+    docstring above.
     """
     return _get(
         TEAMS_MY_PATH, league_id, store=store, transport=transport, timeout=timeout, now=now

@@ -1,7 +1,7 @@
 """Where the data files that ship with the package live.
 
 Three artefacts are code in every sense that matters: `mantra_compat.json` is the 11 x 11 x
-12 legality matrix `asta_engine.legality` matches against, `mantra_schemi.json` is the
+12 legality matrix `domain/asta/legality.py` matches against, `mantra_schemi.json` is the
 schema list it is aligned to, and `mantra_starts_order.json` is the position the platform
 judges each `starts[]` entry in. A wrong cell builds lineups the platform rejects.
 

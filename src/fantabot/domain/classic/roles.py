@@ -4,8 +4,8 @@ Four roles — P/D/C/A — and a Classic player carries **exactly one** of them,
 equality, not the set-intersection Mantra needs (`domain/asta/roles.MantraPlayer`). The code
 scale is the platform's own: `fcrle` on `/league/players`, and `custom-roles`, both use the
 integers `{1:P, 2:D, 3:C, 4:A}` — `domain/lega/parse.CLASSIC_ROLE_CODES`, the single source for
-that mapping. Measured live 2026-09-03 (`docs/classic/task0-capture.md`): fcrle=1 goalkeepers,
-2 defenders, 3 midfielders, 4 attackers.
+that mapping. Measured live 2026-09-03 by the Classic phase's Task 0 capture, which is not
+in this checkout: fcrle=1 goalkeepers, 2 defenders, 3 midfielders, 4 attackers.
 """
 
 from __future__ import annotations

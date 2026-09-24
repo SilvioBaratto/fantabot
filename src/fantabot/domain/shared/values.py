@@ -11,16 +11,18 @@ route: each was defined **twice**, in ``adapters/persistence/scraping.py`` and a
 because nothing tested the pricing model at all. Same shape as ``SCORES`` below, which
 had three copies of one ordering.
 
-``QuotazioneRow`` arrived for the second reason. It was defined in
-``db/repositories/reference.py`` and named in the signatures of ``news.build_pool``
-and ``asta_engine.build_plan_inputs`` — both pure functions, both consequently
-importing the repository module to spell their own arguments. A ``TYPE_CHECKING``
+``QuotazioneRow`` arrived for the second reason. It was defined in what is now
+``adapters/persistence/repositories/reference.py`` and named in the signatures of
+what are now ``domain/news/pool.build_pool`` and ``application/plan_inputs`` — both
+pure functions at the time, both consequently importing the repository module to spell
+their own arguments. A ``TYPE_CHECKING``
 guard hid that from the interpreter but not from the design: a function whose
 parameters are written in terms of a repository belongs to the repository's layer.
 
 ``SCORES`` is the single definition of the eight model-produced scores. It had
-three copies before this module existed — ``news/store.py::_SCORES``,
-``news_sentiment.py::SCORES`` and ``db/models/sentiment.py::SCORE_COLUMNS`` —
+three copies before this module existed — ``domain/news/store.py::_SCORES``,
+``adapters/persistence/news_sentiment.py::SCORES`` and
+``adapters/persistence/models/sentiment.py::SCORE_COLUMNS`` —
 which is three places for the order to disagree.
 
 **There is no stats-source interface here, and that is deliberate.** A ``StatsSource``

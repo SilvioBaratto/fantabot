@@ -22,7 +22,8 @@ the final pass stays the guarantee of completeness. A row that goes through both
 is stored once, and a bug in the first cannot lose the run.
 
 No database import here. The flush is passed in, so the whole thing is testable
-with a list — the same reason ``pipeline.py`` takes its runner.
+with a list — the same reason ``application/news_fetcher.py`` takes its runner
+(``pipeline.py`` when this was written).
 """
 
 from __future__ import annotations
@@ -86,7 +87,8 @@ class SentimentSink:
         A failed flush is counted and the rows stay queued for the next attempt.
         Raising here would end a run over a transient outage; dropping them
         would lose a batch nobody counted, which is the same shape of loss three
-        times over in ``aste/``.
+        times over in the harvest collector (``aste/`` when this was written,
+        ``adapters/http/harvest/`` and ``domain/harvest/`` now).
         """
         if not self._pending:
             return 0

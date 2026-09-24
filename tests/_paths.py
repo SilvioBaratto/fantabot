@@ -46,7 +46,6 @@ _PACKAGES: dict[str, tuple[Path, ...]] = {
     # `interface/`; a test scanning "the asta engine" means these.
     "asta_engine": (PACKAGE / "domain" / "asta",),
     "aste": (PACKAGE / "domain" / "harvest",),
-    "data_sources": (PACKAGE / "data_sources",),
     "db": (PACKAGE / "adapters" / "persistence",),
     "fantalab": (PACKAGE / "adapters" / "http" / "fantalab",),
     "mantra_grid": (PACKAGE / "domain" / "mantra",),

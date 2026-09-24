@@ -418,8 +418,10 @@ class AsteRepository(RepositoryBase):
         there is no key on which to call them the same observation.
 
         **Callers still pass ``asta_id``, the platform UUID, and that is deliberate.**
-        The surrogate ``asta.key`` is a storage detail; ``aste/loader.py`` and
-        ``aste/backfill.py`` know auctions by the id FantaLab gives them, and a test
+        The surrogate ``asta.key`` is a storage detail; the loader and the backfill
+        (``application/harvest_loader.py`` and ``application/harvest_backfill.py``,
+        ``aste/loader.py`` and ``aste/backfill.py`` when this was written) know auctions
+        by the id FantaLab gives them, and a test
         walks the capture modules' imports to prove none of them can reach the
         database at all. So the translation happens here, in the one place that is
         already talking to Postgres, and the collection path is unchanged.

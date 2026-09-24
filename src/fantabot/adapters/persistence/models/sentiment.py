@@ -7,8 +7,8 @@ though it is ``cardinality(fonti)``, because dropping it is a deviation to be
 asked about rather than a free simplification.
 
 ``(data_run, player_id)`` is the primary key, and it **is** the existing resume
-index: ``store.existing_keys`` returns exactly those pairs, and ``cli.py`` filters
-the pool against them. So resume becomes an ``ON CONFLICT DO NOTHING`` upsert
+index: ``store.existing_keys`` returns exactly those pairs, and ``news fetch``
+filters the pool against them. So resume becomes an ``ON CONFLICT DO NOTHING`` upsert
 with the same observable behaviour, and ``--force`` finally means update rather
 than append a duplicate.
 

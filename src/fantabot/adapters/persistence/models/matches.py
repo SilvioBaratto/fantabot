@@ -76,8 +76,9 @@ class MatchGrain(Base, TimestampMixin):
     """One player's matchday: the grades and the bonus/malus counters, in one row.
 
     **Why one table.** These were ``voti`` and ``bonus_malus``, 50,634 rows each, and
-    they were the same row twice. Measured before the merge (``tasks/w4-proofs.out``
-    §2): the key matches 50,634 for 50,634 with zero orphans in either direction, and
+    they were the same row twice. Measured before the merge (the W4 phase's proof
+    output §2, which is not in this checkout — ``tasks/`` has always been gitignored):
+    the key matches 50,634 for 50,634 with zero orphans in either direction, and
     the six descriptor columns they shared — ``data``, ``player_id``, ``ruolo``,
     ``ruolo_codice``, ``squadra_raw``, ``avversario_raw`` — **disagree on zero rows**.
     So the second copy of every descriptor, and a second copy of all four indexes,

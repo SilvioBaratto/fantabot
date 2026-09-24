@@ -1,9 +1,14 @@
 """Sketch of a target_price function for the 2026/27 asta iniziale, classic or mantra.
 
-This is a research script; `fantabot db price` will be its home once W3 ports it.
-It used to say it mirrored `StatsSource.target_price()` — that Protocol was a
-guess about a shape nothing implemented and was deleted on 2026-08-30 with the
-Classic lineup scaffolding.
+The port W3 promised has happened: `fantabot db price` is this module's home. It has
+**two** callers, and `run`'s own docstring 490 lines below names them both —
+`interface/app.py::db_price`, and `app/fantabot_app/api/v1/endpoints/pricing.py`, which
+calls `run` for `POST /asta/target-prices` and `fit` for the GET. It reads no files and takes no
+`Reporter` — `run` returns a `PricingReport` and `render_pricing` in the interface
+is the only part that knows what a terminal is. It called itself a research script
+until 2026-09-24. It used to say it mirrored `StatsSource.target_price()` — that
+Protocol was a guess about a shape nothing implemented and was deleted on
+2026-08-30 with the Classic lineup scaffolding.
 
 **On the citations below.** The four qi-bias analyses they name
 (`join_qi_bias_performance.py`, `analyze_qi_bias_by_team.py`,
@@ -96,7 +101,7 @@ of destroyers and advanced playmakers, but never defenders. M now folds
 into MID instead, alongside C and E.
 
 Usage:
-    python scripts/target_price.py [--system classic|mantra] [--data-dir data] [--out ...]
+    fantabot db price [--system classic|mantra] [--top-n N]
 """
 
 from __future__ import annotations
@@ -488,8 +493,14 @@ def fit(system: str = "classic", top_n: int = 15) -> PricingReport:
 def run(system: str = "classic", top_n: int = 15) -> PricingReport:
     """Fit, price, **upsert**, and report. No presentation: see `interface/app.py`.
 
-    `db price` and `POST /asta/target-prices` — the two callers that mean to write. The
-    fit is `fit()`'s, run once and stored; the read-only half has no second copy of it.
+    `db price` and `POST /asta/target-prices` — the two callers that mean to write.
+
+    ⚠ **The fit is copied from `fit()`, not shared with it.** Both bodies run the same
+    five statements — `_require_known`, `_read`, `fit_fades`, `discount_factors`,
+    `price_universe` — and then `build_report`, which differs only in `stored`. This
+    said "the read-only half has no second copy of it" until 2026-09-24; there are two
+    copies, so a change to the pipeline has to land in both or the page and the command
+    price differently.
     """
     _require_known(system)
     bias_rows, prior_stats, universe = _read(system)

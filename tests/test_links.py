@@ -37,22 +37,21 @@ import pytest
 from _paths import REPO
 
 #: Files that exist on disk, are cited by the specs, and are **not tracked** because
-#: `.gitignore` excludes `docs/`. `tasks/archive/simplification-spec.md` §"Decisions taken" §4 records the call
-#: deliberately: no credential is in any of them, so the exposure is a working recipe
-#: against a third party's live service rather than a secret, and whether to track them is
-#: a live decision that phase did not make.
+#: `.gitignore` excludes `docs/`. The simplification phase's spec -- archived, and on no
+#: disk in this checkout: `tasks/` has always been gitignored, so those documents are not
+#: in git history either -- recorded the call deliberately in its §"Decisions taken" §4:
+#: no credential is in any of them, so the exposure is a working recipe against a third
+#: party's live service rather than a secret, and whether to track them is a live decision
+#: that phase did not make.
 #:
 #: They are listed rather than skipped so the set is bounded. A link into one of these is
 #: allowed; a link into a *new* untracked file fails, because that is how a document comes
 #: to survive on one machine only -- which is how the token-store spec was nearly lost.
 UNTRACKED_BY_DECISION = frozenset({
-    "docs/fantalab/00-asta-e-requisiti-cli.md",
-    "docs/fantalab/01-auction-engine.md",
-    "docs/fantalab/02-data-model.md",
-    "docs/fantalab/03-platform-map.md",
-    "docs/fantalab/04-simulator-spec.md",
-    "docs/fantalab/06-asta-write-path.md",
-    "docs/fantalab/README.md",
+    # Emptied 2026-09-24: `docs/` is tracked now, so nothing under it needs this. The two
+    # files still out are binaries no markdown links to. Kept as an empty ratchet rather
+    # than deleted -- the mechanism (a link to a file a deliberate decision keeps out of
+    # git) can recur, and the assertion below is what would make the next one visible.
 })
 
 #: `[text](target)`, skipping images and reference-style definitions.

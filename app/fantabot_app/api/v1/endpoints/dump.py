@@ -1,6 +1,6 @@
 """`db dump` — the one command in this phase whose deliverable is a path (T26).
 
-**The rule this module exists to keep.** `tasks/archive/parity-spec.md` §8 Never #4: *no browser download of
+**The rule this module exists to keep.** The archived parity-phase spec, §8 Never #4: *no browser download of
 a database dump*. The dump carries the `league_tokens` rows — encrypted, but still
 credentials — and handing over the bytes puts the file wherever the browser puts
 downloads, a directory covered by neither `application/db_dump.py`'s `/Volumes/` refusal
@@ -122,7 +122,7 @@ def dump_target_route() -> DumpTarget:
 
 @router.post("/db/dump", response_model=DumpStarted, tags=["system"])
 def dump_run() -> DumpStarted:
-    """Start `fantabot db dump`, and say where it will land — `tasks/archive/parity-spec.md` §8 Never #4.
+    """Start `fantabot db dump`, and say where it will land — archived parity-phase spec §8 Never #4.
 
     The path is derived here and again by the child, from the same function: this route
     is what the operator reads, and a path it invented would be one the command does not

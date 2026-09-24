@@ -109,12 +109,13 @@ jobs:
         env:
           FANTABOT_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/fantabot_test
 
-      # `not dbdata`, and that exclusion is the whole reason this step can pass. 100 of
-      # the 159 `db` tests carry the `dbdata` marker: they assert against 614,163 rows
-      # that have actually been scraped, harvested and synced, and there is no fixture
-      # for them — `tests/conftest.py` points them at the canonical database on purpose.
+      # `not dbdata`, and that exclusion is the whole reason this step can pass. 109 of
+      # the 195 `db` tests carry the `dbdata` marker (measured 2026-09-24, `pytest
+      # --collect-only -m dbdata`): they assert against 614,163 rows that have actually
+      # been scraped, harvested and synced, and there is no fixture for them —
+      # `tests/conftest.py` points them at the canonical database on purpose.
       # A runner has no corpus, so running them here would fail on every one for a reason
-      # that is not a defect. The remaining 59 need a schema and nothing more.
+      # that is not a defect. The remaining 86 need a schema and nothing more.
       #
       # None of this was visible until now: the step errored at collection on `fastapi`
       # for as long as the app has had tests, so it never reached a database at all.

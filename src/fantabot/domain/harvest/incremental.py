@@ -53,10 +53,14 @@ routinely carries the same sale twice. **Always pass emitted closes through `dra
 in, so a doubled emission compares equal. The test for it counts rows.
 
 **Emission is separate from folding, and that separation is load-bearing.** `harvest
-load` defers its assignment work while catching up — see `aste/cli.py` — but it advances
-the byte offset on every pass regardless. A fold that only ran when it emitted would
-consume those records and never report their sales. So `advance` always folds and
-returns what changed; the caller decides when to drain.
+load` advances the byte offset on every pass, so a fold that only ran when it emitted
+would consume those records and never report their sales. So `advance` always folds and
+returns what changed; the caller decides when to drain. This said `harvest load` "defers
+its assignment work while catching up — see `aste/cli.py`" until 2026-09-24: the path is
+gone, and so is the deferral. It existed because rebuilding assignments meant re-reading
+the whole landing zone; the incremental fold here is what removed the need, and
+`interface/harvest.py::pass_once` records that nothing is deferred now. The reason for
+the separation is unchanged — the offset still moves every pass.
 """
 
 from __future__ import annotations
@@ -86,9 +90,9 @@ class FoldState:
     same window is re-read — and folding it onto a state that already contains it
     appends the same rungs again. Measured: a window opening mid-ladder gives `[0,5,6,7]`
     clean and `[0,5,6,7,6,7]` replayed, a ladder that steps downwards, which
-    `tests/test_aste_reconstruct.py` asserts can never happen and `reconstruct` names as
-    the corruption an opponent model reads as a bidding war. Keeping the old state until
-    the commit succeeds makes the retry a no-op instead.
+    `tests/domain/harvest/test_aste_reconstruct.py` asserts can never happen and
+    `reconstruct` names as the corruption an opponent model reads as a bidding war.
+    Keeping the old state until the commit succeeds makes the retry a no-op instead.
 
     A window that opens on `first_call` self-heals, because the reset clears the ladder.
     That is why a fixture split there proves nothing.

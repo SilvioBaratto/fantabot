@@ -34,8 +34,10 @@ SlotsProvider = Callable[[str], tuple[frozenset[str], ...]]
 #: Cost of placing a player in a slot his roles do not cover. Large enough to dominate any
 #: real score, so the matcher uses such an edge only when no feasible assignment exists — a
 #: state the caller then detects and rejects. Public because that detection is the *caller's*:
-#: `candidates.k_best_assignments` reads a total `>= INELIGIBLE` as "this branch is infeasible",
-#: and a private copy of the threshold in each reader is a copy that can drift out of agreement.
+#: `candidates` asks it of **each chosen edge** (`cost[slot][column] >= INELIGIBLE`), never of
+#: the assignment's total, and a private copy of the threshold in each reader is a copy that
+#: can drift out of agreement. Reading the total was the T22 defect, fixed 2026-09-22 — the
+#: reasoning is in `place_all_with_malus` below and in `candidates._constrained`.
 INELIGIBLE = 1e9
 
 

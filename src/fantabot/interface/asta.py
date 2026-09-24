@@ -1,8 +1,15 @@
-"""The offline asta commands: `asta optimize` and `asta legality`. Read-only, no FantaLab.
+"""The `asta` group: all seven commands, offline and live alike.
 
-The thin I/O shell: fetch the Mantra pool, values and prices from Postgres, hand them to the
-pure engine (legality / value / optimizer / report), and print. Registered on the root app
-by ``register(app)``, mirroring ``aste/cli.py``.
+It began as the two offline ones — `asta optimize` and `asta legality`, read-only and with
+no FantaLab in sight — and that is what this docstring described until 2026-09-24. It now
+also registers `asta live`, `asta bid`, `asta room`, `asta calibrate` and `asta bench`
+(`COMMANDS` at the foot of the file is the list), and `bid_writer` below **writes to
+FantaLab's RTDB**: the two arming locks, not "read-only", are what stands between this
+module and a spent credit.
+
+The thin I/O shell: fetch the pool, values and prices from Postgres, hand them to the pure
+engine (legality / value / optimizer / report), and print. Registered on the `asta` group
+by ``register``.
 """
 
 from __future__ import annotations
@@ -102,7 +109,8 @@ def _today() -> date:
     confidence on a 7-day half-life, and every row shares one `data_run`, so one day of
     drift rescales every reading: the same inputs printed `obj 2273.1` today, `2209.1`
     tomorrow, `1936.5` in a week, with roster membership changing too. Three reads would
-    be three things to freeze in lockstep, and `tests/test_asta_clock.py` keeps it at one.
+    be three things to freeze in lockstep, and `tests/domain/asta/test_asta_clock.py`
+    keeps it at one.
     """
     return date.today()
 
@@ -690,7 +698,8 @@ def asta_live(
 
     # FantaLab identifies players by UUID; everything downstream is keyed by fantacalcio id.
     # Fetched here because the two event sources differ and the bridge does not: `--replay`
-    # is developer machinery and stays CLI-only (`tasks/archive/parity-spec.md` T20), which is exactly why
+    # is developer machinery and stays CLI-only (the parity phase's spec, T20 — archived,
+    # and not in this checkout: `tasks/` has always been gitignored), which is exactly why
     # `build_advisory` takes `events` rather than reading them — one fold over two sources
     # instead of two folds.
     from fantabot.adapters.http.fantalab import listone
@@ -803,7 +812,7 @@ def asta_room(
 
     Not `fantabot <url>`: a root callback with a positional argument makes Click consume the
     first token as that argument, so `fantabot asta bid` would exit 2 with `No such command
-    'bid'` and all 22 commands would break. A shell alias recovers the ergonomics:
+    'bid'` and all 35 commands would break. A shell alias recovers the ergonomics:
     `fanta() { fantabot asta room "$1"; }`.
 
     **Two locks before a credit is spent** — `FANTABOT_AUTO_ACT` *and* `--arm`, both opt-in.
@@ -941,8 +950,13 @@ def asta_room(
 
     # Three locks: the two the operator opens, and the bridge that names the lots — a stale
     # one refuses *arming*, never the run. `room_arming` is where all three are weighed, in
-    # `application/`, because the app's room route needs the same answer and a second copy
-    # of it would be a second opinion nobody is told about. Its docstring carries the why.
+    # `application/`, because `asta bid` below weighs the same three and a second copy of
+    # them would be a second opinion nobody is told about: those are its two callers.
+    # (This said "the app's room route needs the same answer" until 2026-09-24. That route
+    # does not call it — `POST /asta/room/bid` weighs the two locks it can see with
+    # `decide_arming` and spawns `asta bid`, which reaches this one as the child. So the
+    # app depends on it, transitively, and the note named a caller it does not have.)
+    # Its docstring carries the why.
     gate = room_arming(
         arm=arm,
         auto_act=live_auto_act(),
@@ -1185,7 +1199,7 @@ def asta_calibrate(
     `lot_ceiling`'s own re-solved number, and it is hand-set; this replays it against auctions
     that really happened and prints what each value would have spent. Pick the alpha whose
     spend lands near the budget with a rosa that can still field a schema, and paste the table
-    into `tasks/archive/parity-todo.md`.
+    into the parity phase's todo (archived, not in this checkout).
 
     **Either corpus.** Both reads took the Mantra default, which agreed — so the sweep it ran
     was sound and no Classic sweep could be asked for at all. That mattered because the
@@ -1627,8 +1641,9 @@ def asta_bench(
     `test_asta_bench.py` read them. This is `SPEC.md`'s acceptance gate for the asta-fixes
     phase — proof, from one command, that Vicario is never a target, Ostigard holds for free
     on the pre-gate, and Malen prices above the floor and refuses his real clearing price
-    (`tasks/archive/parity-spec.md` §8 items 2 and 3; the exact numbers were measured building this command, not
-    copied from the spec's own first draft — see `tasks/archive/parity-todo.md` Task 6.2/6.3).
+    (the parity phase's spec §8 items 2 and 3 — archived, not in this checkout; the exact
+    numbers were measured building this command, not copied from the spec's own first draft,
+    which that phase's todo records as Task 6.2/6.3).
 
     Exits non-zero, one line per failed invariant, if a change to `asta_room`/`reservation`
     regresses any of the three.

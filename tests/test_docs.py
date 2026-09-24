@@ -7,10 +7,11 @@ human re-reading is a doc check that happens once.
 
 **Every reference is a claim a particular document makes, so every table here is keyed by
 `(document, the path that document writes)`.** That is not ceremony. `lineup.py` appears
-bare in both docs and means two different files: `README.md:84` names the deleted Classic
-scaffolding, and `CLAUDE.md:138` names the live `src/fantabot/interface/lineup.py` in the
-same breath as `asta.py`. A table keyed by the ref alone has to answer one of those two
-sentences wrongly, and the one it answered wrongly was the live file.
+bare in both docs and means two different files: README.md's Status section names the
+deleted W2 Classic scaffolding, and CLAUDE.md's writing-ratchet bullet names the live
+`src/fantabot/interface/lineup.py` in the same breath as `asta.py`. A table keyed by the
+ref alone has to answer one of those two sentences wrongly, and the one it answered
+wrongly was the live file.
 
 A path is checked as the whole path. This used to fall back to "any tracked file anywhere
 with this basename", which passed every file that had *moved* -- the one thing this module
@@ -21,7 +22,8 @@ name, by pinning each to the single file its sentence means.
 **`DELETED_ON_PURPOSE` was the same fallback, one line further down.** It matched on
 basename too, so any ref *ending* in one of its eight names was not weakly checked but
 never checked at all -- and two of the eight, `lineup.py` and `models.py`, are the
-basenames of seven live tracked files. `CLAUDE.md:235` was already sitting in that hole:
+basenames of seven live tracked files. CLAUDE.md's format-detection line -- "`sroles=1` is
+Classic, `sroles=2` is Mantra (`interface/lineup.py`)" -- was already sitting in that hole:
 `interface/lineup.py` resolves perfectly well, and was being waved through by a list of
 things that supposedly do not exist, so a move of that module would not have been noticed.
 It is now the expected set of `test_every_path_named_is_a_file_that_exists` -- an
@@ -51,10 +53,11 @@ DOCS = ("CLAUDE.md", "README.md")
 #:
 #: The eight basenames this replaces, each checked against `git ls-files`:
 #:
-#: * `lineup.py` -- real deletion **only as README.md:84 writes it** (the W2 Classic
-#:   scaffolding). As a basename it shadowed `src/fantabot/interface/lineup.py` and
-#:   `app/fantabot_app/api/v1/endpoints/lineup.py`, and swallowed CLAUDE.md:138's bare
-#:   mention of the live module; that one is in `BY_CONTEXT` now, where `asta.py` -- the
+#: * `lineup.py` -- real deletion **only as README.md's Status section writes it** (the W2
+#:   Classic scaffolding). As a basename it shadowed `src/fantabot/interface/lineup.py`
+#:   and `app/fantabot_app/api/v1/endpoints/lineup.py`, and swallowed the writing-ratchet
+#:   bullet's bare mention of the live module; that one is in `BY_CONTEXT` now, where
+#:   `asta.py` -- the
 #:   other half of the same sentence -- already was.
 #: * `auction.py`, `strategy.py` -- real deletions, no tracked file of either name. Kept.
 #: * `models.py` -- **named by neither doc**, and shadowed all five of
@@ -63,14 +66,17 @@ DOCS = ("CLAUDE.md", "README.md")
 #:   is tracked and alive: the entry described a deletion that was reverted. Deleted.
 #: * `analyze_qi_bias.py`, `scripts/_db.py` -- really gone, but named by neither doc any
 #:   more. Dead entries, and a dead entry is what the next file of that name inherits.
-#: * `data/storage_state.json` -- not a deletion at all. README.md:136 says it is *opt-in*
+#: * `data/storage_state.json` -- not a deletion at all. README.md's Storage section says
+#:   it is *opt-in*
 #:   and that the default run does not create it, and `.gitignore:12` (`data/*`) excludes
 #:   it either way. Absent today, present the moment an operator runs `--save-session`, so
 #:   a "must stay gone" ratchet on it would go red for the operator's doing. It moved to
 #:   `GITIGNORED_BY_POLICY`, whose premise is the one that is actually true of it.
 DELETED_ON_PURPOSE: set[tuple[str, str]] = {
-    # README.md:84, the paragraph on the Classic scaffolding removed in W2 rather than
-    # left raising `NotImplementedError` against a DOM nobody mapped.
+    # README.md's Status section, on the Classic scaffolding removed in W2 rather than
+    # left raising `NotImplementedError` against a DOM nobody mapped. The paragraph now
+    # opens "Weekly lineup submission is built" -- the deletion is the sentence after it,
+    # and these three stay because that sentence is still the record of what went.
     ("README.md", "lineup.py"),
     ("README.md", "auction.py"),
     ("README.md", "strategy.py"),
@@ -111,7 +117,16 @@ CONVENTIONAL = {"SPEC.md", "tasks/plan.md", "tasks/todo.md"}
 #: keeps company with: a prefix is as blind as a basename unless something checks that it
 #: covers nothing live, which
 #: `test_no_exemption_covers_a_file_that_is_actually_in_the_repository` does.
-GITIGNORED_BY_POLICY = ("docs/", "data/storage_state.json")
+GITIGNORED_BY_POLICY = (
+    # 2026-09-24: `docs/` came off this list when it was tracked. What is left under it is
+    # the two third-party binaries -- fantacalcio.it's substitution-table PDF and a copy of
+    # their minified bundle -- which this repository is not going to republish from a public
+    # remote. `docs/sources/README.md` IS tracked and records their provenance and the 403s
+    # that make them unrecoverable, so a doc may still name them.
+    "docs/sources/Tabella-sostituzioni-per-schema-2024-2025.pdf",
+    "docs/sources/leghe-chunk-Dc2l8Fqx.js",
+    "data/storage_state.json",
+)
 
 #: Bare basenames the docs name in prose, mapped to **the one tracked file each means**,
 #: keyed by `(document, ref)`.
@@ -202,11 +217,17 @@ def _claims() -> dict[tuple[str, str], list[int]]:
     return claims
 
 
-def _gitignored_by_policy(ref: str) -> bool:
-    """A prefix entry ends in `/`; anything else must match the whole ref."""
+def _gitignored_by_policy(ref: str, entries: tuple[str, ...] = GITIGNORED_BY_POLICY) -> bool:
+    """A prefix entry ends in `/`; anything else must match the whole ref.
+
+    `entries` is a seam, not configuration: every live entry is exact since `docs/` was
+    tracked on 2026-09-24, so the prefix branch has nothing in the repository to exercise
+    it. The meta-test passes a synthetic prefix rather than leave that branch unpinned
+    until the next prefix entry is added and nobody notices it matching a neighbour.
+    """
     return any(
         ref.startswith(entry) if entry.endswith("/") else ref == entry
-        for entry in GITIGNORED_BY_POLICY
+        for entry in entries
     )
 
 
@@ -298,7 +319,9 @@ def test_an_unlisted_stale_reference_is_reported(tmp_path, monkeypatch) -> None:
         "this one has moved: `src/fantabot/domain/typo/models.py`,\n"
         "and this is a real deletion: `auction.py`.\n"
     )
-    (tmp_path / "README.md").write_text("`docs/leghe-api.md` stays exempt.\n")
+    (tmp_path / "README.md").write_text(
+        "`docs/sources/leghe-chunk-Dc2l8Fqx.js` stays exempt.\n"
+    )
     empty = tmp_path / "empty"
     empty.mkdir()
     monkeypatch.setattr(module, "REPO", tmp_path)
@@ -368,8 +391,9 @@ def test_a_ref_whose_directory_is_wrong_does_not_pass_on_its_basename() -> None:
 def test_a_context_pin_belongs_to_the_document_that_makes_it() -> None:
     """`BY_CONTEXT` is keyed by `(doc, ref)`, and that keying is load-bearing.
 
-    `lineup.py` is the case: CLAUDE.md:138 names the live `interface/lineup.py` beside
-    `asta.py`, and README.md:84 names the deleted Classic scaffolding. One table keyed by
+    `lineup.py` is the case: CLAUDE.md's writing-ratchet bullet names the live
+    `interface/lineup.py` beside `asta.py`, and README.md's Status section names the
+    deleted Classic scaffolding. One table keyed by
     the ref alone answers both sentences the same way, so pinning CLAUDE's mention would
     silently resolve README's deletion too -- and the deletion would drop out of
     `DELETED_ON_PURPOSE`'s `==` as "unused", inviting someone to delete the entry that is
@@ -430,7 +454,8 @@ def test_no_exemption_covers_a_file_that_is_actually_in_the_repository() -> None
 def test_no_exempt_ref_names_a_source_file() -> None:
     """The same class, read from the docs' side, where `git ls-files` cannot reach.
 
-    `CLAUDE.md:235` writes `interface/lineup.py` -- not a tracked path as spelled, so the
+    CLAUDE.md's format-detection line writes `interface/lineup.py` -- not a tracked path
+    as spelled, so the
     scan above would not have caught it, yet it resolves package-relative and was exempt.
     `src/` and `tests/` are tracked whole, so a ref that resolves under either names a real
     source file, and no exemption here is about a real source file: templates and
@@ -469,14 +494,20 @@ def test_a_gitignored_entry_covers_a_directory_or_a_file_and_nothing_else() -> N
     neighbours. Pinned here rather than left to the corpus, because the corpus cannot see
     it.
     """
-    assert _gitignored_by_policy("docs/leghe-api.md")
+    # Every entry is exact today -- `docs/` was the one prefix entry and came off the list
+    # on 2026-09-24 when `docs/` was tracked -- so the prefix half is exercised against a
+    # synthetic entry rather than left unpinned until the next one is added.
     assert _gitignored_by_policy("data/storage_state.json")
-    # a prefix entry stops at the directory boundary it spells
-    assert not _gitignored_by_policy("docsite/leghe-api.md")
-    assert not _gitignored_by_policy("src/fantabot/docs/leghe-api.md")
+    assert _gitignored_by_policy("docs/sources/leghe-chunk-Dc2l8Fqx.js")
     # an exact entry is not a prefix
     assert not _gitignored_by_policy("data/storage_state.json.bak")
     assert not _gitignored_by_policy("data/storage_state.jsonl")
+    assert not _gitignored_by_policy("docs/sources/leghe-chunk-Dc2l8Fqx.js.bak")
+    # a prefix entry stops at the directory boundary it spells
+    prefixed = (*GITIGNORED_BY_POLICY, "docs/sources/")
+    assert _gitignored_by_policy("docs/sources/anything.txt", prefixed)
+    assert not _gitignored_by_policy("docs/sourcesite/anything.txt", prefixed)
+    assert not _gitignored_by_policy("src/fantabot/docs/sources/anything.txt", prefixed)
 
 
 def test_the_gitignored_exemption_still_has_its_reason() -> None:

@@ -1,9 +1,10 @@
 """Where a dump lands, and the two refusals it carries (T26).
 
 All of this lived inside `db_dump`'s Typer body, where the app could not reach any of
-it — and the app has to reach it, because the *path* is the deliverable. `tasks/archive/parity-spec.md` §8
-Never #4 forbids a browser download of a dump: handing over the bytes puts the file
-wherever the browser puts downloads, which is a directory neither guard covers. So the
+it — and the app has to reach it, because the *path* is the deliverable. The parity phase's
+spec (archived, not in this checkout) §8 Never #4 forbids a browser download of a dump:
+handing over the bytes puts the file wherever the browser puts downloads, which is a
+directory neither guard covers. So the
 app names the path instead, and naming a path it did not derive is how two surfaces come
 to disagree about where the dump is.
 

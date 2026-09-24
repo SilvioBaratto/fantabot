@@ -4,8 +4,10 @@ Locates the project ``.env`` by walking up the directory tree and loads it into
 ``os.environ`` before any Settings instance is created. This is what lets the
 app find the ROOT-level ``.env`` (one directory above ``api/``) regardless of the
 current working directory — ``cd api && uvicorn`` and running from the project
-root both resolve the same file. In Docker no ``.env`` exists (compose injects the
-vars via ``env_file``), so the load step is simply skipped.
+root both resolve the same file. Where there is no ``.env`` at all — a wheel install, CI,
+a shell that exports everything — the load step is simply skipped and real environment
+variables are the whole configuration. (This paragraph said "in Docker" until 2026-09-24;
+the compose stack is gone, as ``_ROOT_MARKERS`` below already records.)
 """
 
 import logging
@@ -62,10 +64,10 @@ def load_configuration(dot_env_path: Path | None = None) -> None:
     """Populate ``os.environ`` from the project ``.env`` (best-effort).
 
     If a ``.env`` is found it is loaded via python-dotenv with ``override=False``
-    so real environment variables (Docker, CI, exported shell) always win. In
-    Docker no file exists and this is a no-op. When *dot_env_path* is None the
-    file is located by walking up the tree (see :func:`find_dotenv`), so it
-    resolves regardless of CWD; pass an explicit path in tests.
+    so real environment variables (CI, an exported shell) always win. Where no file
+    exists this is a no-op. When *dot_env_path* is None the file is located by walking up
+    the tree (see :func:`find_dotenv`), so it resolves regardless of CWD; pass an explicit
+    path in tests.
     """
     resolved = find_dotenv() if dot_env_path is None else dot_env_path
     if resolved is not None and resolved.exists():

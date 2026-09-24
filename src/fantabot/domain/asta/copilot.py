@@ -1,7 +1,8 @@
 """The live copilot's pure half: what it is told, what it may answer, and how it is asked.
 
-`tasks/archive/asta-design.md` Part 2 ranks the live LLM's uses, and the one it was originally
-wanted for — judging a player — comes last. The facts about a player are static and are better
+The asta-design note (archived, not in this checkout) ranks the live LLM's uses in its
+Part 2, and the one it was originally wanted for — judging a player — comes last. The
+facts about a player are static and are better
 precomputed the night before with a bigger model and search enabled. What a live call is
 actually good for is looking at *this* state and asking whether our own number looks wrong.
 
@@ -125,7 +126,7 @@ def clamp(walk_away: int, advice: Commentary | None, *, cap: int) -> int:
     the argument will be had against a monotone ratchet that is already written and tested,
     rather than in the open with an evening's deadline pressing.
 
-    A ratchet rather than a multiplier. `tasks/archive/asta-design.md` proposed a bounded
+    A ratchet rather than a multiplier. That same asta-design note proposed a bounded
     ±20% tilt, and the difference matters: a multiplier that can raise a bid makes the model's
     worst failure — confident and wrong at 21:47 — cost money. `min` makes its worst failure
     cost a player, which is recoverable.

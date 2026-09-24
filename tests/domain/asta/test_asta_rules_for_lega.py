@@ -189,15 +189,25 @@ class TestFallingBack:
         assert provenance == ASSUMED_NOTHING
 
 
-def test_the_three_provenances_are_distinct_and_greppable() -> None:
-    """`rules_for_room`'s rule, extended. Three sources, three exact strings — a reader who
-    greps one must not find another, and none is composed at a call site."""
-    from fantabot.domain.asta.state import ASSUMED_NOTHING, ROOM_DECLARED, SNAPSHOT_DECLARED
+def test_the_provenances_are_distinct_and_greppable() -> None:
+    """`rules_for_room`'s rule, extended. Four sources, four exact strings — a reader who
+    greps one must not find another, and none is composed at a call site.
 
-    all_three = {ROOM_DECLARED, ASSUMED_NOTHING, SNAPSHOT_DECLARED}
+    `OPERATOR_DECLARED` was outside this set until 2026-09-24, while `state.py:183` had
+    called it "the fourth" since it landed. It is live — `interface/asta.py` returns it
+    from three branches — so the set that pins the strings apart had three of the four.
+    """
+    from fantabot.domain.asta.state import (
+        ASSUMED_NOTHING,
+        OPERATOR_DECLARED,
+        ROOM_DECLARED,
+        SNAPSHOT_DECLARED,
+    )
 
-    assert len(all_three) == 3
-    assert not any(a in b for a in all_three for b in all_three if a != b)
+    all_four = {ROOM_DECLARED, ASSUMED_NOTHING, SNAPSHOT_DECLARED, OPERATOR_DECLARED}
+
+    assert len(all_four) == 4
+    assert not any(a in b for a in all_four for b in all_four if a != b)
 
 
 class TestTheDeclaredCeiling:

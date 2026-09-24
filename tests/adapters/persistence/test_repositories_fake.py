@@ -497,7 +497,7 @@ class TestTheFantalabSessionRepositoryHandlesBytesOnly:
     credential path that reached SQLAlchemy directly.
 
     The division is the same one `LeagueTokenRepository` keeps and
-    `tests/test_token_secrecy.py` enforces: the repository moves ciphertext as
+    `tests/adapters/tokens/test_token_secrecy.py` enforces: the repository moves ciphertext as
     bytes and never names a cipher; the store decrypts. Both halves are asserted
     here because a repository that quietly grew a `decrypt` would still pass every
     behavioural test in the suite.

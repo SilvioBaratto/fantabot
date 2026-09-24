@@ -2,8 +2,8 @@
 
 A Classic starting XI is counts over the four macro roles: exactly one P, then a D-C-A split
 summing to 10. The seven valid splits, confirmed live 2026-09-03 from lega 3584692's
-`lineup_settings.mods` (`docs/classic/task0-capture.md`): 343 352 433 442 451 532 541. The three
-digits of a code are the D, C, A counts.
+`lineup_settings.mods` (the Classic phase's Task 0 capture, not in this checkout):
+343 352 433 442 451 532 541. The three digits of a code are the D, C, A counts.
 
 Legality is **counting**, not the bipartite matching Mantra needs (`domain/asta/legality.py`): a
 rosa fields a module iff it holds at least the module's count in each of P/D/C/A. This is why the

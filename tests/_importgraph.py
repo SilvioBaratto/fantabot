@@ -12,11 +12,17 @@ importing it reached the whole upsert layer while appearing to import a leaf. Th
 repository has had two of those.
 
 **Why function-level and `TYPE_CHECKING` imports count.** They are the interesting
-cases, not the edge cases. `asta_engine/prices.py` looks pure — its only `sqlalchemy`
-mention is under `TYPE_CHECKING` and its repository import is inside a function body —
-and it reaches Postgres on every call. `news/pool.py` and `asta_engine/stateentry.py`
-are the same shape. A walker that only read module-level imports would report all
-three as clean, which is precisely the reassurance nobody needs.
+cases, not the edge cases. `domain/asta/prices.py` — then `asta_engine/prices.py` —
+*looked* pure: its only `sqlalchemy` mention was under `TYPE_CHECKING` and its
+repository import sat inside a function body, and it reached Postgres on every call.
+`domain/news/pool.py` and `domain/asta/stateentry.py` were the same shape, the last of
+them over `claude_agent_sdk` and `config` rather than the database. A walker that only
+read module-level imports would have reported all three as clean, which is precisely
+the reassurance nobody needs.
+
+All three have since been split, and this walker is what keeps them split: measured
+2026-09-24, none of the three imports persistence or the SDK at any level, directly or
+transitively. The shape is what the rule is about, not those three modules.
 """
 
 from __future__ import annotations

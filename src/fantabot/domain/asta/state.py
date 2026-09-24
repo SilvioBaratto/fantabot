@@ -293,8 +293,9 @@ def rules_for_room(
 ) -> tuple[RosterRules | ClassicRosterRules, str]:
     """`RosterRules`, derived from what a room actually declares, with a stated provenance.
 
-    **Reading the room too literally is the named risk (`tasks/archive/parity-plan.md` §2).** A room under
-    `"no-limit-per-role"` — the common case — has no per-role floor to read at all, and the
+    **Reading the room too literally is the named risk** (the parity phase's plan §2 —
+    archived, not in this checkout). A room under `"no-limit-per-role"` — the common
+    case — has no per-role floor to read at all, and the
     room's own `min_player`/`max_player` totals say only "at least this many players," never
     how many of them must be goalkeepers. Deriving `min_goalkeepers=0` from that silence
     would be a room-declared zero-keeper floor no room actually stated, not the honest

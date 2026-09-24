@@ -1,11 +1,12 @@
 """The weekly sentiment time series: writing it, and reading it back.
 
 The write path replaces a full-file rescan with a primary key. ``existing_keys``
-returns ``(data_run, player_id)`` as **strings**, deliberately: ``cli.py`` builds
-``(today.isoformat(), p.id)`` to compare against, and a repository that returned
+returns ``(data_run, player_id)`` as **strings**, deliberately: ``news fetch``
+(``interface/app.py``) builds ``(today.isoformat(), p.id)`` to compare against, and
+the hourly ``application/news_roster`` builds the same pair; a repository that returned
 ``(date, int)`` would match nothing — every one of the 523 players would be
 re-queried and the run would still report success. That shape is pinned by
-``tests/test_news_store_contract.py``.
+``tests/domain/news/test_news_store_contract.py``.
 
 ``--force`` is a **behaviour change**, not a port. Today it merely skips the
 resume filter, and since ``append_rows`` has no dedup it writes a second row for
@@ -76,8 +77,9 @@ class SentimentRepository(RepositoryBase):
     def existing_keys(self, data_run: date) -> set[tuple[str, str]]:
         """``(data_run, player_id)`` already stored, as strings.
 
-        Strings because that is what ``cli.py`` compares against. Returning the
-        native types here would silently disable resume.
+        Strings because that is what the two callers compare against —
+        ``interface/app.py``'s ``news fetch`` and ``application/news_roster``.
+        Returning the native types here would silently disable resume.
         """
         rows = self.session.execute(
             select(PlayerSentiment.data_run, PlayerSentiment.player_id).where(

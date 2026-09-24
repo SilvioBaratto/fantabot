@@ -1,8 +1,8 @@
 """Scrapers over `fantacalcio.it`'s public pages.
 
-These fetch from the site and write through `db/scraping.py`. They lived in
-`scripts/` as standalone command-line programs until 2026-08-30 — outside `ruff`,
-outside `mypy`
+These fetch from the site and write through `adapters/persistence/scraping.py`
+(`db/scraping.py` when this was written). They lived in `scripts/` as standalone
+command-line programs until 2026-08-30 — outside `ruff`, outside `mypy`
 and outside the test suite, which is the whole reason they moved.
 
 Each exposes a `run(...)` taking real arguments; `interface`-side Typer commands in

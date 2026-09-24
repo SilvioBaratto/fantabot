@@ -247,9 +247,10 @@ def run_scrape(request: ScrapeRequest) -> None:
 def _module(table: str) -> ModuleType:
     """The scraper for a table, imported on use.
 
-    Inside the function for `tests/test_db_boundary.py`'s reason: these modules pull in
-    the whole persistence stack, and importing the CLI must load neither sqlalchemy nor
-    playwright. The Typer body had the same import in the same place.
+    Inside the function for `tests/adapters/persistence/test_db_boundary.py`'s reason:
+    these modules pull in the whole persistence stack, and importing the CLI must load
+    neither sqlalchemy nor playwright. The Typer body had the same import in the same
+    place.
     """
     from importlib import import_module
 

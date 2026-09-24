@@ -1,11 +1,13 @@
 """`asta optimize` and `GET /asta/plan`, on one database, at one frozen date.
 
-This is the divergence the whole phase is named for. `tasks/archive/parity-spec.md` §11.1 counts **ten**
-inputs that differ, and the two that matter most are a pair: the endpoint passes
-`sentiment=None` and `tilt_k=1.0`. `sentiment=None` **is the ablation control** — the
-experiment's other arm, plain `fvm`, which on the 2026-08-28 data chases a player with a
-metatarsal fracture to 62 credits. The page shows it to an operator as advice. `tilt_k`
-is 4x the CLI's 0.25 and inert only because there is nothing to tilt.
+This is the divergence the whole phase is named for, and it is **closed** — the rest of
+this paragraph is history, not the state of the two surfaces. The archived parity-phase
+spec §11.1 counted **ten** inputs that differed, and the two that mattered most were a
+pair: the endpoint passed `sentiment=None` and `tilt_k=1.0`. `sentiment=None` **is the
+ablation control** — the experiment's other arm, plain `fvm`, which on the 2026-08-28 data
+chases a player with a metatarsal fracture to 62 credits, and the page was showing it to
+an operator as advice. `tilt_k` was 4x the CLI's 0.25 and inert only because there was
+nothing to tilt.
 
 **The comparison is on decision content, never rendered text.** A test that diffed a Rich
 table against JSON would fail on a column width, and a test that fails for a reason nobody

@@ -64,7 +64,7 @@ class TestTheImportsThatHide:
     """Each of these shipped in this repository while looking pure."""
 
     def test_an_import_inside_a_function_body_counts(self, tree) -> None:  # type: ignore[no-untyped-def]
-        """`asta_engine/prices.py`, exactly: pure at module level, Postgres per call."""
+        """`domain/asta/prices.py` as it shipped, exactly: pure at module level, Postgres per call."""
         tree(**{"pure": "def go():\n    from sqlalchemy import select\n    return select"})
         assert G.reaches("pkg.pure", "sqlalchemy")
 

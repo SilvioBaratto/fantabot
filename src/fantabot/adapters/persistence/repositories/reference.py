@@ -1,7 +1,10 @@
 """Queries over the reference tables.
 
-Everything here is a read of data the scrapers produced. Writes belong to the
-the scrapers, and move into this package as they are ported.
+Most of it is a read of data the scrapers produced, and the scrapers still own the
+bulk write path. Three writes have moved here as they were ported, and this said
+there were none — and said "belong to the the scrapers" — until 2026-09-24:
+``exclude_player`` and ``unexclude_player`` maintain ``player_exclusion``, which no
+scrape produces, and ``backfill_team_names`` upserts the resolved ``teams.nome_completo``.
 """
 
 from __future__ import annotations
@@ -134,7 +137,8 @@ class ReferenceRepository(RepositoryBase):
         rows, and every table still looks populated.
 
         Why this exists at all: the scraper path writes the three-letter *code*
-        into the name column (``scripts/_db.py:320-322``) so the foreign key is
+        into the name column (``adapters/persistence/scraping.upsert_quotazioni``;
+        it was ``scripts/_db.py`` when this was written) so the foreign key is
         satisfied the moment a listone lands. That placeholder is correct and
         deliberate — on a rebuild ``quotazioni`` is written before ``voti``
         exists, so resolving names inline would fail closed and abort the

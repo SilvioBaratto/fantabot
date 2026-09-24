@@ -151,7 +151,7 @@ def test_an_injected_factory_means_no_engine_is_ever_built() -> None:
 
 
 def _imports(path: Path) -> set[str]:
-    """Every module named by an import statement. Matches ``tests/test_aste_outage.py``."""
+    """Every module named by an import statement. Matches ``tests/application/test_aste_outage.py``."""
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):

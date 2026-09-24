@@ -175,20 +175,23 @@ class Statistica(Base, TimestampMixin):
 
 
 # ``qi_bias`` is a **view** over this table since 2026-08-30, not a model. Every one
-# of its 5,356 rows was derivable from the columns above — the proof is in
-# ``tasks/w4-proofs.out`` §1 — and its three consumers were deleted with the analysis
+# of its 5,356 rows was derivable from the columns above — the proof is in the W4 phase's
+# proof output §1, which is not in this checkout (``tasks/`` has always been gitignored) —
+# and its three consumers were deleted with the analysis
 # scripts. The view's definition, including the season predicate it encodes and the
 # banker's rounding it emulates, lives in the migration ``a1c4e77b3f01``.
 #
-# It has no model deliberately: ``db/scraping.py::load_bias_rows`` reads it with raw
-# SQL, and mapping a view would make ``alembic check`` want to build it as a table.
+# It has no model deliberately: ``adapters/persistence/scraping.load_bias_rows`` reads
+# it with raw SQL, and mapping a view would make ``alembic check`` want to build it as
+# a table.
 
 # Coarse role buckets used by the pricing model. Mantra adds MID_ATT.
 MACRO_ROLES: tuple[str, ...] = ("GK", "DEF", "MID", "MID_ATT", "ATT")
 
 
 class TargetPrice(Base, TimestampMixin):
-    """What ``scripts/target_price.py`` thinks a player is worth this season.
+    """What ``application/pricing.py`` thinks a player is worth this season — the
+    module ``fantabot db price`` runs, and ``scripts/target_price.py`` before it.
 
     The only table in the schema whose numbers get spent as real credits.
 

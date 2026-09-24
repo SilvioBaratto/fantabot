@@ -1,6 +1,6 @@
 """Everything this phase can raise, and what each one tells you to do.
 
-One family, one place to look. `login.py` catches `TokenError` and reports;
+One family, one place to look. `application/auth_login` catches `TokenError` and reports;
 nothing else has to know the taxonomy. The transport-shaped errors live here
 too, rather than in `apileague.py`, because "what can go wrong with the token"
 does not split cleanly at the HTTP boundary — a `401 ATH001` *is* a token
@@ -8,12 +8,12 @@ problem, and the answer to it is the same command as for an expired one.
 
 **No error takes a token, a plaintext or a ciphertext as an argument.** An
 exception carrying a credential is a credential in every traceback that touches
-it, and tracebacks reach pytest output and cron logs. `tests/test_token_secrecy.py`
-walks `Raise` nodes for exactly this.
+it, and tracebacks reach pytest output and cron logs.
+`tests/adapters/tokens/test_token_secrecy.py` walks `Raise` nodes for exactly this.
 
 Every message names the command that fixes the situation, in the style of
-`cli.py`'s `fantabot-app db start`. An error that says what broke but not what to
-do is a puzzle, not a diagnostic.
+`app/fantabot_app/cli.py`'s `fantabot-app db start`. An error that says what broke
+but not what to do is a puzzle, not a diagnostic.
 
 **Naming ruling.** SPEC's Project Structure lists `KeyMismatch`, while SPEC's own
 executable Code Style snippet raises `TokenUndecryptable` for both the

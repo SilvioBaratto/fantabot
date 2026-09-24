@@ -67,7 +67,7 @@ from fantabot.adapters.files.stopflag import (
 from fantabot_app.api.infrastructure.jobs import BufferingReporter
 
 #: How long a stop waits for the child to go before it stops asking. §6 of the archived
-#: phase spec, `tasks/archive/fantalab-in-the-app-spec.md`.
+#: fantalab-in-the-app-phase spec.
 STOP_GRACE_S = 15.0
 #: How often the wait looks. 15 s is the bound, not the cost — a stop that always paid it
 #: would make the button feel broken on the one evening anybody uses it.

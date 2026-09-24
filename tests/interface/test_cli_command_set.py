@@ -1,7 +1,7 @@
 """The exact set of commands the CLI exposes, pinned by introspection.
 
-**Why not by parsing `--help`.** `tests/test_cli_entrypoints.py` does that, and it
-has to — its subject is that two *ways of invoking* the CLI agree, which is a
+**Why not by parsing `--help`.** `tests/interface/test_cli_entrypoints.py` does that,
+and it has to — its subject is that two *ways of invoking* the CLI agree, which is a
 subprocess question. But its regex takes the first word of every boxed row, and a
 boxed row can be an option description: it reports 18 commands, one of which is
 `ledger`, a word from `asta live`'s help text. A check that hallucinates a command

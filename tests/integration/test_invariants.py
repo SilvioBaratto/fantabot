@@ -28,19 +28,19 @@ so each constraint first asserts it had rows to inspect.
 ``test_full_seed.py`` compared each CSV header against its table, because
 *a dropped column changes no count* — every floor above stays green while a field
 silently stops being written. That comparison dies with the files, but the drift
-risk only moves: it is now ``scripts/_db.py``'s hand-written ``INSERT INTO``
-column lists and ``updatable`` tuples drifting from the schema. Neither
-``alembic check`` nor ``tests/test_migrations.py`` can see it — both compare the
-*models* to the *migrations*, and these are SQL strings in a script that neither
-one reads.
+risk only moves: it is now ``adapters/persistence/scraping.py``'s hand-written
+``INSERT INTO`` column lists and ``updatable`` tuples drifting from the schema.
+Neither ``alembic check`` nor ``tests/adapters/persistence/test_migrations.py`` can
+see it — both compare the *models* to the *migrations*, and these are SQL strings
+that neither one reads.
 
 **Idempotence moved.** ``test_full_seed.py``'s fixture ran the whole importer
 registry twice and asserted the counts did not move — that was the proof the
 seed was re-runnable. The scrapers carry that property now, in their
 ``ON CONFLICT`` clauses: ``upsert_two_passes`` for the match grain
-(``db/upserts.py``), and the ``DO UPDATE``/``DO NOTHING`` clauses throughout
-``scripts/_db.py``. A killed scrape is restarted, not repaired. Nothing here
-re-runs a load to prove it, because the guard is now in the write path itself.
+(``adapters/persistence/upserts.py``), and the ``DO UPDATE``/``DO NOTHING``
+clauses throughout ``adapters/persistence/scraping.py``. A killed scrape is
+restarted, not repaired. Nothing here re-runs a load to prove it, because the guard is now in the write path itself.
 
 The row floors are **floors, not equalities**. The scrapers read a live site and
 the site moves — a scrape on 2026-08-26 added four players to the 2026/27
@@ -196,8 +196,9 @@ def test_role_labels_keep_their_casing_while_codes_normalise(engine: Engine) -> 
 
 def test_a_missing_forecast_is_null_and_always_says_why(engine: Engine) -> None:
     """NULL means no fade model was applied; 0.0 would mean one was applied and
-    came out flat. Only one branch of ``scripts/target_price.py`` sets a value;
-    every other leaves it None and appends a flag with the reason. Computing the
+    came out flat. Only one branch of ``application/pricing.py`` — it was
+    ``scripts/target_price.py`` before the port — sets a value; every other leaves
+    it None and appends a flag with the reason. Computing the
     percentage unconditionally would turn every no-fade row into a real-looking
     0.0, and no row count would move.
 
@@ -299,7 +300,7 @@ def test_the_club_vocabularies_are_a_bijection(engine: Engine) -> None:
 
 
 def _db_script_source() -> str:
-    """``db/scraping.py`` as text. Read, never imported.
+    """``adapters/persistence/scraping.py`` as text. Read, never imported.
 
     Importing it would execute the module and pull in its Session machinery; the
     property under test is what the file *says*, which is a syntax-level fact.
@@ -315,8 +316,8 @@ def _db_script_source() -> str:
 
 # The class handed to ``upsert_two_passes`` as its second positional argument.
 # Those calls carry no ``INSERT INTO`` string at all — the statement is built
-# inside ``db/upserts.py`` from the model — so an AST walk keyed on table names
-# cannot reach their ``updatable`` tuples and would silently cover nothing.
+# inside ``adapters/persistence/upserts.py`` from the model — so an AST walk keyed on
+# table names cannot reach their ``updatable`` tuples and would silently cover nothing.
 # Asserted exhaustive below: a third call site with an unmapped class fails.
 MODEL_TO_TABLE: dict[str, str] = {"MatchGrain": "match_grain"}
 
@@ -391,7 +392,8 @@ def _columns_of(engine: Engine, table: str) -> set[str]:
 def test_every_insert_names_only_real_columns(engine: Engine) -> None:
     """A dropped or renamed column changes no row count, so nothing above notices.
 
-    ``alembic check`` cannot see this and neither can ``tests/test_migrations.py``:
+    ``alembic check`` cannot see this, and neither can
+    ``tests/adapters/persistence/test_migrations.py``:
     both compare the models to the migrations, and these column lists are
     hand-written SQL strings in a script that neither one reads.
     """

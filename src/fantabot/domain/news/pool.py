@@ -15,9 +15,9 @@ The pool comes from the ``quotazioni`` table now rather than the two CSVs.
 ordering — and stays pure, so the join logic is still testable with dictionaries
 and no database.
 
-**The two reads that feed it live in ``pipeline.py``.** They were a ``load_pool``
-shell here, with its repository import inside the function body, which made this
-module read as pure while reaching Postgres — and, because ``prompt.py`` and
+**The two reads that feed it live in ``adapters/persistence/news_pool.py``.** They were
+a ``load_pool`` shell here, with its repository import inside the function body, which
+made this module read as pure while reaching Postgres — and, because ``prompt.py`` and
 ``store.py`` import ``PoolPlayer`` from here, dragged them into the database's
 import graph too for the sake of one dataclass.
 """

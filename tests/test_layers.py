@@ -1,18 +1,22 @@
 """Which layer each module belongs to, and what that layer is allowed to reach.
 
-**Why a ratchet and not a clean rule.** The tree does not satisfy these rules today —
-six modules that read as decision logic reach Postgres or the agent SDK from inside a
-function body. A rule that fails immediately gets an `xfail` and stops meaning anything.
-So the current violations are written down, compared for **exact equality**, and removed
-by the splits that fix them. That direction matters in both senses: a new violation
-fails, and so does a fixed one that nobody recorded, which is what keeps the list from
-rotting into a permanent allowlist.
+**Why a ratchet and not a clean rule.** The tree did not satisfy these rules when this
+file landed — six modules that read as decision logic reached Postgres or the agent SDK
+from inside a function body. A rule that fails immediately gets an `xfail` and stops
+meaning anything. So the violations were written down, compared for **exact equality**,
+and removed by the splits that fixed them. That direction matters in both senses: a new
+violation fails, and so does a fixed one that nobody recorded, which is what keeps the
+list from rotting into a permanent allowlist. All four `EXPECTED_*` sets are `set()`
+today (measured 2026-09-24) — the ratchet having done its job, which is not a reason to
+replace it with a bare assertion; `EXPECTED_DOMAIN_VIOLATIONS` below says why.
 
-**Why the table carries names that do not exist yet.** W6 moves this tree into
-`domain/`, `application/`, `adapters/` and `interface/`. Carrying both the old and the
-new prefixes through the move means a package rename is a rename, not a rewrite of this
-file — and the rules keep applying while the tree is half-moved, which is exactly when
-a layer is easiest to break.
+**Why the table carried names that did not exist yet.** W6 moved this tree into
+`domain/`, `application/`, `adapters/` and `interface/`, and that move has landed.
+Carrying both the old and the new prefixes through it meant a package rename was a
+rename, not a rewrite of this file — and the rules kept applying while the tree was
+half-moved, which is exactly when a layer is easiest to break. The old prefixes have
+since been dropped — measured 2026-09-24, all 49 entries name post-move modules — so
+the next such move re-earns them rather than inheriting them.
 """
 
 from __future__ import annotations
@@ -108,7 +112,7 @@ UNPLACED = {"fantabot.domain", "fantabot.application", "fantabot.adapters",
             "fantabot", "fantabot.domain.asta", "fantabot.domain.harvest", "fantabot.domain.news",
             "fantabot.domain.tokens", "fantabot.adapters.tokens", "fantabot.adapters.persistence", "fantabot.adapters.persistence.models",
             "fantabot.adapters.persistence.repositories", "fantabot.adapters.agent", "fantabot.adapters.http.fantalab",
-            "fantabot.adapters.scraping", "fantabot.domain.mantra", "fantabot.data_sources"}
+            "fantabot.adapters.scraping", "fantabot.domain.mantra"}
 
 
 def layer_of(module: str) -> str:
@@ -187,14 +191,18 @@ EXPECTED_CLI_VIOLATIONS: set[tuple[str, str]] = set()
 
 EXPECTED_APPLICATION_VIOLATIONS: set[tuple[str, str]] = set()
 
-#: The T-spine ratchet. **One entry left.** `teamLineup_submit` was the other and went in
-#: 3.2, when `application/lineup_submit.py` took the eight decisions the Typer body held —
-#: the ratchet failed the moment the lift landed and demanded its line be deleted in the
-#: same commit, which is the direction that makes this a ratchet rather than an allowlist.
+#: The T-spine ratchet. **Empty since 3.11, and that is the point of it.** It held two
+#: entries and lost them one at a time.
 #:
-#: **Empty since 3.11, and that is the point of it.** It held two entries: `lineup.py`'s
-#: `teamLineup_submit`, emptied by T16, and `asta.py`'s `place_raise` — bound to a shard
-#: twice, once per live command, to build a `room.LotRouter`. `application/asta_session.
+#: `lineup.py`'s `teamLineup_submit` went in 3.2, when `application/lineup_submit.py` took
+#: the eight decisions the Typer body held — the ratchet failed the moment the lift landed
+#: and demanded its line be deleted in the same commit, which is the direction that makes
+#: this a ratchet rather than an allowlist. (An earlier revision of this comment credited
+#: that to T16 in one paragraph and to 3.2 in the one above it. `git log -S
+#: teamLineup_submit -- tests/test_layers.py` names `d74321a`, titled 3.2.)
+#:
+#: `asta.py`'s `place_raise` was the other, and went last — it was bound to a shard twice,
+#: once per live command, to build a `room.LotRouter`. `application/asta_session.
 #: lot_router` is the one construction now, so neither Typer body names a write.
 #:
 #: Recorded as `(module, name)` rather than per line so a reformat is not a false failure —
@@ -326,7 +334,7 @@ class TestTheWritingRuleItself:
 
         A module that merely says `place_raise` — in a variable, a keyword argument, an
         unrelated helper — and cannot reach the adapter is not acting. Deleting
-        `and reaches(...)` from the rule used to leave all eleven tests in this file green.
+        `and reaches(...)` from the rule used to leave every other test in this file green.
         """
         module = "fantabot.interface.printer"
         never_reaches = {
@@ -381,7 +389,10 @@ class TestTheTableItself:
             for prefix in LAYERS
             if prefix not in known and not any(m.startswith(f"{prefix}.") for m in known)
         )
-        # The W6 destinations do not exist yet, by design.
+        # These were the W6 destinations, allowed here while they were still empty.
+        # Measured 2026-09-24: all three exist and `missing` is `[]`, so the allowance is
+        # spent. Kept, not deleted, because narrowing it is a guard change and not a
+        # docstring repair — it belongs to whoever tightens this file next.
         pending = {"fantabot.domain", "fantabot.application", "fantabot.adapters"}
         assert set(missing) <= pending, f"LAYERS names modules that do not exist: {missing}"
 

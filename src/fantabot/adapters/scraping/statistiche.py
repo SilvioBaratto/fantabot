@@ -18,10 +18,14 @@ here), rp (rigori parati), ass (assist), amm (ammonizioni), esp (espulsioni).
 Parsed with stdlib html.parser (no BeautifulSoup dependency needed).
 
 Usage:
-    python scripts/scrape_statistiche.py [--seasons 2022/23 ...] [--providers fantacalcio statistico italia]
+    fantabot db scrape statistiche [--season 2022/23 --season 2023/24 ...]
 
-Default seasons: 2022/23 through 2025/26 (2026/27 excluded — preseason, all
-zeros as of writing; pass --seasons explicitly to include it).
+Default seasons: 2022/23 through 2026/27 (current) — see `DEFAULT_SEASONS`
+below, which is the list the CLI reads. 2026/27 was excluded while it was
+preseason and all zeros; it was appended on 2026-09-20, when the season being
+played had stopped being the one after the last default.
+
+All three providers are fetched on every run; there is no provider option.
 
 Upserts, tagged by "stagione", "fonte" and "listone":
     statistiche — one row per player per season per provider per listone

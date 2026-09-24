@@ -6,14 +6,20 @@ The same path `fantabot asta live --resolve-only` walks, and entirely read-only:
 buildable at all — reading a room's configuration is not the same act as bidding in it.
 
 **It is also the only call that proves a stored FantaLab session still authenticates.**
-Today the credential is captured by the Accounts page and read by nothing in the app, so
-"is FantaLab connected?" has had no answer beyond "a row exists".
+The credential is captured by the Accounts page and read by two other things. One reads it
+*through here*: `POST /asta/room/bid` calls `check_room` before it starts the bidder
+(`endpoints/room_bid.py`), so the only route that can spend credits asks this question
+first. The other does not: `endpoints/actions.py` builds its own `FantalabStore` for
+`POST /actions/harvest-scan`, where `LiveAuctionsClient.from_store` resolves the bearer in
+the adapter and raises `AuthExpired` when the stored session has stopped authenticating.
+So this is the route that asks the question *of the room*, not the only place an expired
+session shows up.
 
-**This one does not degrade open.** T31 (`tasks/BACKLOG.md`) records the cost of
-`except Exception -> found=False`: a database outage, a missing season, an infeasible
-roster and a wrong `--format` all rendered as "No plan yet". Degrade-open is right for a
-status read and wrong for the one call that tells the operator whether they can bid
-tonight, so each outcome below carries its own reason and its own remedy.
+**This one does not degrade open.** T31 (§3.3 of the app's maintainer-local `BACKLOG.md`)
+records the cost of `except Exception -> found=False`: a database outage, a missing
+season, an infeasible roster and a wrong `--format` all rendered as "No plan yet".
+Degrade-open is right for a status read and wrong for the one call that tells the operator
+whether they can bid tonight, so each outcome below carries its own reason and remedy.
 
 **No bearer enters this module.** `rest.fetcher_from(store)` resolves it inside the
 adapter and keeps it in a closure; the `user_id` comes from

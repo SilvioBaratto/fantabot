@@ -1,7 +1,8 @@
 """voti + bonus_malus become one match_grain table
 
-They were the same row twice. Measured before this was written
-(``tasks/w4-proofs.out`` §2): 50,634 rows each, the key
+They were the same row twice. Measured before this was written, in the W4 phase, §2 of
+its proof run (that file is in no checkout and no git history; what it showed is
+restated here): 50,634 rows each, the key
 ``(stagione, giornata, nome)`` matches 50,634 for 50,634 with **zero orphans in
 either direction**, and the six descriptor columns they share — ``data``,
 ``player_id``, ``ruolo``, ``ruolo_codice``, ``squadra_raw``, ``avversario_raw`` —

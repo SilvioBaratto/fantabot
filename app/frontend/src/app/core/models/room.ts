@@ -1,7 +1,7 @@
 /**
  * The five answers `GET /asta/room` can give. Five names, not one flag:
- * T31 (`tasks/BACKLOG.md`) records what a single label over four different failures costs,
- * and only one of these is fixed by going back to the room.
+ * T31 (§3.3 of the app's maintainer-local `BACKLOG.md`) records what a single label over
+ * four different failures costs, and only one of these is fixed by going back to the room.
  */
 export type RoomOutcome = 'resolved' | 'refused' | 'bad_link' | 'no_credential' | 'unreachable';
 

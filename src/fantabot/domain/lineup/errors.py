@@ -82,16 +82,22 @@ class BenchIncomplete(LineupError):
 
 
 class RosterIncomplete(LineupError):
-    """A roster id with no Mantra role — the roster cannot be assembled.
+    """A roster id with no role — the roster cannot be assembled.
 
     Fail-closed by name: guessing a role would build a lineup the platform rejects, so the
-    id is surfaced (scrape `quotazioni`, or check the id) rather than dropped.
+    id is surfaced rather than dropped.
+
+    **The role comes from the lega, not from a scrape.** `lineUpInfo` carries it — the
+    marle codes in `role` on Mantra, `fcrle` on Classic — so an empty one means the
+    platform sent this roster row without a role, or sent a code `marle`/`fcrle` does not
+    map. No local scrape can supply it, which is why the message points at the lega read
+    and not at `db scrape quotazioni`, as it did until 2026-09-24.
     """
 
     def __init__(self, player_id: int) -> None:
         super().__init__(
-            f"roster player {player_id} has no Mantra role in quotazioni — cannot place "
-            "him. Refresh the scrape (`fantabot db scrape quotazioni`) or check the id; "
+            f"roster player {player_id} has no role in the lega's lineUpInfo — cannot "
+            "place him. Re-read the lineup (`fantabot lineup show`) and check the id; "
             "nothing was assembled."
         )
         self.player_id = player_id

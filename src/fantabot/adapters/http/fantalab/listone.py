@@ -8,9 +8,10 @@ Without a translation the two halves cannot meet, and the failure is not subtle:
 raises `InfeasibleRoster` for any owned id absent from the pool, and the command
 therefore crashed on the first lot it won. It had been shipping that way.
 
-The harvest side has always had the bridge — `aste/cli.py` reads a cached copy for
-exactly this reason, and `asta_assignment.fantacalcio_id` is the result. The asta
-engine never saw it.
+The harvest side has always had the bridge — the harvest commands read a cached copy for
+exactly this reason (`interface/harvest.py`, and `application/harvest_backfill` since the
+backfill moved), and `asta_assignment.fantacalcio_id` is the result. The asta engine never
+saw it.
 
 `GET /v2/listone` is unauthenticated and returns the whole listone, `fantacalcio_id`
 included, so this is an exact join rather than a fuzzy name match. The cache is a
@@ -84,9 +85,11 @@ def entries_only(raw: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     never themselves a `Mapping`, so the same structural check that already told a real
     listone entry from garbage tells one from the envelope beside it, without this function
     having to name the four keys and needing an edit every time the envelope grows a fifth.
-    Every caller of a cache file this old routes through here — `from_cache` below, and
-    `interface/harvest.py`'s two readers — so a version-1 file and a bare pre-version file
-    both parse to the same shape.
+    Every caller of a cache file this old routes through here — `from_cache` below,
+    `interface/harvest.py`'s reader and `application/harvest_backfill`'s — so a version-1
+    file and a bare pre-version file both parse to the same shape. This said "two readers"
+    in `interface/harvest.py` until 2026-09-24; one of them moved out when the backfill
+    command was lifted into `application/`.
     """
     return {str(uuid): entry for uuid, entry in raw.items() if isinstance(entry, Mapping)}
 

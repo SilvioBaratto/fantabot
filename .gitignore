@@ -24,7 +24,17 @@ data/*
 .mypy_cache/
 .ruff_cache/
 
-docs/
+# `docs/` is tracked from 2026-09-24, except the two third-party binaries under
+# `docs/sources/`. Everything here is written in this repository — the FantaLab notes, the
+# four specs, the API map — and it was one disk away from gone while ~14 paths under it were
+# cited from tracked `src/`. What stays out is not ours to republish from a public repo:
+# `Tabella-sostituzioni-per-schema-2024-2025.pdf` is fantacalcio.it's, and
+# `leghe-chunk-Dc2l8Fqx.js` is a copy of their minified bundle. Both are backed up at
+# `~/.fantabot/docs-sources-backup/` with a `SHA256SUMS.txt`; `docs/sources/README.md` is
+# tracked and records their provenance, byte counts and the 403s that make them
+# unrecoverable, so the loss is at least legible.
+docs/sources/*.pdf
+docs/sources/*.js
 
 # Database dumps. scripts/db_dump.sh refuses to write onto this volume at all,
 # because a dump carries the league_tokens rows — encrypted, but still
@@ -58,14 +68,17 @@ scripts/read_classic_lineup.py
 _pdftext.txt
 
 # Per-phase working notes, and the maintainer-only backlog: decided-but-not-done work
-# and defects found but not fixed. SPEC.md is already ignored (line 44); plan.md/todo.md
+# and defects found but not fixed. SPEC.md is already ignored (line 48); plan.md/todo.md
 # are its siblings and get archived to tasks/archive/ on phase close, not committed.
 #
-# No trailing slash, deliberately. `tasks/` matches a *directory*, and `tasks` is a
-# symlink to ~/.fantabot/tasks — which git treats as a file, so the slashed pattern
-# missed it entirely and `git status` reported `?? tasks` while `git clean -xfd` offered
-# to remove the only pointer to the record. The record lives outside the tree because
-# `origin` is public and it carries FantaLab platform findings, both league ids and
-# unfixed defects on the acting path.
+# No trailing slash, deliberately, and the reason is a record rather than the current
+# state. `tasks/` matches a *directory* only. `tasks` was once a symlink to
+# ~/.fantabot/tasks — which git treats as a file, so the slashed pattern missed it
+# entirely and `git status` reported `?? tasks` while `git clean -xfd` offered to remove
+# the only pointer to the record. Today (2026-09-24) `tasks` is a plain directory in the
+# tree and ~/.fantabot/tasks no longer exists, so the slashed form would work again; the
+# unslashed one covers both shapes and is kept for that reason. It is ignored either way
+# because `origin` is public and the notes carry FantaLab platform findings, both league
+# ids and unfixed defects on the acting path.
 tasks
 todo

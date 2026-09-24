@@ -1,7 +1,7 @@
 """`fantabot auth fantalab-login` — sign in once, store the session encrypted.
 
-Same posture as `login.py`, and for the same reason: **the sign-in is never
-scripted and no page is ever clicked.** A scripted credential entry is what gets
+Same posture as `application/auth_login.py`, and for the same reason: **the sign-in is
+never scripted and no page is ever clicked.** A scripted credential entry is what gets
 accounts flagged, and FantaLab offers Google and Apple sign-in besides its own
 form, so there is no single flow to automate even if we wanted one.
 

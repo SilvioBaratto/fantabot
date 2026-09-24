@@ -27,15 +27,19 @@ pass. Correct, and it stopped being affordable: on the real zone that is 1.22 GB
 and 2,355,848 records, 10.2 s and 3.3 GB of RSS, re-upserting all 167,894
 assignments, every ten seconds, for a result the next pass discarded.
 
-The second answer is `aste/incremental.py`: carry the ladders across passes rather
-than re-deriving them. A pass carrying 1,000 records costs 2.9 ms and writes 98
+The second answer is `domain/harvest/incremental.py`: carry the ladders across passes
+rather than re-deriving them. A pass carrying 1,000 records costs 2.9 ms and writes 98
 rows. `FoldCheckpoint` below keeps that state beside the byte offset — 287 KB for
 the whole zone — because the two describe the same position and must move
 together.
 
 ``assignments_for_pass`` is still here, and is still the whole-file rebuild. The
-follower does not call it; `harvest backfill` does, because a finished recording
-genuinely has no earlier state to resume from.
+follower does not call it — and neither, since T22, does `harvest backfill`: that
+command goes through `domain/harvest/backfill.build`, via
+`application/harvest_backfill`. Nothing in `src/` reaches it; its only callers are
+the windowing tests, which use it as the reference answer a bounded pass must
+reproduce. This paragraph named `harvest backfill` as the live caller until
+2026-09-24.
 
 **The rule that makes it safe: never consume a line the writer has not
 finished.** The two processes share a file with no lock between them, so a read

@@ -1,7 +1,7 @@
 """The one place a stored token is decrypted. The only I/O module under `tokens/`.
 
-`tests/test_token_secrecy.py` scans `src/fantabot/` for that call and allows it
-in exactly two files: `crypto.py`, which defines it, and this one, which makes
+`tests/adapters/tokens/test_token_secrecy.py` scans `src/fantabot/` for that call and
+allows it in exactly two files: `crypto.py`, which defines it, and this one, which makes
 the single call. Everything else — `apileague.py` included — goes through
 `load_plaintext`.
 

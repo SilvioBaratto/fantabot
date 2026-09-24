@@ -1,10 +1,19 @@
-"""An in-process job runner for the app's safe triggers (lega sync, news fetch, login).
+"""An in-process job runner for the app's triggers, from `lega sync` to the live bidder.
 
 Those use cases are long-ish, narrate as they run, and — for login — block on a headed
 browser. So the API starts each on a background daemon thread and lets the UI poll
 ``GET /jobs/{id}``. State lives in memory: a job in flight is lost if the process
 restarts, which is fine because every fantabot write is an upsert (re-run it). There is no
 app-owned DB table (SPEC keeps the schema fantabot's).
+
+**The thread is the runner, not always the work.** Measured 2026-09-24: seven of the
+twelve ``registry.start`` calls hand over a ``ProcessJob`` from
+``api/infrastructure/processes.py`` — the harvest three, ``db dump``, ``db scrape``, the
+room watcher and the bidder. There the thread supervises a real child and ``stop`` is a
+real callable. The other five (``endpoints/actions.py``'s three, ``endpoints/auth.py``'s
+two) run the use case on the thread itself and cannot be stopped; the upsert argument is
+what covers those, and `app/CLAUDE.md` records where it does *not* hold — the collector,
+which is why the collector is one of the seven.
 
 The reporter is fantabot's ``Reporter`` protocol (a ``.print`` sink), so it drops straight
 into ``lega_sync.collect(reporter=...)`` / ``auth_login.run(report=...)``; here it buffers
@@ -83,9 +92,10 @@ class JobState:
     #: preserves *insertion* order and hands the listing back oldest-first. Assigned under
     #: the same lock that inserts, so it is the real order and not an approximation of it.
     seq: int = 0
-    #: How this job is asked to stop, when it can be. `None` is the honest answer for every
-    #: job today: they are daemon threads, and a thread cannot be interrupted from outside.
-    #: The endpoint answers 409 rather than pretending — see `JobRegistry.stop`.
+    #: How this job is asked to stop, when it can be. `None` for a job that runs on the
+    #: runner's own thread, because a thread cannot be interrupted from outside, and the
+    #: endpoint answers 409 rather than pretending. A supervised `ProcessJob` passes its
+    #: own `stop` and can honestly answer yes — see `JobRegistry.stop`.
     stop: Callable[[], None] | None = None
 
     @property
@@ -302,9 +312,12 @@ class JobRegistry:
     def stop(self, job_id: str) -> bool:
         """Ask a job to stop. `False` means it has no way to be stopped — not that it failed.
 
-        Every job here is a daemon thread and a thread cannot be interrupted from outside,
-        so `False` is the honest answer for all of them today. The caller turns it into a
-        409 with a reason; a control that pretended otherwise would be worse than none.
+        `False` is the honest answer for a job running on the runner's own thread: a thread
+        cannot be interrupted from outside. That is the five in `endpoints/actions.py` and
+        `endpoints/auth.py`. The other seven supervise a child process and set a real `stop`
+        when they start, so for those this signals the child and returns True. The caller
+        turns a `False` into a 409 with a reason; a control that pretended otherwise would
+        be worse than none.
         """
         state = self.get(job_id)
         if state is None:

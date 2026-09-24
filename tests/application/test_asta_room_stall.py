@@ -1,7 +1,8 @@
 """A lot change no longer stalls the loop — measured on the evening that stalled.
 
-`tasks/archive/parity-todo.md` 1.9's acceptance is *"a lot change no longer stalls past the poll interval,
-**measured on the recorded corpus**"*. The unit tests beside this one prove the memo *holds*
+The parity phase's todo (archived, not in this checkout) gives 1.9's acceptance as *"a lot
+change no longer stalls past the poll interval, **measured on the recorded corpus**"*.
+The unit tests beside this one prove the memo *holds*
 across polls of one lot; what they cannot say is what the expensive cycle — the one where the
 memo misses because the board moved — actually costs against a real evening.
 

@@ -93,9 +93,10 @@ def split_flags(raw: str) -> list[str]:
 
     Separate from ``split_codes`` on purpose. Role codes are normalised to
     upper case because three sources write them three ways; flags are opaque
-    strings produced by ``scripts/target_price.py`` and upper-casing them would
-    change ``team_discount(MIL)`` into something that no longer matches the
-    script that emits it.
+    strings produced by ``application/pricing.py`` — ``scripts/target_price.py``
+    when this was written — and upper-casing them would change
+    ``team_discount(MIL)`` into something that no longer matches the code that
+    emits it.
     """
     return [part.strip() for part in raw.split(";") if part.strip()]
 

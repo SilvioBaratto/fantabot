@@ -10,6 +10,6 @@ subscribes, `adapters/files/landing.py` appends to the landing zone,
 command.
 
 The database is not on the collection path, and that is enforced rather than intended --
-`tests/test_aste_outage.py` walks the imports of every capture module and fails if any
-can reach it. An outage must cost catch-up time and never a record.
+`tests/application/test_aste_outage.py` walks the imports of every capture module and
+fails if any can reach it. An outage must cost catch-up time and never a record.
 """

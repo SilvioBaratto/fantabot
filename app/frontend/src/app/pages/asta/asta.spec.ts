@@ -199,7 +199,7 @@ describe('AstaComponent', () => {
 
   it('says what the plan was built on', async () => {
     // The page showed a number and none of the inputs behind it, and those inputs
-    // differed from the command's in ten places (`tasks/archive/parity-spec.md` §11.1).
+    // differed from the command's in ten places (the archived parity-phase spec, §11.1).
     const fixture = await readyWithPlan(plan({ lam: 0.3, owned: ['9'], callable_pool: 529 }));
 
     const text = fixture.nativeElement.textContent as string;
@@ -257,7 +257,8 @@ describe('AstaComponent', () => {
   });
 
   /**
-   * The room check. Its own section, and its own outcomes: T31 (`tasks/BACKLOG.md`) records
+   * The room check. Its own section, and its own outcomes: T31 (§3.3 of the app's
+   * maintainer-local `BACKLOG.md`) records
    * what one label over four failures costs, so the screen must render five different
    * answers differently. It is also the only surface that tells the operator whether the
    * stored FantaLab credential still works.

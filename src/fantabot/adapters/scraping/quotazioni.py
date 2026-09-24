@@ -8,7 +8,7 @@ class="player-row"> carries the data as element attributes/text; parsed here
 with stdlib html.parser (no BeautifulSoup dependency needed).
 
 Usage:
-    python scripts/scrape_quotazioni.py [--seasons 2022/23 2023/24 ...]
+    fantabot db scrape quotazioni [--season 2022/23 --season 2023/24 ...]
 
 Default seasons: 2022/23 through 2026/27 (current).
 

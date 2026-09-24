@@ -1,7 +1,7 @@
 """The corpus panel — what the harvest actually put in the database, per format.
 
-Built before anything with a lifecycle, and T15 says why (its spec is archived at
-`tasks/archive/fantalab-in-the-app-spec.md`): it is the
+Built before anything with a lifecycle, and T15 says why (the archived
+fantalab-in-the-app-phase spec): it is the
 instrument every later increment is graded on, and without it "collection worked" is
 unfalsifiable. §1.1 is the case in point — the Classic corpus read as 2.1 million events
 and zero sales for over a week, and no screen could tell "nothing was collected" from
@@ -196,8 +196,8 @@ def harvest_load(asta_type: str = "mantra", follow: bool = True) -> JobStarted:
     What the app must never own is a *collection-time* filter — the thing that decides
     which auctions are ever heard from at all.
 
-    The app never resets a checkpoint (§3.2 of the archived phase spec,
-    `tasks/archive/fantalab-in-the-app-spec.md`), and there is nothing here that
+    The app never resets a checkpoint (§3.2 of the archived fantalab-in-the-app-phase
+    spec), and there is nothing here that
     could: the offset is the loader's, and the only command that moves it backwards stays
     a terminal act.
     """

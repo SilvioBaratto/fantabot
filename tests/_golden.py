@@ -16,8 +16,8 @@ opponent tracker and the rendering — is the real code.
 **Why the clock is pinned.** `sentiment.py:153` decays confidence on a 7-day half-life
 against `as_of`, and every stored row shares one `data_run`. One day of drift rescales every
 reading: the same inputs print `obj 2273.1`, then `2209.1`, then `1936.5` a week later, with
-roster *membership* changing too. `asta_engine.cli._today` is the single seam
-(`tests/test_asta_clock.py` keeps it single) and it is frozen here.
+roster *membership* changing too. `interface/asta.py::_today` is the single seam
+(`tests/domain/asta/test_asta_clock.py` keeps it single) and it is frozen here.
 
 **The rule, which is the whole point.** This harness may change *how* it reaches the code.
 It may never change the *bytes* it asserts. A golden that goes red is a finding, not a

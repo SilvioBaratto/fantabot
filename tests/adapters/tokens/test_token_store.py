@@ -1,7 +1,7 @@
 """`TokenStore` — the single decryption site, exercised without a database.
 
 A real `TokenCipher` over a throwaway key, and the `_FakeSession` pattern from
-`tests/test_repositories_fake.py`. Real crypto, fake SQL: the encryption is the
+`tests/adapters/persistence/test_repositories_fake.py`. Real crypto, fake SQL: the encryption is the
 part worth exercising for real, and the SQL is already pinned there.
 """
 

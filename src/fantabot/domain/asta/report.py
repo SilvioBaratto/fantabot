@@ -1,7 +1,8 @@
 """Pure helpers for the offline asta CLI: parse input, assemble inputs, render output.
 
-Kept out of ``cli.py`` so the parsing, the naive-value assembly and the rendering are unit
--testable without a database. The CLI is the thin I/O shell that fetches rows and calls these.
+Kept out of ``interface/asta.py`` so the parsing, the naive-value assembly and the
+rendering are unit-testable without a database. The CLI is the thin I/O shell that
+fetches rows and calls these.
 """
 
 from __future__ import annotations

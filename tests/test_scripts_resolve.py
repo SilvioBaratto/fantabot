@@ -2,9 +2,9 @@
 
 **Why this exists.** `scripts/` is the one directory in the repo that nothing checks.
 `ruff check src tests` does not lint it, `[tool.mypy] files = ["src"]` does not type it,
-no test imports any scraper, and `python scripts/target_price.py --help` exits 0 even
+no test imports any scraper, and `python scripts/target_price.py --help` exited 0 even
 with a broken module body — argparse builds its parser and prints help before any
-attribute of an imported module is touched. So a commit that moves a function out from
+attribute of an imported module is touched. (That script is gone; the property is not.) So a commit that moves a function out from
 under a scraper passes `pytest`, `ruff`, `mypy` and a manual `--help`, and is discovered
 the next time someone actually scrapes.
 
@@ -28,11 +28,16 @@ from _paths import REPO
 SCRIPTS = REPO / "scripts"
 
 #: Modules a script may import as a bare sibling name, and where the real file lives.
-#: Empty since 2026-08-30, and the directory it guards is nearly empty too: the four
-#: scrapers moved into ``fantabot.adapters.scraping`` / ``fantabot.application.pricing`` and their shared
-#: helper into ``fantabot.adapters.persistence.scraping``, so all of that is now linted by ``ruff`` and
-#: typed by ``mypy --strict``. What is left is ``resolve_aste_live.py``, which imports
-#: no sibling.
+#: Empty since 2026-08-30, because the four scrapers moved into
+#: ``fantabot.adapters.scraping`` / ``fantabot.application.pricing`` and their shared helper
+#: into ``fantabot.adapters.persistence.scraping``, so all of that is now linted by ``ruff``
+#: and typed by ``mypy --strict``.
+#:
+#: What is left under ``scripts/`` is **six** files, not one — ``gate.sh`` and the five
+#: ``.py`` this module parametrises over. The sentence here used to say
+#: ``resolve_aste_live.py`` was the only survivor; it was already false when written
+#: (``move_modules.py`` and ``verify_criteria.py`` both landed on the same 2026-08-30) and
+#: ``_scripts()`` two dozen lines below has contradicted it ever since.
 #:
 #: The parse check below still earns its place — ``scripts/`` remains outside both
 #: tools — and this table stays so a new sibling cannot reappear unguarded.

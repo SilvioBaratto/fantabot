@@ -148,8 +148,9 @@ def test_every_number_the_operator_chose_reaches_the_request(
 def test_the_bridge_is_fetched_here_because_the_two_event_sources_differ(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`--replay` is developer machinery and CLI-only (`tasks/archive/parity-spec.md` T20), so `build_advisory`
-    takes events rather than reading them — one fold over two sources. The bridge is the
+    """`--replay` is developer machinery and CLI-only (the parity phase's spec, archived
+    and not in this checkout, T20), so `build_advisory` takes events rather than reading
+    them — one fold over two sources. The bridge is the
     same either way and is handed over."""
     assert _run(monkeypatch, tmp_path)["bridge"] == {"uuid-1": 7}
 

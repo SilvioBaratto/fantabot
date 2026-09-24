@@ -1,7 +1,8 @@
 """The own-room event feed: read the sale ledger, hand the engine ``AssignmentEvent``s.
 
 The live advisory keys off the ``purchases/<fl>`` node — the authoritative sale record — not
-``close_auction`` (``docs/fantalab/06-asta-write-path.md`` §10, and ``asta_engine.live``'s note).
+``close_auction`` (``docs/fantalab/06-asta-write-path.md`` §10, and ``domain/asta/live.py``'s
+note — ``asta_engine.live`` when this was written).
 This module is the thin I/O shell: read the ledger over unauthenticated HTTPS, convert with the
 pure ``purchases_to_events``. The node read is injectable so the suite never opens a socket.
 

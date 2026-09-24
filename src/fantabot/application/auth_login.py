@@ -91,7 +91,7 @@ def _preflight_database() -> None:
 
 
 # `Any`, not `BrowserContext`: typing this with Playwright's class would put a
-# Playwright import at module scope in a module `cli.py` imports, and
+# Playwright import at module scope in a module the CLI imports, and
 # `fantabot --help` must not load Playwright (T20 pins that). The fake browser in
 # the tests is the same shape and satisfies the same call sites.
 BrowserFactory = Callable[[], AbstractContextManager[Any]]
@@ -129,8 +129,8 @@ def run(
     """One login. Injected collaborators so the decision table is testable.
 
     `browser_factory` and `transport` default to the real ones; the tests pass
-    fakes, which is the only reason `tests/test_cli_login.py` does not launch
-    Chromium and open a socket.
+    fakes, which is the only reason `tests/interface/test_cli_login.py` does not
+    launch Chromium and open a socket.
     """
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore

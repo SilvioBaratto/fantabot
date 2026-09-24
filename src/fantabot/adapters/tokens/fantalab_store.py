@@ -6,8 +6,8 @@ the secrecy test able to say anything: it asserts ``decrypt(`` appears nowhere e
 
 **The SQL moved out on 2026-08-30.** This was the one credential path in the repo that
 reached SQLAlchemy directly, while ``TokenStore`` had always gone through
-``LeagueTokenRepository`` — against ``db/repositories/__init__.py``'s own rule that every
-query lives behind a repository. Only the queries moved;
+``LeagueTokenRepository`` — against ``adapters/persistence/repositories/``'s own rule
+that every query lives behind a repository. Only the queries moved;
 ``FantalabSessionRepository`` handles ciphertext as bytes and never names a cipher, and
 the decrypt stays here, where the allowlist expects it.
 """

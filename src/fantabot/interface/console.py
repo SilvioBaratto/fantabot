@@ -3,11 +3,12 @@
 There were seven: `cli.py`, `aste/cli.py`, `asta_engine/cli.py`, `login.py`,
 `fantalab_login.py`, and one each in the two Classic modules deleted in P3.
 
-**Why a module of its own rather than importing `cli.console`.** `cli.py` imports
-the two sub-CLIs at module scope in order to register their commands, so an
-interface module importing `console` back from `cli` is a cycle — reproduced, it
-raises `ImportError` at the partially-initialised module. A leaf module both sides
-can import is the whole fix.
+**Why a module of its own rather than importing `app.console`.** `interface/app.py`
+imports the four command modules at module scope in order to register them, so one of
+them importing `console` back from `app` is a cycle — reproduced, it raises
+`ImportError` at the partially-initialised module. A leaf module both sides can import
+is the whole fix. (That module was called `cli.py` when this was written, and there
+were two sub-CLIs rather than four command modules.)
 
 **Why one at all.** A `Console` caches width, colour and file in `__init__`, so
 seven of them are seven independent readings of the environment, taken at whatever

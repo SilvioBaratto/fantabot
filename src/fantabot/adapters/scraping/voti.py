@@ -19,19 +19,25 @@ Confirmed identical markup/column set across 2022/23-2025/26. Parsed with
 stdlib html.parser (no BeautifulSoup dependency needed).
 
 Usage:
-    python scripts/scrape_voti.py [--seasons 2022/23 2023/24 ...]
+    fantabot db scrape voti [--season 2022/23 --season 2023/24 ...]
 
-Default seasons: 2022/23 through 2025/26. Giornate per season are discovered
-from that season's "Giornata" <select> (38 for a 20-team Serie A season, but
-not hardcoded).
+Default seasons: 2022/23 through 2026/27 (current) — see `DEFAULT_SEASONS`
+below, which is the list the CLI reads. 2026/27 was appended on 2026-09-20.
+Giornate per season are discovered from that season's "Giornata" <select>
+(38 for a 20-team Serie A season, but not hardcoded).
 
-Upserts, one row per season/giornata/player in each:
-    voti         — Voto e FantaVoto (3 sources)
-    bonus_malus  — Bonus e Malus (8 stats + cards)
+Upserts, one row per season/giornata/player, into:
+    match_grain  — Voto e FantaVoto (3 sources) and Bonus e Malus (8 stats +
+                   cards) in one table. These were two, `voti` and
+                   `bonus_malus`, 50,634 rows each; the merge migration proved
+                   the join matched row for row with zero orphans. The scraper
+                   still builds the two payloads separately, because the page
+                   serves them as separate tables, and they are zipped in
+                   `adapters/persistence/scraping.upsert_match_grain`.
     players      — ids seen here that the listone never carried
 
-Both match tables are written in two passes, one per partial unique index,
-because coach rows have no player_id. See fantabot.adapters.persistence.upserts.
+`match_grain` is written in two passes, one per partial unique index, because
+coach rows have no player_id. See fantabot.adapters.persistence.upserts.
 """
 
 from __future__ import annotations
@@ -482,7 +488,7 @@ def to_payloads(
 
 
 def run(seasons: Sequence[str] = DEFAULT_SEASONS) -> None:
-    """Fetch every matchday and upsert voti + bonus_malus."""
+    """Fetch every matchday and upsert `match_grain`."""
 
     total = 0
     for i, season in enumerate(seasons):

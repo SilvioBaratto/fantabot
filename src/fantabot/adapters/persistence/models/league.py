@@ -1,10 +1,10 @@
 """Point-in-time snapshots of the lega, from apileague.fantacalcio.it.
 
 Append-only and time-stamped, never updated in place: the point is the drift.
-``docs/lega-legamiallerotaie2.md`` is one of these captured by hand — 8 teams,
-all at 500/500 credits, asta not yet held — and the reason to keep taking them
-is the question that snapshot cannot answer on its own: *what did the market
-look like before that bid.*
+The first was one captured by hand for lega 4103937 — 8 teams, all at 500/500 credits,
+asta not yet held; that write-up is not in this checkout, and the numbers are restated
+here rather than cited. The reason to keep taking them is the question that snapshot
+cannot answer on its own: *what did the market look like before that bid.*
 
 **Every table here has a producer as of 2026-09-02.** `fantabot db snapshot-team` still
 writes a single `LeagueTeamSnapshot` for our own team (`apileague.my_team`); `fantabot

@@ -403,7 +403,7 @@ describe('SystemComponent', () => {
 
   // -- the dump card ---------------------------------------------------------------
   //
-  // `tasks/archive/parity-spec.md` §8 Never #4: no browser download of a database dump. The card names the
+  // The archived parity-phase spec, §8 Never #4: no browser download of a database dump. The card names the
   // path and stops there, which is the whole of its job — the file carries the
   // `league_tokens` rows, and a download puts it wherever the browser puts downloads.
 
@@ -520,7 +520,7 @@ describe('SystemComponent', () => {
   });
 
   it('never offers the bytes', async () => {
-    // `tasks/archive/parity-spec.md` §8 Never #4, on the surface that would have to break it. Asserted against
+    // The archived parity-phase spec, §8 Never #4, on the surface that would have to break it. Asserted against
     // the DOM rather than the component: what the rule forbids is a link on the screen.
     const fixture = await pageWith({ ...TARGET, exists: true, size_bytes: 412_000_000 });
 

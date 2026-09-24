@@ -1,10 +1,13 @@
 """Option groups declared by more than one command.
 
-Four options — `--season`, `--sentiment/--no-sentiment`, `--sentiment-run` and
-`--tilt-k` — were declared once per command that takes them: thirteen declarations
-across four commands, since `asta legality` carries a `--season` too. That is
-thirteen places for a default or a help string to drift, and one of them already
-had: the same flag was documented three different ways.
+Twelve aliases live here now. The first four — `--season`,
+`--sentiment/--no-sentiment`, `--sentiment-run` and `--tilt-k` — are the ones that
+started it: they were declared once per command that takes them, thirteen declarations
+across four commands, since `asta legality` carries a `--season` too. That is thirteen
+places for a default or a help string to drift, and one of them already had: the same
+flag was documented three different ways. The other eight arrived the same way and for
+the same reason — `--ceiling-alpha`, `--bargain-beta`, `--bargain-share`, `--league`,
+and `--teams`/`--credits` in both their plain and their detecting form.
 
 **The help text is now one wording per flag, which changes two commands' `--help`.**
 That is a deliberate change and it is the point — the previous state was not three
@@ -173,7 +176,7 @@ CorpusCredits = Annotated[
 #:
 #: `int | None`, and the `None` is the whole point: Typer hands a body the default and a
 #: typed value indistinguishably, so with `int` there is no way to tell `--teams 8` from a
-#: run that said nothing — and "said nothing" is what has to defer to the room. The four
+#: run that said nothing — and "said nothing" is what has to defer to the room. The three
 #: commands with no room to ask keep the plain `int` above; a sentinel they could never act
 #: on would be an option that lies about what it does.
 #:

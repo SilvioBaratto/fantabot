@@ -3,8 +3,9 @@
 The Classic counterpart to `domain/asta/state.RosterRules`. Where Mantra models two
 super-roles (goalkeepers vs everyone-else, `sroles=2`), Classic has a real **four**-role band
 over P/D/C/A (`sroles=1`) with an independent floor and ceiling per role. For the `static`
-selection the platform serves (measured live 3584692, `docs/classic/task0-capture.md`), floor
-== ceiling: `{P:3, D:8, C:8, A:6}`, a fixed 25-man rosa.
+selection the platform serves (measured live on lega 3584692, 2026-09-03, by the Classic
+phase's Task 0 capture — not in this checkout), floor == ceiling: `{P:3, D:8, C:8, A:6}`,
+a fixed 25-man rosa.
 
 Frozen and hashable (the bands are a tuple, not a dict) so it can key the per-cycle plan memo
 in the room tracker, exactly as `RosterRules` does.

@@ -1,7 +1,8 @@
 """The copilot's schema is a tripwire, and this is the wire.
 
-`tasks/archive/asta-design.md` names the failure precisely: at 21:47 the operator is tired,
-the model says *"prendilo, vale 60"*, and 60 credits go to a 40-credit player. The guard is
+The asta phase's design note (archived, not in this checkout) names the failure precisely:
+at 21:47 the operator is tired, the model says *"prendilo, vale 60"*, and 60 credits go to
+a 40-credit player. The guard is
 not a review habit — it is that `Commentary` has nowhere to put a 60.
 
 This file therefore walks the schema rather than testing an instance. A field added in six
@@ -91,8 +92,8 @@ class TestThePrompt:
 class TestTheClampIsAOneWayRatchet:
     """Landed unused. The shape exists before the temptation does.
 
-    `tasks/archive/asta-design.md` proposed a bounded ±20% multiplier. The difference from a
-    `min` is the whole argument: a multiplier that can raise a bid makes the model's worst
+    The asta phase's design note (archived, not in this checkout) proposed a bounded ±20%
+    multiplier. The difference from a `min` is the whole argument: a multiplier that can raise a bid makes the model's worst
     failure — confident and wrong at 21:47 — cost money, while a ratchet makes it cost a
     player, which is recoverable.
     """

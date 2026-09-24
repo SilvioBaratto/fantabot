@@ -13,7 +13,9 @@ phase and never wired to a command — no caller in ``src/``, no test, and the o
 ``claude_agent_sdk`` and ``config`` anywhere in the decision layer. Deleted rather than moved
 to an adapter, because moving it would have created a module for a function nothing calls.
 Recover it from ``01712f2`` if the interactive entry path is built; re-wiring is a request
-plus a runner call, the same shape ``news/pipeline.py`` and ``mantra_grid/collect.py`` use.
+plus a runner call, the same shape ``application/news_fetcher.py`` and
+``application/mantra_collector.py`` use — they were ``news/pipeline.py`` and
+``mantra_grid/collect.py`` when this was written.
 
 What survives is the half with tests: the schema, the prompt and the resolver.
 """
