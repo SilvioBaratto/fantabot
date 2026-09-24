@@ -162,7 +162,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Frontend tests
+      - name: Frontend install
         working-directory: app/frontend
         run: |
           # `--legacy-peer-deps`, the same flag `scripts/build_frontend.py` passes and the
@@ -171,7 +171,44 @@ jobs:
           # transitive optional dependency of a platform-specific package, in step under
           # the resolution `npm install` uses and out of step under the strict one.
           npm ci --legacy-peer-deps
-          npx ng test --watch=false
+
+      # The Angular half of the workspace conventions, which until 2026-09-24 nothing
+      # checked: an audit found 113 files obeying all five rules and no mechanism that
+      # would have noticed the first violation. `ng test` and the build are both happy
+      # with `*ngIf` and `standalone: true`. What each rule maps to is written out in
+      # `app/frontend/eslint.config.js`.
+      #
+      # Its own step, not appended to the test line, so a red run says which of the two
+      # failed. Before the tests because it is the faster of the two.
+      - name: Frontend lint (Angular conventions)
+        working-directory: app/frontend
+        run: |
+          # `set -e` explicitly: GitHub's default shell is already `bash -e`, but the
+          # coverage assertion below is only a guard if a non-zero exit from it stops the
+          # step, and that must not depend on a default someone can change with one
+          # `shell:` line.
+          set -e
+          # Prove the config is looking at the files before trusting its verdict: a
+          # `files`/`ignores` glob that matches nothing reports zero problems and exits 0,
+          # which is indistinguishable from a clean tree and is the same class of dead
+          # guard this step was added to close. 97 source files on 2026-09-24 (80 `.ts`,
+          # 17 `.html`); the floor is below that so adding files is free and deleting the
+          # glob is not.
+          npx eslint . --format json > /tmp/eslint-report.json || true
+          node -e '
+            const r = require("/tmp/eslint-report.json");
+            const n = r.filter((f) => /\.(ts|html)$/.test(f.filePath)).length;
+            if (n < 90) {
+              console.error(`eslint saw only ${n} source files — its globs match (almost) nothing`);
+              process.exit(1);
+            }
+            console.log(`eslint saw ${n} source files`);
+          '
+          npm run lint
+
+      - name: Frontend tests
+        working-directory: app/frontend
+        run: npx ng test --watch=false
 
       # Build the SPA into fantabot_app/web, then confirm the wheel ships it (no Node for
       # end users).

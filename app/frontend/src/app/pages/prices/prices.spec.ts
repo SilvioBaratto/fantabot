@@ -3,7 +3,6 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { LucideIconConfig } from 'lucide-angular';
 
-import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
 import { PricesComponent } from './prices';
 

@@ -1,6 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
 import { LucideIconConfig } from 'lucide-angular';
@@ -11,7 +11,7 @@ import { AstaPlan } from '../../core/models/asta-plan';
 import { Exclusion, Exclusions } from '../../core/models/exclusion';
 import { JobSummary } from '../../core/models/job';
 import { JournalPage, JournalRow } from '../../core/models/journal';
-import { Advisory, BidStarted, RoomCheck } from '../../core/models/room';
+import { BidStarted, RoomCheck } from '../../core/models/room';
 import { WINDOW_SIZE_QUERIES, WindowSizeClass } from '../../core/window-size-class';
 import { AstaComponent } from './asta';
 
@@ -1971,7 +1971,10 @@ describe('AstaComponent', () => {
     }
 
     /** Check a room, then ask for its advisory. Returns the captured request. */
-    async function advise(fixture: any, body: Record<string, unknown>) {
+    async function advise(
+      fixture: ComponentFixture<AstaComponent>,
+      body: Record<string, unknown>,
+    ) {
       fixture.componentInstance.setRoomUrl('abc');
       fixture.componentInstance.checkRoom();
       httpMock.expectOne((r) => r.url.includes('asta/room')).flush(resolved());
