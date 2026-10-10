@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 from fantabot.application.arming import Arming, decide_arming
@@ -399,7 +400,7 @@ def submit_lineup(
     if status is None:
         status = apileague.league_status(league_id, store=store)
     mstr = str(status.get("mstr", ""))
-    past = mstr if mstr and is_past_deadline(mstr, now()) else None
+    past = mstr if mstr and is_past_deadline(mstr, now().astimezone(UTC)) else None
 
     # Best-first, walking down on a refusal: the platform is the authority on what it
     # accepts, and the pinned slot order is our model of it, not a proof.

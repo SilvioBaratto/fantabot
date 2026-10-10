@@ -16,7 +16,7 @@ nothing here may reach one.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -33,7 +33,7 @@ from fantabot.domain.lineup.deadline import MATCHDAY_MISMATCH, MATCHDAY_STARTED
 from fantabot.domain.lineup.errors import LineupRejected
 from fantabot.domain.tokens.errors import ApiTimeout, ApiUnavailable, TokenRejected
 
-NOW = datetime(2026, 9, 5, 12, 0, 0)
+NOW = datetime(2026, 9, 5, 12, 0, 0, tzinfo=UTC)
 
 
 class _Plan:
@@ -196,6 +196,15 @@ class TestTheKickoffWarningWarnsAndNeverBlocks:
         wired(_Api(mstr="2026-09-05T18:00:00"), [_Plan("343")])
 
         assert _run().past_deadline is None
+
+    def test_mstr_is_utc_so_a_rome_clock_before_kickoff_is_not_past(self, wired) -> None:  # type: ignore[no-untyped-def]
+        """19:00 in Rome is 17:00 UTC, ninety minutes before an 18:30 UTC kickoff."""
+        from zoneinfo import ZoneInfo
+
+        wired(_Api(mstr="2026-09-05T18:30:00"), [_Plan("343")])
+        rome = datetime(2026, 9, 5, 19, 0, tzinfo=ZoneInfo("Europe/Rome"))
+
+        assert _run(now=lambda: rome).past_deadline is None
 
     def test_an_unparseable_timestamp_is_not_treated_as_past(self, wired) -> None:  # type: ignore[no-untyped-def]
         """A warning nobody can act on, on every run, is a warning nobody reads."""
