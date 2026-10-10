@@ -57,6 +57,7 @@ know about our layers.
 
 from __future__ import annotations
 
+import http.client
 import time
 import urllib.error
 import urllib.request
@@ -149,8 +150,9 @@ def fetch_html(url: str) -> str:
     """Up to `MAX_RETRIES` GETs, sleeping 2 s then 4 s, then the last failure re-raised.
 
     `statistiche` and `voti` sweep a season's worth of pages in one run, so a single
-    refused connection would otherwise cost the whole sweep. Only `URLError` and
-    `TimeoutError` are retried — and `HTTPError` is a `URLError`, so a 404 costs three
+    refused connection would otherwise cost the whole sweep. Only `URLError`, `TimeoutError`,
+    and the two ways a body read dies (`ConnectionError`, `IncompleteRead`, which `urlopen`
+    does not wrap in a `URLError`) are retried — and `HTTPError` is a `URLError`, so a 404 costs three
     attempts and 6 seconds, which is why `application/scrape.py` refuses a malformed
     `--season` before a socket is opened rather than letting the site answer it.
 
@@ -175,7 +177,12 @@ def fetch_html(url: str) -> str:
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             return _read(req)
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            http.client.IncompleteRead,
+        ) as exc:
             last_error = exc
             if attempt < MAX_RETRIES:
                 time.sleep(BACKOFF_STEP_SECONDS * attempt)

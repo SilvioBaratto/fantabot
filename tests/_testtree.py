@@ -209,6 +209,7 @@ TREE: dict[str, str] = {
     "test_voti_parser.py": "adapters/scraping",
     "test_statistiche_parser.py": "adapters/scraping",
     "test_quotazioni_parser.py": "adapters/scraping",
+    "test_site_fetch_retry.py": "adapters/scraping",
     "test_apileague_client.py": "adapters/http",
     "test_apileague_teamlineup.py": "adapters/http",
     "test_fantalab_feed.py": "adapters/http",
