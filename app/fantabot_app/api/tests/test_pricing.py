@@ -110,3 +110,17 @@ _EMPTY_REPORT = SimpleNamespace(
     biggest_cuts=(),
     flag_counts={},
 )
+
+
+def test_top_n_outside_the_bounds_is_refused_before_the_fit(monkeypatch) -> None:
+    from fantabot.application import pricing
+
+    def _boom(**_kw):
+        raise AssertionError("the fit must not run for a refused top_n")
+
+    monkeypatch.setattr(pricing, "fit", _boom)
+    monkeypatch.setattr(pricing, "run", _boom)
+    client = TestClient(app)
+    for bad in ("-5", "0", "201"):
+        assert client.get(f"/api/v1/asta/target-prices?top_n={bad}").status_code == 422
+        assert client.post(f"/api/v1/asta/target-prices?top_n={bad}").status_code == 422

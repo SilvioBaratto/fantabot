@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -122,13 +122,17 @@ def _report(system: str, top_n: int, *, store: bool) -> TargetPricesReport:
 
 
 @router.get("/asta/target-prices", response_model=TargetPricesReport, tags=["asta"])
-def target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesReport:
+def target_prices(
+    system: str = "classic", top_n: int = Query(15, ge=1, le=200)
+) -> TargetPricesReport:
     """Read the report. `stored` is 0 because nothing was stored — see the module docstring."""
     return _report(system, top_n, store=False)
 
 
 @router.post("/asta/target-prices", response_model=TargetPricesReport, tags=["asta"])
-def store_target_prices(system: str = "classic", top_n: int = 15) -> TargetPricesReport:
+def store_target_prices(
+    system: str = "classic", top_n: int = Query(15, ge=1, le=200)
+) -> TargetPricesReport:
     """Fit and **store**, the way `db price` does. The one route here that writes.
 
     A POST beside the GET rather than a flag on it: the method is the contract a browser,

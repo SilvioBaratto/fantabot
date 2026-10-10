@@ -166,3 +166,32 @@ def test_each_room_gets_its_own_stop_flag(quick_child) -> None:
 
     assert first != second
     assert first.parent == second.parent
+
+
+def test_a_second_watch_on_a_running_room_is_refused(monkeypatch, tmp_path) -> None:
+    """Two children on one room share a stop flag and a journal; one Stop would orphan the other."""
+    import sys
+
+    from fantabot_app.api.infrastructure import processes
+
+    monkeypatch.setenv("FANTABOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        processes,
+        "fantabot_command",
+        lambda *args: [sys.executable, "-c", "import time; time.sleep(30)"],
+    )
+    client = TestClient(app)
+    before = _watches(client)
+
+    first = _watch(client)
+    assert first.status_code == 200
+    job_id = first.json()["job_id"]
+    try:
+        second = _watch(client)
+        assert second.status_code == 409
+        assert job_id in second.json()["detail"]
+        assert _watches(client) == before + 1
+        assert _watch(client, "0000-other").status_code != 409
+    finally:
+        client.post(f"/api/v1/jobs/{job_id}/stop")
+        _wait(lambda: _job(client, job_id)["status"] != "running")

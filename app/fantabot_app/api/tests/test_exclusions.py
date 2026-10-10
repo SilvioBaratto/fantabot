@@ -209,6 +209,21 @@ class TestRecordingOne:
         assert response.status_code == 422
         assert expected_in_detail in response.json()["detail"]
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"player_id": 2**63, "reason": "left Serie A"},
+            {"player_id": 4344, "reason": "left\x00Serie A"},
+            {"player_id": 4344, "reason": "left Serie A", "source": "goal\x00.com"},
+        ],
+    )
+    def test_a_value_the_column_cannot_hold_is_a_422_and_not_a_500(
+        self, db_answers: None, body: dict[str, Any]
+    ) -> None:
+        response = TestClient(app).post("/api/v1/db/exclusions", json=body)
+
+        assert response.status_code == 422
+
     def test_a_failed_write_is_a_500_and_not_a_cheerful_200(self, db_is_down: None) -> None:
         """`auth.py`'s two disconnects took this decision first. The session context
         manager commits *inside* any `try` wrapped around it, so a degrade-open handler

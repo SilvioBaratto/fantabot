@@ -223,6 +223,20 @@ class TestSnapshotTeam:
         assert body["outcome"] == "unreachable"
         assert "OperationalError" in body["reason"]
 
+    @pytest.mark.parametrize("exc", [KeyError("id"), TypeError("null id"), ValueError("x")])
+    def test_a_malformed_reply_is_unreachable_not_a_500(
+        self, monkeypatch: pytest.MonkeyPatch, db_answers: None, has_key: None, exc: Exception
+    ) -> None:
+        from fantabot_app.api.v1.endpoints import teams
+
+        monkeypatch.setattr(teams, "snapshot_team", _raise(exc))
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/api/v1/db/snapshot-team", json={"league_id": 4103937}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["outcome"] == "unreachable"
+
 
 class TestBackfillTeams:
     def test_it_reports_how_many_names_were_resolved(

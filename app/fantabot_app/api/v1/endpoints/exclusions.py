@@ -39,7 +39,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from fantabot_app.api.outcomes import because
@@ -71,14 +71,25 @@ class Exclusions(BaseModel):
 
 
 class ExcludeRequest(BaseModel):
-    """What the form sends. No validation here beyond the types: what makes an exclusion
-    valid is `application/exclusions.clean_exclusion`'s, and a `min_length=1` on `reason`
-    would be a second copy of it — one that refuses with a different message, in a
-    different field, and that the command would not share."""
+    """What the form sends. What makes an exclusion valid is
+    `application/exclusions.clean_exclusion`'s, and a `min_length=1` on `reason` would be
+    a second copy of it — one that refuses with a different message, in a different field,
+    and that the command would not share.
 
-    player_id: int
+    The bounds below are the column's, not the rule's: a `BIGINT` cannot hold more than
+    2**63-1 and Postgres text cannot hold a NUL, and either reaches the driver as an
+    unhandled `DataError`, i.e. a 500 for what is a malformed request."""
+
+    player_id: int = Field(le=2**63 - 1)
     reason: str
     source: str = Field(default="")
+
+    @field_validator("reason", "source")
+    @classmethod
+    def _no_nul(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("must not contain a NUL character")
+        return value
 
 
 class ExclusionWritten(BaseModel):

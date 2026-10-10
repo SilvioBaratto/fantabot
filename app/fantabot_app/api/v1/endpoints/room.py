@@ -30,6 +30,7 @@ fetcher will use.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,12 @@ from fantabot_app.api.outcomes import because
 from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
+
+#: Room -> the watch job started for it. `registry.start` de-duplicates nothing and every
+#: watch on a room shares one stop flag and one journal, so a second child would be journalled
+#: twice and orphaned by the first Stop. Keyed by room because the registry rows carry none.
+_WATCHES: dict[str, str] = {}
+_WATCH_LOCK = threading.Lock()
 
 #: Five answers, five names. Pinned as a tuple because §3.4's defect was four different
 #: failures wearing one label, and the fix is not a better message — it is that the
@@ -299,4 +306,13 @@ def room_watch(request: WatchRequest) -> JobStarted:
         processes.fantabot_command("asta", "room", fantaleague_id, "--no-copilot"),
         flag=watch_flag(fantaleague_id),
     )
-    return JobStarted(job_id=registry.start(job.run, kind="asta-watch", stop=job.stop))
+    with _WATCH_LOCK:
+        live = registry.get(_WATCHES.get(fantaleague_id, ""))
+        if live is not None and live.status == "running":
+            raise HTTPException(
+                status_code=409,
+                detail=f"this room is already being watched ({live.id}). Stop that watch first.",
+            )
+        job_id = registry.start(job.run, kind="asta-watch", stop=job.stop)
+        _WATCHES[fantaleague_id] = job_id
+    return JobStarted(job_id=job_id)

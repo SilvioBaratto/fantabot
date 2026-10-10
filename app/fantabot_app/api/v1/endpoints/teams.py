@@ -167,6 +167,14 @@ def snapshot(request: SnapshotRequest) -> TeamSnapshotResult:
         return TeamSnapshotResult(
             outcome="unreachable", reason=because(exc), league_id=request.league_id
         )
+    except (KeyError, TypeError, ValueError) as exc:
+        # `apileague._get` turns a non-object body into `{}`, so a lega with no team of
+        # ours reaches `parse_team_snapshot` as a missing `id`.
+        return TeamSnapshotResult(
+            outcome="unreachable",
+            reason=f"Unexpected reply from teams/my ({because(exc)}).",
+            league_id=request.league_id,
+        )
 
     return to_wire(captured)
 
