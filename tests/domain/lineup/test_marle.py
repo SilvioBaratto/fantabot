@@ -32,3 +32,17 @@ def test_the_full_derived_range_maps() -> None:
 def test_an_unmapped_code_fails_closed_by_number() -> None:
     with pytest.raises(UnknownMarleRole, match="99"):
         roles_from_marle([99])
+
+
+def test_the_braccetto_code_maps_to_b() -> None:
+    assert roles_from_marle([19]) == ["B"]
+    assert roles_from_marle([9, 19]) == ["Dc", "B"]
+
+
+def test_the_two_marle_tables_agree_on_every_code() -> None:
+    from fantabot.domain.lega.parse import MARLE_TO_CODE
+    from fantabot.domain.lineup.marle import MARLE_TO_ROLE
+
+    # Same letters, different spelling (Pc vs PC): the lega table is upper-case.
+    assert set(MARLE_TO_ROLE) == set(MARLE_TO_CODE)
+    assert {k: v.upper() for k, v in MARLE_TO_ROLE.items()} == dict(MARLE_TO_CODE)
