@@ -24,9 +24,9 @@ Devi estrarre i moduli tattici del sistema Mantra. Sono 11.
 Per ogni modulo riporta:
 - `nome`: il nome del modulo come lo scrive fantacalcio.it (es. "4-3-3").
 - `slots`: i 10 slot di movimento, in ordine di linea (difesa, centrocampo, trequarti, attacco).
-  Ogni slot è una lista di 1 o 2 codici ruolo intercambiabili, es. ["Dd","E"].
-  Mai 3: se sulla pagina ne compaiono di più, riporta i 2 che il regolamento indica come
-  alternative dello slot.
+  Ogni slot è una lista di fino a 3 codici ruolo intercambiabili, es. ["Dd","E"]; il
+  4-3-1-2 ha uno slot a tre, ["T","A","Pc"]. Riporta tutti i ruoli che la pagina stampa
+  per lo slot, senza ridurli.
 
 Regole da rispettare:
 - Il portiere è fisso e NON è uno degli slot. Non includere Por.

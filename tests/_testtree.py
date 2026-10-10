@@ -122,6 +122,7 @@ TREE: dict[str, str] = {
     "test_asta_room_classic.py": "application",
     # -- domain/mantra, domain/shared, domain/tokens --------------------------------------
     "test_mantra_grid_gates.py": "domain/mantra",
+    "test_prompt.py": "domain/mantra",
     "test_club_names.py": "domain/shared",
     "test_league.py": "domain/shared",
     "test_parsing.py": "domain/shared",
