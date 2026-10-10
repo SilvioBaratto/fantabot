@@ -140,6 +140,7 @@ TREE: dict[str, str] = {
     # The capture loop that replaced "press Enter once you are logged in".
     "test_login_wait.py": "application",
     "test_lega_sync.py": "application",
+    "test_lega_reads_settings.py": "application",
     "test_asta_calibrate.py": "application",
     # T19: which listone a room is priced against, and who said so. Pure — the rungs are
     # decided here and fetched in `interface/asta.py`.

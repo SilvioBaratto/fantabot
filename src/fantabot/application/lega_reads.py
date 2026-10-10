@@ -84,16 +84,30 @@ def latest_capture(session: Session, model: Any, league_id: int) -> datetime | N
 
 
 def latest_settings(session: Session, league_id: int) -> LeagueSnapshot | None:
-    """The most recent `LeagueSnapshot` for one lega, or `None`."""
-    from sqlalchemy import select
+    """The most recent `LeagueSnapshot` for one lega that declares its roster rules, or `None`.
 
-    stmt = (
+    A sync whose `settings/rosters` read failed still appends a snapshot, with
+    `roster_size` and `role_groups` NULL (the table is append-only, so the row stays).
+    Taking the newest row blindly lets that gap shadow the last good band and plans a
+    25/32 lega as the size-30 default, so a row with neither field is skipped. When no
+    row declares anything the newest one is returned anyway: its matchday and budget are
+    still true, and `rules_for_lega` already treats the empty case as assumed.
+    """
+    from sqlalchemy import or_, select
+
+    base = (
         select(LeagueSnapshot)
         .where(LeagueSnapshot.league_id == league_id)
         .order_by(LeagueSnapshot.captured_at.desc())
         .limit(1)
     )
-    return session.execute(stmt).scalars().first()
+    declared = base.where(
+        or_(LeagueSnapshot.roster_size.is_not(None), LeagueSnapshot.role_groups.is_not(None))
+    )
+    return (
+        session.execute(declared).scalars().first()
+        or session.execute(base).scalars().first()
+    )
 
 
 def latest_rosters(session: Session, league_id: int) -> list[LeagueTeamSnapshot]:
