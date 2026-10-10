@@ -97,6 +97,14 @@ def test_a_crossed_l_id_refuses_the_entire_capture() -> None:
     assert str(_tokens.LEGA_MANTRA) in message
 
 
+@pytest.mark.parametrize("bad_id", ["", "abc", [1], {"a": 1}])
+def test_a_non_numeric_entry_id_is_not_ready_rather_than_a_crash(bad_id: Any) -> None:
+    entry = {"id": bad_id, "name": "x", "token": _tokens.make_token(l_id=_tokens.LEGA_MANTRA)}
+
+    with pytest.raises(NoLeaguesFound):
+        parse_storage_state(_tokens.storage_state(leagues=[entry]), origin=ORIGIN)
+
+
 def test_the_mismatch_message_contains_no_token() -> None:
     token = _tokens.make_token(l_id=_tokens.LEGA_MANTRA)
     crossed = [{"id": _tokens.LEGA_CLASSIC, "name": "x", "token": token}]

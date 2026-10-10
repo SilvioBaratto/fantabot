@@ -120,6 +120,12 @@ MALFORMED = {
     "absurd exp": _tokens.raw_token(
         _payload_segment({"l_id": "1", "iat": 1, "exp": 10**20})
     ),
+    "exp in the OSError band": _tokens.raw_token(
+        _payload_segment({"l_id": "1", "iat": 1, "exp": 10**18})
+    ),
+    "iat in the OSError band": _tokens.raw_token(
+        _payload_segment({"l_id": "1", "iat": -(10**18), "exp": 2})
+    ),
 }
 
 

@@ -141,10 +141,15 @@ def parse_storage_state(
             raise NoLeaguesFound()
 
         claims = decode_claims(raw)
-        if claims.league_id != int(entry_id):
+        try:
+            declared_id = int(entry_id)
+        except (TypeError, ValueError):
+            # A half-written blob is "not ready", the same answer as a missing token.
+            raise NoLeaguesFound() from None
+        if claims.league_id != declared_id:
             # SC 10, and the only check between a mislabelled row and bidding
             # in the wrong lega. Neither id is a secret; the token is not named.
-            raise LeagueMismatch(int(entry_id), claims.league_id)
+            raise LeagueMismatch(declared_id, claims.league_id)
 
         _cross_check_user(claims, pointer)
         captured.append(

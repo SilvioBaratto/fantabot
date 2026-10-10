@@ -82,11 +82,13 @@ def decode_claims(token: str) -> TokenClaims:
             issued_at=datetime.fromtimestamp(payload["iat"], tz=UTC),
             expires_at=datetime.fromtimestamp(payload["exp"], tz=UTC),
         )
-    except (jwt.PyJWTError, KeyError, TypeError, ValueError, OverflowError) as exc:
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError, OverflowError, OSError) as exc:
         # `OverflowError` is not decoration and not a ValueError subclass:
         # `datetime.fromtimestamp(10**20, tz=UTC)` raises it, in both directions,
         # so an absurd `exp` would escape as a raw traceback and break this
-        # function's own promise. Verified 2026-08-26.
+        # function's own promise. Verified 2026-08-26. `OSError` is the third
+        # spelling: values near 1e18 fail in the platform's gmtime, not in range
+        # checking, and it is neither of the other two.
         #
         # The token itself never reaches the message. A truncated or
         # wrong-format credential in a traceback is still a credential — and

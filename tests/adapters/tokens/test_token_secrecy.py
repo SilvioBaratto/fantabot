@@ -170,14 +170,6 @@ CREDENTIAL_RETURNING = frozenset(
 #: per name would let a second, real leak of the same name in the same module hide behind
 #: the first. Not keyed by line number, which churns on every edit above it.
 ACCEPTED_EMISSIONS: dict[str, tuple[int, str]] = {
-    # `raise LeagueMismatch(int(entry_id), claims.league_id)`. `entry_id` matches on the
-    # component `entry`; it is the lega's numeric id read out of the storage entry, not
-    # the entry, and the comment on the line above says so. The evidence pins the whole
-    # call, so carrying the token into that raise changes it and this stops holding.
-    "domain/tokens/capture.py:entry_id": (
-        1,
-        "raise LeagueMismatch(int(entry_id), claims.league_id)",
-    ),
     # Both login preflights report which database they could not reach. The DSN is
     # rendered with `hide_password=True`, so the userinfo is already masked before it
     # reaches the message — and that is precisely what the evidence string pins.
