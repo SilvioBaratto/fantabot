@@ -225,6 +225,7 @@ def build(
     auctions = auction_rows(seed, asta_type)
     known = {row["id"] for row in auctions}
     events, dropped = event_rows(states, known)
-    assignments, unlinked = assignment_rows(reconstruct(states), listone, known_players)
+    assignments, _ = assignment_rows(reconstruct(states), listone, known_players)
     assignments = [row for row in assignments if row["asta_id"] in known]
+    unlinked = sum(row["fantacalcio_id"] is None for row in assignments)
     return BuiltRows(auctions, events, assignments, unlinked, dropped)

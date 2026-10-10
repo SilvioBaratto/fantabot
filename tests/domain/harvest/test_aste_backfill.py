@@ -123,3 +123,10 @@ def test_build_reports_what_it_dropped() -> None:
     built = build([*STATES, {**STATES[0], "seen_at": None}], SEED, {}, "mantra")
     assert built.dropped_events.bad_timestamp == 1
     assert len(built.events) == len(STATES)
+
+
+def test_unlinked_players_ignores_assignments_of_auctions_the_seed_does_not_describe() -> None:
+    other_seed = [["some-other-auction", *SEED[0][1:]]]
+    built = build(STATES, other_seed, {}, "mantra")
+    assert built.assignments == []
+    assert built.unlinked_players == 0

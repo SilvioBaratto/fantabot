@@ -22,7 +22,9 @@ import pytest
 from _paths import ONE_AUCTION
 
 from fantabot.application.harvest_backfill import (
+    BackfillInputs,
     InvalidBackfill,
+    build_backfill,
     candidates,
     clean_backfill,
 )
@@ -240,3 +242,65 @@ def test_a_home_that_cannot_be_read_says_so_rather_than_reading_as_empty(
     assert found.exists is True, "the home is there; it is the listing that failed"
     assert found.error == "PermissionError"
     assert found.logs == ()
+
+
+# -- build_backfill: contents that are not what the sniff promised --------------------
+
+
+def _inputs(tmp_path: Path, *, events: str | None = None, seed: str | None = None,
+            listone: str | None = None) -> BackfillInputs:
+    ev = tmp_path / "ev.jsonl"
+    ev.write_text(events if events is not None else ONE_AUCTION.read_text())
+    sd = _seed(tmp_path / "seed.json")
+    if seed is not None:
+        sd.write_text(seed)
+    lo = tmp_path / "listone_map.json"
+    if listone is not None:
+        lo.write_text(listone)
+    return clean_backfill(events=ev, seed=sd, listone=lo, asta_type="mantra")
+
+
+def test_a_torn_line_in_the_log_is_a_refusal_not_a_traceback(tmp_path: Path) -> None:
+    good = ONE_AUCTION.read_text().splitlines()[0]
+    inputs = _inputs(tmp_path, events=good + "\n" + good[:20] + "\n")
+    with pytest.raises(InvalidBackfill, match=r"ev\.jsonl.*line 2"):
+        build_backfill(inputs)
+
+
+def test_a_line_that_is_not_an_object_is_a_refusal(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path, events="[1, 2]\n")
+    with pytest.raises(InvalidBackfill, match=r"record 1"):
+        build_backfill(inputs)
+
+
+def test_a_corrupt_seed_is_a_refusal(tmp_path: Path) -> None:
+    with pytest.raises(InvalidBackfill, match=r"seed\.json"):
+        build_backfill(_inputs(tmp_path, seed="[[1, 2"))
+
+
+def test_a_seed_that_is_not_a_list_is_a_refusal(tmp_path: Path) -> None:
+    with pytest.raises(InvalidBackfill, match=r"seed\.json"):
+        build_backfill(_inputs(tmp_path, seed='{"a": 1}'))
+
+
+def test_a_seed_of_non_objects_is_a_refusal(tmp_path: Path) -> None:
+    with pytest.raises(InvalidBackfill, match=r"seed\.json"):
+        build_backfill(_inputs(tmp_path, seed="[1, 2]"))
+
+
+@pytest.mark.parametrize("seed", ["[[1]]", '[["a", "b"]]'])
+def test_a_seed_of_short_or_malformed_rows_is_a_refusal(tmp_path: Path, seed: str) -> None:
+    with pytest.raises(InvalidBackfill, match=r"seed\.json"):
+        build_backfill(_inputs(tmp_path, seed=seed))
+
+
+def test_a_log_that_is_not_utf8_is_a_refusal(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    inputs.events.write_bytes(b'{"a": "\xff\xfe"}\n')
+    with pytest.raises(InvalidBackfill, match=r"ev\.jsonl.*UTF-8"):
+        build_backfill(inputs)
+
+
+def test_a_corrupt_listone_is_a_refusal(tmp_path: Path) -> None:
+    with pytest.raises(InvalidBackfill, match=r"listone_map\.json"):
+        build_backfill(_inputs(tmp_path, listone="{nope"))

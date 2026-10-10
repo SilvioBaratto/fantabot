@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fantabot.domain.harvest import registry
 from fantabot.domain.harvest.backfill import BuiltRows, build, read_jsonl
 
 if TYPE_CHECKING:
@@ -55,11 +56,11 @@ LIVE_LANDING = "live.jsonl"
 
 
 class InvalidBackfill(ValueError):
-    """The backfill as asked for cannot be run, and nothing was read.
+    """The backfill as asked for cannot be run, and nothing was written.
 
     Named so each surface refuses its own way — a `typer.Exit(2)` with the line printed,
     a 400 with the line in the body — without either having to tell this apart from a
-    database being down. Raised before any file is opened, which is what makes the
+    database being down. Raised before any row is built or written, which is what makes the
     message the whole answer.
     """
 
@@ -250,6 +251,44 @@ def candidates(home: Path) -> Candidates:
     return Candidates(home=home, exists=True, logs=tuple(logs), seeds=tuple(seeds))
 
 
+def _read_json(path: Path) -> Any:
+    """`json.loads` of a file, with a torn or hand-edited one refused by name.
+
+    A scan killed mid-write leaves exactly this file, and a bare `JSONDecodeError` gives
+    the operator a traceback where the other refusals give a sentence.
+    """
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise InvalidBackfill(f"{path} is not valid JSON ({exc})") from None
+
+
+def _read_states(path: Path) -> list[dict[str, Any]]:
+    """The collector log's records. `live.jsonl` is offered while a collector appends to
+    it, so a torn line is reachable and has to refuse by line number, not crash."""
+    try:
+        states = read_jsonl(path)
+    except ValueError:
+        try:
+            with path.open(encoding="utf-8") as handle:
+                for number, line in enumerate(handle, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        json.loads(line)
+                    except ValueError:
+                        raise InvalidBackfill(f"{path} line {number} is not valid JSON") from None
+        except UnicodeDecodeError:
+            # A UnicodeDecodeError is a ValueError, so the first read lands here and the
+            # re-read fails the same way; it is not a line the JSON loop could name.
+            raise InvalidBackfill(f"{path} is not valid UTF-8 text") from None
+        raise
+    for number, state in enumerate(states, start=1):
+        if not isinstance(state, dict):
+            raise InvalidBackfill(f"{path} record {number} is not a JSON object")
+    return states
+
+
 def build_backfill(
     inputs: BackfillInputs, *, known_players: frozenset[int] | None = None
 ) -> tuple[BuiltRows, int]:
@@ -260,11 +299,18 @@ def build_backfill(
     """
     from fantabot.adapters.http.fantalab import listone as listone_module
 
-    states = read_jsonl(inputs.events)
-    seed_rows = json.loads(inputs.seed.read_text(encoding="utf-8"))
-    raw_bridge = (
-        json.loads(inputs.listone.read_text(encoding="utf-8")) if inputs.listone_present else {}
-    )
+    states = _read_states(inputs.events)
+    seed_rows = _read_json(inputs.seed)
+    if not isinstance(seed_rows, list) or not all(isinstance(row, list) for row in seed_rows):
+        raise InvalidBackfill(f"seed file is not a list of auctions: {inputs.seed}")
+    for row in seed_rows:
+        # Parsed by the same function build() uses, so a row it would choke on (too short,
+        # bad shard) is refused here by file name rather than as a KeyError mid-build.
+        try:
+            registry.from_seed_row(row, asta_type=inputs.asta_type)
+        except (KeyError, ValueError, TypeError):
+            raise InvalidBackfill(f"seed file has a malformed auction row: {inputs.seed}") from None
+    raw_bridge = _read_json(inputs.listone) if inputs.listone_present else {}
     bridge = listone_module.entries_only(raw_bridge) if isinstance(raw_bridge, dict) else {}
     built = build(states, seed_rows, bridge, inputs.asta_type, known_players)
     return built, len(states)

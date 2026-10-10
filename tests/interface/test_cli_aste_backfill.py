@@ -83,3 +83,15 @@ def test_an_unknown_format_is_refused_before_any_work(tmp_path: Path) -> None:
     )
     assert result.exit_code == 2
     assert "manta" in _plain(result.output)
+
+
+def test_a_seed_that_is_not_a_list_is_refused_not_a_traceback(tmp_path: Path) -> None:
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps({"not": "a list"}))
+    for extra in (["--dry-run"], []):
+        result = runner.invoke(
+            app, ["harvest", "backfill", str(STATES), "--seed", str(seed), *extra]
+        )
+        assert result.exit_code == 2, result.output
+        assert "not a list of auctions" in _plain(result.output)
+        assert isinstance(result.exception, SystemExit), result.exception

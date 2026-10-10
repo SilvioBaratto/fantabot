@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
+from rich.markup import escape
 
 from fantabot.adapters.files.lock import COLLECTOR, LOADER
 from fantabot.interface.console import console
@@ -794,15 +795,24 @@ def aste_backfill(
         )
 
     if dry_run:
-        _report_backfill(run_backfill(inputs))
+        try:
+            report = run_backfill(inputs)
+        except InvalidBackfill as refused:
+            console.print(f"[red]{escape(str(refused))}[/red]")
+            raise typer.Exit(2) from None
+        _report_backfill(report)
         console.print("[yellow]dry run — nothing written[/yellow]")
         return
 
     from fantabot.adapters.persistence import database_manager
 
-    with database_manager.get_session() as session:
-        report = run_backfill(inputs, session=session)
-        session.commit()
+    try:
+        with database_manager.get_session() as session:
+            report = run_backfill(inputs, session=session)
+            session.commit()
+    except InvalidBackfill as refused:
+        console.print(f"[red]{escape(str(refused))}[/red]")
+        raise typer.Exit(2) from None
     _report_backfill(report)
     console.print(f"[green]stored — {report.total_assignments} assignments in total")
 
