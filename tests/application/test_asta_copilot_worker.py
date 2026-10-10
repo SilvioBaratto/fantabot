@@ -142,6 +142,41 @@ class TestBriefOrder:
         assert briefs[0].observed_price is None
 
 
+class TestTheBriefCarriesTheRoomsFormat:
+    """Nothing passed the format, so a Classic room was briefed in Mantra's words."""
+
+    def _brief(self, **kw):  # type: ignore[no-untyped-def]
+        return briefs_for(
+            ["a"], names={}, teams={}, roles={}, prices={}, walkaways={"a": 10.0},
+            credits_left=100, slots_left=5, schemi_open=3, recent=(), **kw,
+        )[0]
+
+    def test_a_classic_room_counts_the_seven_modules(self) -> None:
+        from fantabot.domain.classic.formations import FORMATION_CODES
+
+        brief = self._brief(format="classic")
+
+        assert (brief.format, brief.schemi_total) == ("classic", len(FORMATION_CODES))
+
+    def test_a_mantra_room_counts_the_schemi_table(self) -> None:
+        from fantabot.domain.asta.legality import load_compat
+
+        brief = self._brief(format="mantra")
+
+        assert brief.schemi_total == len(load_compat().formazioni) == 11
+
+    def test_the_default_stays_mantra(self) -> None:
+        assert self._brief().format == "mantra"
+
+    def test_the_request_speaks_the_briefs_format(self) -> None:
+        from fantabot.domain.asta.copilot import system_prompt
+
+        classic = self._brief(format="classic")
+
+        assert request_for(classic).system_prompt == system_prompt("classic")
+        assert request_for(classic).system_prompt != request_for(BRIEF).system_prompt
+
+
 class TestOfflineIsNotSticky:
     """A running total of failures never went back down, so one timeout at 21:03 made every
     player without commentary read as "offline" for the rest of the evening — and the pane

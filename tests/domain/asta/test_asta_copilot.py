@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from fantabot.domain.asta.copilot import Commentary, CopilotBrief, brief_prompt
+from fantabot.domain.asta.copilot import Commentary, CopilotBrief, brief_prompt, system_prompt
 
 BRIEF = CopilotBrief(
     player_id="200", name="Bomber", team="MIL", roles=("A",), walk_away=77,
@@ -87,6 +87,24 @@ class TestThePrompt:
         text = brief_prompt(CopilotBrief(**{**BRIEF.__dict__, "recent": ()}))  # type: ignore[arg-type]
 
         assert "nessuna ancora" in text
+
+
+class TestTheFormatIsNotHardcoded:
+    def test_a_classic_brief_counts_against_seven_modules(self) -> None:
+        text = brief_prompt(
+            CopilotBrief(**{**BRIEF.__dict__, "format": "classic", "schemi_total": 7})  # type: ignore[arg-type]
+        )
+
+        assert "schiera 7 dei 7 moduli" in text
+        assert "11" not in text
+
+    def test_the_mantra_default_still_counts_against_eleven(self) -> None:
+        assert "schiera 7 degli 11 moduli" in brief_prompt(BRIEF)
+
+    def test_the_system_prompt_names_the_format(self) -> None:
+        assert "Classic" in system_prompt("classic")
+        assert "Mantra" not in system_prompt("classic")
+        assert "Mantra" in system_prompt("mantra")
 
 
 class TestTheClampIsAOneWayRatchet:

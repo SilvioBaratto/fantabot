@@ -52,6 +52,10 @@ class CopilotBrief:
     schemi_open: int
     #: The last few sales, as `name price buyer` — the room's tempo in one line.
     recent: tuple[str, ...]
+    #: Defaults keep the Mantra reading for a caller that does not know the room's format.
+    format: str = "mantra"
+    #: Mantra declares eleven schemi, Classic seven modules; `schemi_open` counts against this.
+    schemi_total: int = 11
 
 
 class Commentary(BaseModel):
@@ -89,7 +93,7 @@ class Commentary(BaseModel):
     )
 
 
-SYSTEM_PROMPT = """Sei il copilota di un'asta di fantacalcio Mantra, in tempo reale.
+_SYSTEM_TEMPLATE = """Sei il copilota di un'asta di fantacalcio {game}, in tempo reale.
 
 Il motore ha già calcolato quanto siamo disposti a pagare. Il tuo compito NON è dare un
 prezzo: è guardare lo stato dell'asta e dire se quel numero sembra sbagliato, e perché.
@@ -99,6 +103,18 @@ Regole:
 - Una riga di headline, leggibile mentre scorre un timer da dieci secondi.
 - Se non hai niente di utile da dire, dillo con confidence 'low'. È una risposta valida.
 - Italiano."""
+
+
+def system_prompt(format: str = "mantra") -> str:
+    """The standing instructions, naming the game the room actually plays. Pure."""
+    return _SYSTEM_TEMPLATE.format(game="Classic" if format == "classic" else "Mantra")
+
+
+SYSTEM_PROMPT = system_prompt("mantra")
+
+
+def _of_modules(total: int) -> str:
+    return f"{'degli' if total == 11 else 'dei'} {total} moduli"
 
 
 def brief_prompt(brief: CopilotBrief) -> str:
@@ -111,7 +127,7 @@ def brief_prompt(brief: CopilotBrief) -> str:
         f"Giocatore: {brief.name} ({brief.team}, {'/'.join(brief.roles)})\n"
         f"Il motore arriva a {brief.walk_away}; {price}.\n"
         f"Abbiamo {brief.credits_left} crediti e {brief.slots_left} slot da riempire.\n"
-        f"La rosa attuale schiera {brief.schemi_open} degli 11 moduli.\n"
+        f"La rosa attuale schiera {brief.schemi_open} {_of_modules(brief.schemi_total)}.\n"
         f"Ultime aggiudicazioni:\n{recent}\n\n"
         "Il motore sbaglia su questo giocatore?"
     )

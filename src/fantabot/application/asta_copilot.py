@@ -30,7 +30,9 @@ from typing import Any
 from fantabot.adapters.agent.options import AgentRequest
 from fantabot.adapters.agent.runner import Outcome
 from fantabot.adapters.agent.runner import run as sdk_run
-from fantabot.domain.asta.copilot import SYSTEM_PROMPT, Commentary, CopilotBrief, brief_prompt
+from fantabot.domain.asta.copilot import Commentary, CopilotBrief, brief_prompt, system_prompt
+from fantabot.domain.asta.legality import load_compat
+from fantabot.domain.classic.formations import FORMATION_CODES
 
 Runner = Callable[[AgentRequest, type[Commentary]], Coroutine[Any, Any, Outcome[Commentary]]]
 
@@ -50,7 +52,7 @@ def request_for(brief: CopilotBrief, *, model: str = DEFAULT_MODEL) -> AgentRequ
         model=model,
         allowed_tools=(),  # no search: the brief already carries every fact
         max_turns=1,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt(brief.format),
     )
 
 
@@ -152,6 +154,7 @@ def briefs_for(
     slots_left: int,
     schemi_open: int,
     recent: tuple[str, ...],
+    format: str = "mantra",
 ) -> list[CopilotBrief]:
     """Briefs for the plan's targets, richest walk-away first. Pure.
 
@@ -159,6 +162,7 @@ def briefs_for(
     players: the ones we would pay most for are the ones worth a second reading.
     """
     ranked = sorted(player_ids, key=lambda pid: walkaways.get(pid, 0.0), reverse=True)
+    schemi_total = len(FORMATION_CODES) if format == "classic" else len(load_compat().formazioni)
     return [
         CopilotBrief(
             player_id=pid,
@@ -171,6 +175,8 @@ def briefs_for(
             slots_left=slots_left,
             schemi_open=schemi_open,
             recent=recent,
+            format=format,
+            schemi_total=schemi_total,
         )
         for pid in ranked
     ]

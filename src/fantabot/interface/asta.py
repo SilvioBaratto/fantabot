@@ -1182,6 +1182,7 @@ def asta_room(
                         slots_left=rules.size - len(frame.owned),
                         schemi_open=frame.schemi_open,
                         recent=frame.recent,
+                        format=resolved.asta_type,
                     )
                 )
             lot_fid = bridge.get(frame.lot_id) if frame.lot_id else None
