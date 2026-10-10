@@ -88,6 +88,10 @@ def platform(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
         # "genuinely exported" branch, which outranks the file.
         monkeypatch.setattr(config, "_DOTENV_INJECTED", {})
         monkeypatch.setenv(config.AUTO_ACT_VAR, "true" if auto_act else "false")
+        # Pinned for the same reason: the operator's `.env` reaches this process, and under
+        # `projection` this surface refuses with MODEL_NOT_ON_SURFACE before any of the
+        # paths below is reached.
+        monkeypatch.setenv(config.LINEUP_MODEL_VAR, "indexcompare")
         monkeypatch.setattr(
             lineup_submit,
             "build_plans",

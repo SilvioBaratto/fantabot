@@ -305,7 +305,7 @@ def _plan_projection(league_id: int, competition: int) -> None:
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_projection import projection_for_league
-    from fantabot.config import LINEUP_SUB_MODE_VAR, live_setting, settings
+    from fantabot.config import LINEUP_MODEL_VAR, LINEUP_SUB_MODE_VAR, live_setting, settings
     from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.lineup.substitution import parse_sub_mode
     from fantabot.domain.tokens.crypto import TokenCipher
@@ -340,10 +340,14 @@ def _plan_projection(league_id: int, competition: int) -> None:
     )
     for line in format_freshness(outcome.freshness):
         console.print(line)
-    console.print(f"\n[bold]{INDEXCOMPARE}[/bold] (what a submit would field today)")
+    # The setting, not `--model`: the flag only chooses this view, and the line has to say
+    # which XI the hourly job would actually POST.
+    submits = resolve_model(live_setting(LINEUP_MODEL_VAR))
+    fielded = " (what a submit would field today)"
+    console.print(f"\n[bold]{INDEXCOMPARE}[/bold]{fielded if submits == INDEXCOMPARE else ''}")
     for line in format_plan(report.baseline[0], report.names):
         console.print(line)
-    console.print(f"\n[bold]{PROJECTION}[/bold]")
+    console.print(f"\n[bold]{PROJECTION}[/bold]{fielded if submits == PROJECTION else ''}")
     # `plans[0]` *is* the evaluated XI when there is one: the application puts it at the
     # head so the submit path walks it first, and the interface only prints what it is given.
     for line in format_plan(outcome.plans[0], report.names):

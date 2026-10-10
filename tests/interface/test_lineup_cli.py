@@ -692,6 +692,30 @@ def test_plan_projection_prints_both_models_the_table_and_the_verdict(
     assert "sigma~" in result.output and "5.50" in result.output  # the replacement level
 
 
+@pytest.mark.parametrize(
+    ("setting", "fielded", "shown"),
+    [("projection", "projection", "indexcompare"), ("indexcompare", "indexcompare", "projection")],
+)
+def test_plan_projection_names_the_model_the_setting_submits(
+    monkeypatch: pytest.MonkeyPatch, setting: str, fielded: str, shown: str
+) -> None:
+    """`--model projection` picks the view; only the setting decides what the job POSTs."""
+    from fantabot.application import lineup_projection
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection, "projection_for_league", lambda *a, **k: _projection_report()
+    )
+    monkeypatch.setenv("FANTABOT_LINEUP_MODEL", setting)
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 0, result.output
+    flat = " ".join(result.output.split())
+    assert f"{fielded} (what a submit would field today)" in flat
+    assert f"{shown} (what a submit would field today)" not in flat
+
+
 def test_plan_projection_says_so_when_the_history_cannot_carry_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
