@@ -137,3 +137,26 @@ class TestTheSecretSetsCannotDisagree:
         from fantabot.config import Settings
 
         assert set(Settings.model_fields) >= SECRET_FIELDS
+
+
+class TestEveryDsnTheReportCarriesIsMasked:
+    """A password has two places to hide in a DSN, and a second DSN field to hide in."""
+
+    def test_a_password_in_the_query_string_is_masked(self) -> None:
+        dsn = "postgresql+psycopg2://postgres@db/fantabot?password=hunter2&sslmode=require"
+        rendered = safe_dsn(dsn)
+        assert "hunter2" not in rendered
+        assert "sslmode=require" in rendered
+
+    def test_the_test_database_dsn_reaches_the_report_masked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.config_report import build_report
+        from fantabot.config import settings
+
+        monkeypatch.setattr(
+            settings, "fantabot_test_database_url", "postgresql://u:hunter2@db/fantabot_test"
+        )
+        shown = build_report().settings["fantabot_test_database_url"]
+        assert "hunter2" not in str(shown)
+        assert str(shown) == "postgresql://u:***@db/fantabot_test"

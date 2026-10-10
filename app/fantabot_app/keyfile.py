@@ -107,8 +107,12 @@ def load_or_create_key(
     key = Fernet.generate_key().decode()
     path = key_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(key, encoding="utf-8")
-    # Best-effort 0600; on Windows chmod is largely a no-op, so don't fail on it.
+    # The mode is set at creation so the key is never readable under the umask, not even
+    # briefly; O_TRUNC rather than O_EXCL because an empty leftover file is a legal state.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(key)
+    # Tightens a pre-existing file; on Windows chmod is largely a no-op, so don't fail on it.
     with suppress(OSError):
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
     environ[ENV_ENCRYPTION_KEY] = key

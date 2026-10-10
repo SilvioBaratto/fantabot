@@ -197,3 +197,14 @@ def test_the_standalone_fingerprint_is_the_one_the_cipher_stamps() -> None:
     key = a_key()
 
     assert fingerprint_of(key) == TokenCipher(key).fingerprint
+
+
+def test_stray_whitespace_around_a_working_key_does_not_change_its_fingerprint() -> None:
+    """Fernet discards whitespace in the key, so a padded key decrypts; its fingerprint must
+    not differ or a correct key reads as a KEY MISMATCH once the padding is fixed."""
+    key = a_key()
+
+    assert fingerprint_of(f" {key}\n") == fingerprint_of(key)
+    assert TokenCipher(f"{key}\n").fingerprint == TokenCipher(key).fingerprint
+    ciphertext = TokenCipher(f"{key}\n").encrypt(PLAINTEXT)
+    assert TokenCipher(key).decrypt(ciphertext, stored_fingerprint=fingerprint_of(key)) == PLAINTEXT

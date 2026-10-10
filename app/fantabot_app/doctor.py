@@ -139,6 +139,14 @@ def _chromium() -> Check:
 
 
 def _encryption_key() -> Check:
+    try:
+        return _encryption_key_unguarded()
+    except Exception as exc:  # noqa: BLE001
+        # A corrupt or unreadable key file must cost one line, not the rest of the report.
+        return Check("encryption key", False, f"cannot be read: {type(exc).__name__}")
+
+
+def _encryption_key_unguarded() -> Check:
     from fantabot_app import keyfile
 
     # Fingerprints at most, never the key itself.
@@ -153,7 +161,8 @@ def _encryption_key() -> Check:
     if (
         os.environ.get(keyfile.ENV_ENCRYPTION_KEY)
         or keyfile.dotenv_key()
-        or keyfile.key_path().exists()
+        # An empty file is what a truncated write leaves, and the loader treats it as no key.
+        or keyfile._stored_key()
     ):
         return Check("encryption key", True, "present")
     return Check("encryption key", False, "not set - run `fantabot-app setup`")

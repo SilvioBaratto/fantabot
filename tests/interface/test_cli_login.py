@@ -958,3 +958,37 @@ def test_both_logins_abort_with_one_and_the_same_class() -> None:
         with pytest.raises(canonical) as caught:
             raise module.LoginAborted("the preflight refused")
         assert caught.value.code == 2, "the preflight exit code travels with the class"
+
+
+def test_write_session_creates_the_storage_states_own_parent(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fantabot import config
+
+    target = tmp_path / "elsewhere" / "deeper" / "state.json"
+    monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
+    monkeypatch.setattr(config.settings, "fantabot_data_dir", tmp_path / "data")
+
+    login._write_session({"cookies": []}, console)
+
+    assert target.exists()
+
+
+@pytest.mark.parametrize("preexisting", [False, True])
+def test_write_session_file_is_owner_only(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, preexisting: bool
+) -> None:
+    import stat
+
+    from fantabot import config
+
+    target = tmp_path / "state.json"
+    if preexisting:
+        target.write_text("{}")
+        target.chmod(0o644)
+    monkeypatch.setattr(config.settings, "fantabot_storage_state", target)
+
+    login._write_session({"cookies": []}, console)
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert target.read_text() == '{"cookies": []}'

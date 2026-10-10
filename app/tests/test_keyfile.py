@@ -6,6 +6,9 @@ stands in for the environment, so each case is isolated.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 from cryptography.fernet import Fernet
 
@@ -141,3 +144,22 @@ def test_the_exported_key_is_the_one_a_split_compares() -> None:
     )
 
     assert split is not None and split.in_use == fingerprint_of("exported")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_key_file_is_never_group_or_world_readable_even_if_chmod_fails(
+    _home, monkeypatch
+) -> None:
+    # The mode must be set at creation: a post-hoc chmod leaves a readable window, and
+    # leaves the file readable for good when chmod raises.
+    def refuse(self, mode, *, follow_symlinks=True):
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "chmod", refuse)
+    old = os.umask(0o022)
+    try:
+        keyfile.load_or_create_key(create=True, environ={})
+    finally:
+        os.umask(old)
+
+    assert keyfile.key_path().stat().st_mode & 0o077 == 0

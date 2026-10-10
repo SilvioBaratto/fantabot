@@ -209,3 +209,37 @@ def test_two_directories_beside_each_other_are_not_a_source_tree(tmp_path) -> No
 
     assert check.ok is True
     assert "source tree" in check.detail
+
+
+def _key_check():
+    return next(c for c in run_checks() if c.name == "encryption key")
+
+
+def test_an_empty_key_file_is_not_a_key(monkeypatch, tmp_path) -> None:
+    _isolate_keys(monkeypatch, tmp_path)
+    monkeypatch.delenv("FANTABOT_ENCRYPTION_KEY", raising=False)
+    (tmp_path / "encryption.key").write_text("  \n", encoding="utf-8")
+
+    assert _key_check().ok is False
+
+
+def test_an_unreadable_key_file_is_reported_not_raised(monkeypatch, tmp_path) -> None:
+    _isolate_keys(monkeypatch, tmp_path)
+    monkeypatch.delenv("FANTABOT_ENCRYPTION_KEY", raising=False)
+    (tmp_path / "encryption.key").write_bytes(b"\xff\xfe\x00bad")
+
+    check = _key_check()
+
+    assert check.ok is False
+    assert "UnicodeDecodeError" in check.detail
+
+
+def test_a_key_file_that_is_a_directory_is_reported_not_raised(monkeypatch, tmp_path) -> None:
+    _isolate_keys(monkeypatch, tmp_path)
+    monkeypatch.delenv("FANTABOT_ENCRYPTION_KEY", raising=False)
+    (tmp_path / "encryption.key").mkdir()
+
+    check = _key_check()
+
+    assert check.ok is False
+    assert "IsADirectoryError" in check.detail or "PermissionError" in check.detail

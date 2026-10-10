@@ -30,7 +30,9 @@ def fingerprint_of(key: str) -> str:
     holding a `.env` key and a key file — uses the formula the rows were stamped with
     rather than a copy of it.
     """
-    return hashlib.sha256(key.encode()).hexdigest()[:FINGERPRINT_LENGTH]
+    # Fernet discards whitespace in a key, so a padded key works; hashing it raw would
+    # give one key two fingerprints and read the fixed key as a mismatch.
+    return hashlib.sha256(key.strip().encode()).hexdigest()[:FINGERPRINT_LENGTH]
 
 
 class TokenCipher:

@@ -410,12 +410,17 @@ def _verify(
 
 def _write_session(blob: dict[str, Any], report: Reporter) -> bool:
     import json
+    import os
 
     from fantabot.adapters.browser import storage_state as state
-    from fantabot.config import settings
 
-    settings.fantabot_data_dir.mkdir(parents=True, exist_ok=True)
     path = state.storage_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The blob holds live cookies and the plaintext bearer token. The mode on
+    # os.open only applies to a new file, so chmod tightens a leftover one, and
+    # both happen before any secret is written.
+    os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
+    path.chmod(0o600)
     path.write_text(json.dumps(blob))
     report.print(f"  session -> {path}")
     return True

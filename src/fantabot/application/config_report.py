@@ -60,6 +60,13 @@ SECRET_FIELDS = frozenset(
     }
 )
 
+#: Settings fields that hold a DSN but are not secret as a whole: rendered through
+#: `safe_dsn` instead of dumped, so a password in one cannot reach the screen.
+MASKED_DSN_FIELDS = ("fantabot_test_database_url",)
+
+#: Query keys libpq reads a credential from.
+_SECRET_QUERY_KEYS = frozenset({"password", "sslpassword"})
+
 #: The secrets reported as a bare "set / not set". Masked is not the same as invisible:
 #: the operator ran this to find out whether the key is there at all.
 #:
@@ -135,7 +142,7 @@ def safe_dsn(dsn: str) -> str:
     if url.query:
         # Unencoded, which is the point. A value may be a tuple when a key repeats.
         pairs = [
-            f"{key}={item}"
+            f"{key}={MASK if key.lower() in _SECRET_QUERY_KEYS else item}"
             for key, value in url.query.items()
             for item in (value if isinstance(value, tuple) else (value,))
         ]
@@ -155,12 +162,21 @@ def build_report() -> ConfigReport:
     except InvalidDsn as exc:
         database_url, error = "", str(exc)
 
+    dumped = settings.model_dump(mode="json", exclude=set(SECRET_FIELDS))
+    for name in MASKED_DSN_FIELDS:
+        if dumped.get(name):
+            try:
+                dumped[name] = safe_dsn(dumped[name])
+            except InvalidDsn:
+                # An unparseable value cannot be masked reliably, so it is withheld whole.
+                dumped[name] = MASK
+
     return ConfigReport(
         # `mode="json"` so a `Path` field comes back as its string. Two reasons, and
         # neither is the API's serialiser: `PosixPath('data/storage_state.json')` is not
         # a path an operator can copy, and a report both surfaces render may not carry a
         # type only one of them can show.
-        settings=settings.model_dump(mode="json", exclude=set(SECRET_FIELDS)),
+        settings=dumped,
         secrets_set={name: bool(getattr(settings, name, "")) for name in REPORTED_SECRETS},
         database_url=database_url,
         database_url_error=error,
