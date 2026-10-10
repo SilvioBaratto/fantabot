@@ -28,6 +28,13 @@ reported a clean kill. Measured 2026-09-23: one stray survived every run.
 makes them equal, and once the leader has been reaped `os.getpgid` raises — so a probe that
 looked the group up through the leader would report an empty group the moment the leader
 died, which is precisely the case it exists to catch.
+
+**The child's output is inherited, not discarded.** Under launchd the parent's stdout is the
+job's log, and the refresh's own lines — which player's news failed, and why — exist nowhere
+else: the marker keeps counts only. Until 2026-10-10 both streams went to `/dev/null`, and
+a run that stored 28 of 30 left no trace of which two were missing. Inherited, not piped:
+a pipe needs a reader, and a killed group whose grandchildren still hold the write end
+would block that reader past the hard wall this module exists to enforce.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 from collections.abc import Sequence
 from contextlib import suppress
 
@@ -53,15 +61,14 @@ def run_grouped(
 
     Never raises for the child's sake: a child that could not even be started is a note, the
     same as one that ran too long. The caller is a job whose real work is already done.
+    The child writes to this process's stdout and stderr.
     """
+    # The child writes straight to the shared descriptors, so anything still sitting in
+    # this process's buffers would land in the log after the child's lines, not before.
+    sys.stdout.flush()
+    sys.stderr.flush()
     try:
-        child = subprocess.Popen(
-            list(command),
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            cwd=cwd,
-        )
+        child = subprocess.Popen(list(command), start_new_session=True, cwd=cwd)
     except OSError as exc:
         return None, f"could not start: {type(exc).__name__}"
 

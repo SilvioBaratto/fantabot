@@ -45,6 +45,10 @@ class SourceOutcome:
     source: str
     state: SourceState
     detail: str = ""
+    #: `(player, reason)` for each item the source could not fetch. Kept out of `detail`
+    #: because the marker stores `detail` and a news reason is agent-written: the caller
+    #: escapes these before printing them, and nothing persists them.
+    failures: tuple[tuple[str, str], ...] = ()
 
     @property
     def ok(self) -> bool:

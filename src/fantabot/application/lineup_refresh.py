@@ -355,7 +355,9 @@ class LiveRefreshSources:
             )
         )
         state: SourceState = "ok" if result.ok else "failed"
-        return SourceOutcome("news", state, result.reason or result.summary())
+        return SourceOutcome(
+            "news", state, result.reason or result.summary(), failures=result.failures
+        )
 
     def _news_on(self) -> bool:
         """`FANTABOT_LINEUP_NEWS`, parsed at use and failing closed (AD4)."""

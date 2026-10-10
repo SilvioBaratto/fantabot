@@ -71,6 +71,20 @@ class TestTheHappyPath:
 
         assert (code, note) == (3, "")
 
+    def test_the_childs_output_reaches_this_processs_streams(
+        self, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """Under launchd these two streams are the job's log, and the refresh's per-player
+        failures are written nowhere else."""
+        script = "import sys; print('to stdout'); print('to stderr', file=sys.stderr)"
+
+        code, _note = run_grouped([sys.executable, "-c", script], timeout=30)
+
+        out, err = capfd.readouterr()
+        assert code == 0
+        assert "to stdout" in out
+        assert "to stderr" in err
+
     def test_a_command_that_cannot_start_is_a_note_and_not_a_raise(self) -> None:
         """The caller is a job whose real work is already done and written down."""
         code, note = run_grouped(["/nonexistent/binary/fantabot"], timeout=5)

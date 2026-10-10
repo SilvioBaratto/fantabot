@@ -560,6 +560,30 @@ class TestTheLiveSources:
         assert outcome.state == "failed"
         assert outcome.detail == "no roster"
 
+    def test_news_carries_each_failed_player_out_beside_the_counts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The reasons are agent-written, so they travel beside `detail` and never in it: the
+        marker stores `detail`, and the CLI escapes `failures` before printing them."""
+        import fantabot.application.news_roster as roster
+        from fantabot.application.lineup_refresh import LiveRefreshSources
+
+        failures = (("Paz N.", "no answer within 240s"), ("Osmajic", "[/bad] markup"))
+
+        async def _fetched(*_a: Any, **_kw: Any) -> roster.NewsRunResult:
+            return roster.NewsRunResult(
+                reason=None, roster=30, delivered=28, stored=28, failures=failures
+            )
+
+        monkeypatch.setattr(roster, "fetch_roster_news", _fetched)
+        source = LiveRefreshSources(reporter=_Recorder(), news_enabled=True)
+
+        outcome = source.news(_inputs())
+
+        assert outcome.failures == failures
+        assert "Paz N." not in outcome.detail
+        assert "markup" not in outcome.detail
+
     def test_a_voti_run_that_missed_the_giornata_being_planned_from_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

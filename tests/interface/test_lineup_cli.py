@@ -1028,6 +1028,38 @@ class TestTheRefreshChild:
         assert spawned == []
         assert "marker unreadable (OSError)" in result.output
 
+    def test_the_child_names_each_failed_player_with_its_reason_escaped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What lands in the job's log. The reason is agent-written and a `[/...]` in it is a
+        `MarkupError` to Rich, so an unescaped print would trade the line for a traceback."""
+        from fantabot.application.lineup_refresh import RefreshReport
+        from fantabot.domain.lineup.refresh import SourceOutcome
+
+        report = RefreshReport(
+            cmday=6,
+            attempted=("news",),
+            outcomes=(
+                SourceOutcome(
+                    "news",
+                    "ok",
+                    "news ok - failed 1",
+                    failures=(("Paz N.", "agent gave up [/x] mid-reply"),),
+                ),
+            ),
+        )
+        monkeypatch.setattr(
+            "fantabot.application.lineup_refresh.read_refresh_inputs", lambda *_a, **_k: None
+        )
+        monkeypatch.setattr(
+            "fantabot.application.lineup_refresh.run_refresh", lambda *_a, **_k: report
+        )
+
+        result = runner.invoke(app, ["lineup", "refresh", "--league", "1", "--cmday", "6"])
+
+        assert result.exit_code == 0, result.output
+        assert "news: failed Paz N.: agent gave up [/x] mid-reply" in result.output
+
 
 # -- T36 at the command: the flag, and the setting that refuses without it --------------
 

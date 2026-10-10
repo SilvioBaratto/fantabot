@@ -640,6 +640,11 @@ def _refresh(
     )
     for line in report.lines():
         console.print(escape(line))
+    for outcome in report.outcomes:
+        for name, reason in outcome.failures:
+            console.print(
+                f"[yellow]{outcome.source}: failed[/yellow] {escape(name)}: {escape(reason)}"
+            )
     if not report.ok:
         raise typer.Exit(code=1)
 
