@@ -134,7 +134,9 @@ export class NewsComponent implements OnInit {
   private reattach(): void {
     this.jobs.running(this.destroyRef).subscribe((jobs) => {
       const live = jobs.find((job) => job.kind === KIND);
-      if (!live) return;
+      // A click that beat this listing already owns the job: its POST attaches the poll,
+      // and a second loop on the same id would append every log line twice.
+      if (!live || this.running()) return;
       this.running.set(true);
       this.jobStatus.set('running');
       this.poll(live.id);

@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { LucideIconConfig } from 'lucide-angular';
 
 import { environment } from '../../../environments/environment';
+import { JobsService } from '../../core/api/jobs.service';
 import { ICON_PROVIDER } from '../../icons';
 import { NewsComponent } from './news';
 
@@ -261,6 +262,22 @@ describe('NewsComponent', () => {
       await fixture.whenStable();
 
       expect(fixture.componentInstance.running()).toBe(true);
+    });
+
+    it('follows a job once when the listing lands after the click that started it', async () => {
+      const fixture = TestBed.createComponent(NewsComponent);
+      const track = vi.spyOn(TestBed.inject(JobsService), 'track');
+      fixture.detectChanges();
+      fixture.componentInstance.runFetch();
+      httpMock
+        .expectOne((r) => r.url.includes('actions/news-fetch'))
+        .flush({ job_id: 'job-1' });
+      noRunningJobs([{ id: 'job-1', kind: 'news-fetch', status: 'running', ok: null }]);
+      flush([], []);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(track).toHaveBeenCalledTimes(1);
     });
 
     it('ignores a job of another kind', async () => {
