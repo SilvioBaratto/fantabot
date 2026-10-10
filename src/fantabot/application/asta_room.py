@@ -509,7 +509,6 @@ class RoomTracker:
         # measures exactly that solve.
         plan_key = (state, rules)
         if plan_key != self._plan_key:
-            self._plan_key = plan_key
             try:
                 plan, walkaways = reservations(
                     state, self._pool, value=self._value, prices=self._prices,
@@ -519,8 +518,10 @@ class RoomTracker:
                 self._plan_cache = (
                     plan.optimal.player_ids, walkaways, plan.optimal.objective, None,
                 )
+                self._plan_key = plan_key
             except InfeasibleRoster as exc:
                 self._plan_cache = ((), {}, None, f"no completable rosa from here: {exc}")
+                self._plan_key = plan_key
         planned, walkaways, baseline, infeasible = self._plan_cache
         if infeasible is not None:
             unvaluable = [*unvaluable, infeasible]

@@ -74,7 +74,8 @@ def _lot_pane(frame: RoomFrame) -> RenderableType:
         body.append(f"walk-away {frame.walk_away} ", style="bold")
         body.append(f"({frame.provenance})\n", style="dim")
 
-    style = "red" if (frame.seconds_left or 99) < URGENT_SECONDS else "yellow" if frame.decision == "bid" else "white"
+    urgent = frame.seconds_left is not None and frame.seconds_left < URGENT_SECONDS
+    style = "red" if urgent else "yellow" if frame.decision == "bid" else "white"
     return Panel(body, title="LOT", border_style=style)
 
 

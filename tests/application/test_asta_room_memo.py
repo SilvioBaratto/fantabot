@@ -18,6 +18,7 @@ the state this code was in for the evening that stalled.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from test_asta_room_tracker import _lot, _tracker
@@ -81,3 +82,28 @@ def test_and_the_new_answer_is_used_rather_than_the_cached_one(monkeypatch: Any)
     assert "200" not in after.plan, (
         "the plan still names a player the ledger says was sold to a rival"
     )
+
+
+def test_a_solve_that_raised_is_retried_rather_than_remembered(monkeypatch: Any) -> None:
+    """The memo key may only record a state whose solve finished. Otherwise one transient
+    exception, absorbed by the loop for that poll, makes every later poll of the same state
+    read the cache of the state before it."""
+    import fantabot.application.asta_room as room
+
+    real = reservation.reservations
+    calls = [0]
+
+    def flaky(*args: Any, **kwargs: Any) -> Any:
+        calls[0] += 1
+        if calls[0] == 1:
+            raise RuntimeError("solver hiccup")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(room, "reservations", flaky)
+    tracker = _tracker()
+
+    with contextlib.suppress(RuntimeError):
+        tracker.cycle(_lot(), now_ms=1_000)
+    tracker.cycle(_lot(), now_ms=3_000)
+
+    assert calls[0] == 2, "the failed solve was memoised and never retried"

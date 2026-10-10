@@ -181,8 +181,14 @@ def run_bid_loop(
             consecutive_errors += 1
             name = type(exc).__name__
             errors[name] = errors.get(name, 0) + 1
-            report_error(exc, consecutive_errors)
-            sleep(poll_seconds)
+            try:
+                report_error(exc, consecutive_errors)
+                sleep(poll_seconds)
+            except KeyboardInterrupt:
+                # During an outage most of a cycle is spent in this sleep, and a sibling
+                # `except` clause does not cover its own handler's body.
+                heartbeat(f"[{cycles}] interrupted")
+                break
 
     return LoopReport(cycles=cycles, bids_sent=bids_sent, refused=refused, errors=errors)
 

@@ -264,3 +264,12 @@ class TestTheStaleBanner:
         painter that can throw there turns a recoverable outage into a dead command."""
         for message in ("", "x" * 500, "[not-a-rich-tag] {0} %s", "\n\n"):
             assert "STALE" in self._overlay(None, message, 1)
+
+
+class TestLotPaneUrgency:
+    def test_an_expired_timer_is_urgent_and_an_absent_one_is_not(self) -> None:
+        """0.0 means the window elapsed and None means no timer; only the first is red."""
+        from fantabot.interface.room_view import _lot_pane
+
+        assert _lot_pane(_frame(seconds_left=0.0)).border_style == "red"  # type: ignore[attr-defined]
+        assert _lot_pane(_frame(seconds_left=None)).border_style == "yellow"  # type: ignore[attr-defined]

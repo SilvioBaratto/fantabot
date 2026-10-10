@@ -98,6 +98,28 @@ class TestBargainShareRejectsNonFinite:
         )
 
 
+class TestMaxBridgeAgeRejectsNonFinite:
+    """`is_stale` is `age > hours*3600`, False for `nan` and `inf`: the lock never closes."""
+
+    def test_nan_is_rejected_on_asta_room(self) -> None:
+        _rejected_by_the_finite_check(
+            ["asta", "room", "https://app.fantalab.it/asta?asta=fake",
+             "--max-bridge-age-hours", "nan"]
+        )
+
+    def test_inf_is_rejected_on_asta_room(self) -> None:
+        _rejected_by_the_finite_check(
+            ["asta", "room", "https://app.fantalab.it/asta?asta=fake",
+             "--max-bridge-age-hours", "inf"]
+        )
+
+    def test_nan_is_rejected_on_asta_bid(self) -> None:
+        _rejected_by_the_finite_check(
+            ["asta", "bid", "--league", "x", "--db", "1", "--team", "x", "--user", "x",
+             "--max-bridge-age-hours", "nan"]
+        )
+
+
 # -- one default per flag, across every command that declares it -------------------------
 
 import click  # noqa: E402 — grouped with the tests that need it

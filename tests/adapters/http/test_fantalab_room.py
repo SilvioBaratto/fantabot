@@ -269,3 +269,23 @@ class TestOneBadPollCostsOnePoll:
         )
 
         assert report.cycles == 1, "stopped, not retried for ever"
+
+    def test_ctrl_c_in_the_error_path_sleep_still_returns_the_report(self) -> None:
+        """During an outage most of each cycle is spent sleeping inside the handler."""
+        def read() -> dict[str, Any]:
+            raise ConnectionError("down")
+
+        def sleep(_s: float) -> None:
+            raise KeyboardInterrupt
+
+        report = run_bid_loop(
+            seat=SEAT, fantaleague_id=FL, remaining_budget=100, max_cap=None,
+            target_of=lambda _s: None, read=read,
+            write=lambda _p: _Outcome(sent=True, status=200),
+            now=lambda: FAR, sleep=sleep,
+            keep_going=lambda _cycle: True,
+            heartbeat=lambda _line: None,
+        )
+
+        assert report.cycles == 1
+        assert report.errors == {"ConnectionError": 1}

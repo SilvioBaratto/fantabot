@@ -256,6 +256,8 @@ MaxBridgeAge = Annotated[
     float,
     typer.Option(
         "--max-bridge-age-hours",
+        min=0.0,
+        callback=_reject_non_finite,
         help="Refuse --arm (not the run) when the listone bridge could not be refreshed and "
         "the cached copy is older than this. 4h: strictly tighter than the 5-hour-stale copy "
         "that missed 16 transfer-deadline signings on 2026-08-28 — the incident this guards "
