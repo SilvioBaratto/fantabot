@@ -170,3 +170,27 @@ class TestTheGateHasAnOpinionAboutEveryScenarioItRuns:
         `RoomTracker` that silently stopped cycling would have read as three green
         scenarios and an `asta bench` exit code of 0."""
         assert bench_checks(name, []) != []
+
+
+class TestARegressionIsReportedNotRaised:
+    def test_a_malen_row_with_no_ceiling_is_a_failure_and_not_a_type_error(self) -> None:
+        rows = [{"decision": "hold", "walk_away": None, "provenance": None, "price": 5,
+                 "reason": None}]
+
+        failures = bench_checks("Malen", rows)
+
+        assert any("ceiling" in f for f in failures)
+
+    def test_a_purchase_the_bridge_cannot_resolve_fails_loudly(self) -> None:
+        from fantabot.application.asta_bench import BenchScenario
+
+        scenario = BenchScenario(
+            name="X", lot_uuid="u", fantacalcio_id="1",
+            our_purchases_before=(("999", 5),), rungs=(),
+        )
+
+        with pytest.raises(ValueError, match="999"):
+            replay(
+                scenario, pool=[], value=None, prices={}, teams={},  # type: ignore[arg-type]
+                legality={}, names={}, bridge={"uuid-1": 1},
+            )

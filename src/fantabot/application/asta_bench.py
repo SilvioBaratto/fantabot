@@ -113,10 +113,16 @@ def replay(
     whether *we* are already high, never who else is.
     """
     reverse_bridge = {str(fid): uuid for uuid, fid in bridge.items()}
+    # Dropping an unbridgeable purchase would understate spend and let a gate pass or fail
+    # for a state the real evening never had.
+    missing = sorted({fid for fid, _ in scenario.our_purchases_before if fid not in reverse_bridge})
+    if missing:
+        raise ValueError(
+            f"scenario {scenario.name!r} has purchases the bridge cannot resolve: {missing}"
+        )
     ledger = [
         AssignmentEvent(reverse_bridge[fid], price, OUR_TEAM_ID)
         for fid, price in scenario.our_purchases_before
-        if fid in reverse_bridge
     ]
 
     rows: list[Mapping[str, object]] = []
@@ -188,8 +194,11 @@ def _malen_checks(rows: Sequence[Mapping[str, object]]) -> list[str]:
         failures.append("expected a ceiling >= 40 on every poll")
     for r in rows:
         price = r["price"]
+        walk_away = r["walk_away"]
         assert isinstance(price, int)
-        if price < r["walk_away"]:  # type: ignore[operator]
+        if not isinstance(walk_away, int):
+            continue
+        if price < walk_away:
             if r["decision"] != "bid":
                 failures.append(f"price {price} is under the ceiling; expected `bid`")
         elif not (r["decision"] == "pass" and r["reason"] == "walk_away"):
