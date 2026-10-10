@@ -149,3 +149,27 @@ def test_persist_writes_only_what_was_read(monkeypatch: pytest.MonkeyPatch) -> N
         "league_snapshot": 1, "league_team_snapshot": 1,
         "league_competition": 1, "league_fixture": 1,
     }
+
+
+@pytest.mark.parametrize(
+    ("override", "failure"),
+    [
+        ({"players": {"players": [{"id": "abc", "name": "x"}]}}, "players/parse"),
+        ({"custom_roles": [{"id": "abc", "name": "x"}]}, "custom-roles/parse"),
+        ({"competitions": [{"id": "abc", "name": "x", "tmids": [1]}]}, "competitions/parse"),
+        (
+            {"calendar": [{"matchDay": 1, "matches": [{"tIdA": 2}]}]},
+            "calendar/311681/parse",
+        ),
+        ({"roster_settings": {**ROSTERS, "minrl": [None, 1]}}, "status/parse"),
+    ],
+)
+def test_a_malformed_row_in_any_parse_is_a_failure_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch, override: dict[str, Any], failure: str
+) -> None:
+    """Only `teams/parse` was inside `_attempt`: a bad id in the pool aborted the sync
+    before `persist`, losing the seven reads that had already succeeded."""
+    _install(monkeypatch, **override)
+    result = lega_sync.collect(4103937, store=None, reporter=SilentReporter())  # type: ignore[arg-type]
+    assert any(f.startswith(failure) for f in result.failures)
+    assert result.rosters

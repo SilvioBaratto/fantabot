@@ -45,3 +45,9 @@ def test_a_missing_user_id_stays_none_not_zero() -> None:
     snapshot = parse_team_snapshot(4103937, {**BODY, "idu": None})
 
     assert snapshot.user_id is None
+
+
+def test_a_null_name_or_owner_is_empty_not_the_string_none() -> None:
+    snapshot = parse_team_snapshot(4103937, {**BODY, "n": None, "nu": None})
+
+    assert (snapshot.nome, snapshot.owner) == ("", "")

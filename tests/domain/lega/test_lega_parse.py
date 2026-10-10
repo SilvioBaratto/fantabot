@@ -212,3 +212,20 @@ def test_an_unknown_role_integer_is_kept_verbatim() -> None:
     """Dropping it would make a 30-man rosa silently 29. A code we cannot name is still
     a fact, and it shows up in the table as the integer it was."""
     assert role_code(17) == "17"
+
+
+class TestDegradedFields:
+    def test_non_numeric_role_is_kept_verbatim(self) -> None:
+        from fantabot.domain.lega.parse import classic_role_code, role_code
+
+        assert role_code("P") == "P"
+        assert classic_role_code("12.5x") == "12.5x"
+        assert role_code(float("nan")) == "nan"
+
+    def test_null_text_fields_are_empty_not_none_literal(self) -> None:
+        from fantabot.domain.lega.parse import parse_custom_roles, parse_team_roster
+
+        team = parse_team_roster(1, {"id": 2, "n": None, "nu": None, "cal": "", "cs": ""})
+        assert (team.nome, team.owner) == ("", "")
+        (role,) = parse_custom_roles(1, [{"id": 3, "name": None, "team": None}])
+        assert (role.nome, role.club) == ("", "")

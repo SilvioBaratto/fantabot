@@ -51,6 +51,19 @@ def _int(value: Any) -> int | None:
     return int(value) if isinstance(value, (int, float, str)) and str(value).strip() else None
 
 
+def _role_number(value: Any) -> int | None:
+    """`_int` for a role field, where a non-numeric value is kept verbatim, not fatal."""
+    try:
+        return _int(value)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _label(value: Any) -> str:
+    """A display string; JSON null is empty, not the literal `None`."""
+    return "" if value is None else str(value)
+
+
 def _ids(raw: Any) -> tuple[int, ...]:
     """A `;`-joined id list. Empty string and `None` are both "no players", not an error."""
     if not raw:
@@ -60,7 +73,7 @@ def _ids(raw: Any) -> tuple[int, ...]:
 
 def classic_role_code(value: Any) -> str:
     """One `custom-roles` integer as its Classic macro role, verbatim when unmapped."""
-    number = _int(value)
+    number = _role_number(value)
     if number is None:
         return str(value)
     return CLASSIC_ROLE_CODES.get(number, str(number))
@@ -72,7 +85,7 @@ def role_code(value: Any) -> str:
     An unknown integer is kept verbatim rather than dropped: a role we cannot name is a
     fact about the lega, and losing it would make a 30-man rosa silently 29.
     """
-    number = _int(value)
+    number = _role_number(value)
     if number is None:
         return str(value)
     return MARLE_TO_CODE.get(number, str(number))
@@ -132,8 +145,8 @@ def parse_team_roster(league_id: int, body: Mapping[str, Any]) -> TeamRoster:
         league_id=league_id,
         team_id=int(body["id"]),
         user_id=_int(body.get("idu")),
-        nome=str(body.get("n", "")),
-        owner=str(body.get("nu", "")),
+        nome=_label(body.get("n")),
+        owner=_label(body.get("nu")),
         division=str(body.get("d") or "A"),
         credits_initial=_int(body.get("cri")),
         credits_spent=_int(body.get("crs")),
@@ -157,7 +170,7 @@ def parse_competitions(
         Competition(
             league_id=league_id,
             competition_id=int(row["id"]),
-            name=str(row.get("name", "")),
+            name=_label(row.get("name")),
             tipo=_int(row.get("type")),
             start_day=_int(row.get("sDay")),
             end_day=_int(row.get("eDay")),
@@ -222,8 +235,8 @@ def parse_custom_roles(
         CustomRole(
             league_id=league_id,
             player_id=int(row["id"]),
-            nome=str(row.get("name", "")),
-            club=str(row.get("team", "")),
+            nome=_label(row.get("name")),
+            club=_label(row.get("team")),
             original_role=classic_role_code(row.get("originalRole")),
             role=classic_role_code(row.get("role")),
         )
@@ -241,8 +254,8 @@ def parse_pool(league_id: int, body: Mapping[str, Any]) -> tuple[PoolEntry, ...]
         PoolEntry(
             league_id=league_id,
             player_id=int(row["id"]),
-            nome=str(row.get("name", "")),
-            club=str(row.get("stnme", "")),
+            nome=_label(row.get("name")),
+            club=_label(row.get("stnme")),
             quotazione=_int(row.get("quotd")),
             fvm_classic=_int(row.get("fvmfc")),
             fvm_mantra=_int(row.get("fvmma")),

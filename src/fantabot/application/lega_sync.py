@@ -95,14 +95,17 @@ def collect(league_id: int, *, store: TokenStore, reporter: Reporter) -> SyncRes
         result, "settings/lineup", lambda: apileague.lineup_settings(league_id, store=store)
     )
     if status is not None:
-        result.state = parse_league_state(
-            league_id, status, rosters_cfg or {}, lineup_cfg or {}
+        result.state = _attempt(
+            result,
+            "status/parse",
+            lambda: parse_league_state(league_id, status, rosters_cfg or {}, lineup_cfg or {}),
         )
-        reporter.print(
-            f"matchday [bold]{result.state.matchday}[/bold] · "
-            f"budget {result.state.budget} · rosa {result.state.roster_size} · "
-            f"{len(result.state.modules)} moduli"
-        )
+        if result.state is not None:
+            reporter.print(
+                f"matchday [bold]{result.state.matchday}[/bold] · "
+                f"budget {result.state.budget} · rosa {result.state.roster_size} · "
+                f"{len(result.state.modules)} moduli"
+            )
 
     teams_body = _attempt(result, "teams", lambda: apileague.teams(league_id, store=store))
     if teams_body is not None:
@@ -116,7 +119,9 @@ def collect(league_id: int, *, store: TokenStore, reporter: Reporter) -> SyncRes
         result, "competitions", lambda: apileague.competitions(league_id, store=store)
     )
     if comps_body is not None:
-        result.competitions = parse_competitions(league_id, comps_body)
+        result.competitions = _attempt(
+            result, "competitions/parse", lambda: parse_competitions(league_id, comps_body)
+        ) or ()
         reporter.print(f"{len(result.competitions)} competizioni")
 
     fixtures: list[Fixture] = []
@@ -129,7 +134,14 @@ def collect(league_id: int, *, store: TokenStore, reporter: Reporter) -> SyncRes
 
         body = _attempt(result, f"calendar/{comp.competition_id}", read_calendar)
         if body is not None:
-            fixtures.extend(parse_fixtures(comp.competition_id, body))
+            def parse_calendar(
+                cid: int = comp.competition_id, rows: list[dict[str, Any]] = body
+            ) -> tuple[Fixture, ...]:
+                return tuple(parse_fixtures(cid, rows))
+
+            fixtures.extend(
+                _attempt(result, f"calendar/{comp.competition_id}/parse", parse_calendar) or ()
+            )
     result.fixtures = tuple(fixtures)
     if fixtures:
         played = sum(1 for f in fixtures if f.calculated)
@@ -139,12 +151,16 @@ def collect(league_id: int, *, store: TokenStore, reporter: Reporter) -> SyncRes
         result, "custom-roles", lambda: apileague.custom_roles(league_id, store=store)
     )
     if roles_body is not None:
-        result.custom_roles = parse_custom_roles(league_id, roles_body)
+        result.custom_roles = _attempt(
+            result, "custom-roles/parse", lambda: parse_custom_roles(league_id, roles_body)
+        ) or ()
         reporter.print(f"{len(result.custom_roles)} ruoli custom")
 
     pool_body = _attempt(result, "players", lambda: apileague.players(league_id, store=store))
     if pool_body is not None:
-        result.pool = parse_pool(league_id, pool_body)
+        result.pool = _attempt(
+            result, "players/parse", lambda: parse_pool(league_id, pool_body)
+        ) or ()
         reporter.print(f"{len(result.pool)} giocatori nel listone della lega")
 
     return result
