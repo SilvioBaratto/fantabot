@@ -117,3 +117,49 @@ def test_objective_penalizes_same_team_pairs() -> None:
     # a1+a2 has more raw mean (20 vs 19.5) but a same-team covariance penalty; at λ=1 the
     # penalty dominates, so the cross-club pair scores higher.
     assert cross > same
+
+
+def test_owned_multi_role_player_is_not_spent_on_the_slot_a_single_role_player_fills() -> None:
+    # Slot order is scarcity-first (P has one available candidate, Q three). First-fit hands
+    # the multi-role owned player to P, leaving Q to be bought; a matching puts the A-only
+    # player in P and the A/C player in Q, so only the keeper slot costs credits.
+    legality = {
+        "p-q-g": SchemaLegality(
+            nome="p-q-g",
+            slots=(
+                SlotRule("P", frozenset({"A"}), frozenset({"A"})),
+                SlotRule("Q", frozenset({"C", "W"}), frozenset({"C", "W"})),
+                SlotRule("G", frozenset({"POR"}), frozenset({"POR"})),
+            ),
+        )
+    }
+    pool = [
+        MantraPlayer(id="m", roles=normalize_roles(["A", "C"])),
+        _player("s", "A"),
+        _player("a_free", "A"),
+        _player("c1", "C"),
+        _player("c2", "C"),
+        _player("c3", "C"),
+        _player("gk", "POR"),
+    ]
+    rules = RosterRules(
+        size=3, goalkeeper_roles=frozenset({"POR"}), min_goalkeepers=1, min_movement=2
+    )
+    value = NaiveValueModel(
+        signals={p.id: 5.0 for p in pool},
+        prior_mean=1.0,
+        base_variance=4.0,
+        no_history_variance=4.0,
+    )
+    state = AstaState(owned=("m", "s"), spent=0.0, total_budget=10.0)
+    result = optimize_roster(
+        state,
+        pool,
+        value=value,
+        prices={p.id: 10.0 for p in pool},
+        teams={p.id: p.id for p in pool},
+        legality=legality,
+        rules=rules,
+        lam=0.0,
+    )
+    assert set(result.optimal.player_ids) == {"m", "s", "gk"}

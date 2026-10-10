@@ -22,7 +22,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from fantabot.domain.asta.legality import SchemaLegality, SlotRule, fieldable_schemi
+from fantabot.domain.asta.legality import SchemaLegality, SlotRule, can_field, fieldable_schemi
 from fantabot.domain.asta.roles import MantraPlayer
 from fantabot.domain.asta.state import AstaState, OptimizationResult, Roster, RosterRules
 from fantabot.domain.asta.value import ValueModel
@@ -245,10 +245,10 @@ def _seed_schema(
     fill. Returns the reserved available ids and the remaining budget, or ``None`` if any
     slot cannot be covered affordably — the caller then tries the next schema.
     """
-    owned_left = list(owned_players)
     owned_ids = [p.id for p in owned_players]
     used: set[str] = set()
     seed: list[str] = []
+    covered: list[SlotRule] = []
     buckets = _sigma_by_team(owned_ids, index, teams)
     available_ids = {p.id for p in available}
     budget = budget_left
@@ -258,9 +258,11 @@ def _seed_schema(
     ordered = sorted(schema.slots, key=lambda s: len(index.eligible(s) & available_ids))
     for slot in ordered:
         admits = index.eligible(slot)
-        owned_match = next((p for p in owned_left if p.id in admits), None)
-        if owned_match is not None:
-            owned_left.remove(owned_match)
+        # A first-fit pick can hand a multi-role owned player to a slot a single-role one
+        # fills, leaving a later slot to be bought; the matcher decides coverage instead.
+        trial = SchemaLegality(nome=schema.nome, slots=(*covered, slot))
+        if can_field(owned_players, trial):
+            covered.append(slot)
             continue
         reserve = rules.size - len(owned_ids) - len(seed) - 1
         candidates = [
