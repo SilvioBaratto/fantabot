@@ -43,6 +43,12 @@ def test_real_shards_are_accepted(shard: object) -> None:
     assert valid_shard(shard) == str(shard)
 
 
+def test_a_trailing_newline_is_not_a_shard() -> None:
+    """`$` matches before a final newline, which would put one into the host."""
+    with pytest.raises(ShardError):
+        valid_shard("5\n")
+
+
 def test_an_accepted_shard_stays_inside_the_firebase_domain() -> None:
     host = urlparse(stream_url("auction-id", "18")).netloc
     assert host.endswith(".europe-west1.firebasedatabase.app")

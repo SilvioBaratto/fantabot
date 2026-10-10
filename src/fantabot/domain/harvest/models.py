@@ -13,7 +13,7 @@ from typing import Any
 #: Firebase namespaces are `fantalab-0` … `fantalab-19`. Nineteen were counted
 #: on 2026-08-27; the bound is loose enough for more and tight enough that
 #: nothing but a number gets through.
-_SHARD = re.compile(r"^[0-9]{1,3}$")
+_SHARD = re.compile(r"[0-9]{1,3}")
 
 
 class ShardError(ValueError):
@@ -30,7 +30,7 @@ def valid_shard(value: Any) -> str:
     built, because one path forgetting is exactly how this class of bug returns.
     """
     text = str(value)
-    if not _SHARD.match(text):
+    if not _SHARD.fullmatch(text):
         raise ShardError(f"{value!r} is not a Firebase shard; expected 0-999")
     return text
 
