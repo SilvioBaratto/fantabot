@@ -26,7 +26,7 @@ from enum import Enum
 from typing import Any, Protocol
 
 from fantabot.domain.harvest.models import valid_shard
-from fantabot.domain.harvest.reducer import ROOT, apply_frame
+from fantabot.domain.harvest.reducer import INERT, ROOT, apply_frame
 from fantabot.domain.harvest.sse import Frame, FrameBuffer
 
 #: Firebase's regional host. The shard is the only part that varies, and it is
@@ -124,7 +124,10 @@ async def watch_auction(
         try:
             async for chunk in open_stream(url):
                 for frame in buffer.feed(chunk):
-                    delivered = True
+                    # keep-alive, cancel and auth_revoked say nothing about the
+                    # node: a shard refusing us with one of them has not worked.
+                    if frame.event not in INERT:
+                        delivered = True
                     if is_auction_gone(frame):
                         return Outcome.ENDED
                     updated = apply_frame(state, frame)

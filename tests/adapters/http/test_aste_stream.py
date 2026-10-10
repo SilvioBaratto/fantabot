@@ -196,3 +196,28 @@ def test_a_shard_that_never_connects_still_gives_up() -> None:
         max_attempts=4,
     )
     assert outcome is Outcome.UNREACHABLE
+
+
+@pytest.mark.parametrize("event", ["cancel", "auth_revoked", "keep-alive"])
+def test_a_shard_that_only_sends_inert_frames_backs_off(event: str) -> None:
+    """A refusing shard answers 200, sends one frame that carries no state, and
+    closes. That is not a connection that worked, so it must not zero the backoff
+    nor keep `max_attempts` from being reached."""
+    inert = f"event: {event}\ndata: null\n\n"
+    waits: list[float] = []
+
+    async def record_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    outcome = asyncio.run(
+        watch_auction(
+            AUCTION, SHARD,
+            on_state=lambda _s: None,
+            sleep=record_sleep,
+            open_stream=_transport(*[[inert]] * 3),
+            max_attempts=3,
+            jitter=lambda: 0.5,
+        )
+    )
+    assert outcome is Outcome.UNREACHABLE
+    assert len(waits) == 2 and waits[0] < waits[1], waits
