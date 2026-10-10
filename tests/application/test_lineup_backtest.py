@@ -19,6 +19,7 @@ takes milliseconds. What is pinned here is the wiring the statistics rest on:
 from __future__ import annotations
 
 from collections.abc import Collection
+from dataclasses import replace
 from datetime import date, timedelta
 
 import numpy as np
@@ -31,6 +32,7 @@ from fantabot.application.lineup_backtest import (
     ROLES_SEASON,
     ReplaySettings,
     SeasonData,
+    SeasonVerdict,
     fit_giornata,
     grade,
     read_season,
@@ -41,6 +43,7 @@ from fantabot.application.lineup_backtest import (
 )
 from fantabot.application.reporting import SilentReporter
 from fantabot.domain.lineup.backtest_corpus import BacktestRoom, Corpus, Roster
+from fantabot.domain.lineup.gate import Interval
 from fantabot.domain.lineup.history import Fixture, HistoryAppearance, Valuation
 from fantabot.domain.lineup.scoring import Appearance, ScoringRules
 from fantabot.domain.shared.club_names import code_for
@@ -502,6 +505,32 @@ class TestTheSweepAndTheGate:
         )
 
         assert report.passes == all(v.passes for v in report.verdicts)
+
+    def test_a_requested_season_with_no_paired_rows_fails_the_gate(self) -> None:
+        report = run_gate(
+            FakeHistory(), _corpus(), SETTINGS,
+            seasons=[SEASON], sweep_season=SWEEP, seed=5, reporter=SilentReporter(),
+            draws=50, should_stop=lambda: True,
+        )
+
+        assert report.ungraded == (SEASON,)
+        assert not report.passes
+        assert "Gate 1: FAIL" in "\n".join(report.lines())
+
+    def test_a_passing_season_does_not_carry_a_gate_with_an_ungraded_one(self) -> None:
+        base = run_gate(
+            FakeHistory(), _corpus(), SETTINGS,
+            seasons=[SEASON], sweep_season=SWEEP, seed=5, reporter=SilentReporter(),
+            draws=50, should_stop=lambda: True,
+        )
+        good = Interval(mean=1.0, low=0.5, high=1.5, draws=50, rooms=1, giornate=1)
+        verdict = SeasonVerdict(season="2024/25", points=good, fantapunti=good, rows=3)
+        complete = replace(base, verdicts=(verdict,), ungraded=())
+        partial = replace(base, verdicts=(verdict,), ungraded=("2023/24",))
+
+        assert complete.passes
+        assert not partial.passes
+        assert "Gate 1: FAIL" in "\n".join(partial.lines())
 
     def test_the_two_intervals_are_over_the_same_rows(self) -> None:
         result = replay_season(_data(), _corpus(), SETTINGS, reporter=SilentReporter())

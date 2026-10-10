@@ -577,12 +577,19 @@ class GateReport:
     #: difference is part of what was graded — see `GATE_BENCH`.
     bench: int
     skipped: Mapping[str, int]
+    #: Requested seasons that produced no paired rows. Kept on the report because a season
+    #: dropped from `verdicts` alone is indistinguishable from one never asked for.
+    ungraded: tuple[str, ...] = ()
 
     @property
     def passes(self) -> bool:
         """**Both** graded seasons, or it does not pass (A16). One season is a coin that
         came up heads."""
-        return bool(self.verdicts) and all(bool(v.passes) for v in self.verdicts)
+        return (
+            bool(self.verdicts)
+            and not self.ungraded
+            and all(bool(v.passes) for v in self.verdicts)
+        )
 
     def lines(self) -> list[str]:
         """The report, markup-free. Every number a reader needs to disbelieve it."""
@@ -609,6 +616,8 @@ class GateReport:
                 f"- guard {'holds' if verdict.guard_holds else 'BREACHED'} "
                 f"(floor {FANTAPUNTI_GUARD:+.1f})"
             )
+        for season in self.ungraded:
+            out.append(f"  {season}: no paired rows, not graded - the gate cannot pass")
         for reason, count in sorted(self.skipped.items()):
             out.append(f"  skipped {count}: {reason}")
         out.append(
@@ -699,6 +708,7 @@ def run_gate(
     reporter.print(f"[dim]H = {half_life:.0f} days, from {sweep_season}[/dim]")
 
     verdicts: list[SeasonVerdict] = []
+    ungraded: list[str] = []
     skipped: Counter[str] = Counter()
     rooms = rosters = 0
     for season in seasons:
@@ -711,6 +721,7 @@ def run_gate(
         rooms, rosters = result.rooms, result.rosters
         if not result.paired:
             reporter.print(f"[yellow]{season}: no paired rows; it cannot be graded[/yellow]")
+            ungraded.append(season)
             continue
         verdicts.append(grade(result, rng=rng, draws=draws))
 
@@ -726,4 +737,5 @@ def run_gate(
         rosters=rosters,
         bench=settings.bench_size,
         skipped=dict(skipped),
+        ungraded=tuple(ungraded),
     )
