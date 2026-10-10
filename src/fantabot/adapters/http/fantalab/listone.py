@@ -21,11 +21,14 @@ because the mapping changes only when the platform adds a player.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import tempfile
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -184,10 +187,8 @@ def fetch(
         if cached:
             return cached
 
-    try:
-        with httpx.Client(transport=transport) as client:
-            payload = client.get(LISTONE_URL, timeout=30).json()
-    except httpx.HTTPError:
+    payload = _download(transport)
+    if payload is None:
         return from_cache(cache) if cache is not None else {}
     if cache is not None:
         entries = {
@@ -198,8 +199,8 @@ def fetch(
                 "role": p.get("role"),
                 "mantra_roles": p.get("mantra_roles"),
             }
-            for p in payload.get("players", ())
-            if isinstance(p.get("player_id"), str)
+            for p in payload["players"]
+            if isinstance(p, Mapping) and isinstance(p.get("player_id"), str)
         }
         envelope = {
             "version": CACHE_VERSION,
@@ -208,6 +209,45 @@ def fetch(
             "fetched_at": datetime.now(UTC).isoformat(),
             **entries,
         }
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+        # A failed write must not cost the caller the mapping it just downloaded.
+        with contextlib.suppress(OSError):
+            _write_atomically(cache, json.dumps(envelope, ensure_ascii=False))
     return parse(payload)
+
+
+def _download(transport: httpx.BaseTransport | None) -> Mapping[str, Any] | None:
+    """The listone payload, or `None` for anything that is not one.
+
+    An error status, a body that is not JSON, a JSON value that is not an object and an object
+    with no players all look like a transport failure to the caller: an empty reply written
+    over a good cache would also stamp it with a fresh `fetched_at`, which is what `is_stale`
+    trusts.
+    """
+    try:
+        with httpx.Client(transport=transport) as client:
+            response = client.get(LISTONE_URL, timeout=30)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    players = payload.get("players") if isinstance(payload, Mapping) else None
+    if not isinstance(players, list) or not players:
+        return None
+    return cast("Mapping[str, Any]", payload)
+
+
+def _write_atomically(path: Path, text: str) -> None:
+    """Write `text` so a concurrent reader or a crash sees the old file or the new one.
+
+    The temp file sits in the target's directory because `os.replace` is only atomic within
+    one filesystem.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise

@@ -192,3 +192,106 @@ class TestIsStale:
         """A pre-envelope cache, or a fetch that never ran — refusing to arm on missing
         information a room never had the chance to write would punish the upgrade itself."""
         assert listone.is_stale(None, max_hours=4.0) is False
+
+
+GOOD_CACHE = {
+    "version": 1,
+    "fetched_at": "2020-01-01T00:00:00+00:00",
+    "uuid-a": {"fantacalcio_id": 100},
+}
+
+
+class TestABadResponseNeverReplacesAGoodCache:
+    """A reply that is not a listone must degrade exactly as a network error does."""
+
+    @staticmethod
+    def _serve(response: httpx.Response) -> httpx.MockTransport:
+        return httpx.MockTransport(lambda request: response)
+
+    def _run(self, tmp_path, response: httpx.Response):  # type: ignore[no-untyped-def]
+        cache = tmp_path / "listone_map.json"
+        before = json.dumps(GOOD_CACHE)
+        cache.write_text(before, encoding="utf-8")
+        bridge = listone.fetch(cache, refresh=True, transport=self._serve(response))
+        return bridge, cache.read_text(encoding="utf-8") == before
+
+    def test_a_429_with_a_json_body_keeps_the_cache(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        bridge, untouched = self._run(tmp_path, httpx.Response(429, json={"message": "slow"}))
+        assert bridge == {"uuid-a": 100}
+        assert untouched
+
+    def test_a_200_without_players_keeps_the_cache(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        bridge, untouched = self._run(tmp_path, httpx.Response(200, json={"message": "x"}))
+        assert bridge == {"uuid-a": 100}
+        assert untouched
+
+    def test_a_200_with_an_empty_players_list_keeps_the_cache(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        bridge, untouched = self._run(tmp_path, httpx.Response(200, json={"players": []}))
+        assert bridge == {"uuid-a": 100}
+        assert untouched
+
+    def test_an_html_502_degrades_instead_of_raising(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        bridge, untouched = self._run(tmp_path, httpx.Response(502, text="<html>bad</html>"))
+        assert bridge == {"uuid-a": 100}
+        assert untouched
+
+    def test_an_html_200_degrades_instead_of_raising(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        bridge, untouched = self._run(tmp_path, httpx.Response(200, text="<html>bad</html>"))
+        assert bridge == {"uuid-a": 100}
+        assert untouched
+
+    def test_a_json_array_body_degrades_instead_of_raising(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        bridge, untouched = self._run(tmp_path, httpx.Response(200, json=[1, 2]))
+        assert bridge == {"uuid-a": 100}
+        assert untouched
+
+    def test_a_bad_response_with_no_cache_is_an_empty_bridge(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        cache = tmp_path / "none.json"
+        bridge = listone.fetch(
+            cache, refresh=True, transport=self._serve(httpx.Response(503, text="down"))
+        )
+        assert bridge == {}
+        assert not cache.exists()
+
+
+class TestTheCacheIsWrittenAtomically:
+    def test_the_write_goes_through_a_replace_and_leaves_no_temp_file(  # type: ignore[no-untyped-def]
+        self, tmp_path, monkeypatch
+    ) -> None:
+        import os
+
+        cache = tmp_path / "listone_map.json"
+        calls: list[tuple[str, str]] = []
+        real = os.replace
+
+        def spy(src, dst):  # type: ignore[no-untyped-def]
+            calls.append((str(src), str(dst)))
+            real(src, dst)
+
+        monkeypatch.setattr(os, "replace", spy)
+
+        listone.fetch(cache, refresh=True, transport=httpx.MockTransport(_handler))
+
+        assert [dst for _, dst in calls] == [str(cache)]
+        assert calls[0][0] != str(cache)
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["listone_map.json"]
+
+    def test_a_failed_write_leaves_the_old_cache_whole_and_still_returns_the_mapping(  # type: ignore[no-untyped-def]
+        self, tmp_path, monkeypatch
+    ) -> None:
+        import os
+
+        cache = tmp_path / "listone_map.json"
+        before = json.dumps(GOOD_CACHE)
+        cache.write_text(before, encoding="utf-8")
+
+        def boom(src, dst):  # type: ignore[no-untyped-def]
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", boom)
+
+        bridge = listone.fetch(cache, refresh=True, transport=httpx.MockTransport(_handler))
+
+        assert bridge == {"uuid-a": 100, "uuid-b": 200}
+        assert cache.read_text(encoding="utf-8") == before
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["listone_map.json"]
