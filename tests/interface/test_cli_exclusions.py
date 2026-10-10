@@ -210,3 +210,72 @@ class TestRemovingOne:
         assert result.exit_code == 2, result.output
         assert "no exclusion for id 999002" in result.output
         assert session.commits == 0, "a refused removal must not commit anything"
+
+
+class TestFreeTextIsNotMarkup:
+    """The reason and source are operator-typed; Rich must print them as typed."""
+
+    BRACKETED = ExclusionRow(
+        player_id=4344, nome="Leao", reason="moved [/ok] to PL [ufficiale]", source="a [/x] b"
+    )
+
+    def test_the_list_prints_brackets_literally(
+        self, monkeypatch: pytest.MonkeyPatch, session: FakeSession
+    ) -> None:
+        from fantabot.application import exclusions
+
+        monkeypatch.setattr(exclusions, "read_exclusions", lambda session: [self.BRACKETED])
+        result = runner.invoke(app, ["db", "exclusions"])
+
+        assert result.exit_code == 0, result.output
+        assert "moved [/ok] to PL [ufficiale]" in result.output
+        assert "a [/x] b" in result.output
+
+    def test_exclude_and_unexclude_print_brackets_literally(
+        self, monkeypatch: pytest.MonkeyPatch, session: FakeSession
+    ) -> None:
+        from fantabot.application import exclusions
+
+        monkeypatch.setattr(
+            exclusions,
+            "record_exclusion",
+            lambda session, player_id, **kw: ExclusionRecorded(
+                row=self.BRACKETED, exclusions=(self.BRACKETED,)
+            ),
+        )
+        monkeypatch.setattr(
+            exclusions,
+            "remove_exclusion",
+            lambda session, player_id: exclusions.ExclusionRemoved(
+                row=self.BRACKETED, exclusions=()
+            ),
+        )
+        added = runner.invoke(app, ["db", "exclude", "--player", "4344", "--reason", "x"])
+        removed = runner.invoke(app, ["db", "unexclude", "--player", "4344"])
+
+        for result in (added, removed):
+            assert result.exit_code == 0, result.output
+            assert "moved [/ok] to PL [ufficiale]" in result.output
+
+    def test_a_player_name_with_brackets_prints_literally_and_keeps_the_column(
+        self, monkeypatch: pytest.MonkeyPatch, session: FakeSession
+    ) -> None:
+        from fantabot.application import exclusions
+
+        odd = ExclusionRow(player_id=4344, nome="Le[/x]ao", reason="r", source="")
+        plain = ExclusionRow(player_id=4345, nome="Leao", reason="r", source="")
+        monkeypatch.setattr(
+            exclusions,
+            "record_exclusion",
+            lambda session, player_id, **kw: ExclusionRecorded(row=odd, exclusions=(odd,)),
+        )
+        monkeypatch.setattr(exclusions, "read_exclusions", lambda session: [odd, plain])
+
+        added = runner.invoke(app, ["db", "exclude", "--player", "4344", "--reason", "x"])
+        listed = runner.invoke(app, ["db", "exclusions"])
+
+        assert added.exit_code == 0, added.output
+        assert "excluded 4344 Le[/x]ao" in added.output
+        assert listed.exit_code == 0, listed.output
+        rows = [line for line in listed.output.splitlines() if "r" in line and "434" in line]
+        assert rows[0].index(" r") == rows[1].index(" r"), rows

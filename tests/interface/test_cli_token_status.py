@@ -370,3 +370,60 @@ def test_the_verify_flag_actually_reaches_the_worker(monkeypatch: pytest.MonkeyP
 
     runner.invoke(app, ["auth", "status", "--verify"])
     assert seen["verify"] is True, "--verify never reached token_status_rows"
+
+
+def test_a_dead_socket_database_is_named_as_an_operator_can_copy_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bundled server's DSN has an empty password and a socket path. The default
+    rendering percent-encodes the path and invents a `***` credential."""
+    from sqlalchemy.exc import OperationalError
+
+    from fantabot import config
+    from fantabot.adapters.persistence import database_manager
+
+    def boom() -> Any:
+        raise OperationalError("SELECT 1", {}, Exception(""))
+
+    monkeypatch.setattr(
+        config.settings,
+        "fantabot_database_url",
+        "postgresql+psycopg2://postgres:@/fantabot?host=/Users/x/.fantabot/pgdata",
+    )
+    monkeypatch.setattr(database_manager, "_session_factory", lambda: boom())
+    result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 1, result.output
+    assert "%2F" not in result.output
+    assert "***" not in result.output
+    assert "fantabot-app db start" in result.output
+
+
+def test_a_dead_database_with_bracketed_dsn_and_empty_error_still_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DSN is operator-typed and an exception can carry no message at all."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from fantabot import config
+    from fantabot.adapters.persistence import database_manager
+
+    class Silent(SQLAlchemyError):
+        def __str__(self) -> str:
+            return ""
+
+    def boom() -> Any:
+        raise Silent()
+
+    monkeypatch.setattr(
+        config.settings,
+        "fantabot_database_url",
+        "postgresql+psycopg2://postgres:@/fantabot?host=/tmp/[/x]pgdata",
+    )
+    monkeypatch.setattr(database_manager, "_session_factory", lambda: boom())
+    result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 1, result.output
+    assert "host=/tmp/[/x]pgdata" in result.output
+    assert "Silent" in result.output
+    assert "fantabot-app db start" in result.output

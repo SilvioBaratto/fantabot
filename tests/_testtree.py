@@ -297,6 +297,7 @@ TREE: dict[str, str] = {
     "test_cli_refusals.py": "interface",
     "test_cli_harvest_scan.py": "interface",
     "test_cli_mantra_grid.py": "interface",
+    "test_lega_rosters_markup.py": "interface",
     # -- about the repository itself, not about one layer -------------------------------------
     "test_layers.py": ".",
     "test_importgraph.py": ".",

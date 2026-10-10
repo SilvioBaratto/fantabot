@@ -29,6 +29,7 @@ def _print_rosters(result: SyncResult) -> None:
     exactly +/-12 between two teams on 2026-09-02 — a completed trade, visible only
     because both numbers are shown.
     """
+    from rich.markup import escape
     from rich.table import Table
 
     table = Table(title="rose", header_style="bold")
@@ -38,8 +39,8 @@ def _print_rosters(result: SyncResult) -> None:
         total = sum(slot.cost for slot in team.roster)
         spent = team.credits_spent or 0
         table.add_row(
-            team.nome,
-            team.owner,
+            escape(team.nome),
+            escape(team.owner),
             str(len(team.roster)),
             str(spent),
             f"[yellow]{total}[/yellow]" if total != spent else str(total),

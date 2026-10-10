@@ -695,7 +695,7 @@ def db_exclude(
     who = f"{recorded.row.player_id} {recorded.row.nome}" if recorded.row.nome else (
         str(recorded.row.player_id)
     )
-    console.print(f"[green]excluded {who}[/green]: {recorded.row.reason}")
+    console.print(f"[green]excluded {escape(who)}[/green]: {escape(recorded.row.reason)}")
     if recorded.row.nome is None:
         # The typo case, said out loud. An id that resolves to nothing is the one way
         # this command silently does nothing at all, and the operator who typed it is
@@ -726,9 +726,11 @@ def db_exclusions() -> None:
     for row in rows:
         # `(not scraped)` rather than `?`, which this printed for both the unknown name
         # and the absent id. They are different facts with different remedies.
-        console.print(f"  {row.player_id:<7} {row.nome or '(not scraped)':<20} {row.reason}")
+        # Padded before escaping: the backslash `escape` adds is not a printed column.
+        name = escape(f"{row.nome or '(not scraped)':<20}")
+        console.print(f"  {row.player_id:<7} {name} {escape(row.reason)}")
         if row.source:
-            console.print(f"  {'':<7} {'':<20} [dim]{row.source}[/dim]")
+            console.print(f"  {'':<7} {'':<20} [dim]{escape(row.source)}[/dim]")
 
 
 def db_unexclude(
@@ -757,9 +759,9 @@ def db_unexclude(
     who = f"{removed.row.player_id} {removed.row.nome}" if removed.row.nome else (
         str(removed.row.player_id)
     )
-    console.print(f"[green]removed {who}[/green]: {removed.row.reason}")
+    console.print(f"[green]removed {escape(who)}[/green]: {escape(removed.row.reason)}")
     if removed.row.source:
-        console.print(f"[dim]{removed.row.source}[/dim]")
+        console.print(f"[dim]{escape(removed.row.source)}[/dim]")
     console.print(f"[dim]{removed.total} exclusions in total[/dim]")
 
 
@@ -967,7 +969,6 @@ def token_status(
     from datetime import UTC, datetime
 
     from rich.table import Table
-    from sqlalchemy.engine import make_url
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.persistence import database_manager
@@ -997,9 +998,13 @@ def token_status(
                 TokenStore(session, cipher), now=datetime.now(UTC), verify=verify
             )
     except SQLAlchemyError as exc:
-        dsn = make_url(settings.fantabot_database_url).render_as_string(hide_password=True)
-        console.print(f"[red]Cannot reach the database at {dsn}[/red]")
-        console.print(f"[red]{type(exc).__name__}: {str(exc).splitlines()[0]}[/red]")
+        from fantabot.application.config_report import safe_dsn
+
+        console.print(
+            f"[red]Cannot reach the database at {escape(safe_dsn(settings.fantabot_database_url))}[/red]"
+        )
+        detail = (str(exc).splitlines() or [""])[0]
+        console.print(f"[red]{type(exc).__name__}: {escape(detail)}[/red]")
         console.print("Start it with: [bold]fantabot-app db start[/bold]")
         raise typer.Exit(code=1) from None
 
