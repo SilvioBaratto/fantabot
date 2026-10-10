@@ -106,6 +106,7 @@ def lineup_plan(league_id: int) -> LineupPlan:
     from fantabot.adapters.tokens.store import TokenStore
     from fantabot.application.lineup_submit import build_plans
     from fantabot.config import settings
+    from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.tokens.crypto import TokenCipher
     from fantabot.domain.tokens.errors import (
         ApiTimeout,
@@ -147,6 +148,11 @@ def lineup_plan(league_id: int) -> LineupPlan:
         # The platform answered, and said no. A different fact from being unable to ask —
         # a rejected token is not going to resolve by reloading the page.
         return LineupPlan(found=False, outcome="refused", reason=str(exc))
+    except LineupError as exc:
+        # No competition, an ambiguous one, an incomplete roster, no fieldable module: the
+        # platform answered and there is nothing to field. Not a `TokenError`, so without
+        # this clause each was a 500 and the `no_lineup` branch below was unreachable.
+        return LineupPlan(found=False, outcome="no_lineup", reason=str(exc))
     except (ApiTimeout, ApiUnavailable) as exc:
         return LineupPlan(found=False, outcome="unreachable", reason=str(exc))
     except TokenError as exc:

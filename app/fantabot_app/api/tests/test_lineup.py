@@ -139,3 +139,55 @@ def test_the_route_forwards_the_competition_build_plans_resolved(monkeypatch) ->
     assert body["outcome"] == "planned"
     assert body["competition"] == 77
 
+
+
+def _plan_route_with_build_plans(monkeypatch, build_plans) -> dict:
+    import contextlib
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.tokens import store as token_store
+    from fantabot.application import lineup_submit
+    from fantabot.config import settings
+    from fantabot.domain.tokens import crypto
+
+    monkeypatch.setattr(settings, "fantabot_encryption_key", "k" * 44, raising=False)
+    monkeypatch.setattr(crypto, "TokenCipher", lambda _k: object())
+    monkeypatch.setattr(
+        database_manager, "get_session", lambda: contextlib.nullcontext(object())
+    )
+    monkeypatch.setattr(token_store, "TokenStore", lambda *_a: object())
+    monkeypatch.setattr(lineup_submit, "build_plans", build_plans)
+    response = TestClient(app).get("/api/v1/lineup/plan?league_id=4103937")
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_a_lineup_error_while_planning_is_a_no_lineup_outcome_not_a_500(monkeypatch) -> None:
+    """`NoCompetition`, `CompetitionAmbiguous`, `RosterIncomplete` and `NoFieldableModule`
+    are all `LineupError`s that `build_plans` raises, and none is a `TokenError`: they
+    escaped as a 500 and the page got neither an outcome nor a reason."""
+    from fantabot.domain.lineup.errors import LineupError
+
+    def refuse(*_a):
+        raise LineupError("no competition for this lega")
+
+    body = _plan_route_with_build_plans(monkeypatch, refuse)
+
+    assert body["found"] is False
+    assert body["outcome"] == "no_lineup"
+    assert "no competition for this lega" in body["reason"]
+
+
+def test_the_concrete_lineup_errors_each_map_to_no_lineup(monkeypatch) -> None:
+    from fantabot.domain.lineup import errors
+
+    for cls in (errors.NoCompetition, errors.CompetitionAmbiguous, errors.NoFieldableModule):
+        exc = cls.__new__(cls)
+        Exception.__init__(exc, f"{cls.__name__} said so")
+
+        def refuse(*_a, exc=exc):
+            raise exc
+
+        body = _plan_route_with_build_plans(monkeypatch, refuse)
+        assert body["outcome"] == "no_lineup", cls.__name__
+        assert cls.__name__ in body["reason"]
