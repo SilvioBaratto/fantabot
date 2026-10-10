@@ -34,6 +34,21 @@ def test_dangerous_vars_covers_every_backend_credential() -> None:
     }
 
 
+def test_dangerous_vars_covers_foundry_and_bedrock_bearer_routing() -> None:
+    assert set(DANGEROUS_VARS) >= {
+        "CLAUDE_CODE_USE_FOUNDRY",
+        "ANTHROPIC_FOUNDRY_API_KEY",
+        "ANTHROPIC_FOUNDRY_RESOURCE",
+        "AWS_BEARER_TOKEN_BEDROCK",
+    }
+
+
+def test_dangerous_vars_keeps_the_operators_subscription_token_and_the_shim_url() -> None:
+    # CLAUDE_CODE_OAUTH_TOKEN is the subscription credential itself (a launchd job has
+    # no keychain), and ANTHROPIC_BASE_URL is the BYO-shim path's own switch.
+    assert not {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"} & set(DANGEROUS_VARS)
+
+
 def test_strip_dangerous_env_clears_every_dangerous_var(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in DANGEROUS_VARS:
         monkeypatch.setenv(name, "leaked")
