@@ -37,7 +37,9 @@ from fantabot.adapters.scraping._site import BACKOFF_STEP_SECONDS, MAX_RETRIES
 from fantabot.adapters.scraping.quotazioni import (
     PlayerRow,
     QuotazioniParser,
+    check_rows,
     fetch_season,
+    run,
     season_url,
 )
 
@@ -578,3 +580,30 @@ class TestTheListoneFetchRetries:
         fails on the constant rather than on six counts whose origin is no longer
         obvious."""
         assert (MAX_RETRIES, BACKOFF_STEP_SECONDS) == (3, 2)
+
+
+class TestAnUnreadableRowAbortsBeforeAnyWrite:
+    def test_the_recorded_listone_passes(self, listone: list[PlayerRow]) -> None:
+        check_rows(listone)
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            PlayerRow("2024/25", "", "X", "ABC", "P", ["P"], "0"),
+            PlayerRow("2024/25", "7", "X", "ABC", "P", ["P"], "0", c_qi="n/a"),
+        ],
+    )
+    def test_run_exits_without_opening_a_session(
+        self, bad: PlayerRow, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from fantabot.adapters.scraping import quotazioni
+
+        def no_session() -> object:
+            raise AssertionError("the database was reached")
+
+        monkeypatch.setattr(quotazioni, "fetch_season", lambda season: [bad])
+        monkeypatch.setattr(quotazioni._db, "session", no_session)
+        with pytest.raises(SystemExit) as exc:
+            run(["2024/25"])
+        assert exc.value.code == 1
+        assert "2024/25" in capsys.readouterr().err

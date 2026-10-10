@@ -156,6 +156,24 @@ def fetch_season(season: str) -> list[PlayerRow]:
     return parser.rows
 
 
+def check_rows(rows: Sequence[PlayerRow]) -> None:
+    """Exit non-zero, before any write, when a row cannot be stored.
+
+    A row without a numeric id or with a non-numeric price means the markup moved;
+    skipping it would store a partial listone and hide that.
+    """
+
+    for r in rows:
+        cells = (r.c_qi, r.c_qa, r.c_fvm, r.m_qi, r.m_qa, r.m_fvm)
+        if not r.player_id.isdecimal() or not all(c == "" or c.isdecimal() for c in cells):
+            print(
+                f"{r.season}: unreadable row (name={r.name!r}, id={r.player_id!r}) "
+                "— page structure may have changed; nothing written.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+
 def run(seasons: Sequence[str] = DEFAULT_SEASONS) -> None:
     """Fetch the listone for each season and upsert players, teams and quotazioni."""
 
@@ -173,6 +191,8 @@ def run(seasons: Sequence[str] = DEFAULT_SEASONS) -> None:
     if not all_rows:
         print("No player rows found for any season — page structure may have changed.", file=sys.stderr)
         raise SystemExit(1)
+
+    check_rows(all_rows)
 
     payload: list[dict[str, object]] = []
     for r in all_rows:
