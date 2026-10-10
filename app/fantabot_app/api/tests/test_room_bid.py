@@ -517,3 +517,45 @@ class TestItRefusesBeforeItSpawns:
         assert body["outcome"] == outcome and reason in body["reason"]
         assert body["job_id"] == ""
         assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
+
+
+class TestTwoRequestsAtOnceStartOneBidder:
+    """The guard is a check followed by a start, with the room fetch (a network call) between
+    them. Two requests that both read "nothing running" before either started used to start
+    two armed bidders on one seat."""
+
+    def test_concurrent_requests_start_exactly_one(
+        self, quick_child, resolved_room, monkeypatch
+    ) -> None:
+        import threading
+
+        from fantabot_app.api.infrastructure.jobs import registry
+        from fantabot_app.api.v1.endpoints import room_bid
+
+        _armed(monkeypatch, auto_act=True)
+        inner = room_bid.check_room
+        # Both requests must be past the first running-job read before either may go on.
+        gate = threading.Barrier(2, timeout=10)
+
+        def _slow_check(url: str, *, connect: Any) -> Any:
+            gate.wait()
+            return inner(url, connect=connect)
+
+        monkeypatch.setattr(room_bid, "check_room", _slow_check)
+        before = {job.id for job in registry.list()}
+        outcomes: list[str] = []
+
+        def _call() -> None:
+            outcomes.append(room_bid.room_bid(room_bid.BidRequest(url=ROOM, arm=True)).outcome)
+
+        threads = [threading.Thread(target=_call) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        started = [
+            job for job in registry.list() if job.kind == "asta-bid" and job.id not in before
+        ]
+        assert sorted(outcomes) == ["refused", "started"]
+        assert len(started) == 1

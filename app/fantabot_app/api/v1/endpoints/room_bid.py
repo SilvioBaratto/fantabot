@@ -28,7 +28,9 @@ exception is a missing `arm`, which is a 422 from the schema — see `BidRequest
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -44,6 +46,30 @@ router = APIRouter()
 #: second would never match and the refusal would silently stop refusing — which looks
 #: exactly like "nothing is running".
 BID_KIND = "asta-bid"
+
+#: Held across the final running-bidder check and `registry.start`, so two requests cannot
+#: both read "nothing running" and then both start. It is not held across `check_room`: that
+#: is a network call, and serialising it would make a slow room fetch stall every request.
+_START_LOCK = threading.Lock()
+
+
+def _running_bidder() -> Any:
+    return next(
+        (job for job in registry.list() if job.kind == BID_KIND and job.status == "running"),
+        None,
+    )
+
+
+def _already_running(running: Any) -> BidStarted:
+    return BidStarted(
+        outcome="refused",
+        reason=(
+            f"a bidding run is already going ({running.id}). Stop it before starting "
+            "another: two bidders on one seat raise each other, and they share one "
+            "journal and one stop flag."
+        ),
+    )
+
 
 class BidRequest(BaseModel):
     """A room link and an arming intent. Nothing from the value model.
@@ -124,19 +150,10 @@ def room_bid(request: BidRequest) -> BidStarted:
     #
     # Across rooms because `config.journal_path()` is a single file: two bidders interleave
     # their rows in the record the room view tails and the 2026-09-01 audit was done against.
-    running = next(
-        (job for job in registry.list() if job.kind == BID_KIND and job.status == "running"),
-        None,
-    )
+    # This read is the cheap early exit; the one that decides is repeated under `_START_LOCK`.
+    running = _running_bidder()
     if running is not None:
-        return BidStarted(
-            outcome="refused",
-            reason=(
-                f"a bidding run is already going ({running.id}). Stop it before starting "
-                "another: two bidders on one seat raise each other, and they share one "
-                "journal and one stop flag."
-            ),
-        )
+        return _already_running(running)
 
     room = check_room(request.url, connect=stored_connect)
     if room.outcome != "resolved":
@@ -206,12 +223,17 @@ def room_bid(request: BidRequest) -> BidStarted:
     job = processes.ProcessJob(
         processes.fantabot_command(*argv), flag=bid_flag(str(room.fantaleague_id))
     )
+    with _START_LOCK:
+        running = _running_bidder()
+        if running is not None:
+            return _already_running(running)
+        job_id = registry.start(job.run, kind=BID_KIND, stop=job.stop, armed=gate.armed)
     return BidStarted(
         outcome="started",
         # `armed` travels with the job so a reloaded tab can still tell a live bidder
         # from a rehearsal. It is what the app decided, not what the child will do: the
         # child re-reads the ambient lock on every write and can still refuse.
-        job_id=registry.start(job.run, kind=BID_KIND, stop=job.stop, armed=gate.armed),
+        job_id=job_id,
         armed=gate.armed,
         closed=list(gate.closed),
         reason=gate.because(APP_SENTENCES),
