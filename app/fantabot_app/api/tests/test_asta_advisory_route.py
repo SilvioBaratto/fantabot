@@ -81,6 +81,14 @@ def wired(monkeypatch):
     monkeypatch.setattr(endpoint, "ledger_events", fake_ledger)
     monkeypatch.setattr(endpoint, "listone_fetch", fake_bridge)
     monkeypatch.setattr(endpoint, "build_advisory", fake_build)
+
+    def fake_rules(_session: Any, listone: str, lega_id: int = 0) -> Any:
+        seen["rules_asked"] = (listone, lega_id)
+        return ("band", listone, lega_id)
+
+    import fantabot.application.asta_advisory as advisory
+
+    monkeypatch.setattr(advisory, "advisory_rules", fake_rules)
     return seen
 
 
@@ -98,6 +106,15 @@ def _get(client: TestClient, **params: Any):
         **params,
     }
     return client.get("/api/v1/asta/advisory", params=query)
+
+
+class TestTheRosterBand:
+    def test_the_band_comes_from_the_shared_door_for_the_rooms_format(self, wired) -> None:
+        answered = _get(TestClient(app), listone="classic", lega=4103937)
+
+        assert answered.status_code == 200, answered.text
+        assert wired["rules_asked"] == ("classic", 4103937)
+        assert wired["request"].rules == ("band", "classic", 4103937)
 
 
 class TestTheFormatIsRequired:

@@ -300,6 +300,12 @@ def _run_league(
     import fantabot.application.asta_advisory as advisory
 
     monkeypatch.setattr(advisory, "build_advisory", build or fake_build)
+
+    def fake_rules(_session: object, listone: str, lega_id: int = 0) -> Any:
+        seen["rules_asked"] = (listone, lega_id)
+        return ("band", listone, lega_id)
+
+    monkeypatch.setattr(advisory, "advisory_rules", fake_rules)
     from types import SimpleNamespace
 
     room = (
@@ -340,6 +346,16 @@ class TestTheLeagueFormatIsDetected:
         seen = _run_league(monkeypatch, declared="classic")
 
         assert seen["request"].listone == "classic", seen["result"].output
+
+    def test_the_lega_band_is_resolved_for_the_detected_format_and_carried(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The advisory used to plan on a bare Mantra `RosterRules()` whatever the lega or
+        the room said; the band is now the one `asta bid` caps on."""
+        seen = _run_league(monkeypatch, "--lega", "4103937", declared="classic")
+
+        assert seen["rules_asked"] == ("classic", 4103937), seen["result"].output
+        assert seen["request"].rules == ("band", "classic", 4103937)
 
     def test_the_corpus_answers_when_the_room_will_not(
         self, monkeypatch: pytest.MonkeyPatch

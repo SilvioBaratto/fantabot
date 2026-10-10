@@ -670,6 +670,11 @@ def asta_live(
     ),
     teams: DetectedCorpusTeams = None,
     credits: DetectedCorpusCredits = None,
+    lega: int = typer.Option(
+        0,
+        help="Lega id whose roster band the live advisory plans on (0 = the configured "
+        "lega). A lega of the other format than the room lends nothing.",
+    ),
     sentiment: Sentiment = True,
     sentiment_run: SentimentRun = "",
     tilt_k: TiltK = SentimentWeights().k,
@@ -700,7 +705,11 @@ def asta_live(
     from pathlib import Path
 
     from fantabot.adapters.persistence import database_manager
-    from fantabot.application.asta_advisory import AdvisoryRequest, build_advisory
+    from fantabot.application.asta_advisory import (
+        AdvisoryRequest,
+        advisory_rules,
+        build_advisory,
+    )
     from fantabot.application.asta_format import ROOM_DECLARED
     from fantabot.application.plan_request import NoSentimentRows
     from fantabot.domain.asta.prices import NoCorpus
@@ -825,6 +834,9 @@ def asta_live(
                     sentiment_run=parse_run_date(sentiment_run),
                     num_teams=teams,
                     num_credits=credits,
+                    # A replay has no room and no lega to ask, so it keeps the format's
+                    # built-in band, which is what the goldens pin.
+                    rules=advisory_rules(session, fmt, lega) if league else None,
                 ),
                 events=events,
                 bridge=bridge,
@@ -856,7 +868,7 @@ def asta_live(
         )
 
     if advisory.result is None:
-        console.print("[dim]no sales in the replay[/dim]")
+        console.print("[dim]nothing to advise: the advisory holds no plan[/dim]")
         return
 
     console.print(format_advisory(advisory.result, advisory.walkaways, advisory.world.names))

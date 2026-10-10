@@ -100,7 +100,12 @@ def _patched(
             yield state, event, _Result(), walkaways
 
     monkeypatch.setattr(asta_planner, "read_plan_inputs", fake_read)
+    def fake_reservations(state: Any, _pool: Any, **kwargs: Any) -> Any:
+        seen["opening"] = kwargs
+        return _Result(), walkaways
+
     monkeypatch.setattr(reservation, "rolling_advisory", fake_rolling)
+    monkeypatch.setattr(reservation, "reservations", fake_reservations)
     monkeypatch.setattr(news_sentiment, "NewsSentimentSource", lambda _s: _Source())
     return seen
 
@@ -244,6 +249,20 @@ class TestTheAdvisoryItself:
 
         assert advisory.targets == () and advisory.sales == 0
 
+    def test_no_sales_still_shows_the_opening_plan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.asta_advisory import build_advisory
+
+        seen = _patched(
+            monkeypatch, pool=[object()], walkaways={"1": 30.0}, names={"1": "Svilar"}
+        )
+        advisory = build_advisory(object(), _request(), events=[], bridge={})
+
+        assert [t.nome for t in advisory.targets] == ["Svilar"]
+        assert advisory.total_cost == 412 and advisory.result is not None
+        assert seen["opening"]["lam"] == 0.3
+
     def test_targets_are_highest_walk_away_first(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -326,3 +345,148 @@ class TestTheAdvisoryItself:
         _patched(monkeypatch, pool=[], walkaways={})
         with pytest.raises(EmptyPool):
             build_advisory(object(), _request(), events=[], bridge={})
+
+
+def _classic_world() -> Any:
+    """A 36-player Classic pool, the shape `read_plan_inputs` returns for a Classic lega."""
+    from fantabot.application.plan_inputs import PlanInputs
+    from fantabot.domain.asta.value import NaiveValueModel
+    from fantabot.domain.classic.roles import ClassicPlayer
+
+    counts = {"P": 6, "D": 12, "C": 10, "A": 8}
+    pool = [
+        ClassicPlayer(id=f"{role}{i}", role=role)
+        for role, n in counts.items()
+        for i in range(n)
+    ]
+    ids = [p.id for p in pool]
+    return PlanInputs(
+        pool=pool,
+        value=NaiveValueModel(
+            signals={pid: 10.0 + (n % 7) for n, pid in enumerate(ids)},
+            prior_mean=5.0, base_variance=4.0, no_history_variance=9.0,
+        ),
+        prices={pid: 5.0 for pid in ids},
+        teams={pid: f"club{i % 12}" for i, pid in enumerate(ids)},
+        names={pid: pid for pid in ids},
+        roles={pid: [pid[0]] for pid in ids},
+        legality={},
+        sentiment=None,
+    )
+
+
+class TestTheAdvisoryPlansOnTheRulesOfItsFormat:
+    def test_a_classic_advisory_survives_a_sale_it_has_to_fold(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The existing tests all pass `events=[]`, so the fold never ran. A Classic pool
+        folded with the default Mantra `RosterRules()` reaches the Mantra optimizer and
+        raises `InfeasibleRoster` on the first sale."""
+        from fantabot.adapters.persistence import news_sentiment
+        from fantabot.application import asta_planner
+        from fantabot.application.asta_advisory import build_advisory
+
+        monkeypatch.setattr(asta_planner, "read_plan_inputs", lambda *_a, **_k: _classic_world())
+        monkeypatch.setattr(news_sentiment, "NewsSentimentSource", lambda _s: _Source())
+
+        advisory = build_advisory(
+            object(),
+            _request(listone="classic", num_teams=8, num_credits=500),
+            events=[_event("uuid-1", price=3, buyer="THEM")],
+            bridge={"uuid-1": 7},
+        )
+
+        assert advisory.sales == 1
+        assert advisory.targets
+        assert {t.player_id[0] for t in advisory.targets} <= set("PDCA")
+
+    def test_the_rules_on_the_request_reach_the_fold(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lega declares 25/32; a 30-man default plans a roster the lega cannot hold."""
+        from fantabot.application.asta_advisory import build_advisory
+        from fantabot.domain.asta.state import RosterRules
+
+        band = RosterRules(size=25)
+        seen = _patched(monkeypatch, pool=[object()], walkaways={})
+        build_advisory(object(), _request(rules=band), events=[], bridge={})
+
+        assert seen["rolling"]["rules"] is band
+
+    def test_no_rules_means_the_formats_own_default_not_mantras(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.asta_advisory import build_advisory
+        from fantabot.domain.asta.state import RosterRules
+        from fantabot.domain.classic.state import ClassicRosterRules
+
+        seen = _patched(monkeypatch, pool=[object()], walkaways={})
+        build_advisory(object(), _request(listone="classic"), events=[], bridge={})
+        assert seen["rolling"]["rules"] == ClassicRosterRules()
+
+        build_advisory(object(), _request(listone="mantra"), events=[], bridge={})
+        assert seen["rolling"]["rules"] == RosterRules()
+
+    def test_rules_of_the_other_format_are_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Mantra band over a Classic pool is the crash again, one layer later."""
+        from fantabot.application.asta_advisory import build_advisory
+        from fantabot.domain.asta.state import RosterRules
+
+        _patched(monkeypatch, pool=[object()], walkaways={})
+        with pytest.raises(ValueError, match="classic"):
+            build_advisory(
+                object(), _request(listone="classic", rules=RosterRules()), events=[], bridge={}
+            )
+
+
+class TestTheLegaBandIsResolvedOnce:
+    def _reader(self, monkeypatch: pytest.MonkeyPatch, answer: Any) -> list[int]:
+        from fantabot.application import lega_reads
+
+        asked: list[int] = []
+
+        def fake(_session: Any, league_id: int) -> Any:
+            asked.append(league_id)
+            return answer
+
+        monkeypatch.setattr(lega_reads, "rules_for_league", fake)
+        return asked
+
+    def test_the_lega_band_wins_when_the_formats_agree(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.asta_advisory import advisory_rules
+        from fantabot.domain.asta.state import SNAPSHOT_DECLARED, RosterRules
+
+        band = RosterRules(size=25)
+        asked = self._reader(monkeypatch, (band, SNAPSHOT_DECLARED, "mantra"))
+
+        assert advisory_rules(object(), "mantra", 4103937) is band
+        assert asked == [4103937]
+
+    def test_a_lega_of_the_other_format_does_not_lend_its_band(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The room's format decides the game; the lega's band describes a different one."""
+        from fantabot.application.asta_advisory import advisory_rules
+        from fantabot.domain.asta.state import SNAPSHOT_DECLARED, RosterRules
+        from fantabot.domain.classic.state import ClassicRosterRules
+
+        self._reader(monkeypatch, (RosterRules(size=25), SNAPSHOT_DECLARED, "mantra"))
+
+        assert advisory_rules(object(), "classic", 4103937) == ClassicRosterRules()
+
+    def test_no_lega_is_the_formats_default_and_opens_no_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fantabot.application.asta_advisory import advisory_rules
+        from fantabot.config import settings
+        from fantabot.domain.asta.state import RosterRules
+
+        monkeypatch.setattr(settings, "fantabot_league_id", 0)
+        asked = self._reader(monkeypatch, None)
+
+        assert advisory_rules(object(), "mantra", 0) == RosterRules()
+        assert asked == []

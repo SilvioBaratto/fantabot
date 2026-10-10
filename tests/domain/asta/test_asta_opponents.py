@@ -160,6 +160,7 @@ def _run_asta_live(
         database_manager, "get_session", lambda: contextlib.nullcontext(object())
     )
     monkeypatch.setattr(asta_advisory, "build_advisory", lambda *_a, **_k: _Advisory())
+    monkeypatch.setattr(asta_advisory, "advisory_rules", lambda *_a, **_k: None)
 
     result = CliRunner().invoke(
         app, ["asta", "live", "--league", "FL1", "--db", "1", "--team", "us"]

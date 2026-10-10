@@ -25,10 +25,10 @@ say "chase, walk-away 0" — an instruction to do the one thing the bidder will 
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from fantabot.application.plan_inputs import PlanInputs
 from fantabot.application.plan_request import (
@@ -40,12 +40,12 @@ from fantabot.application.plan_request import (
 )
 from fantabot.domain.asta.live import AssignmentEvent, resolve_ids
 from fantabot.domain.asta.opponents import MIN_BID, OpponentState, track_opponents
-from fantabot.domain.asta.state import AstaState
+from fantabot.domain.asta.state import AstaState, RosterRules
+from fantabot.domain.classic.state import ClassicRosterRules
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.orm import Session
 
-    from fantabot.domain.asta.roles import MantraPlayer
     from fantabot.domain.asta.state import OptimizationResult
 
 
@@ -92,6 +92,11 @@ class AdvisoryRequest:
     #: The room's own shape, never a default carried down from a different lega.
     num_teams: int = DEFAULT_NUM_TEAMS
     num_credits: int = DEFAULT_NUM_CREDITS
+    #: The roster band the plan is solved against; `None` is the format's own default.
+    #: Resolved by the surface through `advisory_rules`, the same band `asta bid` caps on:
+    #: a 30-man advisory against a lega that declares 25/32 prices a roster nobody can buy,
+    #: and a Mantra band over a Classic pool is infeasible on the first folded sale.
+    rules: RosterRules | ClassicRosterRules | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +153,34 @@ class Advisory:
     rivals: Mapping[str, OpponentState] = field(default_factory=dict)
 
 
+def default_rules(listone: str) -> RosterRules | ClassicRosterRules:
+    """The built-in band of a format, for a run with no lega to read one from."""
+    return ClassicRosterRules() if listone == "classic" else RosterRules()
+
+
+def advisory_rules(
+    session: Session, listone: str, lega_id: int = 0
+) -> RosterRules | ClassicRosterRules:
+    """The band an advisory plans on: the lega's when it plays this format, else the default.
+
+    One door for `asta live` and `GET /asta/advisory`, through `lega_reads.rules_for_league`
+    as `asta bid` does. A lega of the *other* format lends nothing: a FantaLab room is not a
+    lega, and its `asta_type` decides the game, so a Classic room advised from a Mantra lega
+    gets the Classic default rather than a band over the wrong roles. With no lega named,
+    `fantabot_league_id` is the fallback, exactly as `_lega_rules` does for the other commands.
+    """
+    from fantabot.application.lega_reads import rules_for_league
+    from fantabot.config import settings
+
+    resolved = lega_id or settings.fantabot_league_id
+    if not resolved:
+        return default_rules(listone)
+    rules, _provenance, detected = rules_for_league(session, resolved)
+    if detected != listone:
+        return default_rules(listone)
+    return rules
+
+
 def build_advisory(
     session: Session,
     request: AdvisoryRequest,
@@ -170,6 +203,12 @@ def build_advisory(
         # answers an outcome — and this is the layer they both pass through.
         raise ValueError(
             f"{request.listone!r} is not a listone. Use 'mantra' or 'classic'."
+        )
+
+    rules = request.rules if request.rules is not None else default_rules(request.listone)
+    if isinstance(rules, ClassicRosterRules) != (request.listone == "classic"):
+        raise ValueError(
+            f"roster rules for {type(rules).__name__} cannot advise a {request.listone} room."
         )
 
     sales, unknown = resolve_ids(list(events), bridge)
@@ -197,19 +236,35 @@ def build_advisory(
             f"no {request.listone} players for season {request.season} — nothing to advise on."
         )
 
-    last = None
+    last: tuple[AstaState, AssignmentEvent | None, OptimizationResult, Mapping[str, float]] | None = None
     for step in reservation.rolling_advisory(
         AstaState(total_budget=request.budget),
-        cast("Sequence[MantraPlayer]", world.pool),
+        world.pool,
         sales,
         our_team_id=request.our_team_id,
         value_of=world.value_of,
         prices=world.prices,
         teams=world.teams,
         legality=world.legality,
+        rules=rules,
         lam=request.lam,
     ):
         last = step
+
+    if last is None:
+        # `rolling_advisory` yields once per sale, so a room that has not sold yet would
+        # otherwise show no plan at all; the opening plan is the advisory at that moment.
+        opening = reservation.reservations(
+            AstaState(total_budget=request.budget),
+            world.pool,
+            value=world.value_of(),
+            prices=world.prices,
+            teams=world.teams,
+            legality=world.legality,
+            rules=rules,
+            lam=request.lam,
+        )
+        last = (AstaState(total_budget=request.budget), None, *opening)
 
     targets: tuple[AdvisoryTarget, ...] = ()
     total_cost = 0
@@ -267,6 +322,8 @@ __all__ = [
     "AdvisoryOpponent",
     "AdvisoryRequest",
     "AdvisoryTarget",
+    "advisory_rules",
     "build_advisory",
+    "default_rules",
 ]
 

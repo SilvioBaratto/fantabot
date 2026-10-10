@@ -611,6 +611,7 @@ def asta_advisory(
     lam: float = DEFAULT_LAM,
     teams: int = DEFAULT_NUM_TEAMS,
     credits: int = DEFAULT_NUM_CREDITS,
+    lega: int = 0,
 ) -> AstaAdvisory:
     """The target roster after every sale so far, with a walk-away each, and the rivals.
 
@@ -637,7 +638,7 @@ def asta_advisory(
     one input this surface has no way to hand over.
     """
     from fantabot.adapters.persistence import database_manager
-    from fantabot.application.asta_advisory import AdvisoryRequest
+    from fantabot.application.asta_advisory import AdvisoryRequest, advisory_rules
     from fantabot.application.plan_request import EmptyPool, NoSentimentRows
     from fantabot.domain.asta.optimizer import InfeasibleRoster
     from fantabot.domain.asta.prices import NoCorpus
@@ -662,6 +663,9 @@ def asta_advisory(
                     lam=lam,
                     num_teams=teams,
                     num_credits=credits,
+                    # The band `asta live` resolves through the same door: the lega's when
+                    # it plays this room's format, the format's default otherwise.
+                    rules=advisory_rules(session, listone, lega),
                 ),
                 events=events,
                 bridge=bridge,
