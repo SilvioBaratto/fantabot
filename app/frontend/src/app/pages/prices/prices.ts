@@ -6,7 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { MatButton } from '@angular/material/button';
 import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
 import { MatCard } from '@angular/material/card';
@@ -38,6 +38,10 @@ type System = 'classic' | 'mantra';
 export class PricesComponent implements OnInit {
   private readonly service = inject(PricingService);
   private readonly destroyRef = inject(DestroyRef);
+  /** The one request that may still write to the page. A fit is slow, so the operator can
+   *  change listone while it runs; a response for the old listone must never land under
+   *  the new toggle. Unsubscribing drops the response, not the server-side write. */
+  private inflight: Subscription | null = null;
 
   readonly system = signal<System>('classic');
   readonly report = signal<TargetPricesReport | null>(null);
@@ -48,7 +52,14 @@ export class PricesComponent implements OnInit {
   readonly storing = signal(false);
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => this.supersede());
     this.load();
+  }
+
+  private supersede(): void {
+    this.inflight?.unsubscribe();
+    this.inflight = null;
+    this.storing.set(false);
   }
 
   setSystem(system: System): void {
@@ -59,21 +70,19 @@ export class PricesComponent implements OnInit {
 
   /** Read the report. Writes nothing — see `PricingService.getReport`. */
   load(): void {
+    this.supersede();
     this.loading.set(true);
     this.errorMsg.set(null);
-    this.service
-      .getReport(this.system())
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (report) => {
-          this.report.set(report);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.errorMsg.set('Could not reach the API.');
-          this.loading.set(false);
-        },
-      });
+    this.inflight = this.service.getReport(this.system()).subscribe({
+      next: (report) => {
+        this.report.set(report);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.errorMsg.set('Could not reach the API.');
+        this.loading.set(false);
+      },
+    });
   }
 
   /**
@@ -82,21 +91,20 @@ export class PricesComponent implements OnInit {
    */
   store(): void {
     if (this.storing()) return;
+    this.supersede();
+    this.loading.set(false);
     this.storing.set(true);
     this.errorMsg.set(null);
-    this.service
-      .storeReport(this.system())
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (report) => {
-          this.report.set(report);
-          this.storing.set(false);
-        },
-        error: () => {
-          this.errorMsg.set('Could not reach the API.');
-          this.storing.set(false);
-        },
-      });
+    this.inflight = this.service.storeReport(this.system()).subscribe({
+      next: (report) => {
+        this.report.set(report);
+        this.storing.set(false);
+      },
+      error: () => {
+        this.errorMsg.set('Could not reach the API.');
+        this.storing.set(false);
+      },
+    });
   }
 
   flagList(): { flag: string; count: number }[] {

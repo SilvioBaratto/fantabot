@@ -329,4 +329,53 @@ describe('PricesComponent', () => {
     expect(refit.disabled).toBe(false);
     expect(fixture.nativeElement.querySelector('mat-progress-bar')).toBeNull();
   });
+  it('drops a superseded load so a late classic response cannot overwrite mantra', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    const classic = httpMock.expectOne((r) => r.url.includes('target-prices'));
+
+    fixture.componentInstance.setSystem('mantra');
+    const mantra = httpMock.expectOne(
+      (r) => r.url.includes('target-prices') && r.urlWithParams.includes('system=mantra'),
+    );
+    expect(classic.cancelled).toBe(true);
+
+    mantra.flush(priced('mantra', 7));
+    expect(fixture.componentInstance.report()?.system).toBe('mantra');
+    expect(fixture.componentInstance.loading()).toBe(false);
+  });
+
+  it('keeps loading true while the newer load is pending', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    const classic = httpMock.expectOne((r) => r.url.includes('target-prices'));
+    fixture.componentInstance.setSystem('mantra');
+    const mantra = httpMock.expectOne(
+      (r) => r.url.includes('target-prices') && r.urlWithParams.includes('system=mantra'),
+    );
+
+    if (!classic.cancelled) classic.flush(priced('classic'));
+    expect(fixture.componentInstance.report()).toBeNull();
+    expect(fixture.componentInstance.loading()).toBe(true);
+    mantra.flush(priced('mantra'));
+  });
+
+  it('drops an in-flight store when the listone changes', async () => {
+    const fixture = TestBed.createComponent(PricesComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.includes('target-prices')).flush(priced('classic'));
+
+    fixture.componentInstance.store();
+    const write = httpMock.expectOne((r) => r.method === 'POST');
+    fixture.componentInstance.setSystem('mantra');
+    const read = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.urlWithParams.includes('system=mantra'),
+    );
+
+    if (!write.cancelled) write.flush(priced('classic', 99));
+    expect(fixture.componentInstance.report()?.stored).toBe(0);
+    expect(fixture.componentInstance.storing()).toBe(false);
+    read.flush(priced('mantra'));
+    expect(fixture.componentInstance.report()?.system).toBe('mantra');
+  });
 });
