@@ -102,7 +102,8 @@ class TestWindows:
         out = windows(
             [_voted(1, f) for f in votes], FIXTURES, VALUATIONS, [1], cutoff=CUTOFF, k=2
         )
-        assert out[1] == Window(votes=1, matches=2)
+        # g2 is in it, and before his Inter debut in g3: he came from Napoli.
+        assert out[1] == Window(votes=1, matches=2, before_debut=1)
 
     def test_a_match_on_the_cutoff_day_is_neither_a_match_nor_a_vote(self) -> None:
         out = windows(
@@ -137,6 +138,68 @@ class TestWindows:
             [_voted(2, INT_NOW[2])], FIXTURES, valuations, [1, 2], cutoff=CUTOFF, k=3
         )
         assert out == {1: Window(0, 3), 2: Window(1, 3)}
+
+
+class TestBeforeDebut:
+    """A newcomer's team matches before his first appearance for the club: he may not have
+    been signed yet, so they are counted apart and weighed by `p_hist`."""
+
+    def test_a_newcomer_s_matches_before_his_debut_are_counted_apart(self) -> None:
+        """Napoli's last season, Inter's now, first Inter row in g2: g1 is before his debut."""
+        out = windows(
+            [_voted(1, INT_NOW[1]), _voted(1, INT_NOW[2])], FIXTURES, VALUATIONS, [1],
+            cutoff=CUTOFF, k=3,
+        )
+        assert out[1] == Window(votes=2, matches=3, before_debut=1)
+
+    def test_a_newcomer_to_serie_a_is_a_newcomer(self) -> None:
+        valuations = {NOW: {1: Valuation(7, "INT")}, LAST: {}}
+        out = windows(
+            [_voted(1, INT_NOW[2])], FIXTURES, valuations, [1], cutoff=CUTOFF, k=3
+        )
+        assert out[1] == Window(votes=1, matches=3, before_debut=2)
+
+    def test_a_player_already_at_the_club_missed_his_matches(self) -> None:
+        valuations = {NOW: {1: Valuation(20, "INT")}, LAST: {1: Valuation(18, "INT")}}
+        out = windows(
+            [_voted(1, INT_NOW[2])], FIXTURES, valuations, [1], cutoff=CUTOFF, k=3
+        )
+        assert out[1] == Window(votes=1, matches=3, before_debut=0)
+
+    def test_a_newcomer_with_no_appearance_yet_missed_them(self) -> None:
+        """Nothing separates "not signed" from "not picked" until he plays."""
+        out = windows([], FIXTURES, VALUATIONS, [1], cutoff=CUTOFF, k=3)
+        assert out[1] == Window(votes=0, matches=3, before_debut=0)
+
+    def test_an_unread_previous_season_makes_nobody_a_newcomer(self) -> None:
+        valuations = {NOW: {1: Valuation(20, "INT")}}
+        out = windows(
+            [_voted(1, INT_NOW[2])], FIXTURES, valuations, [1], cutoff=CUTOFF, k=3
+        )
+        assert out[1] == Window(votes=1, matches=3, before_debut=0)
+
+    def test_p_hist_weighs_a_pre_debut_match_as_a_share_of_a_trial(self) -> None:
+        prior = BetaPrior(mean=0.75, concentration=2.0)
+        window = Window(votes=2, matches=3, before_debut=1)
+        assert p_hist(window, prior, before_debut_weight=0.25) == pytest.approx(
+            (1.5 + 2) / (2 + 2 + 0.25)
+        )
+        assert p_hist(window, prior) == pytest.approx((1.5 + 2) / (2 + 3))
+
+    def test_presence_applies_the_declared_weight(self) -> None:
+        wins, roles = _population((6, 6), (6, 6), (3, 6), (3, 6), role="A")
+        wins[9] = Window(votes=2, matches=3, before_debut=1)
+        roles[9] = "A"
+        whole = presence(wins, roles, {}, as_of=CUTOFF,
+                         weights=PresenceWeights(before_debut_weight=1.0))
+        shared = presence(wins, roles, {}, as_of=CUTOFF, weights=PresenceWeights())
+        assert shared[9].p > whole[9].p
+        assert shared[1].p == whole[1].p
+
+    @pytest.mark.parametrize("weight", [-0.1, 1.1, math.nan])
+    def test_the_weight_is_a_share_of_a_trial(self, weight: float) -> None:
+        with pytest.raises(ValueError, match="before_debut_weight"):
+            PresenceWeights(before_debut_weight=weight)
 
 
 def _population(*records: tuple[int, int], role: str = "C", start: int = 1) -> tuple[

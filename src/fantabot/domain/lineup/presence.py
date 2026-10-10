@@ -7,7 +7,9 @@ parts (SPEC "The model", A10, A17(4), A24):
 cutoff: `votes` of `matches`, where a team match is one his club played. The window crosses
 into last season through *that* season's club, so a player who moved in the summer reads
 his old club's matches, not his new one's. A row in a match his club did not play is
-dropped rather than counted (A9's unresolvable 2.2%). The Beta prior is fitted by moments
+dropped rather than counted (A9's unresolvable 2.2%). A newcomer's team matches before his
+debut count for less than a trial (`PresenceWeights.before_debut_weight`): Osmajic signed
+for Genoa two days after their first match, and read whole it was a missed vote. The Beta prior is fitted by moments
 per Classic role across the population — keepers vote far more steadily than forwards —
 and a role the moments cannot fit (one player, or no spread to measure) borrows the pool
 of every role. The estimator allows each player his own number of matches; with an equal
@@ -60,10 +62,20 @@ class PresenceWeights:
     )
     #: A reading's half-life in days — the asta's, so both trust one row alike.
     half_life_days: float = SentimentWeights().half_life_days
+    #: What a newcomer's pre-debut team match counts as, in trials: he may not have been
+    #: signed yet, or may have sat on the bench. Measured at giornata 6 over 2023/24-2025/26
+    #: on the 81-99 newcomers a season who debuted after their club's first match: counted
+    #: whole (1.0) p_hist read 0.44-0.49 against a realized 0.59-0.61, dropped (0.0) it read
+    #: 0.73-0.75, and 0.25 read 0.61-0.65 with the lowest Brier in every season.
+    before_debut_weight: float = 0.25
 
     def __post_init__(self) -> None:
         if self.k < 1:
             raise ValueError(f"k must be at least one team match, got {self.k}")
+        if not 0.0 <= self.before_debut_weight <= 1.0:
+            raise ValueError(
+                f"before_debut_weight is a share of a trial; got {self.before_debut_weight}"
+            )
         if set(self.q_role) != CLASSIC_ROLES:
             raise ValueError(
                 f"q_role must name exactly {sorted(CLASSIC_ROLES)}, got {sorted(self.q_role)}"
@@ -81,6 +93,11 @@ class Window:
 
     votes: int
     matches: int
+    #: Of `matches`, those his club played before a newcomer's first appearance for it.
+    #: None of them can be a vote. Always 0 for a player who was at the club last season,
+    #: and for one with no appearance yet: there, nothing separates "not signed" from
+    #: "not picked".
+    before_debut: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +126,12 @@ def windows(
     k: int,
 ) -> dict[int, Window]:
     """Each player's last `k` team matches strictly before `cutoff`, newest first, each
-    season's through his club that season, and how many of them he has a row in."""
+    season's through his club that season, how many of them he has a row in, and how many
+    came before a newcomer's debut.
+
+    A newcomer is a player whose previous season's valuation names another club or none.
+    When that season was not read, he is not one: the window then counts as it always did.
+    """
     past = sorted(
         (f for f in fixtures if f.played_on < cutoff), key=lambda f: f.played_on, reverse=True
     )
@@ -125,16 +147,37 @@ def windows(
 
     out: dict[int, Window] = {}
     for pid in player_ids:
-        mine = [
-            f
-            for season, by_player in valuations.items()
-            if (valuation := by_player.get(pid)) is not None
-            for f in team_matches(season, valuation.squadra)
-        ]
+        mine: list[Fixture] = []
+        unseen: set[Fixture] = set()
+        for season, by_player in valuations.items():
+            valuation = by_player.get(pid)
+            if valuation is None:
+                continue
+            matches = team_matches(season, valuation.squadra)
+            mine.extend(matches)
+            if _newcomer(pid, season, valuation.squadra, valuations):
+                debut = min((f.played_on for f in matches if f in played[pid]), default=None)
+                if debut is not None:
+                    unseen.update(f for f in matches if f.played_on < debut)
         mine.sort(key=lambda f: f.played_on, reverse=True)
         last = mine[:k]
-        out[pid] = Window(votes=sum(f in played[pid] for f in last), matches=len(last))
+        out[pid] = Window(
+            votes=sum(f in played[pid] for f in last),
+            matches=len(last),
+            before_debut=sum(f in unseen for f in last),
+        )
     return out
+
+
+def _newcomer(
+    pid: int, season: str, club: str, valuations: Mapping[str, Mapping[int, Valuation]]
+) -> bool:
+    start = int(season.split("/")[0])
+    previous = valuations.get(f"{start - 1}/{start % 100:02d}")
+    if previous is None:
+        return False
+    before = previous.get(pid)
+    return before is None or before.squadra != club
 
 
 def fit_priors(windows: Mapping[int, Window], roles: Mapping[int, str]) -> dict[str, BetaPrior]:
@@ -181,13 +224,16 @@ def _moments(group: Iterable[Window]) -> BetaPrior | None:
     return BetaPrior(mean=mean, concentration=1.0 / rho - 1.0)
 
 
-def p_hist(window: Window, prior: BetaPrior) -> float:
-    """The posterior mean of his vote rate. No team matches is exactly the prior mean."""
-    if window.matches == 0 or math.isinf(prior.concentration):
+def p_hist(window: Window, prior: BetaPrior, *, before_debut_weight: float = 1.0) -> float:
+    """The posterior mean of his vote rate. No team matches is exactly the prior mean.
+
+    Each of `window.before_debut` counts as `before_debut_weight` of a trial; the default
+    counts it whole, as every other team match is.
+    """
+    trials = window.matches - (1.0 - before_debut_weight) * window.before_debut
+    if trials <= 0 or math.isinf(prior.concentration):
         return prior.mean
-    return (prior.concentration * prior.mean + window.votes) / (
-        prior.concentration + window.matches
-    )
+    return (prior.concentration * prior.mean + window.votes) / (prior.concentration + trials)
 
 
 def cal(t: float, *, d: float, q: float) -> float:
@@ -213,7 +259,11 @@ def presence(
     out: dict[int, Presence] = {}
     for pid, role in roles.items():
         q = weights.q_role[role]
-        base = p_hist(windows.get(pid, Window(0, 0)), priors[role])
+        base = p_hist(
+            windows.get(pid, Window(0, 0)),
+            priors[role],
+            before_debut_weight=weights.before_debut_weight,
+        )
         row = sentiment.get(pid)
         if row is None:
             out[pid] = Presence(player_id=pid, p_hist=base, news_weight=0.0, p=base)
