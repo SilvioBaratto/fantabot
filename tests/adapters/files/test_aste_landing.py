@@ -136,3 +136,21 @@ def test_every_write_is_durable_not_only_the_last(tmp_path: Path) -> None:
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_a_torn_final_line_does_not_swallow_the_next_record(tmp_path: Path) -> None:
+    """A tail with no newline must cost the fragment only, never the record after it."""
+    path = tmp_path / "events.jsonl"
+    LandingZone(path).write("a-1", {"price": 1})
+    with path.open("ab") as handle:
+        handle.write(b'{"seen_at": "2026-')
+    zone = LandingZone(path)
+    zone.write("a-2", {"price": 2})
+    zone.write("a-3", {"price": 3})
+    parsed = []
+    for line in path.read_text(encoding="utf-8").split("\n"):
+        try:
+            parsed.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    assert [r["auction_id"] for r in parsed] == ["a-1", "a-2", "a-3"]

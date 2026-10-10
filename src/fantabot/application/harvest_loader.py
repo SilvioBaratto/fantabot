@@ -275,7 +275,9 @@ def read_from(
 
     complete = chunk[: tail + 1]
     records: list[dict[str, Any]] = []
-    for line in complete.decode("utf-8", "replace").splitlines():
+    # Not splitlines(): the landing writer leaves U+0085/U+2028/U+2029 raw inside
+    # strings, and splitlines would cut such a record into unparseable halves.
+    for line in complete.decode("utf-8", "replace").split("\n"):
         if not line.strip():
             continue
         try:

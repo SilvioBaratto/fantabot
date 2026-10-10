@@ -246,3 +246,15 @@ def test_a_run_appended_after_a_torn_tail_is_not_lost(tmp_path: Path) -> None:
     runs, skipped = read_runs(path)
     assert [r.module for r in runs] == ["4231", "3421"]
     assert skipped == 1
+
+
+@pytest.mark.parametrize("sep", ["\u0085", "\u2028", "\u2029"])
+def test_a_unicode_line_separator_inside_a_record_does_not_tear_it(
+    tmp_path: Path, sep: str
+) -> None:
+    path = tmp_path / "runs.jsonl"
+    run = _run(detail=f"refused{sep}by the platform")
+    assert append_run(path, run)
+    runs, skipped = read_runs(path)
+    assert skipped == 0
+    assert runs == (run,)

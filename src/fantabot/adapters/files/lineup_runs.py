@@ -233,7 +233,9 @@ def read_runs(path: Path) -> tuple[tuple[LineupRun, ...], int]:
     explain. A missing file is no runs yet, not an error.
     """
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        # Not splitlines(): ensure_ascii=False leaves U+0085/U+2028/U+2029 raw inside a
+        # record, and splitlines() would tear it at one. The writer ends records with "\n".
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
     except FileNotFoundError:
         return (), 0
 

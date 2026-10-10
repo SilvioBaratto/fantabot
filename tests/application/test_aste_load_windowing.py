@@ -65,3 +65,14 @@ def test_events_stay_incremental(tmp_path: Path) -> None:
     second, _ = read_from(landing, checkpoint.read())
     assert len(first) == 3
     assert len(second) == 2, "the second pass must carry only what is new"
+
+
+def test_unicode_line_separators_inside_a_record_do_not_split_it(tmp_path: Path) -> None:
+    """The landing writer leaves U+0085, U+2028 and U+2029 raw, and only "\\n"
+    ends a record."""
+    landing = tmp_path / "live.jsonl"
+    record = {"name": "a" + chr(0x2028) + "b" + chr(0x2029) + "c" + chr(0x85) + "d"}
+    landing.write_bytes((json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8"))
+    records, offset = read_from(landing, 0)
+    assert records == [record]
+    assert offset == landing.stat().st_size

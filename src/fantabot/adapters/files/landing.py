@@ -45,6 +45,7 @@ class LandingZone:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.written = 0
+        self._tail_checked = False
 
     def write(self, auction_id: str, state: Mapping[str, Any]) -> None:
         """Append one observation. Durable when it returns."""
@@ -57,6 +58,16 @@ class LandingZone:
         # escaping them still parses but stops matching the recorded evening
         # byte for byte — which is the comparison T16 rests on.
         line = json.dumps(record, ensure_ascii=False)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        payload = (line + "\n").encode("utf-8")
+        with self.path.open("ab+") as handle:
+            if not self._tail_checked:
+                # A tail without a newline (ENOSPC, power loss, an unmounted SSD) would
+                # fuse the first record of this run into the fragment, and the reader
+                # drops the fused line: one lost observation becomes two.
+                if handle.seek(0, 2) > 0:
+                    handle.seek(-1, 2)
+                    if handle.read(1) != b"\n":
+                        payload = b"\n" + payload
+                self._tail_checked = True
+            handle.write(payload)
         self.written += 1
