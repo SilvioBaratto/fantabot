@@ -43,6 +43,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from contextlib import suppress
 
@@ -79,20 +80,42 @@ def run_grouped(
         return child.wait(timeout=timeout), ""
     except subprocess.TimeoutExpired:
         pass
+    except BaseException:
+        # The child's session is its own, so an operator's Ctrl-C reaches only this process
+        # and the refresh would run on, detached, past the job.
+        _take_down(child, pgid, grace)
+        raise
 
     note = f"killed after {timeout:.0f}s"
-    signal_group(pgid, signal.SIGTERM)
-    with suppress(subprocess.TimeoutExpired):
-        child.wait(timeout=grace)
-    if group_alive(pgid):
-        # The leader may be long gone; what is left is whatever it started. SIGKILL cannot
-        # be refused, and the reap below is unbounded because a timeout would leave the
-        # zombie the parent never collects.
-        signal_group(pgid, signal.SIGKILL)
+    if _take_down(child, pgid, grace):
         note = f"{note} (SIGTERM ignored)"
+    return None, note
+
+
+def _take_down(child: subprocess.Popen[bytes], pgid: int, grace: float) -> bool:
+    """SIGTERM the group, give **all of it** `grace` seconds, then SIGKILL what is left.
+
+    Returns whether SIGKILL was needed. The grace is polled on the group and not spent on
+    the leader alone: a leader that dies on cue says nothing about a grandchild still
+    finishing its statement. `poll` each round because an unreaped leader is a zombie that
+    keeps the group reading as alive.
+    """
+    signal_group(pgid, signal.SIGTERM)
+    deadline = time.monotonic() + grace
+    while True:
+        child.poll()
+        if not group_alive(pgid):
+            return False
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    # The leader may be long gone; what is left is whatever it started. SIGKILL cannot
+    # be refused, and the reap below is bounded only by grace because a timeout would
+    # leave the zombie the parent never collects.
+    signal_group(pgid, signal.SIGKILL)
     with suppress(subprocess.TimeoutExpired):
         child.wait(timeout=grace)
-    return None, note
+    return True
 
 
 def signal_group(pgid: int, sig: signal.Signals) -> None:

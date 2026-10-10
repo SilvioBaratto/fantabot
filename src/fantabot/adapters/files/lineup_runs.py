@@ -187,11 +187,26 @@ def append_run(path: Path, run: LineupRun) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         line = _line(run)
+        # A killed run can leave a tail with no newline; appending straight after it would
+        # fuse the fragment and this record into one unparseable line.
+        lead = "\n" if _ends_mid_line(path) else ""
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+            handle.write(lead + line + "\n")
     except (OSError, TypeError, ValueError):
         return False
     return True
+
+
+def _ends_mid_line(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                return False
+            handle.seek(-1, 2)
+            return handle.read(1) != b"\n"
+    except FileNotFoundError:
+        return False
 
 
 def _line(run: LineupRun) -> str:

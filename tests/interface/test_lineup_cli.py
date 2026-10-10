@@ -849,6 +849,19 @@ class TestTheWallClock:
 
         assert (stop(), stop()) == (False, True)
 
+    def test_the_default_clock_is_monotonic_so_a_wall_clock_step_cannot_move_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A DST fall-back or an NTP step moves `datetime.now()`; the abort is a duration."""
+        import time
+
+        ticks = iter([100.0, 161.0])
+        monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+
+        stop = wall_stop(60.0)
+
+        assert stop() is True
+
 
 class TestTheChosenPlansLine:
     def test_without_an_opponent_it_says_so_rather_than_printing_a_zero(self) -> None:
@@ -1083,6 +1096,28 @@ class TestTheRefreshChild:
 
         assert result.exit_code == 0, result.output
         assert "news: failed Paz N.: agent gave up [/x] mid-reply" in result.output
+
+
+class TestRefreshWithoutACmday:
+    @pytest.mark.parametrize("exc_name", ["KeyMissing", "SQLAlchemyError"])
+    def test_a_failed_matchday_read_is_a_clean_refusal_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, exc_name: str
+    ) -> None:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from fantabot.domain.tokens.errors import KeyMissing
+
+        exc: Exception = KeyMissing() if exc_name == "KeyMissing" else SQLAlchemyError("x")
+
+        def boom(*_a: Any, **_k: Any) -> int:
+            raise exc
+
+        monkeypatch.setattr("fantabot.interface.lineup._read_cmday", boom)
+
+        result = runner.invoke(app, ["lineup", "refresh", "--league", "1", "--competition", "9"])
+
+        assert result.exit_code == 1, result.output
+        assert isinstance(result.exception, SystemExit), repr(result.exception)
 
 
 # -- T36 at the command: the flag, and the setting that refuses without it --------------

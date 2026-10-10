@@ -233,3 +233,16 @@ def test_a_float_id_is_refused_not_truncated() -> None:
     """`int(6482.9)` is 6482: a truncated id names a different player and nothing raises."""
     with pytest.raises(TypeError):
         _shadow(starter_ids=(6482.9,))
+
+
+def test_a_run_appended_after_a_torn_tail_is_not_lost(tmp_path: Path) -> None:
+    path = tmp_path / "runs.jsonl"
+    assert append_run(path, _run(module="3421"))
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"at": "2026-09-13')
+
+    assert append_run(path, _run(module="4231"))
+
+    runs, skipped = read_runs(path)
+    assert [r.module for r in runs] == ["4231", "3421"]
+    assert skipped == 1

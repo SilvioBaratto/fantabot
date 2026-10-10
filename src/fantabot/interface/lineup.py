@@ -13,6 +13,7 @@ authority — it rejects a truly-closed submit and we surface that.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -49,7 +50,9 @@ def _now() -> datetime:
     return datetime.now()
 
 
-def wall_stop(seconds: float, *, now: Callable[[], datetime] = _now) -> Callable[[], bool]:
+def wall_stop(
+    seconds: float, *, now: Callable[[], datetime] | None = None
+) -> Callable[[], bool]:
     """`should_stop` from a wall clock — the **only** way a clock reaches the pure chain.
 
     A hard abort, never a budget: the plan's size is decided in work units (AD6) precisely
@@ -59,7 +62,12 @@ def wall_stop(seconds: float, *, now: Callable[[], datetime] = _now) -> Callable
     is a **fallback**: `choose_plan` returns the best plan it had and records the stop.
 
     `now` is injected rather than read here so the test does not have to wait out a deadline.
+    Left unset, the duration is measured on the monotonic clock: a DST fall-back or an NTP
+    step moves `datetime.now()` and would shift a hard abort by the size of the step.
     """
+    if now is None:
+        started = time.monotonic()
+        return lambda: time.monotonic() - started >= seconds
     deadline = now() + timedelta(seconds=seconds)
     return lambda: now() >= deadline
 
@@ -612,7 +620,13 @@ def _refresh(
     from fantabot.domain.tokens.errors import TokenError
 
     league_id = resolve_league(league)
-    matchday = cmday or _read_cmday(league_id, competition)
+    try:
+        matchday = cmday or _read_cmday(league_id, competition)
+    except TokenError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except SQLAlchemyError as exc:
+        database_unreachable(exc)
     if matchday <= 0:
         console.print(
             "[red]no matchday: pass --cmday, or --competition so it can be read[/red]"

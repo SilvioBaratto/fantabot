@@ -263,6 +263,30 @@ class TestThePerQueryLimit:
         assert result.ok is False
         assert result.delivered == 0
 
+    def test_the_default_sdk_runner_is_bounded_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The hourly refresh injects no runner, so the production path is `fetch_all`'s
+        default, which this run reads from the agent adapter."""
+        import fantabot.adapters.agent.runner as agent_runner
+
+        async def never(_request: Any, _schema: Any) -> Any:
+            await asyncio.sleep(30)
+
+        monkeypatch.setattr(agent_runner, "run", never)
+
+        async def go() -> NewsRunResult:
+            return await asyncio.wait_for(
+                fetch_roster_news(
+                    [1], gateway=_Gateway(), reporter=_Recorder(), model="m",
+                    season=SEASON, day=DAY, write=True, query_timeout=0.05,
+                ),
+                5,
+            )
+
+        result = asyncio.run(go())
+
+        assert result.ok is False
+        assert [reason for _n, reason in result.failures] == ["no answer within 0s"]
+
     def test_the_timeout_is_an_ordinary_failure_and_the_run_continues(self) -> None:
         """One hung query must not end a run: the rest of the roster is still asked."""
         calls: list[str] = []

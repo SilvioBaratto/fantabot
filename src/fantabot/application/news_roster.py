@@ -230,6 +230,7 @@ async def fetch_roster_news(
             resumed=selection.resumed,
         )
 
+    from fantabot.adapters.agent import runner as agent_runner
     from fantabot.adapters.agent.env import strip_dangerous_env
     from fantabot.application.news_fetcher import fetch_all
 
@@ -256,8 +257,11 @@ async def fetch_roster_news(
             sink.add(row)
 
     extra: dict[str, Any] = {}
-    if runner is not None:
-        extra["runner"] = timed_runner(runner, seconds=query_timeout)
+    # `fetch_all`'s own default runner has no wall, and the hourly refresh injects none:
+    # the bound has to be put on the default too, or it exists only under test.
+    extra["runner"] = timed_runner(
+        runner if runner is not None else agent_runner.run, seconds=query_timeout
+    )
     if backoff_seconds is not None:
         extra["backoff_seconds"] = backoff_seconds
     result = await fetch_all(

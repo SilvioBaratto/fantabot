@@ -145,6 +145,71 @@ class TestTheTimeout:
         assert not _alive(stray), f"the grandchild {stray} outlived the group kill"
 
 
+class TestTheGraceBelongsToTheGroup:
+    def test_a_grandchild_finishing_on_sigterm_is_not_killed_or_blamed(
+        self, tmp_path: Path, no_strays: list[int]
+    ) -> None:
+        """The leader dies on cue; the grandchild is mid-statement and needs a moment.
+
+        Asking the group once, right after the leader is reaped, sends SIGKILL to a process
+        that was about to exit cleanly and reports "SIGTERM ignored" for it.
+        """
+        ready = tmp_path / "ready"
+        finished = tmp_path / "finished"
+        grandchild = (
+            "import signal, sys, time\n"
+            "def done(*_):\n"
+            "    time.sleep(0.6)\n"
+            f"    open({str(finished)!r}, 'w').write('x')\n"
+            "    sys.exit(0)\n"
+            "signal.signal(signal.SIGTERM, done)\n"
+            f"open({str(ready)!r}, 'w').write('x')\n"
+            "time.sleep(600)\n"
+        )
+        script = (
+            "import subprocess, sys, time\n"
+            f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+            "time.sleep(600)\n"
+        )
+
+        code, note = run_grouped([sys.executable, "-c", script], timeout=2.0, grace=5.0)
+
+        assert code is None
+        assert ready.exists(), "the grandchild never armed its handler; the test is blind"
+        assert finished.exists(), "the grandchild was killed before it could finish"
+        assert "ignored" not in note
+
+
+class TestAnInterruptedWait:
+    def test_an_interrupt_takes_the_group_down_and_still_propagates(
+        self, tmp_path: Path, no_strays: list[int]
+    ) -> None:
+        """The child is in its own session, so a terminal Ctrl-C never reaches it."""
+        marker = tmp_path / "child.pid"
+        script = (
+            "import os, time\n"
+            f"open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+            "time.sleep(600)\n"
+        )
+
+        def interrupt(*_: object) -> None:
+            raise KeyboardInterrupt
+
+        previous = signal.signal(signal.SIGALRM, interrupt)
+        signal.setitimer(signal.ITIMER_REAL, 1.0)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                run_grouped([sys.executable, "-c", script], timeout=60, grace=2.0)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
+
+        assert marker.exists(), "the child never started; the assertion below is blind"
+        pid = int(marker.read_text())
+        no_strays.append(pid)
+        assert not group_alive(pid)
+
+
 def _alive(pid: int) -> bool:
     """Signal 0 to one process. `group_alive` asks about a group; this asks about a pid."""
     try:

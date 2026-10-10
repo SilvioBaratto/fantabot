@@ -120,8 +120,11 @@ class Outcome(Generic[M]):
         return self.failure is None and self.value is not None
 
 
+_RATE_LIMIT_STATUSES = frozenset({429, 529})
+
+
 class ResultLike(Protocol):
-    """The four fields ``classify_result`` reads, and nothing else.
+    """The fields ``classify_result`` reads, and nothing else.
 
     A Protocol rather than ``ResultMessage`` because that is genuinely all this
     function needs — which keeps the classification SDK-free and lets the tests
@@ -140,6 +143,12 @@ class ResultLike(Protocol):
     @property
     def structured_output(self) -> Any: ...
 
+    @property
+    def is_error(self) -> bool: ...
+
+    @property
+    def api_error_status(self) -> int | None: ...
+
 
 def classify_result(message: ResultLike, schema: type[M]) -> tuple[M | None, str | None]:
     """Turn one result message into either a validated model or a failure reason."""
@@ -147,6 +156,10 @@ def classify_result(message: ResultLike, schema: type[M]) -> tuple[M | None, str
         detail = "; ".join(message.errors) if message.errors else (message.result or "")
         reason = f"agent returned subtype {message.subtype!r}"
         return None, f"{reason}: {detail}" if detail else reason
+
+    # The CLI reports a failed API call (429/5xx) as subtype "success" with is_error set.
+    if message.is_error and message.api_error_status is not None:
+        return None, f"API call failed with HTTP {message.api_error_status}"
 
     if message.structured_output is None:
         return None, "agent returned no structured output"
@@ -185,6 +198,11 @@ async def consume(stream: AsyncIterator[Any], schema: type[M], label: str) -> Ou
 
             if hasattr(message, "subtype") and hasattr(message, "structured_output"):
                 value, failure = classify_result(cast(ResultLike, message), schema)
+                if (
+                    getattr(message, "is_error", False)
+                    and getattr(message, "api_error_status", None) in _RATE_LIMIT_STATUSES
+                ):
+                    rate_limited = True
                 return Outcome(
                     value=value,
                     failure=failure,

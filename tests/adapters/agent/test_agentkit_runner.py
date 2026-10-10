@@ -211,6 +211,17 @@ def test_classify_result_surfaces_sdk_errors_in_the_failure() -> None:
     assert "upstream exploded" in failure
 
 
+def test_classify_result_names_the_http_status_of_a_failed_api_call() -> None:
+    value, failure = classify_result(
+        _result(is_error=True, api_error_status=429, structured_output=None), Sample
+    )
+
+    assert value is None
+    assert failure is not None
+    assert "429" in failure
+    assert "no structured output" not in failure
+
+
 # --- consume -------------------------------------------------------------
 
 
@@ -235,6 +246,19 @@ def test_consume_tolerates_a_rejected_rate_limit_event() -> None:
     assert outcome.failure is None
     assert outcome.value == Sample(score=0.5, note="ok")
     assert outcome.rate_limited is True
+
+
+@pytest.mark.parametrize(("status", "limited"), [(429, True), (529, True), (500, False)])
+def test_consume_flags_rate_limiting_reported_only_through_the_result(
+    status: int, limited: bool
+) -> None:
+    result = _result(is_error=True, api_error_status=status, structured_output=None)
+    outcome = asyncio.run(consume(_stream(result), Sample, label="t"))
+
+    assert outcome.value is None
+    assert outcome.failure is not None
+    assert str(status) in outcome.failure
+    assert outcome.rate_limited is limited
 
 
 def test_consume_does_not_flag_an_allowed_rate_limit_event() -> None:
