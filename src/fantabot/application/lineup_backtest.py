@@ -95,8 +95,9 @@ LAST_GIORNATA = 38
 #: and a season's own tags are not recorded anywhere we can read.
 ROLES_SEASON = "2026/27"
 #: The three half-lives the sweep tries. Three, because the sweep season is one season and a
-#: finer grid would be fitting the sweep's own noise.
-SWEEP_HALF_LIVES: tuple[float, ...] = (90.0, DEFAULT_HALF_LIFE_DAYS, 365.0)
+#: finer grid would be fitting the sweep's own noise. Literal, not built from the live
+#: default: that default is the sweep's own winner, and naming it here would collapse the grid.
+SWEEP_HALF_LIVES: tuple[float, ...] = (90.0, 180.0, 365.0)
 #: The fantapunti guard: the model may lose this much a giornata and still pass (A16).
 FANTAPUNTI_GUARD = -1.0
 

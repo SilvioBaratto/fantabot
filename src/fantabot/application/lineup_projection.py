@@ -87,9 +87,10 @@ if TYPE_CHECKING:
 
 #: Seasons of history the projection reads, the current one included.
 SEASONS_READ = 5
-#: H, in days. A declared default until T33's sweep picks one on 2023/24 and records it;
-#: 180 is the value T15 measured the model at (τ² = 0.041).
-DEFAULT_HALF_LIFE_DAYS = 180.0
+#: H, in days: what the Gate 1 sweep picked on 2023/24 (90d +0.0268, 180d +0.0234, 365d
+#: +0.0223) and the H at which Gate 1 then passed on 2024/25 and 2025/26. A live default
+#: other than the graded one would submit a model nobody graded.
+DEFAULT_HALF_LIFE_DAYS = 90.0
 #: A macro role's Classic letter, for a player with no appearance of his own to read one
 #: from. Measured on the 2026/27 listone: every DEF code is `D` and every ATT code `A`;
 #: `W`/`T` are `C` for 62 of 74, and `E` for 11 of 18.
