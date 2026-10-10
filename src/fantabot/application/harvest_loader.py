@@ -186,7 +186,12 @@ class Checkpoint:
             return 0
 
     def write(self, offset: int) -> None:
-        self.path.write_text(str(offset), encoding="utf-8")
+        # Moved into place, not truncated in place: a kill mid-write would leave an
+        # empty file that `read` maps to 0, re-folding from the start onto a state
+        # that is already ahead.
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(str(offset), encoding="utf-8")
+        tmp.replace(self.path)
 
 
 class FoldCheckpoint:

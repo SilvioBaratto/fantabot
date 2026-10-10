@@ -237,3 +237,62 @@ class TestCommand:
         assert result.exit_code == 0
         assert str(destination) in result.output
         assert (destination / "live.jsonl").exists()
+
+
+class TestInterruptedCopy:
+    def test_a_copy_killed_midway_does_not_poison_the_next_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source, destination = tmp_path / "from", tmp_path / "to"
+        _landing(source)
+        real_copy2 = harvest_home.shutil.copy2
+
+        def dies_midway(src: Path, dst: Path) -> None:
+            Path(dst).write_bytes(Path(src).read_bytes()[:10])
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(harvest_home.shutil, "copy2", dies_midway)
+        with pytest.raises(KeyboardInterrupt):
+            harvest_home.adopt(source, destination, disk_free=_plenty)
+        monkeypatch.setattr(harvest_home.shutil, "copy2", real_copy2)
+
+        report = harvest_home.adopt(source, destination, disk_free=_plenty)
+
+        assert report.moved == 3
+        assert (destination / "live.jsonl").stat().st_size == 4096
+        assert sorted(p.name for p in destination.iterdir()) == [
+            "live.jsonl",
+            "live.jsonl.offset",
+            "live.jsonl.state",
+        ]
+
+
+class TestLiveSource:
+    def test_it_refuses_while_a_collector_holds_the_source(self, tmp_path: Path) -> None:
+        from fantabot.adapters.files.lock import COLLECTOR, role_lock
+
+        source, destination = tmp_path / "from", tmp_path / "to"
+        live = _landing(source)
+
+        with (
+            role_lock(live, COLLECTOR),
+            pytest.raises(harvest_home.AdoptRefused, match="collector"),
+        ):
+            harvest_home.adopt(source, destination, disk_free=_plenty)
+
+        assert live.exists()
+        assert not destination.exists()
+
+    def test_it_refuses_while_a_loader_holds_the_source(self, tmp_path: Path) -> None:
+        from fantabot.adapters.files.lock import LOADER, role_lock
+
+        source, destination = tmp_path / "from", tmp_path / "to"
+        live = _landing(source)
+
+        with (
+            role_lock(live, LOADER),
+            pytest.raises(harvest_home.AdoptRefused, match="loader"),
+        ):
+            harvest_home.adopt(source, destination, disk_free=_plenty)
+
+        assert live.exists()

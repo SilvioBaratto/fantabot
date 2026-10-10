@@ -133,10 +133,7 @@ def aste_scan(
 
     merged = merge(known, scanned)
     seed.parent.mkdir(parents=True, exist_ok=True)
-    seed.write_text(
-        json.dumps(to_seed_rows(merged), ensure_ascii=False, indent=0) + "\n",
-        encoding="utf-8",
-    )
+    _write_seed(seed, json.dumps(to_seed_rows(merged), ensure_ascii=False, indent=0) + "\n")
 
     added = len(merged) - len(known)
     formats: dict[str, int] = {}
@@ -212,6 +209,24 @@ def _report_dropped(dropped: DroppedEvents) -> None:
         return
     colour = "yellow" if dropped.malformed_state or dropped.bad_timestamp else "dim"
     console.print(f"[{colour}]{dropped.total} record(s) dropped — {dropped.summary()}[/{colour}]")
+
+
+def _write_seed(seed: Path, text: str) -> None:
+    """Replace the seed whole or not at all.
+
+    `write_text` truncates first, so a kill or a full disk mid-write leaves an empty
+    registry that the next scan cannot parse. Renaming a finished sibling in is the
+    only write the collector's re-read can never catch half-done.
+    """
+    import os
+
+    tmp = seed.with_name(f"{seed.name}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, seed)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _report_written(written: EventWrite) -> None:
@@ -358,6 +373,18 @@ def aste_load(
         """
         nonlocal fold
         offset = checkpoint.read()
+        if landing.exists() and offset > landing.stat().st_size:
+            # read_from restarts at 0 on its own, but the carried fold still
+            # describes the old file; replaying the new one onto it splices two files.
+            console.print(
+                "[yellow]the landing zone shrank below the stored offset — re-reading "
+                "from the start and rebuilding the reducer state[/yellow]"
+            )
+            fold = incremental.empty()
+            offset = 0
+            if not dry_run:
+                fold_checkpoint.write(fold)
+                checkpoint.write(0)
         records, new_offset = read_from(landing, offset, max_bytes=pass_window)
         size = landing.stat().st_size if landing.exists() else new_offset
         behind = max(0, size - new_offset)
@@ -430,8 +457,11 @@ def aste_load(
             # Order matters: the write commits, then the two checkpoints move
             # together, then the state is bound. Anything else lets the fold and the
             # offset describe different positions in the same file.
-            checkpoint.write(new_offset)
+            # State first: a kill between the two leaves the offset behind the state, and
+            # the records re-read are absorbed by the fold's stamp guard and the upserts.
+            # The other order skips records the fold never saw.
             fold_checkpoint.write(next_fold)
+            checkpoint.write(new_offset)
             fold = next_fold
 
         if unlinked:
@@ -520,6 +550,12 @@ def aste_load(
                 # only speaks up when it is already behind gives no warning it is losing.
                 console.print(f"carried {carried} · {behind} bytes behind{note}{suffix}")
                 if deferred:
+                    # The flag is read here too: a backlog is dozens of consecutive
+                    # deferred passes, and skipping the check for all of them left Stop
+                    # dead until the catch-up drained. Between passes is already safe.
+                    if (stage := read_stop(stop_file)) is not None:
+                        console.print(f"[yellow]stopped ({stage})[/yellow]")
+                        return
                     # A backlog is not a quiet pass, in either mode. One interval per
                     # window turned a thirty-six-pass catch-up into six minutes of
                     # sleeping; returning here instead turned a one-shot load into a

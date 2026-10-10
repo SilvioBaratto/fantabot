@@ -328,3 +328,176 @@ class TestTheLoaderHonoursTheStopFlag:
         _run(str(landing), "--dry-run")
 
         assert not stop_path(landing, LOADER).exists()
+
+
+class TestTheStopFlagIsReadDuringACatchUp:
+    """A backlog is dozens of consecutive deferred passes, and the loop's `continue` for
+    them skipped both `read_stop` calls, so the Stop button did nothing until the backlog
+    drained. Between passes is already the safe place to stop: the checkpoint moves only
+    after the commit."""
+
+    def test_a_stop_asked_mid_backlog_ends_the_run_before_the_next_pass(
+        self, home, monkeypatch
+    ) -> None:
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+
+        from fantabot.adapters.files.lock import LOADER
+        from fantabot.adapters.files.stopflag import request_stop, stop_path
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.adapters.persistence.repositories import aste as aste_repo
+
+        landing = _landing(home)
+        line = landing.read_text(encoding="utf-8")
+        landing.write_text(line * 12, encoding="utf-8")
+        flag = stop_path(landing, LOADER)
+        passes: list[int] = []
+
+        class _Repo:
+            def __init__(self, session: Any) -> None:
+                pass
+
+            def known_player_ids(self) -> frozenset[int]:
+                return frozenset()
+
+            def upsert_auctions(self, rows: Any) -> None:
+                passes.append(1)
+                request_stop(flag)  # Stop is clicked while the first window commits
+
+            def upsert_events(self, rows: Any) -> Any:
+                return SimpleNamespace(discarded=0, already_present=0, inserted=0)
+
+            def upsert_assignments(self, rows: Any) -> None: ...
+
+        @contextmanager
+        def fake_session():
+            yield SimpleNamespace(commit=lambda: None)
+
+        monkeypatch.setattr(database_manager, "get_session", fake_session)
+        monkeypatch.setattr(aste_repo, "AsteRepository", _Repo)
+        monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+        result = _run("--follow", "--interval", "0.01", "--window", str(len(line) + 10))
+
+        assert result.exit_code == 0, result.output
+        assert len(passes) == 1, f"it carried {len(passes)} windows after Stop was asked"
+        assert "stopped" in _plain(result.output).lower(), result.output
+
+
+@pytest.fixture
+def accepting_write(monkeypatch: pytest.MonkeyPatch):
+    """A write phase that succeeds, so the checkpoints are reached."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.adapters.persistence.repositories import aste as aste_repo
+
+    class _Repo:
+        def __init__(self, session: Any) -> None:
+            pass
+
+        def known_player_ids(self) -> frozenset[int]:
+            return frozenset()
+
+        def upsert_auctions(self, rows: Any) -> None:
+            return None
+
+        def upsert_events(self, rows: Any) -> Any:
+            return SimpleNamespace(discarded=0, inserted=0, summary=lambda: "")
+
+        def upsert_assignments(self, rows: Any) -> None:
+            return None
+
+    @contextmanager
+    def fake_session():
+        yield SimpleNamespace(commit=lambda: None)
+
+    monkeypatch.setattr(database_manager, "get_session", fake_session)
+    monkeypatch.setattr(aste_repo, "AsteRepository", _Repo)
+
+
+def test_the_fold_state_is_written_before_the_offset(home, accepting_write, monkeypatch) -> None:
+    """A kill between the two writes must leave the offset behind the state: the records
+    re-read are absorbed by the fold's per-turn stamp guard and the upserts, whereas an
+    offset ahead of the state skips records the fold never saw."""
+    from fantabot.application import harvest_loader
+
+    _landing(home)
+    order: list[str] = []
+    real_offset = harvest_loader.Checkpoint.write
+    real_fold = harvest_loader.FoldCheckpoint.write
+
+    def offset_write(self: Any, value: int) -> None:
+        order.append("offset")
+        real_offset(self, value)
+
+    def fold_write(self: Any, state: Any) -> None:
+        order.append("fold")
+        real_fold(self, state)
+
+    monkeypatch.setattr(harvest_loader.Checkpoint, "write", offset_write)
+    monkeypatch.setattr(harvest_loader.FoldCheckpoint, "write", fold_write)
+
+    assert _run().exit_code == 0
+    assert order == ["fold", "offset"]
+
+
+def test_a_shrunk_landing_zone_resets_the_fold_and_says_so(
+    home, accepting_write, monkeypatch
+) -> None:
+    from fantabot.domain.harvest import incremental
+
+    landing = _landing(home)
+    assert _run().exit_code == 0
+    stored = int((landing.with_name(landing.name + ".offset")).read_text())
+    assert stored > 0
+
+    landing.write_text(
+        json.dumps(
+            {"seen_at": "2026-09-05T18:00:00+00:00", "auction_id": "a1", "state": {}}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert landing.stat().st_size < stored
+
+    seen: list[Any] = []
+    real_advance = incremental.advance
+
+    def spy(fold: Any, records: Any) -> Any:
+        seen.append(fold)
+        return real_advance(fold, records)
+
+    monkeypatch.setattr(incremental, "advance", spy)
+
+    result = _run()
+
+    assert result.exit_code == 0
+    assert "shrank" in _plain(result.output)
+    assert seen and seen[0] == incremental.empty()
+    assert int(landing.with_name(landing.name + ".offset").read_text()) == landing.stat().st_size
+
+
+def test_a_shrunk_landing_zone_with_nothing_to_read_still_resets_both_checkpoints(
+    home, accepting_write
+) -> None:
+    """A pass that parses no record never reaches the end-of-pass writes, so the shrink
+    branch's own rewrite is the only thing that stops the next run from starting past the
+    end of the new file with the old file's fold."""
+    from fantabot.application import harvest_loader
+    from fantabot.domain.harvest import incremental
+
+    landing = _landing(home)
+    assert _run().exit_code == 0
+    assert harvest_loader.Checkpoint(landing).read() > 0
+    assert harvest_loader.FoldCheckpoint(landing).read() != incremental.empty()
+
+    landing.write_text('{"seen_at": "2026-09-05T18:00:00+00:00", "auc', encoding="utf-8")
+
+    result = _run()
+
+    assert result.exit_code == 0
+    assert "shrank" in _plain(result.output)
+    assert harvest_loader.Checkpoint(landing).read() == 0
+    assert harvest_loader.FoldCheckpoint(landing).read() == incremental.empty()

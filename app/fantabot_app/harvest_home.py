@@ -17,14 +17,21 @@ definition shared with the CLI whose files these are.
 
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
+from fantabot.adapters.files.lock import ROLES, RoleBusy, lock_path, role_lock
 from fantabot.config import harvest_dir
 
 __all__ = ["AdoptRefused", "Adopted", "adopt", "harvest_dir"]
+
+#: Suffix of a copy in flight. A killed copy leaves a short file under this name, never under
+#: the final one, so the next run's size check cannot mistake it for a foreign landing zone.
+_PARTIAL = ".adopting"
 
 #: Sidecars that are meaningless without the file they are named after. Both are written
 #: by `harvest load` and both are a position in `live.jsonl`.
@@ -161,7 +168,28 @@ def adopt(
         # names that same directory: the arrangement is reached by following the advice.
         return Adopted(moved=0, skipped=0, total_bytes=0, destination=destination)
 
-    entries = sorted(p for p in source.iterdir() if p.is_file())
+    with ExitStack() as stack:
+        live = source / "live.jsonl"
+        locks = [lock_path(live, role) for role in ROLES]
+        if live.exists():
+            # A collector keeps appending through its open handle to a file that is unlinked
+            # below, and a loader moves `.offset` under the copy: either loses records silently.
+            for role in ROLES:
+                try:
+                    stack.enter_context(role_lock(live, role))
+                except RoleBusy as exc:
+                    raise AdoptRefused(
+                        f"a {role} is running against {live} ({exc.path}). Stop it first; "
+                        f"nothing was moved."
+                    ) from exc
+        return _adopt(source, destination, disk_free, locks)
+
+
+def _adopt(
+    source: Path, destination: Path, disk_free: Callable[[Path], int], locks: list[Path]
+) -> Adopted:
+    held = {p.name for p in locks}
+    entries = sorted(p for p in source.iterdir() if p.is_file() and p.name not in held)
     names = [p.name for p in entries]
 
     skipped: list[Path] = []
@@ -188,10 +216,14 @@ def adopt(
 
     destination.mkdir(parents=True, exist_ok=True)
     for entry in to_move:
-        shutil.copy2(entry, destination / entry.name)
+        partial = destination / (entry.name + _PARTIAL)
+        shutil.copy2(entry, partial)
+        os.replace(partial, destination / entry.name)
     _verify(destination, names)
     for entry in to_move + skipped:
         entry.unlink()
+    for lock in locks:
+        lock.unlink(missing_ok=True)
     return Adopted(
         moved=len(to_move), skipped=len(skipped), total_bytes=total, destination=destination
     )

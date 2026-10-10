@@ -200,3 +200,25 @@ def test_an_explicit_seed_is_created_where_it_is_named(
     assert result.exit_code == 0
     assert elsewhere.exists()
     assert not wired.seed.exists()
+
+
+def test_a_torn_seed_is_never_left_behind_by_a_failed_write(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The registry is written beside itself and renamed in, so a write that dies midway
+    leaves the previous registry whole instead of an empty file the next scan cannot parse."""
+    original = json.dumps([["kept", "1", 8, 500, 1, 30, "m", "r", 5, 9, "n"]])
+    wired.seed.write_text(original)
+    real_write_text = Path.write_text
+
+    def torn(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
+        real_write_text(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", torn)
+
+    result = runner.invoke(app, ["harvest", "scan"])
+
+    assert result.exit_code != 0
+    assert wired.seed.read_text() == original
+    assert [p.name for p in wired.home.iterdir()] == ["seed.json"]
