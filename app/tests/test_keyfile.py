@@ -163,3 +163,37 @@ def test_key_file_is_never_group_or_world_readable_even_if_chmod_fails(
         os.umask(old)
 
     assert keyfile.key_path().stat().st_mode & 0o077 == 0
+
+
+def test_a_whitespace_only_exported_key_does_not_block_the_key_file() -> None:
+    _write_key_file("filekey\n")
+    env = {keyfile.ENV_ENCRYPTION_KEY: "  \n"}
+
+    assert keyfile.load_or_create_key(create=False, environ=env) == "filekey"
+
+
+def test_an_exported_key_with_a_trailing_newline_is_the_same_key() -> None:
+    _write_key_file("samekey\n")
+    env = {keyfile.ENV_ENCRYPTION_KEY: "samekey\n"}
+
+    assert keyfile.load_or_create_key(create=False, environ=env) == "samekey"
+    assert keyfile.key_file_split(environ=env) is None
+
+
+def test_a_concurrent_mint_that_lands_first_is_adopted_not_overwritten(monkeypatch) -> None:
+    real = keyfile._stored_key
+    calls = {"n": 0}
+
+    def racing() -> str | None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            _write_key_file("winner")
+            return None
+        return real()
+
+    monkeypatch.setattr(keyfile, "_stored_key", racing)
+    env: dict[str, str] = {}
+
+    assert keyfile.load_or_create_key(create=True, environ=env) == "winner"
+    assert keyfile.key_path().read_text(encoding="utf-8") == "winner"
+    assert env[keyfile.ENV_ENCRYPTION_KEY] == "winner"

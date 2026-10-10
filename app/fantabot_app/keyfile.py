@@ -85,7 +85,7 @@ def load_or_create_key(
     returned. Returns ``None`` only when no key exists and ``create`` is False. A key file
     is never minted while (1) or (2) supplies one: that is the second key this replaced.
     """
-    existing = environ.get(ENV_ENCRYPTION_KEY)
+    existing = environ.get(ENV_ENCRYPTION_KEY, "").strip()
     if existing:
         return existing
 
@@ -108,8 +108,17 @@ def load_or_create_key(
     path = key_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     # The mode is set at creation so the key is never readable under the umask, not even
-    # briefly; O_TRUNC rather than O_EXCL because an empty leftover file is a legal state.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    # briefly. O_EXCL makes a concurrent launcher's key win instead of being overwritten by
+    # ours; an existing empty leftover is a legal state and is truncated.
+    flags = os.O_WRONLY | os.O_CREAT
+    try:
+        fd = os.open(path, flags | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)
+    except FileExistsError:
+        winner = _stored_key()
+        if winner:
+            environ[ENV_ENCRYPTION_KEY] = winner
+            return winner
+        fd = os.open(path, flags | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(key)
     # Tightens a pre-existing file; on Windows chmod is largely a no-op, so don't fail on it.
@@ -144,7 +153,7 @@ def key_file_split(
     stored = _stored_key()
     if stored is None:
         return None
-    in_use = environ.get(ENV_ENCRYPTION_KEY) or (dotenv or dotenv_key)()
+    in_use = environ.get(ENV_ENCRYPTION_KEY, "").strip() or (dotenv or dotenv_key)()
     if not in_use or in_use == stored:
         return None
     return KeySplit(in_use=fingerprint_of(in_use), key_file=fingerprint_of(stored))
