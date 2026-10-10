@@ -299,6 +299,48 @@ class TestInformationAboutAPlayersMean:
 
         assert 0.03 < tau2 < 0.2, tau2
 
+    def test_the_noisy_players_playing_most_does_not_hide_the_true_spread(self) -> None:
+        """True τ² = 0.09. Half the players are regulars, 40 appearances at spread 2.5; half
+        are fringe, 6 at spread 1. The role's pooled s² is ≈ 5.65, dominated by the regulars,
+        against a per-player mean of 3.6: subtracting it once per player cancels the fringe
+        players' whole signal and τ² floors near 0. Each player's own variance does not."""
+        import numpy as np
+
+        rng = np.random.default_rng(20261010)
+        obs = []
+        players = {}
+        for pid in range(1, 401):
+            level = 6.0 + rng.normal(0.0, 0.3)
+            count, spread = (40, 2.5) if pid % 2 else (6, 1.0)
+            players[pid] = Target(player_id=pid, macro="MID", qi=10, club="INT")
+            obs += [
+                Observation(pid, AS_OF - timedelta(days=7 * k),
+                            float(level + rng.normal(0, spread)), 10, "INT")
+                for k in range(1, count + 1)
+            ]
+
+        tau2 = next(iter(project(obs, players, as_of=AS_OF,
+                                 config=ProjectionConfig(math.inf)).values())).tau2
+
+        assert 0.05 < tau2 < 0.14, tau2
+
+    def test_a_single_appearance_adds_nothing_to_the_spread(self) -> None:
+        """One appearance has no variance of its own: a crowd of them, each 9 points from the
+        prior, must not move τ². The crowd is ±9 in pairs at one feature row and one date,
+        so the WLS prior is exactly unchanged and only τ²'s moment could react."""
+        obs, players = _linear_world()
+        players[4999] = Target(player_id=4999, macro="MID", qi=15, club="INT")
+        before = project(obs, players, as_of=AS_OF, config=CONFIG)[4999]
+        for pid in range(5000, 5050):
+            players[pid] = Target(player_id=pid, macro="MID", qi=15, club="INT")
+            score = before.prior_mean + (9.0 if pid % 2 else -9.0)
+            obs.append(Observation(pid, AS_OF - timedelta(days=3), score, 15, "INT"))
+
+        after = project(obs, players, as_of=AS_OF, config=CONFIG)[4999]
+
+        assert after.prior_mean == pytest.approx(before.prior_mean, abs=1e-9)
+        assert after.tau2 == pytest.approx(before.tau2, abs=1e-9)
+
 
 class TestTheWeightsReachEveryEstimate:
     """In the worlds above every player's own spread equals his role's, and the prior is

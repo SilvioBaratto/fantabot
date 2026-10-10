@@ -29,8 +29,9 @@ gets his role's weighted mean `qi`, and no club gets no team effect (stats-1).
 **Variances, by weighted moments.** s² is pooled within-player variance per macro role
 (a role with no within-player spread borrows the pool of all roles). τ² is the
 between-player variance of the level around the prior, floored at 0 — at 0 everyone is
-their prior mean. sigma2 shrinks s² toward the player's own variance with `sigma_prior_weight`
-pseudo-appearances.
+their prior mean — and its moment subtracts each player's **own** noise, not his role's
+(see `_between_variance`). sigma2 shrinks s² toward the player's own variance with
+`sigma_prior_weight` pseudo-appearances.
 
 **The posterior.** `μ = (n_eff τ²ȳ + s²m)/(n_eff τ² + s²)` and `v = τ²s²/(n_eff τ² + s²)`,
 computed in shrinkage form. With no history that is exactly the prior mean and
@@ -182,7 +183,7 @@ def project(
     stats = _player_stats(rows, w, y)
     s2_by_role = _within_variance(stats, players)
     prior = _Prior.fit(rows, w, y, players)
-    tau2 = _between_variance(stats, players, prior, rows, w, s2_by_role)
+    tau2 = _between_variance(stats, players, prior, rows, w)
 
     result: dict[int, Projection] = {}
     for pid, target in players.items():
@@ -331,10 +332,17 @@ def _between_variance(
     prior: _Prior,
     rows: Sequence[Observation],
     w: Floats,
-    s2_by_role: Mapping[str, float],
 ) -> float:
-    """τ², by moments: E[(ȳ - m̄)²] = τ² + s²/n_eff, averaged over players weighted by
-    n_eff (how well each ȳ is known), floored at 0.
+    """τ², by moments: E[n_eff·(ȳ - m̄)²] = n_eff·τ² + σᵢ², summed over players and
+    divided by Σ n_eff, floored at 0.
+
+    σᵢ² is each player's **own** unbiased variance, `ss / (n - Σw²/n)`, not his role's s².
+    The role's pool weights players by their degrees of freedom, and the noisy ones play
+    the most — corr(σᵢ², dof) measured +0.10 to +0.43 per role over 2024/25-2026/27, putting
+    the pooled s² 5-15% above the per-player mean. Subtracting that once per player
+    over-subtracted the noise, and τ² read 0.007 at mid-2024/25 when out-of-sample form said
+    a regular's own mean deserved several times the weight it got. A player with one
+    appearance has no variance of his own and adds nothing to either sum.
 
     `m̄` is the prior at the player's *own* past appearances — each at its season's `qi`
     and club — so a level measured last season is compared with last season's prior, not
@@ -344,9 +352,13 @@ def _between_variance(
     for i, o in enumerate(rows):
         fitted_sum[o.player_id] += float(w[i]) * prior.fitted(o, players[o.player_id])
     excess = total = 0.0
-    for pid, (n, ybar, _, w2) in stats.items():
-        s2 = s2_by_role.get(players[pid].macro, s2_by_role["*"])
+    for pid, (n, ybar, ss, w2) in stats.items():
+        dof = n - w2 / n
+        # Relative, not `<= 0`: one appearance gives `w - w·w/w`, which rounds to a few ulps
+        # either side of 0, and `ss / dof` would then be noise over noise.
+        if dof <= 1e-9 * n:
+            continue
         n_eff = n * n / w2
-        excess += n_eff * (ybar - fitted_sum[pid] / n) ** 2 - s2
+        excess += n_eff * (ybar - fitted_sum[pid] / n) ** 2 - ss / dof
         total += n_eff
-    return max(0.0, excess / total)
+    return max(0.0, excess / total) if total > 0.0 else 0.0
