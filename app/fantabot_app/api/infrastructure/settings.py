@@ -9,7 +9,7 @@ makes "one DB, one engine" (SPEC A6) enforceable.
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,9 +20,12 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
+    # debug, version, environment and log_level are prefixed because DEBUG, VERSION and
+    # LOG_LEVEL are common ambient shell variables that would otherwise crash or hijack startup.
+
     # Project Information
     project_name: str = "fantabot-app"
-    version: str = "0.1.0"
+    version: str = Field(default="0.1.0", validation_alias=AliasChoices("FANTABOT_APP_VERSION"))
 
     # API Configuration
     api_v1_str: str = "/api/v1"
@@ -42,12 +45,14 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     # Logging
-    log_level: str = Field(default="INFO")
+    log_level: str = Field(default="INFO", validation_alias=AliasChoices("FANTABOT_APP_LOG_LEVEL"))
     log_format: str = Field(default="json")
 
     # Environment
-    debug: bool = Field(default=True)
-    environment: str = Field(default="development")
+    debug: bool = Field(default=True, validation_alias=AliasChoices("FANTABOT_APP_DEBUG"))
+    environment: str = Field(
+        default="development", validation_alias=AliasChoices("FANTABOT_APP_ENVIRONMENT")
+    )
 
 
 # Global settings instance
