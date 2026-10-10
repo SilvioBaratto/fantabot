@@ -888,6 +888,59 @@ class TestMidEveningBridgeRefresh:
         assert len(calls) == 1, "the fetch still happens; only the swap is refused"
         assert tracker._bridge == dict(BRIDGE)
 
+    def test_a_uuid_arriving_inside_the_rate_limit_window_is_retried_after_it(self) -> None:
+        """A second signing 30 s after a refresh is refused by the interval, and must be
+        picked up on the first poll past it rather than written off as already seen."""
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            if len(calls) == 1:
+                return dict(BRIDGE)
+            return {**BRIDGE, "uuid-late": 600}
+
+        tracker = _tracker(bridge_refresh=refresh)
+        tracker.cycle(_lot(uuid="uuid-first"), now_ms=1_000)
+        tracker.cycle(_lot(uuid="uuid-late"), now_ms=31_000)
+        assert len(calls) == 1
+        tracker.cycle(_lot(uuid="uuid-late"), now_ms=70_000)
+
+        assert len(calls) == 2
+        assert tracker._bridge["uuid-late"] == 600
+
+    def test_a_uuid_is_retried_after_a_refresh_the_retention_check_refused(self) -> None:
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            if len(calls) == 1:
+                return {"uuid-gk": 100}
+            return {**BRIDGE, "uuid-new": 500}
+
+        tracker = _tracker(bridge_refresh=refresh)
+        tracker.cycle(_lot(uuid="uuid-new"), now_ms=1_000)
+        tracker.cycle(_lot(uuid="uuid-new"), now_ms=70_000)
+
+        assert len(calls) == 2
+        assert tracker._bridge["uuid-new"] == 500
+
+    def test_a_uuid_is_retried_after_a_refresh_that_raised(self) -> None:
+        calls: list[int] = []
+
+        def refresh():  # type: ignore[no-untyped-def]
+            calls.append(1)
+            if len(calls) == 1:
+                raise OSError("listone unreachable")
+            return {**BRIDGE, "uuid-new": 500}
+
+        tracker = _tracker(bridge_refresh=refresh)
+        with pytest.raises(OSError):
+            tracker.cycle(_lot(uuid="uuid-new"), now_ms=1_000)
+        tracker.cycle(_lot(uuid="uuid-new"), now_ms=70_000)
+
+        assert len(calls) == 2
+        assert tracker._bridge["uuid-new"] == 500
+
     def test_no_refresh_callable_is_a_no_op_exactly_like_before_this_existed(self) -> None:
         """`asta bid`, and `asta room` before this task, never had one."""
         frame = _tracker().cycle(_lot(uuid="uuid-new"), now_ms=1_000)

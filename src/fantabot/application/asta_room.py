@@ -423,7 +423,6 @@ class RoomTracker:
         if self._bridge_refresh is None:
             return False
         new = [uuid for uuid in unresolved if uuid not in self._seen_unresolved]
-        self._seen_unresolved.update(unresolved)
         if not new:
             return False
         if (
@@ -435,6 +434,10 @@ class RoomTracker:
         fresh = self._bridge_refresh()
         if len(fresh) < len(self._bridge) * MIN_BRIDGE_RETENTION:
             return False
+        # Marked only once an accepted listone has had its say: a uuid that arrived inside the
+        # rate-limit window, or whose refresh raised or was refused as truncated, was never
+        # actually looked up and has to stay "new" so the next interval retries it.
+        self._seen_unresolved.update(unresolved)
         self._bridge = dict(fresh)
         return True
 
