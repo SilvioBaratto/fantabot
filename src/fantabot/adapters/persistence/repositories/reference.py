@@ -19,6 +19,7 @@ from fantabot.adapters.persistence.models.exclusions import PlayerExclusion
 from fantabot.adapters.persistence.models.matches import MatchGrain
 from fantabot.adapters.persistence.models.reference import Player, Quotazione, Statistica, Team
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
+from fantabot.adapters.persistence.upserts import stamped
 from fantabot.domain.shared.club_names import build_mapping
 from fantabot.domain.shared.values import QuotazioneRow
 
@@ -48,7 +49,7 @@ class ReferenceRepository(RepositoryBase):
             .values(player_id=player_id, reason=reason, source=source)
             .on_conflict_do_update(
                 index_elements=[PlayerExclusion.player_id],
-                set_={"reason": reason, "source": source},
+                set_=stamped({"reason": reason, "source": source}),
             )
         )
 
@@ -189,7 +190,7 @@ class ReferenceRepository(RepositoryBase):
             result = self.session.execute(
                 statement.on_conflict_do_update(
                     index_elements=[Team.stagione, Team.codice],
-                    set_={"nome_completo": statement.excluded.nome_completo},
+                    set_=stamped({"nome_completo": statement.excluded.nome_completo}),
                     where=Team.nome_completo.is_distinct_from(statement.excluded.nome_completo),
                 )
             )

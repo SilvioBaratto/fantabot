@@ -42,7 +42,7 @@ from fantabot.adapters.persistence.models.league import (
     LeagueTeamSnapshot,
 )
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
-from fantabot.adapters.persistence.upserts import chunked, table_for
+from fantabot.adapters.persistence.upserts import chunked, stamped, table_for
 from fantabot.domain.lega.models import (
     Competition,
     CustomRole,
@@ -205,11 +205,13 @@ class LeagueRepository(RepositoryBase):
             self.session.execute(
                 statement.on_conflict_do_update(
                     index_elements=list(keys),
-                    set_={
-                        column: statement.excluded[column]
-                        for column in rows[0]
-                        if column not in keys
-                    },
+                    set_=stamped(
+                        {
+                            column: statement.excluded[column]
+                            for column in rows[0]
+                            if column not in keys
+                        }
+                    ),
                 )
             )
         return len(rows)

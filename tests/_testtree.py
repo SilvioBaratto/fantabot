@@ -238,6 +238,7 @@ TREE: dict[str, str] = {
     "test_db_boundary.py": "adapters/persistence",
     "test_db_models.py": "adapters/persistence",
     "test_repositories_fake.py": "adapters/persistence",
+    "test_upsert_updated_at.py": "adapters/persistence",
     "test_upserts.py": "adapters/persistence",
     "test_clearing_sales_shapes.py": "adapters/persistence",
     # Filed with the read it measures, not with the pure rule beside it: what it pins

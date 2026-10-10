@@ -33,7 +33,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from typing import Any
 
-from sqlalchemy import Table, inspect, text
+from sqlalchemy import Table, func, inspect, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -46,6 +46,16 @@ _COACH_ROWS = text("player_id IS NULL")
 def chunked(rows: Sequence[dict[str, Any]], size: int = CHUNK) -> Iterator[list[dict[str, Any]]]:
     for start in range(0, len(rows), size):
         yield list(rows[start : start + size])
+
+
+def stamped(set_: dict[str, Any]) -> dict[str, Any]:
+    """``set_`` plus ``updated_at = now()``.
+
+    ``Column.onupdate`` fires for UPDATE statements only; an ``ON CONFLICT DO UPDATE``
+    writes exactly its ``set_``, so without this a replaced row keeps its first-insert
+    timestamp and every freshness read off ``max(updated_at)`` goes stale.
+    """
+    return {**set_, "updated_at": func.now()}
 
 
 def table_for(model: type[Any]) -> Table:
@@ -94,6 +104,6 @@ def upsert_two_passes(
                 statement.on_conflict_do_update(
                     index_elements=index_elements,
                     index_where=index_where,
-                    set_={column: statement.excluded[column] for column in updatable},
+                    set_=stamped({column: statement.excluded[column] for column in updatable}),
                 )
             )

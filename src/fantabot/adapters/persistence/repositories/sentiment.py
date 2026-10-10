@@ -27,6 +27,7 @@ from sqlalchemy.types import Text
 
 from fantabot.adapters.persistence.models.sentiment import SCORE_COLUMNS, PlayerSentiment
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
+from fantabot.adapters.persistence.upserts import stamped
 from fantabot.domain.shared.values import RoleDrift, SentimentRow, TrailingSentiment
 
 _TEXT_COLUMNS: tuple[str, ...] = (
@@ -107,7 +108,7 @@ class SentimentRepository(RepositoryBase):
         if force:
             statement = statement.on_conflict_do_update(
                 index_elements=[PlayerSentiment.data_run, PlayerSentiment.player_id],
-                set_={column: statement.excluded[column] for column in _UPDATABLE},
+                set_=stamped({column: statement.excluded[column] for column in _UPDATABLE}),
             )
         else:
             statement = statement.on_conflict_do_nothing(

@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from fantabot.adapters.persistence.models.tokens import FantalabSession, LeagueToken
 from fantabot.adapters.persistence.repositories._base import RepositoryBase
+from fantabot.adapters.persistence.upserts import stamped
 from fantabot.domain.tokens.status import TokenStatus
 
 if TYPE_CHECKING:
@@ -184,14 +185,16 @@ class FantalabSessionRepository(RepositoryBase):
         self.session.execute(
             statement.on_conflict_do_update(
                 index_elements=["user_id"],
-                set_={
-                    "ciphertext": statement.excluded.ciphertext,
-                    "key_fingerprint": statement.excluded.key_fingerprint,
-                    "captured_at": statement.excluded.captured_at,
-                    # Cleared on re-capture: a new session has not been used yet,
-                    # and carrying the old stamp forward would claim otherwise.
-                    "last_used_at": None,
-                },
+                set_=stamped(
+                    {
+                        "ciphertext": statement.excluded.ciphertext,
+                        "key_fingerprint": statement.excluded.key_fingerprint,
+                        "captured_at": statement.excluded.captured_at,
+                        # Cleared on re-capture: a new session has not been used yet,
+                        # and carrying the old stamp forward would claim otherwise.
+                        "last_used_at": None,
+                    }
+                ),
             )
         )
 

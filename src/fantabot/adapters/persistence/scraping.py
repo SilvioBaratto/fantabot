@@ -82,7 +82,7 @@ def load_prior_stats(
         if not fantavoti:
             continue
         out[key] = PriorStats(
-            partite_giocate=entries[0][0],
+            partite_giocate=max(partite for partite, value in entries if value is not None),
             media_fantavoto=statistics.mean(fantavoti),
         )
     return out
@@ -224,7 +224,8 @@ def upsert_target_price(
             "prior_media_fantavoto = EXCLUDED.prior_media_fantavoto, "
             "predicted_pct_delta = EXCLUDED.predicted_pct_delta, "
             "team_factor = EXCLUDED.team_factor, "
-            "target_price = EXCLUDED.target_price, flags = EXCLUDED.flags"
+            "target_price = EXCLUDED.target_price, flags = EXCLUDED.flags, "
+            "updated_at = now()"
         ),
         payload,
     )
@@ -245,7 +246,7 @@ def upsert_quotazioni(handle: Session, rows: list[dict[str, object]]) -> int:
     handle.execute(
         text(
             "INSERT INTO players (id, nome) VALUES (:player_id, :nome) "
-            "ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome"
+            "ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome, updated_at = now()"
         ),
         [{"player_id": r["player_id"], "nome": r["nome"]} for r in rows],
     )
@@ -265,7 +266,7 @@ def upsert_quotazioni(handle: Session, rows: list[dict[str, object]]) -> int:
             "ON CONFLICT (stagione, player_id, listone) DO UPDATE SET "
             "squadra = EXCLUDED.squadra, ruoli_codice = EXCLUDED.ruoli_codice, "
             "ruoli = EXCLUDED.ruoli, qi = EXCLUDED.qi, qa = EXCLUDED.qa, "
-            "fvm = EXCLUDED.fvm"
+            "fvm = EXCLUDED.fvm, updated_at = now()"
         ),
         rows,
     )
@@ -315,7 +316,8 @@ def upsert_statistiche(handle: Session, rows: list[dict[str, object]]) -> int:
             "rigori_segnati = EXCLUDED.rigori_segnati, "
             "rigori_tirati = EXCLUDED.rigori_tirati, "
             "rigori_parati = EXCLUDED.rigori_parati, assist = EXCLUDED.assist, "
-            "ammonizioni = EXCLUDED.ammonizioni, espulsioni = EXCLUDED.espulsioni"
+            "ammonizioni = EXCLUDED.ammonizioni, espulsioni = EXCLUDED.espulsioni, "
+            "updated_at = now()"
         ),
         rows,
     )

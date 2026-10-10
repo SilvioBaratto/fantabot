@@ -49,6 +49,9 @@ class UnknownTableError(ValueError):
 _FAILURE_BY_PHRASE = (
     ("password authentication failed", "credentials"),
     ('role "', "credentials"),
+    # A pg_hba rejection quotes the database name too, so it has to be claimed before
+    # the `database "` phrase below calls it a missing database.
+    ("no pg_hba.conf entry", "credentials"),
     ('database "', "no-database"),
     ("connection refused", "unreachable"),
     ("could not connect", "unreachable"),
