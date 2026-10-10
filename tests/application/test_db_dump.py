@@ -160,3 +160,102 @@ def test_a_missing_pg_dump_leaves_no_empty_file_behind(tmp_path: Path) -> None:
         run_dump(target, SOCKET, run=absent)
 
     assert not target.exists()
+
+
+def test_a_failed_redump_keeps_the_good_dump_taken_earlier_that_day(tmp_path: Path) -> None:
+    """One file per day means the second run's failure must not cost the first run's dump."""
+    target = tmp_path / "fantabot-db-20260920.dump"
+    target.write_bytes(b"PGDMP" + b"g" * 95)
+
+    def half_a_dump(argv: list[str], stdout: IO[bytes]) -> int:
+        stdout.write(b"PGDMP" + b"x" * 10)
+        return 1
+
+    with pytest.raises(PgDumpFailed):
+        run_dump(target, SOCKET, run=half_a_dump)
+
+    assert target.read_bytes() == b"PGDMP" + b"g" * 95
+    assert sorted(p.name for p in tmp_path.iterdir()) == [target.name]
+
+
+def test_an_interrupted_redump_keeps_the_good_dump_taken_earlier_that_day(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "fantabot-db-20260920.dump"
+    target.write_bytes(b"PGDMP" + b"g" * 95)
+
+    def interrupted(argv: list[str], stdout: IO[bytes]) -> int:
+        stdout.write(b"PGDMP")
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_dump(target, SOCKET, run=interrupted)
+
+    assert target.read_bytes() == b"PGDMP" + b"g" * 95
+    assert sorted(p.name for p in tmp_path.iterdir()) == [target.name]
+
+
+def test_the_target_does_not_exist_until_the_dump_is_whole(tmp_path: Path) -> None:
+    """A reader (or a concurrent run) never sees a prefix at the path both surfaces name."""
+    target = tmp_path / "fantabot-db-20260920.dump"
+    seen: list[bool] = []
+
+    def streaming(argv: list[str], stdout: IO[bytes]) -> int:
+        stdout.write(b"PGDMP")
+        seen.append(target.exists())
+        return 0
+
+    run_dump(target, SOCKET, run=streaming)
+
+    assert seen == [False]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [target.name]
+
+
+def test_two_concurrent_dumps_do_not_share_a_partial_file(tmp_path: Path) -> None:
+    """The inner run fails while an outer, still-streaming run holds its own partial."""
+    target = tmp_path / "fantabot-db-20260920.dump"
+
+    def outer(argv: list[str], stdout: IO[bytes]) -> int:
+        stdout.write(b"PGDMP-outer")
+        stdout.flush()
+
+        def inner(argv2: list[str], stdout2: IO[bytes]) -> int:
+            stdout2.write(b"junk")
+            return 1
+
+        with pytest.raises(PgDumpFailed):
+            run_dump(target, SOCKET, run=inner)
+        stdout.write(b"-done")
+        return 0
+
+    wrote = run_dump(target, SOCKET, run=outer)
+
+    assert target.read_bytes() == b"PGDMP-outer-done"
+    assert wrote.size_bytes == len(b"PGDMP-outer-done")
+
+
+def test_a_password_in_the_dsn_never_reaches_the_child_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """argv is world-readable in `ps` for the length of the dump; the environment is not."""
+    import subprocess
+
+    from fantabot.application import db_dump
+
+    seen: dict[str, object] = {}
+
+    def fake_run(argv: list[str], **kw: object) -> subprocess.CompletedProcess[bytes]:
+        seen["argv"] = argv
+        seen["env"] = kw.get("env")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    dsn = "postgresql+psycopg2://postgres:p%40ss@localhost:5432/fantabot"
+
+    with (tmp_path / "x").open("wb") as handle:
+        db_dump._subprocess_pg_dump(pg_dump_argv(dsn), handle)
+
+    assert "p%40ss" not in " ".join(seen["argv"])  # type: ignore[arg-type]
+    assert "p@ss" not in " ".join(seen["argv"])  # type: ignore[arg-type]
+    assert seen["argv"][-1] == "postgresql://postgres@localhost:5432/fantabot"  # type: ignore[index]
+    assert seen["env"]["PGPASSWORD"] == "p@ss"  # type: ignore[index]

@@ -129,6 +129,10 @@ def test_the_job_is_stoppable(quick_child, frozen_day) -> None:
     listed = {job["id"]: job for job in client.get("/api/v1/jobs").json()["jobs"]}
     assert listed[started["job_id"]]["stoppable"] is True
 
+    # The registry is process-global; a job left running here would read as a dump in flight.
+    client.post(f"/api/v1/jobs/{started['job_id']}/stop")
+    assert _wait(lambda: _job(client, started["job_id"])["status"] != "running")
+
 
 @skip_on_windows
 def test_a_refused_target_spawns_nothing(monkeypatch) -> None:
@@ -143,6 +147,51 @@ def test_a_refused_target_spawns_nothing(monkeypatch) -> None:
     assert body["job_id"] == ""
     assert "/Volumes/External SSD/home/" in body["detail"]
     assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
+
+
+def test_a_second_dump_is_refused_while_one_runs(quick_child, frozen_day, monkeypatch) -> None:
+    """Both would write the one dated file; the second must not start a competing child."""
+    import time
+
+    from fantabot_app.api.infrastructure import processes
+
+    real = processes.fantabot_command
+    monkeypatch.setattr(
+        processes, "fantabot_command", lambda *a: [sys.executable, "-c", "import time; time.sleep(30)"]
+    )
+    client = TestClient(app)
+    leftovers = [
+        j["id"] for j in client.get("/api/v1/jobs").json()["jobs"]
+        if j["kind"] == "db-dump" and j["status"] == "running"
+    ]
+    for job_id in leftovers:
+        assert _wait(lambda job_id=job_id: _job(client, job_id)["status"] != "running")
+    first = client.post("/api/v1/db/dump").json()
+    try:
+        before = len(client.get("/api/v1/jobs").json()["jobs"])
+        second = client.post("/api/v1/db/dump").json()
+
+        assert first["outcome"] == "started"
+        assert second["outcome"] == "refused"
+        assert second["job_id"] == ""
+        assert "already" in second["detail"]
+        assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
+    finally:
+        client.post(f"/api/v1/jobs/{first['job_id']}/stop")
+        _wait(lambda: _job(client, first["job_id"])["status"] != "running")
+        monkeypatch.setattr(processes, "fantabot_command", real)
+        time.sleep(0)
+
+
+def test_a_dump_may_start_again_once_the_last_one_finished(quick_child, frozen_day) -> None:
+    client = TestClient(app)
+    first = client.post("/api/v1/db/dump").json()
+    assert _wait(lambda: _job(client, first["job_id"])["status"] == "done")
+
+    second = client.post("/api/v1/db/dump").json()
+
+    assert second["outcome"] == "started"
+    assert _wait(lambda: _job(client, second["job_id"])["status"] == "done")
 
 
 def test_the_outcomes_are_exactly_the_two_declared() -> None:

@@ -35,6 +35,7 @@ write needs.
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -46,6 +47,14 @@ from fantabot_app.api.infrastructure import processes
 from fantabot_app.api.infrastructure.jobs import registry
 
 router = APIRouter()
+
+#: Makes check-then-start one step. `registry.start` registers the job before returning, but
+#: two requests on the server's thread pool could both read "none running" first.
+_start_lock = threading.Lock()
+
+
+def _dump_running() -> bool:
+    return any(j.kind == "db-dump" and j.status == "running" for j in registry.list())
 
 #: `POST /db/dump`. Two, and the second is not an error the operator caused: `refused`
 #: means this machine cannot hold a dump anywhere safe, which is a sentence about `$HOME`
@@ -134,6 +143,14 @@ def dump_run() -> DumpStarted:
     except DumpRefused as refused:
         return DumpStarted(outcome="refused", detail=str(refused))
 
-    job = processes.ProcessJob(processes.fantabot_command("db", "dump"), flag=dump_flag())
-    job_id = registry.start(job.run, kind="db-dump", stop=job.stop)
+    with _start_lock:
+        # Both children derive the same dated filename, so a second one would race the
+        # first for it. Reported as `refused`: nothing was started, and nothing in the
+        # request was wrong.
+        if _dump_running():
+            return DumpStarted(
+                outcome="refused", detail="a dump is already running; wait for it or stop it"
+            )
+        job = processes.ProcessJob(processes.fantabot_command("db", "dump"), flag=dump_flag())
+        job_id = registry.start(job.run, kind="db-dump", stop=job.stop)
     return DumpStarted(outcome="started", path=str(target), job_id=job_id)

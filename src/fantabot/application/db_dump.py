@@ -36,11 +36,14 @@ absent and when it exits non-zero without either being true of the machine runni
 
 from __future__ import annotations
 
+import os
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import IO
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 #: The prefix macOS mounts removable and external volumes under. The repository lives on
 #: one by design, so this is not a hypothetical: it is the guard the deleted
@@ -120,7 +123,24 @@ def _subprocess_pg_dump(argv: list[str], stdout: IO[bytes]) -> int:
     """The real seam. Imported here so importing this module costs nothing."""
     import subprocess
 
-    return subprocess.run(argv, stdout=stdout).returncode
+    safe_argv, env = _password_to_environment(argv)
+    return subprocess.run(safe_argv, stdout=stdout, env=env).returncode
+
+
+def _password_to_environment(argv: list[str]) -> tuple[list[str], dict[str, str] | None]:
+    """Move a password out of the DSN argument and into `PGPASSWORD` for the child.
+
+    argv is readable by every local user in `ps` for the minutes a 2 GB dump runs; the
+    child's environment is not. The bundled server's socket DSN carries no password, in
+    which case nothing changes and the child inherits the environment as before.
+    """
+    parts = urlsplit(argv[-1])
+    if not parts.password:
+        return argv, None
+    host = parts.netloc.rpartition("@")[2]
+    user = parts.netloc.rpartition("@")[0].split(":", 1)[0]
+    bare = urlunsplit(parts._replace(netloc=f"{user}@{host}"))
+    return [*argv[:-1], bare], {**os.environ, "PGPASSWORD": unquote(parts.password)}
 
 
 def run_dump(
@@ -135,9 +155,17 @@ def run_dump(
     the run is the path the run writes — deriving it twice is how a dump comes to be
     somewhere other than where the screen said it would be.
     """
+    # The dump streams into a private sibling and replaces `target` only once whole. Writing
+    # to `target` itself meant a failed second dump of the day truncated, then deleted, the
+    # good one from the first, and two overlapping runs shared one half-written file.
+    # Beside the target so `os.replace` stays on one filesystem and is atomic.
+    descriptor, partial_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f"{target.name}.", suffix=".part"
+    )
+    partial = Path(partial_name)
     try:
         try:
-            with target.open("wb") as handle:
+            with os.fdopen(descriptor, "wb") as handle:
                 code = run(pg_dump_argv(database_url), handle)
         except FileNotFoundError:
             raise PgDumpMissing(
@@ -149,16 +177,15 @@ def run_dump(
                 f"pg_dump exited {code} — is the database running? "
                 "Start it with: fantabot-app db start"
             )
+        os.replace(partial, target)
     except BaseException:
-        # One removal site for all three ways out, `KeyboardInterrupt` included: the
-        # app's stop button reaches the child as `SIGINT` somewhere inside the stream,
-        # and the CLI had no way to ask for that at all.
+        # One removal site for every way out, `KeyboardInterrupt` included: the app's stop
+        # button reaches the child as `SIGINT` somewhere inside the stream.
         #
-        # Removed rather than reported. A half-written dump sits at the path both
-        # surfaces name, is the right size to look real, and is refused by `pg_restore`
-        # only at the moment it is needed — which is the moment the disk it was
-        # protecting against is already gone. An absent dump is a fact an operator can
-        # see today.
-        target.unlink(missing_ok=True)
+        # Removed rather than reported. A half-written dump is the right size to look real
+        # and is refused by `pg_restore` only at the moment it is needed — when the disk it
+        # was protecting against is already gone. Only the private partial is removed, so an
+        # earlier good dump at `target` survives.
+        partial.unlink(missing_ok=True)
         raise
     return DumpWrote(path=target, size_bytes=target.stat().st_size)
