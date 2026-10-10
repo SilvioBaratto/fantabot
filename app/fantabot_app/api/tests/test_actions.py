@@ -92,3 +92,57 @@ def test_news_fetch_runs_and_completes(monkeypatch) -> None:
 
     assert _wait(lambda: _job(client, job_id)["status"] == "done")
     assert _job(client, job_id)["ok"] is True
+
+
+def test_news_fetch_refuses_a_non_positive_concurrency(monkeypatch) -> None:
+    """`Semaphore(0)` admits no worker, so the job would sit 'running' for ever."""
+    from fantabot_app.api.infrastructure.jobs import registry
+
+    # A request that slips past validation must not start a real job against the real pool.
+    monkeypatch.setattr(registry, "start", lambda *a, **k: "never")
+    client = TestClient(app)
+
+    assert client.post("/api/v1/actions/news-fetch?concurrency=0").status_code == 422
+    assert client.post("/api/v1/actions/news-fetch?flush_every=0").status_code == 422
+
+
+def test_a_second_news_fetch_attaches_to_the_running_one(monkeypatch) -> None:
+    """Two jobs would each query the whole pool through the paid agent SDK."""
+    import threading
+
+    from fantabot.adapters.persistence import database_manager, news_pool
+    from fantabot.adapters.persistence.repositories import sentiment as sentiment_mod
+    from fantabot.application import news_fetcher
+
+    @contextmanager
+    def fake_session():
+        yield None
+
+    release = threading.Event()
+    calls: list[int] = []
+
+    async def slow_fetch(players, **_kwargs):
+        calls.append(1)
+        while not release.is_set():
+            await __import__("asyncio").sleep(0.01)
+        return SimpleNamespace(failures=[])
+
+    monkeypatch.setattr(database_manager, "get_session", fake_session)
+    monkeypatch.setattr(
+        news_pool, "load_pool", lambda session, season: [SimpleNamespace(id="1", nome="X")]
+    )
+    monkeypatch.setattr(sentiment_mod, "SentimentRepository", _FakeSentimentRepo)
+    monkeypatch.setattr(news_fetcher, "fetch_all", slow_fetch)
+
+    client = TestClient(app)
+    first = client.post("/api/v1/actions/news-fetch").json()["job_id"]
+    try:
+        assert _wait(lambda: bool(calls))
+        second = client.post("/api/v1/actions/news-fetch").json()["job_id"]
+        assert second == first
+    finally:
+        release.set()
+    assert _wait(lambda: _job(client, first)["status"] == "done")
+    third = client.post("/api/v1/actions/news-fetch").json()["job_id"]
+    assert third != first
+    assert _wait(lambda: _job(client, third)["status"] == "done")

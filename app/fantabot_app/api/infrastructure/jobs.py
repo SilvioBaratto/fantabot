@@ -86,6 +86,9 @@ class JobState:
     #: system clock does, and the UI cannot render a monotonic number.
     started_monotonic: float = 0.0
     started_at: str = ""
+    #: Age is measured from here: a job that ran past the bound would otherwise be
+    #: evicted by the very sweep that follows its finish, before anyone could read it.
+    finished_monotonic: float = 0.0
     #: Start order, and the tiebreak `started_monotonic` cannot be. Windows's
     #: `time.monotonic()` has ~15.6 ms resolution, so two jobs started in one tick record
     #: the same float; sorting on that alone is a stable sort over equal keys, which
@@ -215,7 +218,7 @@ class JobRegistry:
         """
         finished = [s for s in self._jobs.values() if s.finished]
         now = self._clock()
-        stale = {s.id for s in finished if now - s.started_monotonic > self._max_age_s}
+        stale = {s.id for s in finished if now - s.finished_monotonic > self._max_age_s}
         keep = [s for s in finished if s.id not in stale]
         overflow = {s.id for s in sorted(keep, key=lambda s: s.started_monotonic)[
             : max(0, len(keep) - self._max_finished)
@@ -257,10 +260,12 @@ class JobRegistry:
             try:
                 result = _invoke(fn, reporter)
                 state.ok = _result_ok(result)
+                state.finished_monotonic = self._clock()
                 state.status = "done"
             except Exception as exc:  # noqa: BLE001 — a job failure must not crash the server
-                state.status = "error"
                 state.error = f"{type(exc).__name__}: {exc}"
+                state.finished_monotonic = self._clock()
+                state.status = "error"
             finally:
                 self._sweep()
 

@@ -259,6 +259,35 @@ def test_harvest_scan_writes_a_seed_that_did_not_exist(monkeypatch, scan_home) -
     assert (scan_home / "seed.json").exists()
 
 
+def test_a_second_scan_attaches_to_the_running_one(monkeypatch, scan_home) -> None:
+    """Two scans would each rewrite the one seed the collector re-reads every 60 s."""
+    import threading
+
+    release = threading.Event()
+    calls: list[int] = []
+
+    def slow_scan():
+        calls.append(1)
+        release.wait(5)
+        return [_config("a1", "mantra")]
+
+    _answer_scan(monkeypatch, slow_scan)
+
+    client = TestClient(app)
+    first = client.post("/api/v1/actions/harvest-scan").json()["job_id"]
+    try:
+        assert _wait(lambda: bool(calls))
+        second = client.post("/api/v1/actions/harvest-scan").json()["job_id"]
+        assert second == first
+    finally:
+        release.set()
+    assert _wait(lambda: _job(client, first)["status"] == "done")
+    third = client.post("/api/v1/actions/harvest-scan").json()["job_id"]
+    assert third != first
+    assert _wait(lambda: _job(client, third)["status"] == "done")
+    assert len(calls) == 2
+
+
 def test_auth_expired_fails_the_job_with_its_own_message(monkeypatch, scan_home) -> None:
     """A refusal, not an empty result: reporting zero would look like a quiet night."""
     from fantabot.adapters.http.harvest.client import AuthExpired
@@ -516,3 +545,27 @@ def test_the_seed_panel_carries_the_pool_the_next_collect_would_use(quick_child)
     panel = TestClient(app).get("/api/v1/harvest/seed").json()
 
     assert panel["default_pool"] == DEFAULT_POOL
+
+
+def test_harvest_scan_never_leaves_a_torn_seed(monkeypatch, scan_home) -> None:
+    """The write goes to a sibling and is renamed in: a failure midway keeps the old registry."""
+    from pathlib import Path
+
+    row = ["a1", "1", 8, 500, 2, 28, "m", "r", 30, 60, "Alpha", "classic"]
+    _write_seed(scan_home / "seed.json", [row])
+    before = (scan_home / "seed.json").read_text(encoding="utf-8")
+    _answer_scan(monkeypatch, lambda: [_config("a2", "mantra")])
+    real = Path.write_text
+
+    def torn(self, data, *args, **kwargs):
+        real(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", torn)
+
+    client = TestClient(app)
+    job_id = client.post("/api/v1/actions/harvest-scan").json()["job_id"]
+
+    assert _wait(lambda: _job(client, job_id)["status"] == "error")
+    assert (scan_home / "seed.json").read_text(encoding="utf-8") == before
+    assert [p.name for p in scan_home.iterdir()] == ["seed.json"]

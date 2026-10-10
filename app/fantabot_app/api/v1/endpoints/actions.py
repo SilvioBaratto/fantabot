@@ -9,12 +9,45 @@ is an upsert.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import os
+import threading
+from pathlib import Path
+
+from fastapi import APIRouter, Query
 
 from fantabot_app.api.infrastructure.jobs import BufferingReporter, registry
 from fantabot_app.api.v1.endpoints.jobs import JobStarted
 
 router = APIRouter()
+
+# Check-then-start must be one step, or two simultaneous POSTs both see "nothing running".
+_single_flight = threading.Lock()
+
+
+def _running_job(kind: str) -> str | None:
+    """The id of the job of *kind* still running, if any.
+
+    A double-click or a second tab would otherwise run the paid agent queries (news) or
+    the read-merge-write on the seed (harvest scan) twice at once. Callers hold
+    `_single_flight` across this and their own `registry.start`, which keeps its kind a
+    literal for the acting-jobs scan.
+    """
+    for summary in registry.list():
+        if summary.kind == kind and summary.status == "running":
+            return summary.id
+    return None
+
+
+def _write_atomically(path: Path, text: str) -> None:
+    """Replace *path* whole or not at all; `write_text` truncates first and a kill
+    mid-write would leave a registry the next scan cannot parse."""
+    tmp = path.with_name(f"{path.name}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 @router.post("/actions/lega-sync", response_model=JobStarted, tags=["actions"])
@@ -44,7 +77,11 @@ def lega_sync_action(league_id: int) -> JobStarted:
 
 
 @router.post("/actions/news-fetch", response_model=JobStarted, tags=["actions"])
-def news_fetch_action(season: str = "2026/27", flush_every: int = 5, concurrency: int = 4) -> JobStarted:
+def news_fetch_action(
+    season: str = "2026/27",
+    flush_every: int = Query(5, ge=1),
+    concurrency: int = Query(4, ge=1),
+) -> JobStarted:
     """Fetch weekly news sentiment for the season's quotati players (Claude Agent SDK)."""
 
     def job(reporter: BufferingReporter) -> object:
@@ -98,7 +135,11 @@ def news_fetch_action(season: str = "2026/27", flush_every: int = 5, concurrency
         reporter.print(f"Done: {sink.stored} readings stored, {len(result.failures)} failures.")
         return result
 
-    return JobStarted(job_id=registry.start(job, kind="news-fetch"))
+    with _single_flight:
+        running = _running_job("news-fetch")
+        if running is not None:
+            return JobStarted(job_id=running)
+        return JobStarted(job_id=registry.start(job, kind="news-fetch"))
 
 
 @router.post("/actions/harvest-scan", response_model=JobStarted, tags=["actions"])
@@ -143,9 +184,8 @@ def harvest_scan_action() -> JobStarted:
 
         merged = merge(known, scanned)
         seed.parent.mkdir(parents=True, exist_ok=True)
-        seed.write_text(
-            json.dumps(to_seed_rows(merged), ensure_ascii=False, indent=0) + "\n",
-            encoding="utf-8",
+        _write_atomically(
+            seed, json.dumps(to_seed_rows(merged), ensure_ascii=False, indent=0) + "\n"
         )
 
         formats: dict[str, int] = {}
@@ -157,4 +197,8 @@ def harvest_scan_action() -> JobStarted:
         )
         return True
 
-    return JobStarted(job_id=registry.start(job, kind="harvest-scan"))
+    with _single_flight:
+        running = _running_job("harvest-scan")
+        if running is not None:
+            return JobStarted(job_id=running)
+        return JobStarted(job_id=registry.start(job, kind="harvest-scan"))

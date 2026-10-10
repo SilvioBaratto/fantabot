@@ -76,14 +76,20 @@ def get_job(job_id: str, since: int = 0) -> JobStatus:
     job = registry.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    lines, next_index = registry.lines_since(job_id, since)
+    # Status first: the job thread appends its last lines and only then flips status, so a
+    # terminal status read before the lines can never be paired with a missing tail.
+    status, ok, error = job.status, job.ok, job.error
+    try:
+        lines, next_index = registry.lines_since(job_id, since)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found") from None
     return JobStatus(
         id=job.id,
-        status=job.status,
+        status=status,
         lines=lines,
         next_index=next_index,
-        ok=job.ok,
-        error=job.error,
+        ok=ok,
+        error=error,
         awaiting_confirm=job.awaiting_confirm,
     )
 
