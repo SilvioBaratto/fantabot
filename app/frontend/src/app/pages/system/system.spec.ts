@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { LucideIconConfig } from 'lucide-angular';
+import { vi } from 'vitest';
 
 import { environment } from '../../../environments/environment';
 import { DumpTarget } from '../../core/models/db-dump';
@@ -518,6 +519,51 @@ describe('SystemComponent', () => {
 
     const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
     expect(pane.querySelector('.dump-error')?.textContent).toContain('pg_dump exited 1');
+  });
+
+  it('a job that ended in error says so, though ok stays null', async () => {
+    const fixture = await pageWith(TARGET);
+
+    (fixture.nativeElement.querySelector('.dump-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${environment.apiUrl}db/dump`)
+      .flush({ outcome: 'started', path: TARGET.path, job_id: 'j1', detail: '' });
+    httpMock.expectOne(`${environment.apiUrl}jobs/j1`).flush({
+      id: 'j1',
+      status: 'error',
+      lines: [],
+      ok: null,
+      error: 'OSError: too many open files',
+    });
+    flushDumpTarget(httpMock);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const pane = fixture.nativeElement.querySelector('[aria-labelledby="dump-heading"]');
+    expect(pane.querySelector('.dump-error')?.textContent).toContain('too many open files');
+  });
+
+  it('leaving the page cancels the pending poll', async () => {
+    const fixture = await pageWith(TARGET);
+    vi.useFakeTimers();
+    try {
+      (fixture.nativeElement.querySelector('.dump-button') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      httpMock
+        .expectOne(`${environment.apiUrl}db/dump`)
+        .flush({ outcome: 'started', path: TARGET.path, job_id: 'j1', detail: '' });
+      httpMock
+        .expectOne(`${environment.apiUrl}jobs/j1`)
+        .flush({ id: 'j1', status: 'running', lines: [], ok: null, error: null });
+
+      expect(vi.getTimerCount()).toBe(1);
+      fixture.destroy();
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('never offers the bytes', async () => {

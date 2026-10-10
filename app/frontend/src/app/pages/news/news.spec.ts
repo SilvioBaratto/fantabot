@@ -281,6 +281,17 @@ describe('NewsComponent', () => {
       expect(fixture.componentInstance.running()).toBe(false);
     });
 
+    it('sends one POST for a second click made while the first is in flight', async () => {
+      const fixture = await ready();
+      fixture.componentInstance.runFetch();
+      fixture.componentInstance.runFetch();
+
+      const starts = httpMock.match((r) => r.url.includes('actions/news-fetch'));
+      expect(starts.length).toBe(1);
+      expect(fixture.componentInstance.running()).toBe(true);
+      starts[0].flush({ job_id: 'job-1' });
+    });
+
     it('says so when the fetch could not be started', async () => {
       const fixture = await ready();
       fixture.componentInstance.runFetch();

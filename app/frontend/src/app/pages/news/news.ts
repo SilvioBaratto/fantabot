@@ -105,15 +105,18 @@ export class NewsComponent implements OnInit {
     this.lines.set([]);
     this.jobOk.set(null);
     this.jobStatus.set('running');
+    // Set before the POST, not in `next`: the button is disabled by this signal, and a
+    // second click inside the request's round trip would otherwise start a second paid fetch.
+    this.running.set(true);
     this.actions
       .runNewsFetch(this.season())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (result) => {
-          this.running.set(true);
           this.poll(result.job_id);
         },
         error: (response: { error?: { detail?: string } }) => {
+          this.running.set(false);
           this.jobStatus.set('');
           // The server's own words when it has any: a missing key and a dead agent
           // model are different problems and only one of them is fixed in `.env`.

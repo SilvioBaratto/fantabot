@@ -693,6 +693,46 @@ describe('AccountsComponent', () => {
     }
   });
 
+  it('stops polling the old job once the operator cancels', async () => {
+    const fixture = await rendered({ has_key: true, fantalab: [], leagues: [] });
+    vi.useFakeTimers();
+    try {
+      fixture.componentInstance.onConnect();
+      httpMock.expectOne((r) => r.url.includes('auth/login')).flush({ job_id: 'J1' });
+      await vi.advanceTimersByTimeAsync(1);
+      httpMock
+        .expectOne(`${environment.apiUrl}jobs/J1`)
+        .flush({ id: 'J1', status: 'running', lines: [], ok: null, error: null });
+
+      fixture.componentInstance.cancelConnect();
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(httpMock.match(`${environment.apiUrl}jobs/J1`)).toHaveLength(0);
+    } finally {
+      fixture.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it('says so and frees the panel when a poll of the login job fails', async () => {
+    const fixture = await rendered({ has_key: true, fantalab: [], leagues: [] });
+    vi.useFakeTimers();
+    try {
+      fixture.componentInstance.onConnect();
+      httpMock.expectOne((r) => r.url.includes('auth/login')).flush({ job_id: 'J1' });
+      await vi.advanceTimersByTimeAsync(1);
+      httpMock
+        .expectOne(`${environment.apiUrl}jobs/J1`)
+        .flush('gone', { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.connecting()).toBe(false);
+      expect(fixture.componentInstance.connectError()).toBeTruthy();
+    } finally {
+      fixture.destroy();
+      vi.useRealTimers();
+    }
+  });
+
   it('picks up a login already running, so a refresh does not orphan it', async () => {
     // 3.1's named counter-example. This page held its job id in a private field and asked
     // only `jobs.get(id)`, so a refresh mid-login left the browser window open, the job

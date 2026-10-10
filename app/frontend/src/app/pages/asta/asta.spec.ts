@@ -1011,6 +1011,22 @@ describe('AstaComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('a whole number');
     });
 
+    it.each(['4567x', '45.67', '12 34', '1e3', '-5'])(
+      'does not send a truncated id for %s',
+      async (typed) => {
+        // `parseInt('4567x')` is 4567: the prefix passes `isInteger` and a different
+        // player is kept out of every plan, with nothing on screen to say the id changed.
+        const fixture = await ready();
+        fixture.componentInstance.setExcludePlayerId(typed);
+        fixture.componentInstance.setExcludeReason('left Serie A');
+        fixture.componentInstance.exclude();
+        fixture.detectChanges();
+
+        httpMock.expectNone((r) => r.method === 'POST');
+        expect(fixture.nativeElement.textContent).toContain('a whole number');
+      },
+    );
+
     it('says the API is unreachable rather than calling it a refusal', async () => {
       const fixture = await ready();
       fixture.componentInstance.setExcludePlayerId('4344');
@@ -1249,6 +1265,38 @@ describe('AstaComponent', () => {
         const second = httpMock.expectOne((r) => r.url.includes('asta/journal'));
         expect(second.request.params.get('since')).toBe('8');
         second.flush(tail({ next_index: 8 }));
+        await vi.advanceTimersByTimeAsync(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not let a tail outlive its run into the next attach', async () => {
+      // `detach` nulls the id; a new attach inside the old tail's 2 s window sets it
+      // again, and a predicate that only asks "is any run held" keeps both tails polling.
+      vi.useFakeTimers();
+      try {
+        const fixture = await ready([watching()]);
+        httpMock.expectOne((r) => r.url.includes('asta/journal')).flush(tail());
+        await vi.advanceTimersByTimeAsync(0);
+
+        const c = fixture.componentInstance as unknown as {
+          detach(): void;
+          attach(id: string, kind: 'watch' | 'bid'): void;
+        };
+        c.detach();
+        c.attach('W2', 'watch');
+        await vi.advanceTimersByTimeAsync(0);
+        const fresh = httpMock.match((r) => r.url.includes('asta/journal'));
+        expect(fresh).toHaveLength(1);
+        fresh[0].flush(tail());
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(2100);
+        const polls = httpMock.match((r) => r.url.includes('asta/journal'));
+        expect(polls).toHaveLength(1);
+        polls[0].flush(tail());
+        httpMock.match((r) => r.url.includes('jobs')).forEach((q) => q.flush({ status: 'running' }));
         await vi.advanceTimersByTimeAsync(0);
       } finally {
         vi.useRealTimers();
@@ -1981,6 +2029,25 @@ describe('AstaComponent', () => {
       await fixture.whenStable();
       return asked;
     }
+
+    it('treats a room stating 0 teams or credits as unset, as choose_shape does', async () => {
+      // FantaLab sends 0 for an unset field; taken literally it prices a 0x0 cell.
+      const fixture = await ready();
+      fixture.componentInstance.setRoomUrl('abc');
+      fixture.componentInstance.checkRoom();
+      httpMock
+        .expectOne((r) => r.url.includes('asta/room'))
+        .flush(resolved({ num_teams: 0, num_credits: 0 }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      fixture.componentInstance.loadAdvisory();
+      const asked = httpMock.expectOne((r) => r.url.includes('asta/advisory'));
+      expect(asked.request.params.get('teams')).toBe('8');
+      expect(asked.request.params.get('credits')).toBe('500');
+      expect(asked.request.params.get('budget')).toBe('500');
+      asked.flush({ outcome: 'refused', reason: 'x', targets: [], opponents: [] });
+    });
 
     it('asks with the shard, the seat and the room’s own shape', async () => {
       // Every one of these is a field `asta live` cannot read for itself, and each has a

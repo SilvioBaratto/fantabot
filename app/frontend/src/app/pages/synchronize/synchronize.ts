@@ -303,7 +303,8 @@ export class SynchronizeComponent {
 
   /** Start the supervised child — `fantabot db scrape <table> --season ...`. */
   runScrape(): void {
-    if (!this.canScrape()) return;
+    // The flag below is set by the response; the status is set before the request goes out.
+    if (!this.canScrape() || this.scrapeStatus() === 'running') return;
     this.scrapeError.set(null);
     this.scrapeLines.set([]);
     this.scrapeOk.set(null);
@@ -349,7 +350,7 @@ export class SynchronizeComponent {
 
   runLegaSync(): void {
     const id = this.leagueId();
-    if (!id || this.running()) return;
+    if (!id || this.running() || this.jobStatus() === 'running') return;
     this.startJob(this.actions.runLegaSync(id));
   }
 

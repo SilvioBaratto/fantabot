@@ -17,7 +17,7 @@ import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LucideAngularModule } from 'lucide-angular';
-import { Observable, switchMap, takeWhile, timer } from 'rxjs';
+import { Observable, Subscription, switchMap, takeWhile, timer } from 'rxjs';
 
 import { AuthService } from '../../core/api/auth.service';
 import { JobsService } from '../../core/api/jobs.service';
@@ -61,6 +61,7 @@ export class AccountsComponent implements OnInit {
   readonly captureStatus = signal('');
   readonly finishing = signal(false);
   private jobId: string | null = null;
+  private poll: Subscription | null = null;
 
   // Disconnect flow. `pendingId` holds the one key armed for removal — one key at a
   // time, so arming a second row disarms the first and two rows can never be primed at
@@ -195,6 +196,7 @@ export class AccountsComponent implements OnInit {
   cancelConnect(): void {
     // Stops watching; the job itself runs on until it captures, you close the browser,
     // or its ten-minute deadline passes. Nothing is stored by cancelling.
+    this.poll?.unsubscribe();
     this.connectKind.set(null);
     this.finishing.set(false);
     this.jobId = null;
@@ -324,35 +326,45 @@ export class AccountsComponent implements OnInit {
   private pollUntilDone(): void {
     const id = this.jobId;
     if (!id) return;
+    // A poll left running would finish later and wipe whichever capture replaced it.
+    this.poll?.unsubscribe();
     // `timer(0, …)`, not `interval(…)`: interval suppresses its first emission, so the
     // panel would show nothing at all for the first 1.5s of a wait that is now the
     // whole interaction.
-    timer(0, 1500)
+    this.poll = timer(0, 1500)
       .pipe(
         switchMap(() => this.jobs.get(id)),
         takeWhile((job) => job.status === 'running', true),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((job) => {
-        this.captureLog.set(job.lines ?? []);
-        // A login may ask more than once: confirming before the browser has written
-        // the credential is an ordinary mistake, answered with another prompt rather
-        // than a failure. So the button comes back whenever the job is asking again.
-        if (job.awaiting_confirm) this.finishing.set(false);
-        if (job.status !== 'running') {
-          this.captureStatus.set(
-            job.status === 'error'
-              ? 'Sign-in did not complete. Nothing was stored.'
-              : 'Sign-in detected. The credential was saved.',
-          );
-          if (job.status === 'error') {
-            this.connectError.set(job.error ?? 'Sign-in did not complete. Nothing was stored.');
-          }
+      .subscribe({
+        error: () => {
           this.connectKind.set(null);
           this.finishing.set(false);
           this.jobId = null;
-          this.load();
-        }
+          this.connectError.set('Lost contact with the sign-in job.');
+        },
+        next: (job) => {
+          this.captureLog.set(job.lines ?? []);
+          // A login may ask more than once: confirming before the browser has written
+          // the credential is an ordinary mistake, answered with another prompt rather
+          // than a failure. So the button comes back whenever the job is asking again.
+          if (job.awaiting_confirm) this.finishing.set(false);
+          if (job.status !== 'running') {
+            this.captureStatus.set(
+              job.status === 'error'
+                ? 'Sign-in did not complete. Nothing was stored.'
+                : 'Sign-in detected. The credential was saved.',
+            );
+            if (job.status === 'error') {
+              this.connectError.set(job.error ?? 'Sign-in did not complete. Nothing was stored.');
+            }
+            this.connectKind.set(null);
+            this.finishing.set(false);
+            this.jobId = null;
+            this.load();
+          }
+        },
       });
   }
 }

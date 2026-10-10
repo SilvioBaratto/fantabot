@@ -47,6 +47,10 @@ export class SystemComponent implements OnInit {
   private readonly dumpService = inject(DbDumpService);
   private readonly jobs = inject(JobsService);
   private readonly destroyRef = inject(DestroyRef);
+  private pollTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly clearPollOnDestroy = this.destroyRef.onDestroy(() =>
+    clearTimeout(this.pollTimer),
+  );
 
   readonly health = signal<DbHealth | null>(null);
   readonly config = signal<SystemConfig | null>(null);
@@ -141,7 +145,7 @@ export class SystemComponent implements OnInit {
       .subscribe({
         next: (job) => {
           if (job.status === 'running') {
-            setTimeout(() => this.followDump(jobId), 1500);
+            this.pollTimer = setTimeout(() => this.followDump(jobId), 1500);
             return;
           }
           this.dumping.set(false);
@@ -149,7 +153,8 @@ export class SystemComponent implements OnInit {
           // printed the sentence that says which of the two failures it was. Nothing is
           // left at the path — `run_dump` removes a dump that did not finish — so the
           // re-read below is also what proves the screen is not naming a phantom.
-          if (job.ok === false) {
+          // A job that raised before the child ran ends as `error` with `ok` still null.
+          if (job.ok === false || job.status === 'error') {
             this.dumpError.set(job.lines[job.lines.length - 1] ?? job.error ?? 'The dump failed.');
           }
           this.loadDumpTarget();

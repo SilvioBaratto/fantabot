@@ -310,16 +310,21 @@ export class LineupComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (outcome) => {
+          // Cleared before the guard for the same reason as in `runDry`: the flag is page-wide.
+          this.submitting.set(false);
+          // The submit went to `leagueId` whatever the page shows now, but `result` is not
+          // keyed by lega, so a late outcome would read as the newly selected lega's.
+          if (this.selectedId() !== leagueId) return;
           this.result.set(outcome);
           // Spent. The next arm needs its own dry run, on whatever the roster is now.
           this.dryRun.set(null);
-          this.submitting.set(false);
           this.fetchPlan(leagueId, { quiet: true });
           this.focusResult();
         },
         error: () => {
-          this.errorMsg.set('Could not reach the API.');
           this.submitting.set(false);
+          if (this.selectedId() !== leagueId) return;
+          this.errorMsg.set('Could not reach the API.');
         },
       });
   }

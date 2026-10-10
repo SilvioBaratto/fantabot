@@ -456,6 +456,26 @@ describe('LineupComponent', () => {
         });
     });
 
+    it('does not show an armed outcome under a lega selected mid-flight', async () => {
+      const fixture = await withPlan();
+      fixture.componentInstance.runDry();
+      httpMock.expectOne((r) => r.url.includes('lineup/submit')).flush(DRY);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      fixture.componentInstance.arm();
+      const armed = httpMock.expectOne((r) => r.url.includes('lineup/submit'));
+      fixture.componentInstance.select(3584692);
+      httpMock.expectOne((r) => r.url.includes('lineup/plan')).flush(NO_PLAN);
+
+      armed.flush({ ...DRY, outcome: 'submitted', submitted: true });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.result()).toBeNull();
+      expect(fixture.componentInstance.submitting()).toBe(false);
+    });
+
     it('does not offer to arm a dry run that refused', async () => {
       const fixture = await withPlan();
       fixture.componentInstance.runDry();

@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { DestroyRef, Injectable, WritableSignal, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { EMPTY, Observable, catchError, interval, map, switchMap, takeWhile } from 'rxjs';
+import { EMPTY, Observable, catchError, exhaustMap, interval, map, takeWhile } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { JobList, JobStatus, JobSummary } from '../models/job';
@@ -118,18 +118,30 @@ export class JobsService {
     const { jobId, panel, destroyRef, onFinish } = options;
     interval(POLL_MS)
       .pipe(
-        switchMap(() => this.get(jobId, panel.lines().length)),
+        // exhaustMap, not switchMap: a tick must not cancel a poll still in flight, or a
+        // response slower than POLL_MS is dropped every time and never delivers.
+        exhaustMap(() => this.get(jobId, panel.lines().length)),
         takeWhile((job) => job.status === 'running', true),
         takeUntilDestroyed(destroyRef),
       )
-      .subscribe((job) => {
-        if (job.lines.length) panel.lines.update((shown) => [...shown, ...job.lines]);
-        panel.status.set(job.status);
-        if (job.status === 'running') return;
-        panel.running.set(false);
-        panel.ok.set(job.ok);
-        if (job.error) panel.error?.set(job.error);
-        onFinish?.();
+      .subscribe({
+        next: (job) => {
+          if (job.lines.length) panel.lines.update((shown) => [...shown, ...job.lines]);
+          panel.status.set(job.status);
+          if (job.status === 'running') return;
+          panel.running.set(false);
+          panel.ok.set(job.ok);
+          if (job.error) panel.error?.set(job.error);
+          onFinish?.();
+        },
+        // A failed poll ends the stream; without this the panel reads "running" and its
+        // start control stays disabled until a reload, whatever became of the job.
+        error: () => {
+          panel.status.set('error');
+          panel.running.set(false);
+          panel.ok.set(false);
+          onFinish?.();
+        },
       });
   }
 

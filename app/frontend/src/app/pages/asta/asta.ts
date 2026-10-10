@@ -502,8 +502,10 @@ export class AstaComponent implements OnInit {
    */
   exclude(): void {
     if (this.excluding()) return;
-    const playerId = Number.parseInt(this.excludePlayerId().trim(), 10);
-    if (!Number.isInteger(playerId)) {
+    const typed = this.excludePlayerId().trim();
+    // `parseInt` would read '4567x' as 4567 and exclude a different player than the one named.
+    const playerId = /^\d+$/.test(typed) ? Number(typed) : Number.NaN;
+    if (!Number.isSafeInteger(playerId)) {
       this.excludeError.set('Enter the fantacalcio player id — a whole number.');
       return;
     }
@@ -718,14 +720,15 @@ export class AstaComponent implements OnInit {
     }
     this.advisoryLoading.set(true);
     this.advisoryError.set(null);
-    const credits = room.num_credits ?? 500;
+    // FantaLab sends 0 for an unset field; `choose_shape` treats it as unset, so this does too.
+    const credits = room.num_credits && room.num_credits > 0 ? room.num_credits : 500;
     this.asta
       .advisory({
         league: room.fantaleague_id,
         db: room.shard,
         team: room.seat_team_id,
         listone: room.asta_type,
-        teams: room.num_teams ?? 8,
+        teams: room.num_teams && room.num_teams > 0 ? room.num_teams : 8,
         credits,
         budget: credits,
       })
@@ -932,9 +935,9 @@ export class AstaComponent implements OnInit {
     interval(TAIL_MS)
       .pipe(
         startWith(0),
-        // Read per tick, never captured: this is what a stop switches off, and a
-        // predicate bound at subscribe time would keep polling a job that ended.
-        takeWhile(() => this.watchJobId() !== null),
+        // The id is read per tick, the job is bound: a stop switches this off, and a bare
+        // null check lets a tail that outlived its run resume under the next attach.
+        takeWhile(() => this.watchJobId() === jobId),
         switchMap(() =>
           this.asta.followJournal(this.liveSince(), TAIL_LIMIT).pipe(
             catchError(() => {

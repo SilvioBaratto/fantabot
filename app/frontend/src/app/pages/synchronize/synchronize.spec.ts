@@ -111,6 +111,21 @@ describe('SynchronizeComponent', () => {
     fixture.destroy();
   });
 
+  it('sends one lega sync for a double click made before the first answer', () => {
+    const fixture = TestBed.createComponent(SynchronizeComponent);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.endsWith('jobs')).flush({ jobs: [] });
+
+    fixture.componentInstance.selectLeague(4103937);
+    fixture.componentInstance.runLegaSync();
+    fixture.componentInstance.runLegaSync();
+
+    const sent = httpMock.match((r) => r.url.includes('actions/lega-sync'));
+    expect(sent.length).toBe(1);
+    sent[0].flush({ job_id: 'J1' });
+    fixture.destroy();
+  });
+
   it('does not start when no lega is selected', () => {
     const fixture = TestBed.createComponent(SynchronizeComponent);
     fixture.detectChanges();
@@ -561,6 +576,21 @@ describe('SynchronizeComponent', () => {
     fixture.detectChanges();
 
     expect(page.scrapeRunning()).toBe(true);
+    fixture.destroy();
+  });
+
+  it('sends one scrape for a double click made before the first answer', () => {
+    const fixture = bootPage();
+    const page = fixture.componentInstance;
+    page.setScrapeTable('voti');
+    page.setScrapeSeasons(['2026/27']);
+
+    page.runScrape();
+    page.runScrape();
+
+    const sent = httpMock.match(`${environment.apiUrl}db/scrape`);
+    expect(sent.length).toBe(1);
+    sent[0].flush({ job_id: 'S1' });
     fixture.destroy();
   });
 
