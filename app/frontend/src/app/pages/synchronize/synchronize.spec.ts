@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { LucideIconConfig } from 'lucide-angular';
 
+import { AuthStatus } from '../../core/models/auth-status';
 import { ScrapeTables } from '../../core/models/scrape';
 import { environment } from '../../../environments/environment';
 import { ICON_PROVIDER } from '../../icons';
@@ -81,7 +82,7 @@ describe('SynchronizeComponent', () => {
    */
   const drainScrapeTables = () => httpMock.match((r) => r.url.includes('db/scrape/tables'));
   /** The lega picker's read — the third boot request, drained for the same reason. */
-  const drainLeagues = () => httpMock.match((r) => r.url.endsWith('/lega'));
+  const drainLeagues = () => httpMock.match((r) => r.url.endsWith('/auth/status'));
 
   afterEach(() => {
     drainScrapeTables();
@@ -804,22 +805,24 @@ describe('SynchronizeComponent', () => {
       { league_id: 4103937, league_name: 'Legamiallerotaie2' },
     ].map((l) => ({
       ...l,
-      captured_at: null,
-      matchday: null,
-      budget: null,
-      roster_size: null,
-      min_roles: null,
-      max_roles: null,
-      modules: null,
-      bench_size: null,
-      team_count: 0,
+      state: 'ok',
+      expires_at: '2027-01-01T00:00:00+00:00',
+      last_verified_at: null,
+      user_id: null,
+      team_id: null,
     }));
+
+    const status = (leagues: AuthStatus['leagues']): AuthStatus => ({
+      leagues,
+      fantalab: [],
+      has_key: true,
+    });
 
     function withLeagues(answer: 'ok' | 'none' | 'error' = 'ok') {
       const fixture = idlePage();
-      const read = httpMock.expectOne((r) => r.url.endsWith('/lega'));
+      const read = httpMock.expectOne((r) => r.url.endsWith('/auth/status'));
       if (answer === 'error') read.error(new ProgressEvent('error'));
-      else read.flush(answer === 'none' ? [] : LEGHE);
+      else read.flush(status(answer === 'none' ? [] : LEGHE));
       fixture.detectChanges();
       return fixture;
     }
@@ -837,6 +840,23 @@ describe('SynchronizeComponent', () => {
       expect(root.querySelector('mat-radio-group')?.getAttribute('aria-labelledby')).toBe(
         'lega-picker-label',
       );
+    });
+
+    it('offers a lega that is connected but has never been synced', () => {
+      // A fresh install: the token is stored and no snapshot exists yet, so GET /lega,
+      // which lists only synced leghe, is empty. The picker must still offer the lega,
+      // or its first sync can never be started from this page.
+      const fixture = idlePage();
+      for (const read of httpMock.match((r) => r.url.endsWith('/lega'))) read.flush([]);
+      httpMock.expectOne((r) => r.url.endsWith('/auth/status')).flush(status([LEGHE[1]]));
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.leagueId()).toBe(4103937);
+      fixture.componentInstance.runLegaSync();
+      httpMock
+        .expectOne((r) => r.url.includes('actions/lega-sync') && r.url.includes('4103937'))
+        .flush({ job_id: 'J1' });
+      fixture.destroy();
     });
 
     it('syncs the lega that was picked, not the preselected one', () => {
