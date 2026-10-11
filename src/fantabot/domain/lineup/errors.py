@@ -88,10 +88,10 @@ class RosterIncomplete(LineupError):
     id is surfaced rather than dropped.
 
     **The role comes from the lega, not from a scrape.** `lineUpInfo` carries it — the
-    marle codes in `role` on Mantra, `fcrle` on Classic — so an empty one means the
-    platform sent this roster row without a role, or sent a code `marle`/`fcrle` does not
-    map. No local scrape can supply it, which is why the message points at the lega read
-    and not at `db scrape quotazioni`, as it did until 2026-09-24.
+    marle codes in `role` on Mantra; on Classic `fcrle`, or else a one-element `role` list —
+    so an empty one means the platform sent this roster row without a role, or sent a code
+    `marle`/`fcrle` does not map. No local scrape can supply it, which is why the message
+    points at the lega read and not at `db scrape quotazioni`, as it did until 2026-09-24.
     """
 
     def __init__(self, player_id: int) -> None:
