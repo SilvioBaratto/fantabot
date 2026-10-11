@@ -1,13 +1,23 @@
-"""Classic weekly lineup from a teamLineup response: roles come from fcrle, XI + bench build."""
+"""Classic weekly lineup from a teamLineup response: roles come from fcrle, or from the
+one-element `role` list a live row carries instead, and the XI + bench build."""
 
 from __future__ import annotations
 
+import pytest
+
 from fantabot.application.lineup_planner import inputs_from_lineup, plan_lineups
+from fantabot.domain.lineup.errors import RosterIncomplete
 from fantabot.domain.lineup.payload import build
 
 
 def _row(pid: int, fcrle: int, val: float) -> dict[str, object]:
     return {"pid": pid, "fcrle": fcrle, "indexCompare": val, "plyr": f"P{pid}"}
+
+
+def _live_row(pid: int, fcrle: int, val: float) -> dict[str, object]:
+    # the shape a live Classic `lineUpInfo` row has: no `fcrle`, and the same P/D/C/A
+    # integer as a one-element `role` list.
+    return {"pid": pid, "role": [fcrle], "indexCompare": val, "plyr": f"P{pid}"}
 
 
 def _distinct_roster() -> list[dict[str, object]]:
@@ -59,6 +69,34 @@ def test_a_classic_roster_fields_an_xi_and_a_bench_from_fcrle() -> None:
     # bench slot 0 is a reserve keeper (fcrle 1 -> role P); ids 1..3 are the keepers.
     assert best.bench[0] in (1, 2, 3)
     assert names[1] == "P1"
+
+
+def test_a_live_classic_roster_without_fcrle_fields_an_xi() -> None:
+    rows = [_live_row(int(str(r["pid"])), int(str(r["fcrle"])), 100.0 - int(str(r["pid"])))
+            for r in _distinct_roster()]
+    inputs, _ = _classic_inputs(rows, mods=["352"])
+
+    assert inputs.roles_by_id[1] == ["P"]
+    assert inputs.roles_by_id[27] == ["A"]
+    # the same roster as the fcrle-shaped pin below, so the same XI
+    assert plan_lineups(inputs)[0].starts == (1, 4, 5, 6, 13, 14, 15, 16, 17, 22, 23)
+
+
+def test_fcrle_wins_over_the_role_list_when_a_row_carries_both() -> None:
+    rows = [{"pid": 1, "fcrle": 2, "role": [3], "indexCompare": 1.0, "plyr": "P1"}]
+    inputs, _ = _classic_inputs(rows, mods=["352"])
+
+    assert inputs.roles_by_id[1] == ["D"]
+
+
+def test_a_classic_role_list_that_is_not_one_code_fails_closed() -> None:
+    # two codes cannot be a Classic role, and picking one would be a guess
+    rows = [_live_row(pid, 1, 1.0) for pid in range(1, 27)]
+    rows.append({"pid": 27, "role": [3, 4], "indexCompare": 1.0, "plyr": "P27"})
+    inputs, _ = _classic_inputs(rows, mods=["352"])
+
+    with pytest.raises(RosterIncomplete, match="27"):
+        plan_lineups(inputs)
 
 
 def test_mantra_stays_the_default_source() -> None:

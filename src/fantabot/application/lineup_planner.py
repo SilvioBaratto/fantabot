@@ -62,6 +62,22 @@ class LineupInputs:
     ruled_out_notes: Mapping[int, str] = field(default_factory=dict)
 
 
+def _classic_role_code(row: Mapping[str, Any]) -> Any | None:
+    """The P/D/C/A integer of one Classic `lineUpInfo` row, or None when it has none.
+
+    `fcrle` when the row carries it. A live Classic row does not: every row of a live Classic
+    roster lacked `fcrle` and held the same integer as a one-element `role` list, equal to
+    `/league/players`' `fcrle` for every one of them. Anything but exactly one code is None,
+    since picking one of several would be a guess.
+    """
+    if row.get("fcrle") is not None:
+        return row["fcrle"]
+    codes = row.get("role")
+    if isinstance(codes, list) and len(codes) == 1:
+        return codes[0]
+    return None
+
+
 def inputs_from_lineup(
     dto: Mapping[str, Any],
     lineup_info: Sequence[Mapping[str, Any]],
@@ -75,7 +91,8 @@ def inputs_from_lineup(
     id->name map. Pure.
 
     The roster, roles and value all come from `lineUpInfo` (`docs/leghe-api.md`): `role` is
-    the numeric marle codes, `indexCompare` is the value signal, `plyr` the name. It is the
+    the numeric marle codes on Mantra and the one P/D/C/A integer on Classic (see
+    `_classic_role_code`), `indexCompare` is the value signal, `plyr` the name. It is the
     source of record because it is what the platform itself holds for this lega at submit
     time — not because the scraped ids fail to join: `quotazioni`, `match_grain` and
     `players` use the same player id (see `domain/lineup/value.py`).
@@ -103,12 +120,12 @@ def inputs_from_lineup(
             pairings[pid] = pairing
         if (ruling := ruled_out_from_row(row)) is not None:
             ruled_out[pid] = ruling
-        # Classic reads the single macro role from `fcrle` ({1:P,2:D,3:C,4:A}); Mantra reads the
-        # granular marle codes. A Classic row without `fcrle` yields no role and fails closed at
-        # assemble_roster rather than being read on the wrong scale.
+        # Classic reads the single macro role on the {1:P,2:D,3:C,4:A} scale; Mantra reads the
+        # granular marle codes. A Classic row with no readable code yields no role and fails
+        # closed at assemble_roster rather than being read on the wrong scale.
         if fmt == "classic":
-            fcrle = row.get("fcrle")
-            roles_by_id[pid] = [role_from_fcrle(fcrle)] if fcrle is not None else []
+            code = _classic_role_code(row)
+            roles_by_id[pid] = [role_from_fcrle(code)] if code is not None else []
         else:
             roles_by_id[pid] = roles_from_marle(row.get("role") or [])
         value_by_id[pid] = float(row.get("indexCompare") or 0.0)
