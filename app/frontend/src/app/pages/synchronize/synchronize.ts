@@ -19,11 +19,11 @@ import { LucideAngularModule } from 'lucide-angular';
 import { EMPTY, Observable, catchError } from 'rxjs';
 
 import { ActionsService } from '../../core/api/actions.service';
+import { AuthService } from '../../core/api/auth.service';
 import { JobPanel, JobsService } from '../../core/api/jobs.service';
-import { LegaService } from '../../core/api/lega.service';
 import { ScrapeService } from '../../core/api/scrape.service';
 import { TeamsService } from '../../core/api/teams.service';
-import { LegaOverview } from '../../core/models/lega';
+import { LeagueTokenStatus } from '../../core/models/auth-status';
 import { ScrapeTable } from '../../core/models/scrape';
 import { BackfillResult, TeamSnapshotResult } from '../../core/models/teams';
 import { IconName } from '../../icons';
@@ -107,20 +107,23 @@ const UNREACHABLE_BACKFILL: BackfillResult = {
 })
 export class SynchronizeComponent {
   private readonly actions = inject(ActionsService);
+  private readonly auth = inject(AuthService);
   private readonly jobs = inject(JobsService);
-  private readonly lega = inject(LegaService);
   private readonly scrape = inject(ScrapeService);
   private readonly teams = inject(TeamsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly leagueId = signal<number | null>(null);
   /**
-   * Every lega a sync can target, by name. The id used to be typed into a number field,
-   * although `GET /lega` already lists every connected lega: a mistyped digit syncs — and,
-   * for a team snapshot, appends a row under — a lega nobody chose, and a number field's
-   * spinner arrows change the value too.
+   * Every lega a sync can target, by name. The id used to be typed into a number field: a
+   * mistyped digit syncs — and, for a team snapshot, appends a row under — a lega nobody
+   * chose, and a number field's spinner arrows change the value too.
+   *
+   * Read from `GET /auth/status`, the leghe with a stored token, and not from `GET /lega`,
+   * which lists only leghe that already have a snapshot: a lega connected but never synced
+   * was missing from the picker, so a fresh install could not run its first sync.
    */
-  readonly leagues = signal<LegaOverview[]>([]);
+  readonly leagues = signal<LeagueTokenStatus[]>([]);
   readonly leaguesLoaded = signal(false);
   readonly leaguesUnreadable = signal(false);
   readonly running = signal(false);
@@ -243,11 +246,11 @@ export class SynchronizeComponent {
    * "no lega connected", which would send the operator to Accounts for nothing.
    */
   private readLeagues(): void {
-    this.lega
-      .getLeagues()
+    this.auth
+      .getStatus()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (leagues) => {
+        next: ({ leagues }) => {
           this.leagues.set(leagues);
           this.leaguesLoaded.set(true);
           if (this.leagueId() === null && leagues.length) {
