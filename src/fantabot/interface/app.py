@@ -828,7 +828,10 @@ def db_dump() -> None:
     try:
         wrote = run_dump(out, settings.fantabot_database_url)
     except (PgDumpMissing, PgDumpFailed) as failed:
-        console.print(f"[red]{failed}[/red]")
+        # Escaped, because a failure carries pg_dump's own stderr and Rich reads `[...]` in it as
+        # markup. Soft-wrapped, because that text holds socket paths and an operator copies them
+        # off this screen: a hard wrap at 80 columns splits the token.
+        console.print(f"[red]{escape(str(failed))}[/red]", soft_wrap=True)
         raise typer.Exit(code=1) from None
 
     console.print(f"wrote {wrote.path} ({wrote.size_bytes / 1_048_576:.0f} MB)")

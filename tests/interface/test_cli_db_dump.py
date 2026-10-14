@@ -148,6 +148,42 @@ def test_a_failed_dump_exits_1(dump: dict[str, Any], failure: str) -> None:
     assert "pg_dump is not on PATH" in result.output
 
 
+def test_pg_dumps_own_words_are_printed_literally_not_read_as_markup(
+    dump: dict[str, Any],
+) -> None:
+    """A failure carries `pg_dump`'s stderr, and stderr is arbitrary text.
+
+    Rich reads `[...]` in a printed string as markup, so a stray closing tag in the
+    message would raise `MarkupError` out of the very line that reports the failure, and
+    the operator would see a traceback instead of the reason the dump failed.
+    """
+    from fantabot.application import db_dump as module
+
+    dump["fail"] = module.PgDumpFailed("pg_dump exited 1: bad option [/not-a-style] [bold]x")
+
+    result = runner.invoke(app, ["db", "dump"])
+
+    assert result.exit_code == 1
+    assert "[/not-a-style] [bold]x" in result.output
+    assert "MarkupError" not in result.output
+
+
+def test_a_long_unbroken_token_in_the_failure_is_not_folded_at_the_terminal_width(
+    dump: dict[str, Any],
+) -> None:
+    """A socket path in pg_dump's stderr is something an operator copies off the screen. A
+    hard wrap at the console's width would hand them fragments, so the token is longer than
+    any width the suite's console is given."""
+    from fantabot.application import db_dump as module
+
+    socket = "/not-a-real-place/" + "x" * 300 + "/.s.PGSQL.5432"
+    dump["fail"] = module.PgDumpFailed(f"pg_dump exited 1: connection to {socket} failed")
+
+    result = runner.invoke(app, ["db", "dump"])
+
+    assert socket in result.output
+
+
 def test_a_written_dump_reports_its_size_and_how_to_restore(dump: dict[str, Any]) -> None:
     result = runner.invoke(app, ["db", "dump"])
 

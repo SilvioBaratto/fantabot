@@ -68,6 +68,12 @@ python_version = "3.11"
 strict = true
 files = ["src"]
 
+# The server wheel belongs to the app, not to this package: `application/db_dump.py` imports
+# it lazily to find the bundled `pg_dump`, and the library's CI environment does not have it.
+[[tool.mypy.overrides]]
+module = ["pixeltable_pgserver", "pixeltable_pgserver.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 # This repository holds two suites and they are not one run: `tests/` is the library's and
