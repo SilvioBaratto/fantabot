@@ -639,14 +639,21 @@ def test_the_record_is_stamped_by_the_lineup_clock(
 # --- plan --model projection: the preview, and only the preview ------------
 
 
-def _projection_report() -> Any:
-    """What `projection_for_league` returns, canned: the heavy read is its own test's."""
+def _projection_report(*, submittable: bool = False) -> Any:
+    """What `projection_for_league` returns, canned: the heavy read is its own test's.
+
+    An evaluated plan ranked on points, stale and on an assumed sub mode by default, which
+    is the live state between a round's kickoff and its voti. `submittable` makes it one
+    `projected_from(for_submit=True)` keeps: fresh voti and a sub mode the operator set.
+    """
     from fantabot.application.lineup_projection import (
         PlayerLine,
         ProjectionOutcome,
         ProjectionReport,
     )
+    from fantabot.domain.lineup.choose import ChosenPlan
     from fantabot.domain.lineup.freshness import Freshness
+    from fantabot.domain.lineup.simulate import Evaluation
 
     plan = PlannedLineup(
         module="343", starts=tuple(DTO["starts"]), bench=tuple(DTO["bench"]),
@@ -663,10 +670,25 @@ def _projection_report() -> Any:
         projection=ProjectionOutcome(
             plans=(plan,),
             lines=lines,
-            freshness=Freshness(False, ("no voti refresh recorded after g2 was calculated",), ()),
+            freshness=(
+                Freshness(True, (), ())
+                if submittable
+                else Freshness(False, ("no voti refresh recorded after g2 was calculated",), ())
+            ),
             replacement=5.5,
             as_of=date(2026, 9, 22),
             seasons=("2022/23", "2023/24", "2024/25", "2025/26", "2026/27"),
+            chosen=ChosenPlan(
+                module="343", starts=plan.starts, bench=plan.bench,
+                evaluation=Evaluation(
+                    points=1.5, win=0.4, drawn=0.3, loss=0.3, fantapunti=70.0,
+                    fantapunti_sd=5.0, goals=1.0, malus=0.0, short=0.0, patterns=3,
+                ),
+                objective="points", candidates=1, evaluated=1, draws=500, cuts=(), benched=0,
+            ),
+            opponent="12 calculated round(s)",
+            sub_mode="easy",
+            sub_mode_assumed=not submittable,
         ),
         names={6482: "Sommer", 4179: "Lautaro"},
         competition=311681,
@@ -704,7 +726,9 @@ def test_plan_projection_names_the_model_the_setting_submits(
 
     _fakes_plan(monkeypatch)
     monkeypatch.setattr(
-        lineup_projection, "projection_for_league", lambda *a, **k: _projection_report()
+        lineup_projection,
+        "projection_for_league",
+        lambda *a, **k: _projection_report(submittable=True),
     )
     monkeypatch.setenv("FANTABOT_LINEUP_MODEL", setting)
 
@@ -714,6 +738,32 @@ def test_plan_projection_names_the_model_the_setting_submits(
     flat = " ".join(result.output.split())
     assert f"{fielded} (what a submit would field today)" in flat
     assert f"{shown} (what a submit would field today)" not in flat
+
+
+def test_plan_projection_names_indexcompare_when_the_submit_would_fall_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The setting says projection, but a stale report is one the submit refuses to field.
+
+    The hourly job falls back to `indexCompare` then, so naming the projection's XI as the
+    one it would POST is the claim this screen exists to get right. The reason is printed,
+    because the operator has to tell "set to indexcompare" from "projection, refused".
+    """
+    from fantabot.application import lineup_projection
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection, "projection_for_league", lambda *a, **k: _projection_report()
+    )
+    monkeypatch.setenv("FANTABOT_LINEUP_MODEL", "projection")
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 0, result.output
+    flat = " ".join(result.output.split())
+    assert "indexcompare (what a submit would field today)" in flat
+    assert "projection (what a submit would field today)" not in flat
+    assert "a submit would fall back to indexcompare: stale" in flat
 
 
 def test_plan_projection_says_so_when_the_history_cannot_carry_it(

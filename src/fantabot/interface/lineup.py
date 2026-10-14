@@ -312,7 +312,7 @@ def _plan_projection(league_id: int, competition: int) -> None:
 
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.tokens.store import TokenStore
-    from fantabot.application.lineup_projection import projection_for_league
+    from fantabot.application.lineup_projection import projected_from, projection_for_league
     from fantabot.config import LINEUP_MODEL_VAR, LINEUP_SUB_MODE_VAR, live_setting, settings
     from fantabot.domain.lineup.errors import LineupError
     from fantabot.domain.lineup.substitution import parse_sub_mode
@@ -349,8 +349,16 @@ def _plan_projection(league_id: int, competition: int) -> None:
     for line in format_freshness(outcome.freshness):
         console.print(line)
     # The setting, not `--model`: the flag only chooses this view, and the line has to say
-    # which XI the hourly job would actually POST.
+    # which XI the hourly job would actually POST. A projection the submit would refuse
+    # (stale voti, an assumed sub mode, no opponent) is not that XI: the job falls back to
+    # indexcompare, so the verdict is `projected_from`'s, the one the submit path asks.
     submits = resolve_model(live_setting(LINEUP_MODEL_VAR))
+    if submits == PROJECTION:
+        refused = projected_from(report, for_submit=True)
+        if not refused.plans:
+            submits = INDEXCOMPARE
+            reason = refused.fallback or "the chain produced no plan"
+            console.print(f"a submit would fall back to {INDEXCOMPARE}: {escape(reason)}")
     fielded = " (what a submit would field today)"
     console.print(f"\n[bold]{INDEXCOMPARE}[/bold]{fielded if submits == INDEXCOMPARE else ''}")
     for line in format_plan(report.baseline[0], report.names):
