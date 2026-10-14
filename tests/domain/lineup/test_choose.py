@@ -21,11 +21,13 @@ has to be exact.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 import numpy as np
 import pytest
 from test_simulate import RULES
 
+from fantabot.domain.lineup.bench import order_bench
 from fantabot.domain.lineup.choose import (
     MAX_DRAWS,
     MIN_DRAWS,
@@ -84,6 +86,38 @@ def _inputs(
         sigma_tilde=dict.fromkeys(EVERYONE, sigma),
         macro=MACRO,
         club=dict.fromkeys(EVERYONE, None),
+        dependence=DEPENDENCE,
+        rules=RULES,
+        bench_size=bench_size,
+        value=value,
+        max_subs=5,
+    )
+
+
+def _wide_inputs(*, bench_size: int) -> PlanInputs:
+    """The 343 board with four more reserves: 22 men, eleven of them reserves, three keepers.
+
+    Wide enough for a bench of eleven, which the lega's twelve-man bench needs a roster this
+    size to reach. Everyone is identical but for role, so nothing here rewards a bench search.
+    """
+    extra = {
+        201: (frozenset({"POR"}), "GK"),
+        202: (frozenset({"E"}), "DEF"),
+        203: (frozenset({"DC"}), "DEF"),
+        204: (frozenset({"C"}), "MID"),
+    }
+    roles = ROLES | {pid: spec[0] for pid, spec in extra.items()}
+    macro = MACRO | {pid: spec[1] for pid, spec in extra.items()}
+    everyone = tuple(roles)
+    value = dict.fromkeys(everyone, 6.0)
+    return PlanInputs(
+        roster=tuple(RosterPlayer(id=pid, roles=roles[pid], fvmma=6.0) for pid in everyone),
+        modules=("343",),
+        mu=value,
+        p=dict.fromkeys(everyone, 1.0),
+        sigma_tilde=dict.fromkeys(everyone, 0.0),
+        macro=macro,
+        club=dict.fromkeys(everyone, None),
         dependence=DEPENDENCE,
         rules=RULES,
         bench_size=bench_size,
@@ -163,7 +197,10 @@ class TestTheBudget:
 
     def test_a_clamp_is_recorded_rather_than_swallowed(self) -> None:
         """"The model wanted 20,000 draws and got 500" is the first thing to know when a
-        plan looks noisy."""
+        plan looks noisy. The floor is recorded and the ceiling is not: a plan raised to the
+        floor is noisier than the budget wanted, while 20,000 is where more draws stop
+        moving the argmax, so a plan held to it lost nothing and a cut line would only be
+        noise on every run."""
         low, cut_low = draws_for(SMALL, candidates=10_000, bench_units=100)
         high, cut_high = draws_for(
             Budget(k=1, lambdas=(0.0,), node_budget=1, m=0, work=10**9), candidates=1,
@@ -171,7 +208,39 @@ class TestTheBudget:
         )
 
         assert (low, high) == (MIN_DRAWS, MAX_DRAWS)
-        assert cut_low.startswith("draws ") and cut_high.startswith("draws ")
+        assert cut_low.startswith("draws ")
+        assert cut_high == ""
+
+    def test_a_plan_over_the_ceiling_carries_no_budget_cut(self) -> None:
+        roomy = replace(SMALL, search_max_bench=4, work=10**6)
+
+        plan = _plan(budget=roomy)
+
+        assert plan.draws == MAX_DRAWS
+        assert plan.cuts == ()
+
+    def test_a_skipped_search_gives_its_units_to_the_final_round(self) -> None:
+        """Same budget, same roster: the search is the only difference, and the draws it
+        would have spent go to the final instead. Neither side may be at a clamp, or the
+        comparison would be between two ceilings."""
+        skipping = replace(SMALL, search_max_bench=4)
+
+        searched = _plan()
+        skipped = _plan(budget=skipping)
+        expected, cut = draws_for(skipping, candidates=skipped.candidates, bench_units=0)
+
+        assert MIN_DRAWS < searched.draws < skipped.draws < MAX_DRAWS
+        assert skipped.draws == expected
+        assert cut == ""
+
+    def test_the_default_ceiling_is_ten(self) -> None:
+        """Pinned through behaviour rather than the constant: ten searches, eleven does not.
+        The lega's own bench is twelve, which is the case the ceiling exists to leave on the
+        value order."""
+        tiny = Budget(k=1, lambdas=(0.0,), node_budget=200, m=1, work=3_000)
+
+        assert _plan(_wide_inputs(bench_size=10), budget=tiny).benched == 1
+        assert _plan(_wide_inputs(bench_size=11), budget=tiny).benched == 0
 
     def test_a_plan_records_the_draws_it_took(self) -> None:
         plan = _plan()
@@ -268,6 +337,24 @@ class TestTheBenchSearch:
         plan = _plan()
 
         assert 1 <= plan.benched <= SMALL.m
+
+    def test_a_bench_above_the_search_ceiling_keeps_the_value_order(self) -> None:
+        """Past the ceiling the search overfits its own screen draws, so the bench that ships
+        is `order_bench`'s and the plan says no candidate was searched."""
+        inputs = _inputs(bench_size=5)
+
+        plan = _plan(inputs, budget=replace(SMALL, search_max_bench=4))
+
+        assert plan.benched == 0
+        assert plan.bench == tuple(
+            order_bench(inputs.roster, plan.starts, value=inputs.value, size=5)
+        )
+
+    def test_a_bench_at_the_ceiling_is_searched(self) -> None:
+        """The boundary is inclusive: a ceiling of five searches a bench of five."""
+        plan = _plan(_inputs(bench_size=5), budget=replace(SMALL, search_max_bench=5))
+
+        assert plan.benched >= 1
 
     def test_a_candidate_whose_bench_cannot_be_filled_is_dropped(self) -> None:
         """A module this roster cannot bench is one the platform would refuse, so it is

@@ -82,10 +82,17 @@ def _engine_for(bench: Sequence[int]) -> SubstitutionEngine:
     )
 
 
-def _order(bank: DrawBank, *, fallback: Sequence[int], size: int = 3) -> BenchOrder:
+def _order(
+    bank: DrawBank,
+    *,
+    fallback: Sequence[int],
+    size: int = 3,
+    reserves: Sequence[int] = RESERVES,
+    depth: int | None = None,
+) -> BenchOrder:
     return order_bench_mc(
-        bank, engine_for=_engine_for, reserves=RESERVES, roles=ROLES, size=size,
-        rules=RULES, fallback=fallback,
+        bank, engine_for=_engine_for, reserves=reserves, roles=ROLES, size=size,
+        rules=RULES, fallback=fallback, depth=depth,
     )
 
 
@@ -116,6 +123,29 @@ class TestTheKeeperTakesSlotZero:
                 _bank(), engine_for=_engine_for, reserves=(1, 4), roles=ROLES, size=3,
                 rules=RULES, fallback=(1, 4, 3),
             )
+
+
+class TestTheUnsearchedTail:
+    def test_a_second_reserve_keeper_never_fills_the_unsearched_tail(self) -> None:
+        """The search picks keeper 7 for slot 0, which leaves the value order's own keeper (1)
+        at the head of the fallback. Taking "the best of what is left" in the tail then seats
+        him as a second keeper at the first unsearched position — a man who comes on only
+        when a keeper is already on."""
+        bank = _bank(mu={7: 9.0}, absent=(0,))
+
+        order = _order(bank, fallback=(1, 4, 3, 2, 6), size=5, depth=1)
+
+        assert order.bench[0] == 7
+        assert sum("POR" in ROLES[pid] for pid in order.bench) == 1
+
+    def test_the_tail_takes_the_second_keeper_when_nobody_else_is_left(self) -> None:
+        """Excluding him is a preference, not a rule: a bench that cannot be filled any other
+        way is still a bench, and refusing it would drop a module the platform accepts."""
+        bank = _bank(mu={7: 9.0}, absent=(0,))
+
+        order = _order(bank, fallback=(1, 4, 3), reserves=(1, 7, 4), depth=1)
+
+        assert order.bench == (7, 4, 1)
 
 
 class TestNeverWorse:

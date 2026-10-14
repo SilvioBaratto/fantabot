@@ -1,4 +1,4 @@
-"""The bench, ordered by what it is actually worth. Pure, seeded, and never worse.
+"""The bench, ordered by what it is actually worth. Pure, seeded, and worth running short.
 
 `bench.py` ranks the reserves by the same value as the starting XI — best sub first — which
 is the right answer when every vacancy is interchangeable and the wrong one when it is not:
@@ -24,10 +24,13 @@ which at four candidates was 79% of the plan's work and left the final round on 
 
 Both are the budget's to set, and both are reported as the work they cost.
 
-**Never worse than `bench.py`, by construction rather than by hope.** A greedy is a
-heuristic and this one has no optimality argument, so its answer is evaluated against
-`order_bench`'s under the same draws and the better of the two is returned. One extra
-evaluation buys a guarantee, and it is what makes the claim testable rather than asserted.
+**Never worse than `bench.py` on its own draws.** A greedy is a heuristic and this one has no
+optimality argument, so its answer is evaluated against `order_bench`'s under the same draws
+and the better of the two is returned. ⚠ The guarantee is **in-sample only**: the greedy and
+the comparison read the same draws, so what they certify is that the search did not lose on
+the data it was fitted to. Out of sample, at a bench of twelve, the searched bench lost to
+the value order in 132 of 150 differing cases (mean -0.0038 E[pts]). That is an overfit, and
+it is why `choose.py` calls this only up to `SEARCH_MAX_BENCH` (SPEC A28).
 
 **Slot 0 is the reserve keeper.** The platform settles the keeper before any combination is
 searched (`rules/sistema-mantra.md`, §Goalkeeper substitution), and he spends one of the
@@ -57,6 +60,20 @@ if TYPE_CHECKING:
 #: Builds the engine for one candidate bench. The caller binds the module, the XI, the
 #: roles, the mode and the substitution cap; only the bench varies here.
 EngineFor = Callable[[Sequence[int]], "SubstitutionEngine"]
+
+#: The largest bench the search is worth running on. Measured: the gain of the searched bench
+#: over `bench.py`'s value order on the same XI, on fresh draws the search never saw, by bench
+#: size (live world | golden world, E[pts]):
+#:
+#:     bench       3        5        8        10       11       12
+#:     live      +0.35    +0.091   +0.019   +0.0043  +0.0005  -0.0017
+#:     golden    +0.18    +0.157   +0.049   +0.037   -0.0003  -0.0019
+#:
+#: Short benches have a few positions that matter and the search finds them; a long one has
+#: so many near-equal orders that the 400-draw screen picks the one its own noise favours.
+#: The ceiling rests on two worlds, and the cliff between 10 and 11 in the golden one is a
+#: measurement, not a derivation (SPEC A28).
+SEARCH_MAX_BENCH = 10
 
 
 def objective(evaluation: Evaluation) -> float:
@@ -91,7 +108,7 @@ def order_bench_mc(
     depth: int | None = None,
     width: int | None = None,
 ) -> BenchOrder:
-    """The best bench of `size` from `reserves`, never worse than `fallback`.
+    """The best bench of `size` from `reserves`, never worse than `fallback` on `bank`.
 
     `fallback` is `bench.order_bench`'s answer for this XI — passed in rather than rebuilt,
     because it is a function of the value map the caller already has and a second derivation
@@ -133,6 +150,7 @@ def order_bench_mc(
         ]
         return max(scored)[3]
 
+    keeper_ids = set(keepers)
     chosen = [best_of([], keepers)] if searched else [by_rank(keepers)[0]]
     while len(chosen) < size:
         remaining = [pid for pid in pool if pid not in chosen]
@@ -141,7 +159,13 @@ def order_bench_mc(
         else:
             # Past the searched positions, `bench.py`'s order stands: these men come on only
             # when four have already been replaced, which `ssnum` usually forbids outright.
-            chosen.append(by_rank(remaining)[0])
+            # A keeper is skipped unless nobody else is left. The search can pick a slot-0
+            # keeper other than the value order's, which leaves the value order's own at the
+            # head of `remaining` and seats him here as a second reserve keeper (70 of 70
+            # cases, always the first tail position). A second keeper comes on in 0.06-0.27%
+            # of draws and is worth at most +0.0004 E[pts].
+            outfield = [pid for pid in remaining if pid not in keeper_ids]
+            chosen.append(by_rank(outfield or remaining)[0])
 
     greedy_value, greedy = score(chosen)
     baseline_value, baseline = score(fallback)

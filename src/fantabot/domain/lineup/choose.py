@@ -15,9 +15,10 @@ many modules the lega allows and how big the roster is.
 
 **The draw count falls out of the budget, it is not chosen.** With `C` candidates and `M`
 of them getting a bench search worth `W` evaluations each, one plan costs
-`(C + M*W) * n` units, so `n` is that division — clamped, and a clamp that bit is recorded
-in `cuts` rather than swallowed, because "the model wanted 20,000 draws and got 500" is the
-first thing to know when a plan looks noisy.
+`(C + M*W) * n` units, so `n` is that division — clamped, and a clamp that left the plan
+noisier than the budget wanted is recorded in `cuts` rather than swallowed, because "the model
+wanted 20,000 draws and got 500" is the first thing to know when a plan looks noisy. `M*W` is
+zero when the bench search is skipped (`Budget.search_max_bench`), and its units go to `n`.
 
 **A stopped run is a plan, not an exception.** `should_stop` is the seam the wall clock
 reaches this module through (T31), and the caller's alternative to a half-searched plan is
@@ -38,7 +39,12 @@ from functools import partial
 from typing import TYPE_CHECKING, Literal
 
 from fantabot.domain.lineup.bench import order_bench
-from fantabot.domain.lineup.bench_mc import objective, order_bench_mc, work_units
+from fantabot.domain.lineup.bench_mc import (
+    SEARCH_MAX_BENCH,
+    objective,
+    order_bench_mc,
+    work_units,
+)
 from fantabot.domain.lineup.candidates import (
     DEFAULT_K,
     DEFAULT_LAMBDAS,
@@ -101,6 +107,10 @@ class Budget:
     #: `ssnum` at 5 and the keeper spending one, at most four outfielders ever come on.
     bench_depth: int = 6
     bench_width: int = 8
+    #: The largest bench the Monte Carlo search runs on. Above it `order_bench`'s value order
+    #: stands and the units the search would have cost go to the final round. A field of the
+    #: budget so that a test, or the gate, can pin it and a small world can cross it.
+    search_max_bench: int = SEARCH_MAX_BENCH
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,16 +226,19 @@ def draws_for(
 
     Evaluating all 177 candidates of a real eleven-module board at 20,000 draws was never
     affordable in Python — measured, 0.34 ms a unit — and a budget that pretended otherwise
-    spent its whole wall clock on the screen and reported "stopped at 4/177". The clamp is
-    reported rather than applied silently.
+    spent its whole wall clock on the screen and reported "stopped at 4/177". A clamp that
+    **raised** the draws to the floor is reported rather than applied silently: the plan is
+    noisier than the budget wanted. One that held them to the ceiling is not, because 20,000
+    is where more draws stop moving the argmax and, once the bench search is skipped,
+    every plan on a long bench lands there — a permanent cut line says nothing.
     """
     spent = candidates * screen + budget.m * bench_units * screen
     left = budget.work - spent
     wanted = left // max(budget.m, 1)
     draws = max(MIN_DRAWS, min(MAX_DRAWS, wanted))
-    if draws == wanted:
-        return draws, ""
-    return draws, f"draws {wanted} -> {draws}"
+    if draws > wanted:
+        return draws, f"draws {wanted} -> {draws}"
+    return draws, ""
 
 
 def choose_plan(
@@ -259,12 +272,17 @@ def choose_plan(
     if not shortlist:
         raise NoFieldableModule(inputs.modules)
 
+    searching = inputs.bench_size <= plan_budget.search_max_bench
     reserve_pool = max(len(inputs.roster) - 11, 0)
-    bench_units = work_units(
-        pool=reserve_pool,
-        size=inputs.bench_size,
-        depth=plan_budget.bench_depth,
-        width=plan_budget.bench_width,
+    bench_units = (
+        work_units(
+            pool=reserve_pool,
+            size=inputs.bench_size,
+            depth=plan_budget.bench_depth,
+            width=plan_budget.bench_width,
+        )
+        if searching
+        else 0
     )
     draws, cut = draws_for(plan_budget, candidates=len(shortlist), bench_units=bench_units)
     if cut:
@@ -327,35 +345,38 @@ def choose_plan(
     survivors = scored[: plan_budget.m]
 
     # -- the bench search, on the same prefix ------------------------------------------
+    # Above the ceiling the search overfits the very draws it is scored on (`SEARCH_MAX_BENCH`),
+    # so the value-ordered bench from the screen goes to the final as it is.
     benched = 0
-    for index, (_value, negative, candidate, bench, _result) in enumerate(list(survivors)):
-        if should_stop is not None and should_stop():
-            stopped = True
-            cuts.append(f"bench stopped at {index}/{len(survivors)}")
-            break
-        reserves = tuple(
-            player.id for player in inputs.roster if player.id not in set(candidate.starts)
-        )
-        engine_for = partial(_engine_for_bench, inputs, candidate, sub_mode)
-        try:
-            order = order_bench_mc(
-                screen,
-                engine_for=engine_for,
-                reserves=reserves,
-                roles=roles,
-                size=inputs.bench_size,
-                rules=inputs.rules,
-                fallback=bench,
-                opponent_goals=goals,
-                depth=plan_budget.bench_depth,
-                width=plan_budget.bench_width,
+    if searching:
+        for index, (_value, negative, candidate, bench, _result) in enumerate(list(survivors)):
+            if should_stop is not None and should_stop():
+                stopped = True
+                cuts.append(f"bench stopped at {index}/{len(survivors)}")
+                break
+            reserves = tuple(
+                player.id for player in inputs.roster if player.id not in set(candidate.starts)
             )
-        except BenchIncomplete:  # pragma: no cover - `order_bench` already refused these
-            continue
-        benched += 1
-        survivors[index] = (
-            objective(order.evaluation), negative, candidate, order.bench, order.evaluation
-        )
+            engine_for = partial(_engine_for_bench, inputs, candidate, sub_mode)
+            try:
+                order = order_bench_mc(
+                    screen,
+                    engine_for=engine_for,
+                    reserves=reserves,
+                    roles=roles,
+                    size=inputs.bench_size,
+                    rules=inputs.rules,
+                    fallback=bench,
+                    opponent_goals=goals,
+                    depth=plan_budget.bench_depth,
+                    width=plan_budget.bench_width,
+                )
+            except BenchIncomplete:  # pragma: no cover - `order_bench` already refused these
+                continue
+            benched += 1
+            survivors[index] = (
+                objective(order.evaluation), negative, candidate, order.bench, order.evaluation
+            )
 
     # -- the final: the survivors, on the whole bank -----------------------------------
     final: list[tuple[float, int, Candidate, tuple[int, ...], Evaluation]] = []

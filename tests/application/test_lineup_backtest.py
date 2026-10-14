@@ -468,6 +468,12 @@ class TestTheSweepAndTheGate:
         assert f"bench {SETTINGS.bench_size}" in text
         assert "not the lega's 12" in text
 
+    def test_the_gate_budget_still_searches_the_bench(self) -> None:
+        """The bench search is worth 0.12-0.35 E[pts] at a three-man bench, more than the
+        gate's whole +0.05 edge over its baseline arm. A ceiling that silenced it here would
+        erase the model's measured advantage and no other test would notice."""
+        assert BACKTEST_BUDGET.search_max_bench >= GATE_BENCH
+
     def test_a_bench_other_than_the_gates_own_is_named_as_such(self) -> None:
         """`GATE_BENCH` is 3; a run at any other bench is a run whose result is about
         something else, and it says so rather than reading as the gate."""
