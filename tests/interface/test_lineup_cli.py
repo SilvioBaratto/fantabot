@@ -729,7 +729,8 @@ def test_plan_projection_prints_who_the_platform_ruled_out(
     from fantabot.application import lineup_projection
 
     note = (
-        "ruled out by the platform (lineUpInfo status 2), p = 0: "
+        "ruled out by the platform (lineUpInfo status 2, observed to mean out, not documented), "
+        "p = 0 and kept out of the XI and the bench: "
         "Leysen F. (lesione crociato anteriore del ginocchio sinistro, ipotesi rientro da aprile)"
     )
     _fakes_plan(monkeypatch)
@@ -768,7 +769,10 @@ def test_a_ruled_out_note_with_square_brackets_is_not_read_as_markup(
     """The reason is the platform's free text; Rich would take `[bold]` for a style tag."""
     from fantabot.application import lineup_projection
 
-    note = "ruled out by the platform (lineUpInfo status 2), p = 0: X ([bold]rientro[/bold])"
+    note = (
+        "ruled out by the platform (lineUpInfo status 2, observed to mean out, not documented), "
+        "p = 0 and kept out of the XI and the bench: X ([bold]rientro[/bold])"
+    )
     _fakes_plan(monkeypatch)
     monkeypatch.setattr(
         lineup_projection, "projection_for_league", lambda *a, **k: _with_ruled_out_note(note)

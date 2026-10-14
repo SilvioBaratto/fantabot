@@ -208,6 +208,16 @@ class TestWhoThePlatformRulesOut:
 
         assert inputs.ruled_out_notes[6482] == "6482 (rientro a marzo)"
 
+    def test_a_control_character_in_the_reason_does_not_reach_the_note(self) -> None:
+        """The note is printed on a terminal and written to the JSONL record."""
+        inputs = _from(
+            [{"pid": 6482, "role": [6], "plyr": "Mandas", "status": 2, "descr": "a\x1b[2J\x00b"}]
+        )
+
+        note = inputs.ruled_out_notes[6482]
+        assert note == "Mandas (a[2Jb)"
+        assert note.isprintable()
+
     def test_status_one_everywhere_rules_nobody_out(self) -> None:
         """28 of the golden fixture's 30 rows are status 1; so is the whole fixture edited."""
         rows = _golden_rows()
@@ -285,3 +295,28 @@ class TestWhoThePlatformRulesOut:
         )
 
         assert plan_lineups(flagged) == plan_lineups(INPUTS)
+
+    def test_the_default_path_still_fields_a_status_two_man_read_through_the_real_parse(
+        self,
+    ) -> None:
+        """The same claim, end to end: the golden roster with its best midfielder (`indexCompare`
+        13.47) marked `status` 2. The parse flags him and leaves his value alone, and the
+        `indexcompare` plan fields him exactly as it does at `status` 1 — the exclusion is the
+        projection's, and this path is the platform's own number."""
+        document = json.loads((GOLDEN / "lineup" / "teamLineup_read.json").read_text("utf-8"))
+        settings = json.loads((GOLDEN / "lineup" / "lineup_settings.json").read_text("utf-8"))
+        star = next(row for row in document["lineUpInfo"] if row["plyr"] == "Calhanoglu")
+        control, _ = inputs_from_lineup(
+            document["teamLineupDto"], document["lineUpInfo"], settings, 311681, tid=1
+        )
+        assert star["status"] == 1 and star["indexCompare"] == 13.47, "the setup"
+
+        star.update(status=2, percent=0, descr="rientro a marzo")
+        flagged, _ = inputs_from_lineup(
+            document["teamLineupDto"], document["lineUpInfo"], settings, 311681, tid=1
+        )
+
+        assert 2194 in flagged.ruled_out
+        assert flagged.fvmma_by_id[2194] == 13.47 == control.fvmma_by_id[2194]
+        assert 2194 in plan_lineups(flagged)[0].starts
+        assert plan_lineups(flagged) == plan_lineups(control)

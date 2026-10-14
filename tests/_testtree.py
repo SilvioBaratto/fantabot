@@ -81,7 +81,8 @@ TREE: dict[str, str] = {
     "test_pairing.py": "domain/lineup",
     "test_matchup.py": "domain/lineup",
     # Who the platform itself rules out (`status == 2`), read off the same lineup DTO rows.
-    "test_availability.py": "domain/lineup",
+    # The name avoids "availability", which already means the news dimension `disponibilita`.
+    "test_ruled_out.py": "domain/lineup",
     "test_candidates.py": "domain/lineup",
     "test_build.py": "domain/lineup",
     "test_bench.py": "domain/lineup",

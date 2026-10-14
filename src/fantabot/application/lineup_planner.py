@@ -18,13 +18,13 @@ from fantabot.domain.asta.roles import normalize_roles
 from fantabot.domain.classic.roles import normalize_roles as classic_normalize_roles
 from fantabot.domain.classic.roles import role_from_fcrle
 from fantabot.domain.lineup import positional, schema
-from fantabot.domain.lineup.availability import RuledOut, ruled_out_from_row
 from fantabot.domain.lineup.bench import GK_ROLE, order_bench
 from fantabot.domain.lineup.build import ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.marle import roles_from_marle
 from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
 from fantabot.domain.lineup.pairing import Pairing, pairing_from_row
+from fantabot.domain.lineup.ruled_out import RuledOut, ruled_out_from_row
 from fantabot.domain.lineup.value import score
 
 #: The Classic goalkeeper role for the bench's slot 0, the counterpart to Mantra's `POR`.
@@ -52,11 +52,11 @@ class LineupInputs:
     #: consistent pairing is absent. Empty by default, so every caller that builds inputs by
     #: hand — and the `indexCompare` path, which never looks — is unchanged.
     pairings: Mapping[int, Pairing] = field(default_factory=dict)
-    #: The roster players whose `lineUpInfo` row carries `status == 2`, the platform's own
-    #: "out" (`domain/lineup/availability`). Only the projection reads it, to give them no
-    #: presence (`lineup_projection`); the `indexCompare` path is the platform's own number
-    #: and never looks. Empty by default, so every caller that builds inputs by hand is
-    #: unchanged.
+    #: The roster players whose `lineUpInfo` row carries `status == 2`, which was observed to
+    #: mean out and is not documented by the platform (`domain/lineup/ruled_out`). Only the
+    #: projection reads it, to give them no presence and keep them out of its plans
+    #: (`lineup_projection`); the `indexCompare` path is the platform's own number and never
+    #: looks. Empty by default, so every caller that builds inputs by hand is unchanged.
     ruled_out: frozenset[int] = frozenset()
     #: Each of `ruled_out` as the note names him: his name, then the platform's own words.
     ruled_out_notes: Mapping[int, str] = field(default_factory=dict)
@@ -80,9 +80,10 @@ def inputs_from_lineup(
     time — not because the scraped ids fail to join: `quotazioni`, `match_grain` and
     `players` use the same player id (see `domain/lineup/value.py`).
 
-    A row with `status == 2` is the platform's own "out" and is collected as `ruled_out`
-    beside the roster. It is read on every run whatever the model and costs only that
-    player's flag when a row is malformed (`domain/lineup/availability`).
+    A row with `status == 2` is collected as `ruled_out` beside the roster: the platform's own
+    "out", as observed on four players and not as documented. It is read on every run whatever
+    the model and costs only that player's flag when a row is malformed
+    (`domain/lineup/ruled_out`).
 
     `tid` is passed in from `apileague.my_team` (authoritative) rather than read from `dto`,
     which is empty when the competition has no saved lineup — a state that would otherwise

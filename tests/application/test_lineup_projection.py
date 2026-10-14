@@ -710,7 +710,9 @@ class TestARuledOutPlayerHasNoPresence:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The chooser, the bench search and the simulator all read `PlanInputs.p`; the
-        table, the matcher and the shadow record read the lines. One number for all."""
+        table, the matcher and the shadow record read the lines. One number for all, for every
+        man the lineup may name: the ruled-out one is not among them (see
+        `TestARuledOutPlayerIsNotFielded`) and is the one line the evaluator never sees."""
         seen: list[PlanInputs] = []
         real = lineup_projection.choose_plan
 
@@ -724,17 +726,25 @@ class TestARuledOutPlayerHasNoPresence:
 
         [plan_inputs] = seen
         lines = _lines(outcome)
-        assert plan_inputs.p[GOOD] == 0.0
-        assert dict(plan_inputs.p) == {pid: line.p for pid, line in lines.items()}
+        fielded = {pid: line for pid, line in lines.items() if pid != GOOD}
+        assert lines[GOOD].p == 0.0
+        assert dict(plan_inputs.p) == {pid: line.p for pid, line in fielded.items()}
         assert dict(plan_inputs.value) == pytest.approx(
-            {pid: line.value for pid, line in lines.items()}
+            {pid: line.value for pid, line in fielded.items()}
         )
 
     def test_the_matcher_ranks_the_modules_on_those_values(self) -> None:
         outcome = _plan(**_ruled(GOOD))
         values = {line.player_id: line.value for line in outcome.lines}
+        inputs = _inputs(**_ruled(GOOD))
 
-        matcher = plan_lineups(replace(_inputs(**_ruled(GOOD)), fvmma_by_id=values))
+        matcher = plan_lineups(
+            replace(
+                inputs,
+                roster_ids=[pid for pid in inputs.roster_ids if pid != GOOD],
+                fvmma_by_id=values,
+            )
+        )
 
         assert {(p.module, p.starts) for p in matcher} <= {
             (p.module, p.starts) for p in outcome.plans
@@ -798,14 +808,35 @@ class TestTheNote:
         note = _plan(**_ruled(GOOD)).ruled_out_note
 
         assert note == (
-            "ruled out by the platform (lineUpInfo status 2), p = 0: p12 (rientro a marzo)"
+            "ruled out by the platform (lineUpInfo status 2, observed to mean out, not "
+            "documented), p = 0 and kept out of the XI and the bench: p12 (rientro a marzo)"
         )
+
+    def test_it_says_the_meaning_is_observed_and_not_documented(self) -> None:
+        """Whoever reads the record must not take `status 2` for a documented API value."""
+        for note in (
+            _plan(**_ruled(GOOD)).ruled_out_note,
+            _plan(**_ruled(GOOD, FLASHY)).ruled_out_note,
+            _plan(**_ruled(12, 13, 14, 15)).ruled_out_note,
+        ):
+            assert "observed" in note and "not documented" in note, note
 
     def test_it_lists_them_in_roster_order(self) -> None:
         """Roster order, whatever order the set iterates in, so a record reads the same."""
         note = _plan(**_ruled(GOOD, MOVED)).ruled_out_note
 
         assert note.index("p7 (") < note.index("p12 (")
+        assert note.count("; ") == 1
+
+    def test_it_lists_them_in_roster_order_when_their_ids_run_the_other_way(self) -> None:
+        """Roster order is `15, ... , 10` here, so id order and set order both get it wrong:
+        a small-int set iterates ascending, and so does `sorted`."""
+        roster = list(_inputs().roster_ids)
+        assert roster.index(15) < roster.index(10), "the setup: ids descend along the roster"
+
+        note = _plan(**_ruled(10, 15)).ruled_out_note
+
+        assert note.index("p15 (") < note.index("p10 (")
         assert note.count("; ") == 1
 
     def test_a_player_the_notes_do_not_name_is_named_by_his_id(self) -> None:
@@ -823,6 +854,296 @@ class TestTheNote:
 
     def test_it_is_one_line(self) -> None:
         assert "\n" not in _plan(**_ruled(GOOD, MOVED)).ruled_out_note
+
+
+def _named(outcome: ProjectionOutcome) -> set[int]:
+    """Every player any plan of the outcome names, in an XI or on a bench: the head, the
+    matcher's own list behind it, and the chain's chosen plan and its runners-up."""
+    named: set[int] = set()
+    for plan in outcome.plans:
+        named.update(plan.starts, plan.bench)
+    if outcome.chosen is not None:
+        named.update(outcome.chosen.starts, outcome.chosen.bench)
+        for _module, starts, _value in outcome.chosen.runners_up:
+            named.update(starts)
+    return named
+
+
+class TestARuledOutPlayerIsNotFielded:
+    """The platform marks him out, so no plan the projection produces names him: not the
+    chosen XI, not the matcher's fallback list behind it, not any bench. Done where the roster
+    is handed to the matcher and the evaluator, once, and not by each consumer.
+
+    The 15-man world fields one module (343) with four forwards for three slots, and the one
+    reserve slot beside the keeper is the only room to spare: `GOOD` out leaves 14 for the 13
+    places the lega asks for.
+    """
+
+    def test_he_is_in_no_xi_and_no_bench_of_any_plan(self) -> None:
+        assert GOOD in _named(_plan()), "the control: the regular is named without the flag"
+
+        assert GOOD not in _named(_plan(**_ruled(GOOD)))
+
+    def test_the_matcher_s_fallback_list_does_not_start_him_either(self) -> None:
+        """At p = 0 his value is the replacement level `v`, which outranks a healthy man valued
+        below it: the matcher's own XI took him over `FLASHY`. The fallback walk is what the
+        submit falls to when the platform refuses a module, so it is plans, not trivia."""
+        aborted = plan_projection(
+            _inputs(**_ruled(GOOD)), FakeHistory(), as_of=AS_OF, rules=RULES, budget=SMALL,
+            should_stop=_after(1),
+        )
+
+        assert aborted.chosen is None, "the setup: only the matcher's plans are left"
+        assert aborted.plans
+        assert all(GOOD not in plan.starts + plan.bench for plan in aborted.plans)
+
+    def test_the_bench_seed_does_not_take_him_for_a_reserve(self) -> None:
+        """`order_bench` ranks the reserves by value, and at `v` he sits ahead of a healthy
+        man below it. Three reserve places leave exactly 14 men for 14: him out is still legal."""
+        aborted = plan_projection(
+            _inputs(bench_size=3, **_ruled(GOOD)), FakeHistory(), as_of=AS_OF, rules=RULES,
+            budget=SMALL, should_stop=_after(1),
+        )
+
+        assert aborted.chosen is None
+        assert all(len(plan.bench) == 3 for plan in aborted.plans)
+        assert all(GOOD not in plan.starts + plan.bench for plan in aborted.plans)
+
+    def test_the_chain_s_runners_up_do_not_name_him(self) -> None:
+        outcome = _plan(**_ruled(GOOD))
+
+        assert outcome.chosen is not None
+        assert all(GOOD not in starts for _m, starts, _v in outcome.chosen.runners_up)
+
+    def test_two_players_at_once(self) -> None:
+        """15 (a reserve) and 10 (a forward): 13 men are left for the 13 places."""
+        outcome = _plan(**_ruled(15, 10))
+
+        assert not {15, 10} & _named(outcome)
+        assert {15, 10} <= {line.player_id for line in outcome.lines}
+
+    def test_he_keeps_his_line_in_the_table_at_p_zero_and_not_in_the_xi(self) -> None:
+        from fantabot.application.lineup_projection import ProjectionReport
+        from fantabot.interface.lineup import format_projection_rows
+
+        outcome = _plan(**_ruled(GOOD))
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome,
+            names={line.player_id: f"p{line.player_id}" for line in outcome.lines},
+            competition=311681,
+        )
+
+        header, *rows = format_projection_rows(report)
+        row = next(r for r in rows if r[0] == f"p{GOOD}")
+
+        assert row[header.index("p")] == "0.00"
+        assert row[header.index("XI")] == ""
+        assert len(rows) == len(ROLES), "every roster player has a row, him included"
+        assert _lines(outcome)[GOOD].value == pytest.approx(outcome.replacement)
+
+    def test_nobody_else_s_line_moves(self) -> None:
+        """Leaving him out of the plans is not a second price on him or on anyone else: the
+        table is the one the p = 0 guard alone made."""
+        ruled = _lines(_plan(**_ruled(GOOD)))
+        healthy = _lines(_plan())
+
+        assert {pid: line.mu for pid, line in ruled.items()} == {
+            pid: line.mu for pid, line in healthy.items()
+        }
+        assert {pid: line.p for pid, line in ruled.items() if pid != GOOD} == {
+            pid: line.p for pid, line in healthy.items() if pid != GOOD
+        }
+
+    def test_the_matcher_and_the_chain_are_given_the_same_roster_without_him(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one point: both are handed the roster minus him, and nothing downstream
+        patches him out a second time."""
+        matched: list[list[int]] = []
+        evaluated: list[PlanInputs] = []
+        real_match, real_choose = lineup_projection.plan_lineups, lineup_projection.choose_plan
+
+        def match_spy(inputs: object) -> object:
+            matched.append(list(inputs.roster_ids))  # type: ignore[attr-defined]
+            return real_match(inputs)  # type: ignore[arg-type]
+
+        def choose_spy(plan_inputs: PlanInputs, **kwargs: object) -> object:
+            evaluated.append(plan_inputs)
+            return real_choose(plan_inputs, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(lineup_projection, "plan_lineups", match_spy)
+        monkeypatch.setattr(lineup_projection, "choose_plan", choose_spy)
+
+        _plan(**_ruled(GOOD))
+
+        [roster_ids] = matched
+        [plan_inputs] = evaluated
+        expected = [pid for pid in ROLES if pid != GOOD]
+        assert roster_ids == expected
+        assert [player.id for player in plan_inputs.roster] == expected
+        for per_player in (plan_inputs.mu, plan_inputs.p, plan_inputs.sigma_tilde,
+                           plan_inputs.macro, plan_inputs.club, plan_inputs.value):
+            assert set(per_player) == set(expected)
+
+    def test_an_id_the_roster_does_not_hold_changes_nothing(self) -> None:
+        """A ruled-out pid off the roster is neither forced, nor left out, nor named."""
+        outcome = _plan(ruled_out=frozenset({999}), ruled_out_notes={999: "ghost"})
+
+        assert outcome == _plan()
+
+
+class TestWhenHeCannotBeLeftOut:
+    """A lineup must still go out. When the roster cannot field a legal XI and the bench the
+    lega asks for without the ruled-out men, they stay in and the note says so. All or
+    nothing: no search for the smallest set to bring back, because the fail-safe is the
+    pre-exclusion behaviour and not a second optimizer."""
+
+    def test_a_role_too_thin_without_him_keeps_him_in_the_roster(self) -> None:
+        """Forwards are `10, 11, GOOD, FLASHY` and 343 needs three of them: with two out,
+        no module is fieldable, and the plan is built with both."""
+        outcome = _plan(**_ruled(GOOD, FLASHY))
+
+        assert outcome.plans, "a lineup still goes out"
+        assert outcome.chosen is not None, "the evaluated chain ran on the whole roster"
+        assert {GOOD, FLASHY} & set(outcome.plans[0].starts), "11 men, 3 forward places, 4 forwards"
+        assert {GOOD, FLASHY} <= {line.player_id for line in outcome.lines}
+
+    def test_a_bench_too_short_without_him_keeps_him_in_the_roster(self) -> None:
+        """15 men for 11 + 4 places: one fewer cannot fill the bench."""
+        outcome = _plan(bench_size=4, **_ruled(GOOD))
+
+        assert outcome.plans
+        assert all(len(plan.bench) == 4 for plan in outcome.plans)
+        assert GOOD in _named(outcome)
+
+    def test_his_p_is_still_zero_when_he_could_not_be_left_out(self) -> None:
+        """What a half-way guard would silently drop: the exclusion failed, the pricing did
+        not, and he is still valued as absent."""
+        lines = _lines(_plan(**_ruled(GOOD, FLASHY)))
+
+        assert lines[GOOD].p == 0.0 and lines[FLASHY].p == 0.0
+
+    def test_the_note_says_he_was_not_kept_out_and_why_a_missing_module(self) -> None:
+        note = _plan(**_ruled(GOOD, FLASHY)).ruled_out_note
+
+        assert note.startswith("ruled out by the platform (lineUpInfo status 2")
+        assert "NOT kept out" in note
+        assert "no allowed module can be fielded" in note
+        assert "p12 (rientro a marzo)" in note and "p13 (rientro a marzo)" in note
+
+    def test_the_note_says_he_was_not_kept_out_and_why_a_short_bench(self) -> None:
+        note = _plan(bench_size=4, **_ruled(GOOD)).ruled_out_note
+
+        assert "NOT kept out" in note
+        assert "bench cannot be filled" in note
+        assert "need 4" in note
+
+    def test_the_matcher_tries_without_him_first_and_the_chain_gets_the_whole_roster(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two matcher calls, the first without them and the second with the whole roster;
+        the evaluator is only ever handed the roster the second one used."""
+        matched: list[list[int]] = []
+        evaluated: list[PlanInputs] = []
+        real_match, real_choose = lineup_projection.plan_lineups, lineup_projection.choose_plan
+
+        def match_spy(inputs: object) -> object:
+            matched.append(list(inputs.roster_ids))  # type: ignore[attr-defined]
+            return real_match(inputs)  # type: ignore[arg-type]
+
+        def choose_spy(plan_inputs: PlanInputs, **kwargs: object) -> object:
+            evaluated.append(plan_inputs)
+            return real_choose(plan_inputs, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(lineup_projection, "plan_lineups", match_spy)
+        monkeypatch.setattr(lineup_projection, "choose_plan", choose_spy)
+
+        _plan(**_ruled(GOOD, FLASHY))
+
+        assert matched == [[pid for pid in ROLES if pid not in (GOOD, FLASHY)], list(ROLES)]
+        [plan_inputs] = evaluated
+        assert [player.id for player in plan_inputs.roster] == list(ROLES)
+
+    def test_a_roster_that_cannot_field_a_lineup_even_with_him_still_raises(self) -> None:
+        """Not a fallback: there is no XI to go out, the same refusal as before the guard."""
+        with pytest.raises(NoFieldableModule):
+            _plan(modules=[], **_ruled(GOOD))
+        with pytest.raises(BenchIncomplete):
+            _plan(bench_size=99, **_ruled(GOOD))
+
+    def test_the_forced_note_rides_in_the_run_record(self) -> None:
+        from fantabot.application.lineup_projection import ProjectionReport, projected_from
+
+        outcome = _plan(**_ruled(GOOD, FLASHY))
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome, names={}, competition=311681
+        )
+
+        assert outcome.ruled_out_note in projected_from(report).warnings
+
+
+class TestTheTripwire:
+    """More than a quarter of the priced roster saying "out" means the field has probably
+    changed meaning: the whole guard is skipped, the outcome is the one before it existed, and
+    the note says so. 15 men, so 3 is plausible and 4 is not (3.75 is the line)."""
+
+    def test_three_of_fifteen_is_still_applied(self) -> None:
+        """13, 14 and 15 are the three men this roster can spare at one reserve place."""
+        outcome = _plan(bench_size=1, **_ruled(13, 14, 15))
+
+        lines = _lines(outcome)
+        assert [lines[pid].p for pid in (13, 14, 15)] == [0.0, 0.0, 0.0]
+        assert not {13, 14, 15} & _named(outcome)
+        assert "kept out of the XI and the bench" in outcome.ruled_out_note
+
+    def test_four_of_fifteen_skips_the_guard_and_says_so(self) -> None:
+        outcome = _plan(bench_size=1, **_ruled(12, 13, 14, 15))
+
+        assert "NOT applied" in outcome.ruled_out_note
+        assert "4 of 15" in outcome.ruled_out_note
+        assert "25%" in outcome.ruled_out_note
+        assert "observed" in outcome.ruled_out_note and "not documented" in outcome.ruled_out_note
+
+    def test_a_skipped_guard_is_the_outcome_it_was_before_the_guard(self) -> None:
+        """No p = 0, no exclusion: field for field the plan without any flag, bar the note."""
+        tripped = _plan(bench_size=1, **_ruled(12, 13, 14, 15))
+        plain = _plan(bench_size=1)
+
+        assert replace(tripped, ruled_out_note="") == plain
+        assert tripped.ruled_out_note
+
+    def test_the_flagged_men_are_priced_and_fielded_like_anyone(self) -> None:
+        tripped = _plan(bench_size=1, **_ruled(12, 13, 14, 15))
+
+        assert _lines(tripped)[GOOD].p > 0.5
+        assert GOOD in tripped.plans[0].starts
+
+    def test_only_roster_players_count_toward_the_share(self) -> None:
+        """Six ids off the roster beside one on it: one of fifteen, so the guard applies."""
+        outcome = _plan(
+            ruled_out=frozenset({GOOD, 901, 902, 903, 904, 905, 906}),
+            ruled_out_notes={GOOD: "Good"},
+        )
+
+        assert _lines(outcome)[GOOD].p == 0.0
+        assert "NOT applied" not in outcome.ruled_out_note
+        assert "Good" in outcome.ruled_out_note
+
+    def test_the_tripwire_note_rides_in_the_run_record(self) -> None:
+        from fantabot.application.lineup_projection import ProjectionReport, projected_from
+
+        outcome = _plan(bench_size=1, **_ruled(12, 13, 14, 15))
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome, names={}, competition=311681
+        )
+
+        assert outcome.ruled_out_note in projected_from(report).warnings
+
+    def test_a_skipped_guard_is_a_note_and_not_a_nobody(self) -> None:
+        """The note is empty only when nothing was found: a tripped guard must not read as
+        one that never looked."""
+        assert _plan(bench_size=1).ruled_out_note == ""
+        assert _plan(bench_size=1, **_ruled(12, 13, 14, 15)).ruled_out_note != ""
 
 
 class TestTheRunRecordCarriesIt:

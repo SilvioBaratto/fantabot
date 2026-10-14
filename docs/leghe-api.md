@@ -617,14 +617,27 @@ where a swapped `teamH`/`teamA` would have shown about 20 repeats at one of them
   convocazione contro il Lecce": out, then doubtful. Only lega `4103937`, which is Mantra, was
   read; no recorded Classic `lineUpInfo` carries the field, so that the field means the same
   there is assumed.
-  **What the code does with it** (SPEC A27): `domain/lineup/availability.ruled_out_from_row`
+  **What the code does with it** (SPEC A27): `domain/lineup/ruled_out.ruled_out_from_row`
   reads `status` when it is the integer 2 and nothing else, `application/lineup_planner`
-  collects those players as `LineupInputs.ruled_out`, and the projection gives each p = 0
-  after the history and the news have blended it (`application/lineup_projection`), so the
-  value, the matcher, the evaluator and the table all see the same number. `lineup plan` prints
-  who was ruled out and why, and the run record carries the same sentence in its warnings.
-  Without it a news reading from before the injury kept Leysen F. at p = 0.90 and the XI
-  fielded him. The default `indexcompare` path does not read it. **`percent` is not used**:
+  collects those players as `LineupInputs.ruled_out`, and the projection acts on the flag in
+  three ways (`application/lineup_projection`). It gives each p = 0 after the history and the
+  news have blended it, so the value, the matcher, the evaluator and the table all see the same
+  number: without it a news reading from before the injury kept Leysen F. at p = 0.90 and the
+  XI fielded him. It **leaves each out of every plan it produces**, the chosen XI, the fallback
+  list and every bench alike, by handing the matcher and the evaluator the roster minus them
+  and keeping his line in the table at p = 0: pricing him as absent was not enough, because at
+  p = 0 he is valued at the replacement level and still outranked a healthy man valued below
+  it (on 2026-10-14 the chosen XI, module 3412, still started Leysen F. at p = 0.00, with
+  Ostigard and Diego Carlos last on the bench). If the roster cannot field a legal XI and the
+  bench the lega asks for without them, they stay in the roster, still at p = 0, and the note
+  says so, because a lineup must still go out. And a **tripwire** skips all of it, with a note,
+  when more than a quarter of the priced roster carries `status` 2 (both live reads showed 2
+  of 30): a meaning that was only observed has probably changed if it flags that many.
+  `lineup plan` prints the note and the run record carries the same sentence in its warnings.
+  The reason the platform gives is free text, so it is cleaned (control characters dropped,
+  whitespace collapsed, at most 100 characters) before it reaches the console or the record.
+  The default `indexcompare` path does not read the flag: a `status` 2 row keeps its
+  `indexCompare` and the default plan can field him. **`percent` is not used**:
   zero on every `status` 2 row, but a doubtful player is `status` 1 with a `percent` in
   between (Calhanoglu, 2026-09-22: `percent` 50, `descr` "risentimento muscolare
   all'adduttore della coscia destra, in dubbio impiego contro il Parma"), which looks like the

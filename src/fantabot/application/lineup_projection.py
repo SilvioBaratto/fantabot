@@ -33,9 +33,25 @@ the last bit. Anything in the adjustment that fails costs the adjustment and nev
 
 **The platform's own "out" outranks the model.** A roster player whose `lineUpInfo` row says
 `status == 2` gets p = 0, after the history and the news have blended it (SPEC A27): the news is
-fetched weekly and a reading older than the injury still says he plays. Only that value is
-read — `percent` is not a probability and no other `status` was ever measured — and with nobody
-out the outcome is the one it was, field for field.
+fetched weekly and a reading older than the injury still says he plays. What `status` 2 means
+is **observed, not documented** — four players, `percent` 0, a return date — so only that value
+is read: `percent` is not a probability and no other `status` was ever measured. Three things
+follow from that, and with nobody out the outcome is the one it was, field for field.
+
+* **He is left out of every plan, at one point.** p = 0 prices him as absent, which is not the
+  same as not fielding him: his value is the replacement level `v`, so the matcher took him
+  over a healthy man valued below `v`, and the evaluator's "ignore injuries" candidates start
+  him on purpose — a starter its bench covers, strictly dominated by starting the substitute
+  and chosen only by Monte Carlo noise. So the matcher and the evaluator are handed the roster
+  *minus* him (`_match`), and the XI, the fallback list and every bench are built without him.
+  His line stays in the table at p = 0.
+* **A lineup still goes out.** If the roster cannot field a legal XI and the bench the lega
+  asks for without them, they stay in the roster, still at p = 0, and the note says why. All or
+  nothing, on purpose: the fail-safe is the behaviour before the exclusion, not a second
+  optimizer searching for the smallest set to bring back.
+* **A tripwire guards the premise.** The meaning being observed, a field that starts flagging
+  more than a quarter of the roster has probably changed it (`domain/lineup/ruled_out`). Then
+  none of this runs — no p = 0, nobody left out — and the note says so.
 
 **Staleness is a verdict, not a gate.** It says whether the voti behind μ are final (T25); the
 fallback that acts on it is `--shadow`'s, in phase 6. A lineup with no matchday coordinates
@@ -72,7 +88,12 @@ from fantabot.domain.lineup.choose import (
 )
 from fantabot.domain.lineup.dependence import fit as fit_dependence
 from fantabot.domain.lineup.dependence import residuals
-from fantabot.domain.lineup.errors import LineupError, OpponentUnavailable
+from fantabot.domain.lineup.errors import (
+    BenchIncomplete,
+    LineupError,
+    NoFieldableModule,
+    OpponentUnavailable,
+)
 from fantabot.domain.lineup.freshness import Freshness, staleness
 from fantabot.domain.lineup.history import Fixture, HistoryAppearance, LineupHistory, Valuation
 from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
@@ -87,6 +108,7 @@ from fantabot.domain.lineup.projection import (
     observations,
     project,
 )
+from fantabot.domain.lineup.ruled_out import TRIPWIRE_SHARE, implausible
 from fantabot.domain.lineup.value import replacement_level, sub_aware
 
 if TYPE_CHECKING:
@@ -159,9 +181,10 @@ class ProjectionOutcome:
     #: One sentence on the opponent adjustment: what it did, or why it did nothing. `""` when
     #: the setting is off, which is how a reader (and a test) can tell off from skipped.
     matchup_note: str = ""
-    #: One sentence naming the roster players the platform ruled out (`status == 2`) and why,
-    #: each priced at p = 0. `""` when nobody is, which is how a reader tells a guard that
-    #: found no one from one that was never there.
+    #: One sentence on what the platform's `status == 2` did: who it priced at p = 0 and why,
+    #: whether the plans leave them out or could not, or that the tripwire skipped it all.
+    #: `""` when nobody is flagged, which is how a reader tells a guard that found no one
+    #: from one that was never there.
     ruled_out_note: str = ""
 
 
@@ -302,11 +325,12 @@ def plan_projection(
 
     roster = [pid for pid in inputs.roster_ids if pid in projections]
     mu = {pid: projections[pid].mu for pid in roster}
+    ruling = _ruling(inputs, roster)
     # After the history and the news have blended it, and the only place the roster's p is
     # built: the news is fetched weekly and a reading older than the injury still says he
     # plays, while the lineup DTO is read at submit time. Every consumer below — the values,
     # the matcher, the evaluator, the table and the shadow record — takes this one number.
-    p = {pid: 0.0 if pid in inputs.ruled_out else presences[pid].p for pid in roster}
+    p = {pid: 0.0 if pid in ruling.ruled else presences[pid].p for pid in roster}
     matchups = _matchups(
         inputs,
         enabled=matchup_enabled(matchup_on),
@@ -322,13 +346,17 @@ def plan_projection(
     # worth less to the XI, to the bench order and to E[pts] alike.
     mu = {pid: mu[pid] + adjustments[pid].delta if pid in adjustments else mu[pid] for pid in mu}
     values = sub_aware(mu, p)
-    plans = tuple(plan_lineups(replace(inputs, fvmma_by_id=values)))
+    matched = _match(inputs, values, ruling.ruled)
+    plans = matched.plans
+    # The evaluator is handed the men the matcher was: a plan it chose cannot name a man the
+    # matcher's own list was built without.
+    playable = [pid for pid in roster if pid not in matched.left_out]
 
     mode: SubMode = sub_mode or "basic"
     opponent, opponent_note = _opponent(history, league_id=league_id)
     chosen, fallback = _chosen(
         inputs,
-        roster=roster,
+        roster=playable,
         targets=targets,
         projections=projections,
         mu=mu,
@@ -366,21 +394,103 @@ def plan_projection(
         fallback=fallback,
         adjustments=adjustments,
         matchup_note=matchups.note,
-        ruled_out_note=_ruled_out_note(inputs, roster),
+        ruled_out_note=_ruled_out_note(inputs, roster, ruling, matched),
     )
 
 
-_RULED_OUT = "ruled out by the platform (lineUpInfo status 2), p = 0:"
+@dataclass(frozen=True, slots=True)
+class _Ruling:
+    """What the platform's `status == 2` does to this run, decided once."""
+
+    #: The roster players forced to p = 0. Empty when nobody is flagged, and when the tripwire
+    #: fired: a skipped guard forces nobody.
+    ruled: frozenset[int] = frozenset()
+    #: The tripwire's sentence, `""` when it did not fire.
+    tripped: str = ""
 
 
-def _ruled_out_note(inputs: LineupInputs, roster: Sequence[int]) -> str:
-    """Who was forced to p = 0, in roster order, or `""` when nobody was.
+@dataclass(frozen=True, slots=True)
+class _Matched:
+    """The matcher's plans, and which ruled-out men they were built without."""
 
-    `roster` is the men the projection has a line for, so a ruled-out id it never priced is
+    plans: tuple[PlannedLineup, ...]
+    #: The men kept out of every plan. Empty when nobody was ruled out and when they could
+    #: not be kept out.
+    left_out: frozenset[int] = frozenset()
+    #: Why somebody ruled out is still in the roster, `""` when nobody is.
+    forced: str = ""
+
+
+def _ruling(inputs: LineupInputs, roster: Sequence[int]) -> _Ruling:
+    """Who the platform marked out among the men the projection prices, unless that many of
+    them cannot be injured at once.
+
+    Counted over `roster`, the men with a line, and not over the DTO: an id the projection
+    never priced is neither forced, nor left out, nor part of the share the tripwire reads.
+    """
+    flagged = frozenset(pid for pid in roster if pid in inputs.ruled_out)
+    if implausible(len(flagged), len(roster)):
+        return _Ruling(
+            tripped=(
+                f"lineUpInfo status 2 on {len(flagged)} of {len(roster)} roster players, more "
+                f"than {TRIPWIRE_SHARE:.0%}: its meaning is observed, not documented, so it "
+                "has probably changed. NOT applied: nobody is set to p = 0 or kept out of "
+                "the lineup"
+            )
+        )
+    return _Ruling(ruled=flagged)
+
+
+def _match(inputs: LineupInputs, values: Mapping[int, float], ruled: frozenset[int]) -> _Matched:
+    """The matcher's plans on the roster **minus** the ruled-out men.
+
+    The one point where they leave, and the only one: the plans' XI, their fallback list and
+    their bench order all come out of this call, and `plan_projection` hands the evaluator the
+    same roster. Nothing downstream filters them a second time.
+
+    Fail-safe: when the roster cannot field a module, or fill the bench, without them, the
+    plans are built with them and `forced` says why. A refusal here would field nothing, and
+    the hourly job's contract is that a lineup goes out. If it cannot go out with them either,
+    that refusal propagates, as it did before the guard existed.
+    """
+    priced = replace(inputs, fvmma_by_id=values)
+    if not ruled:
+        return _Matched(tuple(plan_lineups(priced)))
+    without = replace(priced, roster_ids=[pid for pid in inputs.roster_ids if pid not in ruled])
+    try:
+        return _Matched(tuple(plan_lineups(without)), left_out=ruled)
+    except (NoFieldableModule, BenchIncomplete) as exc:
+        return _Matched(tuple(plan_lineups(priced)), forced=_why_not(exc))
+
+
+def _why_not(exc: NoFieldableModule | BenchIncomplete) -> str:
+    """The one clause of the note that says what was missing without the ruled-out men."""
+    if isinstance(exc, NoFieldableModule):
+        return "no allowed module can be fielded"
+    return f"the bench cannot be filled ({exc})"
+
+
+_RULED_OUT = "ruled out by the platform (lineUpInfo status 2, observed to mean out, not documented)"
+
+
+def _ruled_out_note(
+    inputs: LineupInputs, roster: Sequence[int], ruling: _Ruling, matched: _Matched
+) -> str:
+    """What `status` 2 did, in one sentence, or `""` when it found no one.
+
+    Players are named in roster order, whatever order a set iterates in, so a record reads the
+    same twice. `roster` is the men the projection has a line for, so an id it never priced is
     not named: the note says what the model did, not what the DTO said.
     """
-    named = [inputs.ruled_out_notes.get(pid, str(pid)) for pid in roster if pid in inputs.ruled_out]
-    return f"{_RULED_OUT} {'; '.join(named)}" if named else ""
+    if ruling.tripped:
+        return ruling.tripped
+    named = [inputs.ruled_out_notes.get(pid, str(pid)) for pid in roster if pid in ruling.ruled]
+    if not named:
+        return ""
+    who = "; ".join(named)
+    if matched.forced:
+        return f"{_RULED_OUT}, p = 0 but NOT kept out, because without them {matched.forced}: {who}"
+    return f"{_RULED_OUT}, p = 0 and kept out of the XI and the bench: {who}"
 
 
 def matchup_enabled(override: bool | None = None) -> bool:
@@ -554,6 +664,10 @@ def _chosen(
     to. What this contains is what the **chain** adds — the copula, the shortlist, the
     bench search — which is exactly the work that is optional.
 
+    `roster` is the men the plan may name, which is the priced roster minus any ruled-out man
+    the matcher was built without; every per-player map below is read through it, so a man
+    outside it is not part of the evaluator's draws, bench pool or candidates.
+
     `mu` is what the evaluator draws around: the projections' own, moved by this week's
     opponent adjustment when there is one. It is not read off `projections` because the
     adjustment moves this week's μ and **not** the history the dependence is fitted on:
@@ -582,7 +696,7 @@ def _chosen(
             dependence=dependence,
             rules=rules,
             bench_size=inputs.bench_size,
-            value=values,
+            value={pid: values[pid] for pid in roster},
             max_subs=max_subs,
         )
         chosen = choose_plan(
