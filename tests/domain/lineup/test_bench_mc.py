@@ -137,6 +137,7 @@ class TestTheUnsearchedTail:
 
         assert order.bench[0] == 7
         assert sum("POR" in ROLES[pid] for pid in order.bench) == 1
+        assert order.bench[1:] == (4, 3, 2, 6)
 
     def test_the_tail_takes_the_second_keeper_when_nobody_else_is_left(self) -> None:
         """Excluding him is a preference, not a rule: a bench that cannot be filled any other

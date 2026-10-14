@@ -40,7 +40,8 @@ follow from that, and with nobody out the outcome is the one it was, field for f
 
 * **He is left out of every plan, at one point.** p = 0 prices him as absent, which is not the
   same as not fielding him: his value is the replacement level `v`, so the matcher took him
-  over a healthy man valued below `v`. So the matcher and the evaluator are handed the roster
+  over a healthy man valued below `v`, and a positive variance tilt can still rank a high-sigma
+  man at p = 0 above one who plays. So the matcher and the evaluator are handed the roster
   *minus* him (`_match`), and the XI, the fallback list and every bench are built without him.
   His line stays in the table at p = 0.
 * **A lineup still goes out.** If the roster cannot field a legal XI and the bench the lega

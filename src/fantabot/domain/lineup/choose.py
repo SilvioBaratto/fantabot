@@ -167,7 +167,8 @@ class ChosenPlan:
     candidates: int
     evaluated: int
     draws: int
-    #: Every budget clamp and every stop, named: `draws 20000 -> 500`, `stopped at 12/97`.
+    #: Every stop, and every clamp that left the plan noisier than the budget wanted, named:
+    #: `draws 300 -> 500`, `stopped at 12/97`. Holding the draws to the ceiling is not one.
     cuts: tuple[str, ...] = ()
     #: True when `should_stop` ended the search. The plan is still a **plan** — a pure
     #: chain that raised would have no answer to give — but it is not a *reproducible* one,

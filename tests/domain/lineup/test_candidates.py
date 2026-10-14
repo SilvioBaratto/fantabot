@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import time
 from itertools import pairwise
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import pytest
@@ -48,6 +49,7 @@ from fantabot.domain.lineup.candidates import (
     slot_replacement,
     surrogate_matrix,
 )
+from fantabot.domain.lineup.choose import Budget, budget_for
 from fantabot.domain.lineup.models import RosterPlayer
 from fantabot.domain.lineup.schema import slots
 
@@ -370,11 +372,15 @@ def _ghost_world() -> _World:
     )
 
 
-#: `budget_for`'s row for 28 men over eleven modules, which is what the live plan ran.
-GHOST_K = 6
-GHOST_LAMBDAS = (-0.125, 0.0, 0.125)
-GHOST_NODE_BUDGET = 1_200
 PIOTROWSKI = 7198
+
+
+def _live_budget(world: _World) -> Budget:
+    """`budget_for`'s row for the live lega's shape, read from it rather than copied: a wider
+    shipped grid does propose ghosts on this world (`tilt-0.25` fields Rovella, p 0.18, in
+    4-4-2), and a copy would keep this test green through that change. `budget_for` reads
+    the module count and the roster size and nothing else."""
+    return budget_for(SimpleNamespace(modules=MODULES, roster=tuple(world.roster)))
 
 
 @pytest.mark.parametrize("k", [1, DEFAULT_K])
@@ -390,20 +396,25 @@ def test_no_family_ignores_availability(k: int) -> None:
 
 def test_the_2026_10_14_world_offers_no_ghost_starter() -> None:
     world = _ghost_world()
+    budget = _live_budget(world)
 
-    shortlist = candidates_for_module(
-        world.roster,
-        "3412",
-        mu=world.mu,
-        p=world.p,
-        sigma2=world.sigma2,
-        lambdas=GHOST_LAMBDAS,
-        k=GHOST_K,
-        node_budget=GHOST_NODE_BUDGET,
-    )
+    shortlist = [
+        candidate
+        for module in MODULES
+        for candidate in candidates_for_module(
+            world.roster,
+            module,
+            mu=world.mu,
+            p=world.p,
+            sigma2=world.sigma2,
+            lambdas=budget.lambdas,
+            k=budget.k,
+            node_budget=budget.node_budget,
+        )
+    ]
 
     ghosts = [
-        (c.family, [world.names[pid] for pid in c.starts if world.p[pid] < 0.25])
+        (c.module, c.family, [world.names[pid] for pid in c.starts if world.p[pid] < 0.25])
         for c in shortlist
         if any(world.p[pid] < 0.25 for pid in c.starts)
     ]
@@ -415,6 +426,7 @@ def test_the_premise_holds_a_p_one_surrogate_would_field_him() -> None:
     """The control for the test above. Were this roster to drift until nobody at p = 1 starts
     Piotrowski, "no ghost in the shortlist" would pass for the wrong reason."""
     world = _ghost_world()
+    budget = _live_budget(world)
 
     certain = module_family(
         world.roster,
@@ -424,8 +436,8 @@ def test_the_premise_holds_a_p_one_surrogate_would_field_him() -> None:
         sigma2=world.sigma2,
         lam=0.0,
         family="control",
-        k=GHOST_K,
-        node_budget=GHOST_NODE_BUDGET,
+        k=budget.k,
+        node_budget=budget.node_budget,
     )
 
     assert world.p[PIOTROWSKI] < 0.25

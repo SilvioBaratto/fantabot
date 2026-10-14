@@ -1,5 +1,5 @@
 {
- "provenance": "saved teamLineup_read of 2026-10-14 (cmday 7), plan_projection at 06cac43, matchup on; roster minus the two status-2 men; numbers rounded to 4 places",
+ "provenance": "saved teamLineup_read of 2026-10-14 (cmday 7), plan_projection at 06cac43, matchup on; roster minus the two status-2 men; mu, p and sigma_tilde rounded to 4 places",
  "module": "3412",
  "players": [
   {

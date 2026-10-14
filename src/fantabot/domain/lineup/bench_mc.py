@@ -1,4 +1,4 @@
-"""The bench, ordered by what it is actually worth. Pure, seeded, and worth running short.
+"""The bench, ordered by what it is actually worth. Pure, seeded, and run only on a short bench.
 
 `bench.py` ranks the reserves by the same value as the starting XI — best sub first — which
 is the right answer when every vacancy is interchangeable and the wrong one when it is not:
@@ -10,6 +10,9 @@ So the order is built **greedily, position by position**, each position taking t
 that maximises the evaluator's own objective given the positions already fixed. That is the
 marginal decision the engine itself makes — a player at position k is tried before one at
 k+1 — and it costs `size x |pool|` evaluations rather than the `12!` a search would.
+
+⚠ **The live lega's bench of twelve is not searched at all** (`SEARCH_MAX_BENCH`): what
+follows was written for it, and is still how a short bench is searched.
 
 **And it is bounded twice, because `size x |pool|` was still the whole budget.** Measured on
 the real lega (2026-09-23): a 12-man bench over 19 reserves is 164 evaluations per candidate,
@@ -69,10 +72,13 @@ EngineFor = Callable[[Sequence[int]], "SubstitutionEngine"]
 #:     live      +0.35    +0.091   +0.019   +0.0043  +0.0005  -0.0017
 #:     golden    +0.18    +0.157   +0.049   +0.037   -0.0003  -0.0019
 #:
-#: Short benches have a few positions that matter and the search finds them; a long one has
-#: so many near-equal orders that the 400-draw screen picks the one its own noise favours.
-#: The ceiling rests on two worlds, and the cliff between 10 and 11 in the golden one is a
-#: measurement, not a derivation (SPEC A28).
+#: What the size stands in for is cover: the search pays where the value order leaves a role
+#: uncovered. In the golden world the value order's 11th reserve is a centre-back, and that is
+#: where the gain falls from +0.037 to nothing. A roster whose value order ranks its cover low
+#: would still gain at twelve (+0.08 when the reserve defenders were demoted on purpose), so
+#: the ceiling holds for rosters shaped like the two measured. The cells are single runs
+#: without standard errors: a second run put golden 11 at -0.0040 and live 10 at +0.0070, and
+#: live 10 (+0.0043 +- 0.0032) cannot be told from zero (SPEC A28).
 SEARCH_MAX_BENCH = 10
 
 

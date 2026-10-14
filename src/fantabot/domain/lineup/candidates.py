@@ -31,10 +31,15 @@ against the opponent distribution — the Haugh-Singal sign flip, made concrete.
 
 **There is no availability-blind family (SPEC A28).** A man who does not play scores nothing
 and costs a substitution, so a set that starts a p = 0.06 man over a likelier, better reserve
-is dominated. The evaluator cannot see that at the draw counts it can afford — the paired
-standard error of that swap is 0.004 at the 400-draw screen and 0.001 at the final, against a
-true gap of 0.0012 — so such a set wins on noise, and a p = 1 family proposed exactly those.
-Leaving them out costs nothing the evaluator could have measured.
+is dominated. The evaluator could not see that at the draw counts it could afford — on
+2026-10-14 the paired standard error of that swap was 0.004 at the 400-draw screen and 0.001
+at a 6,300-draw final, against a true gap of 0.0012 — so such a set won on noise, and a p = 1
+family proposed exactly those. On the real weeks measured, removing it moved E[pts] by about
+0.001 either way, within noise. On synthetic weeks with several doubtful men and no healthy
+twin to swap in, a p = 1 set was worth up to 0.02, and that case is what this gives up.
+
+It is not structural: `lambda*sigma^2` is not scaled by p, so a wider grid than `budget_for`
+ships (`tilt-0.25` at k = 10) still proposed a p = 0.18 man on that same week.
 
 **k counts distinct starter sets** [stats-4]. With `v_s` in the weight, two arrangements of
 the same eleven score differently, so Murty enumerates permutations of one set before reaching
