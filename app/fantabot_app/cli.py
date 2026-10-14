@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 if TYPE_CHECKING:
+    from fantabot.domain.shared.schema_revision import SchemaVerdict
+
     from fantabot_app.provisioner.postgres import PostgresProvisioner
 
 app = typer.Typer(
@@ -50,6 +52,38 @@ def _provisioner() -> PostgresProvisioner:
     from fantabot_app.provisioner.postgres import PostgresProvisioner
 
     return PostgresProvisioner()
+
+
+def _schema_verdict() -> SchemaVerdict:
+    """Where the database's schema stands against the code's migrations — the seam the CLI
+    tests replace, since the real one opens a session on the operator's own database.
+
+    The pool is disposed afterwards: `schedule run` goes on to spawn a child that can run
+    for minutes, and this process has no business holding an idle connection through it.
+    """
+    from fantabot.adapters.persistence import database_manager
+    from fantabot.application.schema_check import check_database_schema
+
+    try:
+        return check_database_schema()
+    finally:
+        database_manager.dispose()
+
+
+def _checked_schema() -> SchemaVerdict:
+    """`_schema_verdict`, which cannot raise: one more line is never worth the command.
+
+    Broader than the application layer's own guard on purpose. That one absorbs only a
+    database failure so a wiring bug stays loud; this one is the unattended job's, which must
+    go on whatever happens — and it names the exception type, so a wiring bug is still
+    visible in the log it ends up in.
+    """
+    from fantabot.domain.shared.schema_revision import unreadable
+
+    try:
+        return _schema_verdict()
+    except Exception as exc:  # noqa: BLE001
+        return unreadable(type(exc).__name__)
 
 
 def _warn_on_key_split() -> None:
@@ -462,11 +496,11 @@ def schedule_install(
 
 @schedule_app.command("status")
 def schedule_status() -> None:
-    """Report the job: written, loaded, which lega, armed, and whether its disk is there."""
+    """Report the job: written, loaded, which lega, armed, its disk, and its database's schema."""
     from fantabot_app import schedule
 
     _require_darwin()
-    state = schedule.status(launchctl=schedule.launchctl)
+    state = schedule.status(launchctl=schedule.launchctl, check_schema=_checked_schema)
     if not state.installed:
         typer.echo(f"not installed — no job at {state.plist}")
         return
@@ -496,6 +530,12 @@ def schedule_status() -> None:
         )
     else:
         typer.echo(f"  interpreter {state.interpreter_resolved} — Full Disk Access grant recorded")
+    # A job whose database is behind the code fails its writes with an `IntegrityError` and
+    # nothing to say why, so the schema is named on the screen an operator reads first.
+    if state.schema is not None:
+        typer.echo(f"  schema: {state.schema.summary}")
+        if state.schema.instruction:
+            typer.echo(f"    {state.schema.instruction}")
 
 
 @schedule_app.command("uninstall")
@@ -524,11 +564,23 @@ def schedule_run(
 
     It exits with the submit's own status, because a launchd job's exit code is the only
     thing launchd itself records. Swallowing it would report every matchday as fine.
+
+    Between the two it compares the database's migration revision with the code's head and
+    prints one warning line when they differ.
     """
     from fantabot_app import schedule
 
     _require_darwin()
     _provisioner().start()
+    # A warning and nothing more: it never upgrades (a migration can be destructive, and the
+    # operator decides with a dump taken first) and never stops the run. Stdout, beside the
+    # run's own lines, because that log is what an operator reads when a lega write fails.
+    verdict = _checked_schema()
+    if not verdict.at_head:
+        line = f"WARNING schema: {verdict.summary}"
+        if verdict.instruction:
+            line += f" {verdict.instruction}"
+        typer.echo(line)
     command = [sys.executable, "-m", "fantabot", "lineup", "submit"]
     if league:
         command += ["--league", str(league)]

@@ -132,6 +132,8 @@ TREE: dict[str, str] = {
     "test_league.py": "domain/shared",
     "test_parsing.py": "domain/shared",
     "test_resources.py": "domain/shared",
+    # The database's alembic revision against the code's head: the pure comparison.
+    "test_schema_revision.py": "domain/shared",
     # The FantaLab `update_type` vocabulary: `domain/asta/live` and `domain/harvest/turn`
     # read one node and each declared `close_auction`. About the home, not either reader.
     "test_update_types.py": "domain/shared",
@@ -181,6 +183,9 @@ TREE: dict[str, str] = {
     # Which `pg_dump` runs and what its exit may claim: the same module, split off because
     # the path-and-refusal file above is about where the dump lands.
     "test_db_dump_pg_dump.py": "application",
+    # The schema-revision comparison's wiring and its refusal to raise: the verdicts are
+    # `domain/shared/test_schema_revision.py`, the two reads are adapters.
+    "test_schema_check.py": "application",
     "test_lineup_submit.py": "application",
     "test_lineup_shadow_wiring.py": "application",
     "test_lineup_shadow.py": "application",
@@ -259,6 +264,10 @@ TREE: dict[str, str] = {
     # a fake cannot prove that real ids join.
     "test_lineup_backtest_db.py": "adapters/persistence",
     "test_migrations.py": "adapters/persistence",
+    # The code's side of the schema comparison: the head, read through alembic itself.
+    "test_alembic_scripts.py": "adapters/persistence",
+    # `db` tier: the same comparison's database half, against a real `alembic_version`.
+    "test_schema_revision_db.py": "adapters/persistence",
     "test_token_store.py": "adapters/tokens",
     "test_token_secrecy.py": "adapters/tokens",
     # About `storage_state.py`, not `domain/asta/state.py`. The filename collision with a

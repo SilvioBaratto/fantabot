@@ -21,12 +21,18 @@ import sys
 from pathlib import Path
 
 import pytest
+from fantabot.domain.shared.schema_revision import ScriptRevisions, judge, unreadable
 from typer.testing import CliRunner
 
 from fantabot_app import paths, schedule
 from fantabot_app.cli import app
 
 runner = CliRunner()
+
+_HEAD = "b61ab22e8fac"
+_PREVIOUS = "e35dbc3294a7"
+_SCRIPTS = ScriptRevisions(heads=(_HEAD,), pending={_HEAD: 0, _PREVIOUS: 1})
+_AT_HEAD = judge((_HEAD,), _SCRIPTS)
 
 
 class Spy:
@@ -52,6 +58,10 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # 22 of app-ci's Windows failures. `TestPlatform` pins the set so a third seam cannot
     # be added without this line noticing.
     monkeypatch.setattr(schedule, "_uid", lambda: 501)
+    # The launcher's schema check opens a session on whichever database `~/.fantabot/pgdata`
+    # names, which is the operator's real one. It is replaced for the whole module, and
+    # `TestTheSchemaCheck` below sets it to each state in turn.
+    monkeypatch.setattr("fantabot_app.cli._schema_verdict", lambda: _AT_HEAD)
     return tmp_path
 
 
@@ -726,3 +736,393 @@ class TestInstallReportsWhatLaunchdAlreadyHas:
         schedule.install(_job(repo, league=1), launchctl=Spy())
 
         assert schedule.install(_job(repo, league=2), launchctl=Spy()).changed is True
+
+
+class TestTheSchemaCheck:
+    """The hourly job's database can fall behind the code's migrations and say nothing useful.
+
+    A write to a column the code dropped fails with an `IntegrityError`, and the job log
+    carries only "lega: failed - IntegrityError". The launcher compares the two revisions and
+    says so — in `schedule status`, and once at the top of every `schedule run`.
+
+    **What it must never do is act on the answer.** `schedule run` does not upgrade, because
+    a migration can be destructive and the operator decides, with a dump taken first; and it
+    does not stop, because a diagnostic that could cost a matchday's lineup is worse than the
+    drift it reports.
+    """
+
+    @staticmethod
+    def _verdict(monkeypatch: pytest.MonkeyPatch, verdict: object) -> None:
+        monkeypatch.setattr("fantabot_app.cli._schema_verdict", lambda: verdict)
+
+    @staticmethod
+    def _quiet_run(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> None:
+        class FakeProvisioner:
+            def start(self) -> str:
+                order.append("db")
+                return "postgresql:///fantabot"
+
+        monkeypatch.setattr("fantabot_app.cli._provisioner", FakeProvisioner)
+
+        def fake_run(command: list[str], cwd: str | None = None) -> int:
+            order.append("submit")
+            return 0
+
+        monkeypatch.setattr(schedule, "run_command", fake_run)
+
+    def test_status_carries_the_verdict_when_a_check_is_supplied(
+        self, home: Path, repo: Path
+    ) -> None:
+        """One more fact beside the plist's, read the same way: injected, so no database."""
+        schedule.install(_job(repo), launchctl=Spy())
+
+        state = schedule.status(launchctl=Spy(code=113), uid=501, check_schema=lambda: _AT_HEAD)
+
+        assert state.schema == _AT_HEAD
+
+    def test_status_without_a_check_reports_no_verdict(self, home: Path, repo: Path) -> None:
+        """`None` is "not asked", which is not the same claim as "at head"."""
+        schedule.install(_job(repo), launchctl=Spy())
+
+        assert schedule.status(launchctl=Spy(code=113), uid=501).schema is None
+
+    def test_a_job_that_is_not_installed_does_not_ask_the_database(self, home: Path) -> None:
+        """There is no job to be behind; opening a session for it would be noise."""
+        asked: list[bool] = []
+
+        def _ask() -> object:
+            asked.append(True)
+            return _AT_HEAD
+
+        state = schedule.status(launchctl=Spy(code=113), uid=501, check_schema=_ask)  # type: ignore[arg-type]
+
+        assert state.schema is None
+        assert asked == []
+
+    def test_status_prints_one_schema_line_at_head(
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The healthy case is a single quiet line beside the other checks."""
+        schedule.install(_job(repo), launchctl=Spy())
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=schedule.NOT_LOADED_CODE))
+
+        result = runner.invoke(app, ["schedule", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert f"schema: at head {_HEAD}" in result.output
+        assert "alembic upgrade head" not in result.output
+
+    def test_status_names_both_revisions_and_the_order_to_act_in_when_behind(
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dump first, then upgrade — the operator's keystrokes, never the launcher's."""
+        schedule.install(_job(repo), launchctl=Spy())
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=schedule.NOT_LOADED_CODE))
+        self._verdict(monkeypatch, judge((_PREVIOUS,), _SCRIPTS))
+
+        result = runner.invoke(app, ["schedule", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert _PREVIOUS in result.output
+        assert _HEAD in result.output
+        assert result.output.index("fantabot db dump") < result.output.index("alembic upgrade head")
+
+    def test_status_says_when_the_schema_could_not_be_checked(
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stopped Postgres is the normal reason, and it must not read as a failure of status."""
+        schedule.install(_job(repo), launchctl=Spy())
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=schedule.NOT_LOADED_CODE))
+        self._verdict(monkeypatch, unreadable("OperationalError"))
+
+        result = runner.invoke(app, ["schedule", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert "could not be checked" in result.output
+
+    def test_status_survives_a_check_that_raises(
+        self, home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One extra line must not cost the rest of the report."""
+        schedule.install(_job(repo), launchctl=Spy())
+        monkeypatch.setattr(schedule, "launchctl", Spy(code=schedule.NOT_LOADED_CODE))
+
+        def _boom() -> object:
+            raise RuntimeError("wired wrong")
+
+        monkeypatch.setattr("fantabot_app.cli._schema_verdict", _boom)
+
+        result = runner.invoke(app, ["schedule", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert "could not be checked (RuntimeError)" in result.output
+        assert "loaded:" in result.output
+
+    def test_run_at_head_prints_nothing_about_the_schema(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other twenty-three runs of the day must not grow a log line."""
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+
+        result = runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        assert result.exit_code == 0, result.output
+        assert "schema" not in result.output.lower()
+        assert order == ["db", "submit"]
+
+    def test_run_behind_prints_one_warning_line_before_the_submit(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One line, naming both revisions, and the submit still runs after it."""
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+        self._verdict(monkeypatch, judge((_PREVIOUS,), _SCRIPTS))
+
+        result = runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        warnings = [line for line in result.output.splitlines() if "schema" in line.lower()]
+        assert result.exit_code == 0, result.output
+        assert len(warnings) == 1
+        assert "WARNING" in warnings[0]
+        assert _PREVIOUS in warnings[0]
+        assert _HEAD in warnings[0]
+        assert "fantabot db dump" in warnings[0]
+        assert order == ["db", "submit"]
+
+    def test_run_checks_after_the_database_is_up_and_before_the_submit(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Before the database is up the check can only say "could not be checked"."""
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+
+        def _check() -> object:
+            order.append("check")
+            return _AT_HEAD
+
+        monkeypatch.setattr("fantabot_app.cli._schema_verdict", _check)
+
+        runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        assert order == ["db", "check", "submit"]
+
+    def test_run_never_upgrades_the_schema(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A migration can be destructive; the hourly job must not decide to run one."""
+        from fantabot_app.provisioner import migrate
+
+        def _forbidden(*args: object, **kw: object) -> None:
+            raise AssertionError("schedule run must not migrate")
+
+        monkeypatch.setattr(migrate, "upgrade_head", _forbidden)
+        monkeypatch.setattr(migrate, "_default_run", _forbidden)
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+        self._verdict(monkeypatch, judge((_PREVIOUS,), _SCRIPTS))
+
+        result = runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        assert result.exit_code == 0, result.output
+        assert order == ["db", "submit"]
+
+    def test_run_goes_on_and_says_so_when_the_check_raises(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failure to determine the revision must not stop the lineup."""
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+
+        def _boom() -> object:
+            raise RuntimeError("wired wrong")
+
+        monkeypatch.setattr("fantabot_app.cli._schema_verdict", _boom)
+
+        result = runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        assert result.exit_code == 0, result.output
+        assert "could not be checked (RuntimeError)" in result.output
+        assert order == ["db", "submit"]
+
+    def test_run_keeps_the_childs_exit_status_whatever_the_schema_says(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exit code is the only thing launchd records; a warning must not replace it."""
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+        monkeypatch.setattr(schedule, "run_command", lambda command, cwd=None: 3)
+        self._verdict(monkeypatch, judge((_PREVIOUS,), _SCRIPTS))
+
+        result = runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        assert result.exit_code == 3
+
+    def test_an_unreadable_schema_says_so_and_does_not_claim_to_be_behind(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unreadable database prints the could-not-be-checked line, not a behind line."""
+        order: list[str] = []
+        self._quiet_run(monkeypatch, order)
+        self._verdict(monkeypatch, unreadable("OperationalError"))
+
+        result = runner.invoke(app, ["schedule", "run", "--league", "4103937"])
+
+        assert "could not be checked (OperationalError)" in result.output
+        assert "behind" not in result.output
+        assert order == ["db", "submit"]
+
+    def test_the_launcher_and_the_library_find_the_same_alembic_ini(self) -> None:
+        """Two locators would be two answers to "which migrations": the app's upgrade and the
+        library's head must read one directory."""
+        from fantabot.adapters.persistence.alembic_scripts import alembic_ini_path
+
+        from fantabot_app.provisioner import migrate
+
+        assert migrate._alembic_ini() == alembic_ini_path()
+
+    def test_the_migration_runner_asks_the_library_rather_than_deriving_its_own(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Agreement today is not sharing: a second `parents[2] / "alembic.ini"` in this
+        package would agree until the layout changed. Moving the library's answer must move
+        the runner's."""
+        from fantabot.adapters.persistence import alembic_scripts
+
+        from fantabot_app.provisioner import migrate
+
+        elsewhere = tmp_path / "elsewhere" / "alembic.ini"
+        monkeypatch.setattr(alembic_scripts, "alembic_ini_path", lambda: elsewhere)
+
+        assert migrate._alembic_ini() == elsewhere
+
+
+class _Session:
+    """The slice of a session the schema check touches, answering as the database would.
+
+    `revisions` is what `alembic_version` holds, or `None` when the table is absent.
+    """
+
+    def __init__(self, revisions: list[str] | None) -> None:
+        self._revisions = revisions
+
+    def execute(self, statement: object, params: dict[str, object] | None = None) -> object:
+        sql = str(statement)
+        value: object = None
+        if "information_schema" in sql:
+            value = (params or {}).get("name") != "alembic_version" or self._revisions is not None
+        elif "version_num" in sql:
+            value = self._revisions
+
+        class _Result:
+            def scalar(self) -> object:
+                return value
+
+            def scalars(self) -> _Result:
+                return self
+
+            def all(self) -> list[str]:
+                return value if isinstance(value, list) else []
+
+        return _Result()
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class TestTheRealSchemaSeam:
+    """`_schema_verdict` and `_checked_schema` themselves, which the `home` fixture replaces.
+
+    A wiring break — the wrong function called, the pool left open — would otherwise show
+    only as "could not be checked" in a log, which is also what a stopped Postgres shows.
+    These tests do not use `home`, so the real functions run.
+    """
+
+    @staticmethod
+    def _database(monkeypatch: pytest.MonkeyPatch, session: object) -> list[str]:
+        """Point the library's session factory at `session`; returns what `dispose` was told."""
+        from fantabot.adapters.persistence import database_manager
+        from fantabot.application import schema_check
+
+        disposed: list[str] = []
+        monkeypatch.setattr(database_manager, "_session_factory", lambda: session)
+        monkeypatch.setattr(database_manager, "dispose", lambda: disposed.append("disposed"))
+        monkeypatch.setattr(schema_check, "load_script_revisions", lambda: _SCRIPTS)
+        return disposed
+
+    def test_a_database_at_head_reads_as_at_head_through_the_real_wiring(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The check the launcher runs, against a database that answers as one would."""
+        from fantabot_app import cli
+
+        self._database(monkeypatch, _Session([_HEAD]))
+
+        assert cli._schema_verdict().at_head is True
+
+    def test_a_database_behind_reads_as_behind_through_the_real_wiring(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Not just "something answered": the revision it held was compared."""
+        from fantabot_app import cli
+
+        self._database(monkeypatch, _Session([_PREVIOUS]))
+
+        verdict = cli._schema_verdict()
+
+        assert verdict.behind == 1
+        assert _PREVIOUS in verdict.summary
+
+    def test_the_pool_is_disposed_after_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`schedule run` goes on to spawn a child that can run for minutes; this process must
+        not hold an idle connection through it."""
+        from fantabot_app import cli
+
+        disposed = self._database(monkeypatch, _Session([_HEAD]))
+
+        cli._schema_verdict()
+
+        assert disposed == ["disposed"]
+
+    def test_the_pool_is_disposed_even_when_the_check_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A wiring bug is an exception, not a verdict, and it must not leak the connection."""
+        from fantabot.adapters.persistence import database_manager
+
+        from fantabot_app import cli
+
+        disposed = self._database(monkeypatch, _Session([_HEAD]))
+
+        def _wired_wrong() -> object:
+            raise RuntimeError("wired wrong")
+
+        monkeypatch.setattr(database_manager, "_session_factory", _wired_wrong)
+
+        with pytest.raises(RuntimeError):
+            cli._schema_verdict()
+
+        assert disposed == ["disposed"]
+
+    def test_the_guarded_form_turns_that_exception_into_a_named_verdict(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What the launcher actually calls: never raises, and names the type."""
+        from fantabot.adapters.persistence import database_manager
+
+        from fantabot_app import cli
+
+        self._database(monkeypatch, _Session([_HEAD]))
+
+        def _wired_wrong() -> object:
+            raise RuntimeError("wired wrong")
+
+        monkeypatch.setattr(database_manager, "_session_factory", _wired_wrong)
+
+        verdict = cli._checked_schema()
+
+        assert verdict.error == "RuntimeError"
+        assert "wired wrong" not in verdict.summary

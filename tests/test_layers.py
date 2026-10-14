@@ -134,6 +134,7 @@ def layer_of(module: str) -> str:
 FORBIDDEN_TO_DOMAIN = (
     "fantabot.adapters.persistence", "fantabot.interface", "fantabot.adapters.browser.capture", "fantabot.config",
     "sqlalchemy", "psycopg2", "playwright", "httpx", "claude_agent_sdk", "typer", "rich",
+    "alembic",
 )
 
 #: Typer is the CLI framework. A non-interface module reaching it means a command was

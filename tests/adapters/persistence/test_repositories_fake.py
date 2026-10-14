@@ -324,6 +324,113 @@ class TestHealthSaysWhichFailure:
             AdminRepository(_failing(RuntimeError("not a database failure"))).health()
 
 
+class TestSchemaRevisions:
+    """`alembic_version`, read without ever failing on its absence."""
+
+    def test_the_revision_the_database_holds_is_returned(self) -> None:
+        """One row, one revision."""
+        repo = AdminRepository(_session(True, ["b61ab22e8fac"]))
+
+        assert repo.schema_revisions() == ("b61ab22e8fac",)
+
+    def test_a_branched_database_returns_every_row(self) -> None:
+        """Two heads stamped means two rows, and the comparison needs both."""
+        repo = AdminRepository(_session(True, ["aaa", "bbb"]))
+
+        assert set(repo.schema_revisions() or ()) == {"aaa", "bbb"}
+
+    def test_a_missing_table_is_none_and_the_table_is_never_selected_from(self) -> None:
+        """Selecting from a table that is not there aborts the transaction, and `db check`
+        goes on to commit on that session. So existence is asked first."""
+        session = _session(False)
+
+        assert AdminRepository(session).schema_revisions() is None
+        assert not any("version_num" in statement for statement in session.statements)
+
+    def test_an_empty_table_is_an_empty_tuple_not_none(self) -> None:
+        """No table and no row are different histories; the verdict words them differently."""
+        assert AdminRepository(_session(True, [])).schema_revisions() == ()
+
+    def test_only_a_sqlalchemy_failure_is_left_to_the_caller(self) -> None:
+        """A database error propagates as itself, so the application layer can name it."""
+        with pytest.raises(OperationalError):
+            AdminRepository(_failing(DOWN)).schema_revisions()
+
+
+class TestIsEmpty:
+    """Whether none of the declared tables exists, which is a different question from
+    whether `alembic_version` does."""
+
+    def test_a_database_with_none_of_the_tables_is_empty(self) -> None:
+        """Every probe answers no."""
+        repo = AdminRepository(_session(*[False] * len(Base.metadata.tables)))
+
+        assert repo.is_empty() is True
+
+    def test_one_table_present_is_not_empty_and_the_rest_are_not_probed(self) -> None:
+        """A populated database costs one statement, not one per table."""
+        session = _session(True)
+
+        assert AdminRepository(session).is_empty() is False
+        assert len(session.statements) == 1
+
+    def test_the_last_table_alone_still_makes_it_not_empty(self) -> None:
+        """Every table is a candidate, not only the first few."""
+        count = len(Base.metadata.tables)
+        repo = AdminRepository(_session(*([False] * (count - 1) + [True])))
+
+        assert repo.is_empty() is False
+
+    def test_no_declared_tables_is_not_empty(self) -> None:
+        """Nothing registered on the metadata (the models were never imported) says nothing
+        about the database, and "empty" would advise creating a schema over a populated one."""
+        session = _session()
+
+        assert AdminRepository(session, metadata=MetaData()).is_empty() is False
+        assert session.statements == []
+
+    def test_only_a_sqlalchemy_failure_is_left_to_the_caller(self) -> None:
+        """A database error propagates as itself, so the application layer can name it."""
+        with pytest.raises(OperationalError):
+            AdminRepository(_failing(DOWN)).is_empty()
+
+
+class _ParamSession:
+    """Keeps each statement with the parameters it was sent, which `_FakeSession` drops."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, dict[str, Any]]] = []
+
+    def execute(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
+        self.sent.append((str(statement), dict(params or {})))
+        return _FakeResult(None)
+
+
+class TestBoundWaits:
+    """The ceiling on how long the schema read may wait, set in the session's transaction."""
+
+    def test_both_timeouts_are_set_local_in_milliseconds(self) -> None:
+        """`set_config(..., true)` is `SET LOCAL`: it ends with the transaction, so the
+        pooled connection goes back unbounded."""
+        session = _ParamSession()
+
+        AdminRepository(session).bound_waits(5)  # type: ignore[arg-type]
+
+        assert [params for _, params in session.sent] == [
+            {"setting": "statement_timeout", "value": "5000"},
+            {"setting": "lock_timeout", "value": "5000"},
+        ]
+        assert all("set_config" in text and text.rstrip().endswith("true)") for text, _ in session.sent)
+
+    def test_the_seconds_are_converted_not_passed_through(self) -> None:
+        """PostgreSQL reads a bare number here as milliseconds."""
+        session = _ParamSession()
+
+        AdminRepository(session).bound_waits(2)  # type: ignore[arg-type]
+
+        assert {params["value"] for _, params in session.sent} == {"2000"}
+
+
 class TestSentimentWritePath:
     """The empty-batch no-op and the string key shape, without a database."""
 

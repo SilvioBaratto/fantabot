@@ -846,6 +846,7 @@ def db_check() -> None:
     import fantabot.adapters.persistence.models  # noqa: F401  -- registers every table on Base.metadata
     from fantabot.adapters.persistence import database_manager
     from fantabot.adapters.persistence.repositories.admin import AdminRepository
+    from fantabot.application.schema_check import check_schema
     from fantabot.config import settings
 
     try:
@@ -853,6 +854,9 @@ def db_check() -> None:
             repo = AdminRepository(session)
             report = repo.health_report()
             stats = repo.table_stats()
+            # Last: a read that fails is reported as a verdict, but it is still a statement on
+            # the session the two reads above share.
+            schema = check_schema(repo.schema_revisions, read_empty=repo.is_empty)
     except SQLAlchemyError as exc:
         # An unreachable database is the normal case this command exists to report, so it
         # exits nonzero with an instruction rather than a stack trace.
@@ -890,6 +894,16 @@ def db_check() -> None:
     status = "[green]ok[/green]" if report.ok else "[red]unhealthy[/red]"
     cause = f"  ({report.failure})" if report.failure else ""
     console.print(f"health: {status}{cause}  latency: {report.latency_ms} ms")
+
+    # Judged on its own revision, because a migration that only drops columns leaves every
+    # table present and so is invisible to the "declared but not in the database" line at the
+    # end. Red for a schema behind the code, yet the exit code stays 0 like that line's: it
+    # names its fix, and the documented restore recipe ends in this command against a freshly
+    # restored database, where a nonzero exit would break the recipe.
+    colour = {"ok": "green", "warn": "yellow", "error": "red"}[schema.severity]
+    console.print(f"schema: [{colour}]{escape(schema.summary)}[/{colour}]")
+    if schema.instruction:
+        console.print(f"[{colour}]{escape(schema.instruction)}[/{colour}]")
 
     table = Table("table", "rows", "size")
     for row in stats:

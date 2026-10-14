@@ -14,10 +14,15 @@ from pathlib import Path
 
 
 def _alembic_ini() -> Path:
-    """Locate fantabot's ``alembic.ini`` at the repo root (``src/fantabot`` → parents[2])."""
-    import fantabot
+    """Locate fantabot's ``alembic.ini`` at the repo root (``src/fantabot`` → parents[2]).
 
-    return Path(fantabot.__file__).resolve().parents[2] / "alembic.ini"
+    Asked of the library rather than derived here: the schema check compares the database
+    against the scripts this file's upgrade runs, and two derivations of one path are two
+    chances for "which migrations" to have two answers.
+    """
+    from fantabot.adapters.persistence.alembic_scripts import alembic_ini_path
+
+    return Path(alembic_ini_path())
 
 
 def _default_run(revision: str) -> None:

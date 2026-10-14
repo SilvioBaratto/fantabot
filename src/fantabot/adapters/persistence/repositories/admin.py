@@ -130,6 +130,58 @@ class AdminRepository(RepositoryBase):
             )
         return HealthReport(ok=True, latency_ms=_elapsed_ms(start))
 
+    def schema_revisions(self) -> tuple[str, ...] | None:
+        """The alembic revision(s) the database holds, or `None` when it has no version table.
+
+        `None` and `()` are different histories — a database never put under alembic, and
+        one that was stamped to base or had its row removed — and `domain/shared/
+        schema_revision` words them differently.
+
+        Existence is asked before the select. Selecting from a table that is not there
+        aborts the transaction, and every later statement on the session then fails with
+        "current transaction is aborted" — `db check` reads this session's table stats
+        around the same call. Only a database failure propagates, for the caller to name.
+        """
+        if not self._exists("alembic_version"):
+            return None
+        result = self.session.execute(text("SELECT version_num FROM alembic_version"))
+        return tuple(sorted(str(row) for row in result.scalars().all()))
+
+    def is_empty(self) -> bool:
+        """Whether none of the tables this application declares exists yet.
+
+        A fresh `fantabot-app db create` is empty, and so is a database taken back to base
+        with `alembic downgrade base`; both want `alembic upgrade head` and nothing before it.
+        A database with tables and no `alembic_version` is a different history and is not
+        empty. Stops at the first table found, so a populated database costs one probe.
+
+        Only tables the role can see are seen, as with `_exists` everywhere in this class: a
+        role with no privilege on the schema reads as empty.
+
+        **No declared tables is never "empty".** The table list is whatever has registered on
+        `Base.metadata`, and a caller that has not imported the models would otherwise be told
+        every database is empty, then advised to create a schema over one that is populated.
+        """
+        names = self.table_names
+        return bool(names) and not any(self._exists(name) for name in names)
+
+    def bound_waits(self, seconds: int) -> None:
+        """Cap how long the rest of this transaction may run a statement or wait on a lock.
+
+        `set_config(..., true)` is `SET LOCAL`: it ends with the transaction, so a pooled
+        connection goes back to the pool unbounded. Bound parameters rather than an
+        f-string, because `SET` itself takes no placeholders and `set_config` does.
+
+        Args:
+            seconds: The ceiling for each of `statement_timeout` and `lock_timeout`.
+        """
+        milliseconds = str(seconds * 1000)
+        for setting in ("statement_timeout", "lock_timeout"):
+            self.session.execute(
+                text("SELECT set_config(:setting, :value, true)"),
+                {"setting": setting, "value": milliseconds},
+            )
+
     def table_stats(self) -> list[dict[str, Any]]:
         """Row count and on-disk size per table, missing tables included."""
         return [self._stats_for(name) for name in self.table_names]

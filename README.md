@@ -167,6 +167,20 @@ alembic check                     # do models and migrations still agree?
 fantabot-app db stop              # the only thing that stops it
 ```
 
+**The schema's revision is checked, and never applied.** `fantabot db check` prints a
+`schema:` line comparing the database's `alembic_version` with the migration scripts' head;
+`fantabot-app schedule status` repeats it, and each `schedule run` prints one warning line
+into the job log when they differ. A database left behind the code fails writes with an
+`IntegrityError` and nothing else to say why. A schema behind the code is red on that line
+but `db check` still exits 0, because the restore recipe in `fantabot db dump --help` ends
+in it. The hourly job deliberately never upgrades: a migration can be destructive, so take
+`fantabot db dump` first and then run `alembic upgrade head` yourself (on a database with no
+tables at all, the line says to create the schema, and no dump is needed). `fantabot db
+dump` runs whichever is newer of the bundled server's own `pg_dump` and the one on PATH, the
+bundled one winning a tie, because a `pg_dump` refuses a server newer than itself. The
+bundled one is found beside the `postgres` that `~/.fantabot/pgdata/postmaster.opts`
+records, so it is used from any interpreter, not only the app's.
+
 ## Commands
 
 One CLI, 35 commands in seven groups plus two one-offs. `fantabot --help` is the whole

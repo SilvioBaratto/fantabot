@@ -42,8 +42,12 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fantabot_app import paths
+
+if TYPE_CHECKING:
+    from fantabot.domain.shared.schema_revision import SchemaVerdict
 
 __all__ = [
     "INTERVAL_S",
@@ -424,10 +428,24 @@ class Status:
     #: The recorded grant no longer describes what launchd will exec. The job does not
     #: fail: a CPython refused by TCC **hangs**, so this is the only available warning.
     interpreter_drifted: bool = False
+    #: Where the database's schema stands against the code's migrations, or `None` when
+    #: nobody asked. `None` is "not checked", which is a different claim from "at head".
+    schema: SchemaVerdict | None = None
 
 
-def status(*, launchctl: Launchctl, label: str = LABEL, uid: int | None = None) -> Status:
-    """Read the plist back and ask launchd whether it is loaded."""
+def status(
+    *,
+    launchctl: Launchctl,
+    label: str = LABEL,
+    uid: int | None = None,
+    check_schema: Callable[[], SchemaVerdict] | None = None,
+) -> Status:
+    """Read the plist back and ask launchd whether it is loaded.
+
+    `check_schema` is injected rather than called, like `launchctl`: reading it opens a
+    session on the operator's database, and a job that is not installed has no schema to be
+    behind, so it is not asked for then.
+    """
     target = plist_path(label)
     if not target.is_file():
         return Status(
@@ -462,6 +480,7 @@ def status(*, launchctl: Launchctl, label: str = LABEL, uid: int | None = None) 
         interpreter_recorded=recorded,
         # An unrecorded job cannot have drifted — there is nothing it drifted from.
         interpreter_drifted=recorded is not None and resolved != recorded,
+        schema=check_schema() if check_schema is not None else None,
     )
 
 
