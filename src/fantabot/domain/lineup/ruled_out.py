@@ -37,11 +37,11 @@ RULED_OUT_STATUS = 2
 #: ends up in a one-line note and in a JSON run record.
 MAX_REASON = 100
 #: The share of the priced roster past which `status` 2 is not read as injuries any more.
-#: Both live reads showed 2 of 30 (7%), and a quarter is 3.5 times that: a week that really
-#: has a quarter of the squad out at once is rarer than the platform repurposing a value
-#: nobody documented. The two mistakes are not equal either — skipping the guard is the
-#: behaviour the lineup had before it existed, while acting on a misread field would bench
-#: and exclude a quarter of the team.
+#: Both live reads showed 2 of 30 (7%), and a quarter is nearly four times that. The judgment,
+#: not a measurement: a week that really has a quarter of the squad out at once is rarer than
+#: the platform repurposing a value nobody documented. The two mistakes are not equal either:
+#: skipping the guard is the behaviour the lineup had before it existed, while acting on a
+#: misread field would bench and exclude a quarter of the team.
 TRIPWIRE_SHARE = 0.25
 
 

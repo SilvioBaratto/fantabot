@@ -625,12 +625,14 @@ where a swapped `teamH`/`teamA` would have shown about 20 repeats at one of them
   number: without it a news reading from before the injury kept Leysen F. at p = 0.90 and the
   XI fielded him. It **leaves each out of every plan it produces**, the chosen XI, the fallback
   list and every bench alike, by handing the matcher and the evaluator the roster minus them
-  and keeping his line in the table at p = 0: pricing him as absent was not enough, because at
-  p = 0 he is valued at the replacement level and still outranked a healthy man valued below
-  it (on 2026-10-14 the chosen XI, module 3412, still started Leysen F. at p = 0.00, with
-  Ostigard and Diego Carlos last on the bench). If the roster cannot field a legal XI and the
-  bench the lega asks for without them, they stay in the roster, still at p = 0, and the note
-  says so, because a lineup must still go out. And a **tripwire** skips all of it, with a note,
+  and keeping his line in the table at p = 0: pricing him as absent was not enough. At p = 0
+  he is valued at the replacement level, so the matcher still took him over a healthy man
+  valued below it, and the evaluator's "ignore injuries" candidates start him on purpose and
+  can win on Monte Carlo noise. A live `lineup plan` on 2026-10-14, read on the console and not
+  recorded, chose such an XI: module 3412 with Leysen F. at p = 0.00, Ostigard and Diego Carlos
+  last on the bench. The saved read of that day does not reproduce it. If the roster cannot
+  field a legal XI and the bench the lega asks for without them, they stay in the roster, still
+  at p = 0, and the note says so, because a lineup must still go out. And a **tripwire** skips all of it, with a note,
   when more than a quarter of the priced roster carries `status` 2 (both live reads showed 2
   of 30): a meaning that was only observed has probably changed if it flags that many.
   `lineup plan` prints the note and the run record carries the same sentence in its warnings.

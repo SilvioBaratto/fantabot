@@ -774,10 +774,14 @@ class TestARuledOutPlayerHasNoPresence:
             "roles_by_id": {pid: [code.upper()] for pid, code in codes.items()},
         }
 
-        ruled = _lines(_plan(Classic(), **classic, **_ruled(GOOD)))
+        ruled = _plan(Classic(), **classic, **_ruled(GOOD))
+        plain = _plan(Classic(), **classic)
 
-        assert ruled[GOOD].p == 0.0
-        assert _lines(_plan(Classic(), **classic))[GOOD].p > 0.5
+        assert _lines(ruled)[GOOD].p == 0.0
+        assert _lines(plain)[GOOD].p > 0.5
+        assert GOOD in _named(plain), "the control: the regular is named without the flag"
+        assert GOOD not in _named(ruled)
+        assert "kept out of the XI and the bench" in ruled.ruled_out_note
 
 
 class TestNobodyRuledOutIsToday:
@@ -908,6 +912,24 @@ class TestARuledOutPlayerIsNotFielded:
         assert aborted.chosen is None
         assert all(len(plan.bench) == 3 for plan in aborted.plans)
         assert all(GOOD not in plan.starts + plan.bench for plan in aborted.plans)
+
+    def test_a_contested_reserve_place_goes_to_a_healthy_man(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The test above passes for a bench seeded from the whole roster too: there every
+        healthy reserve is valued above `v`, so nobody contests his place. A sixteenth man, a
+        forward valued below `v`, makes the last reserve place a contest he would win."""
+        monkeypatch.setitem(ROLES, 16, ("A",))
+        monkeypatch.setitem(INDEXCOMPARE, 16, 50.0)
+
+        aborted = plan_projection(
+            _inputs(bench_size=4, **_ruled(GOOD)), FakeHistory(), as_of=AS_OF, rules=RULES,
+            budget=SMALL, should_stop=_after(1),
+        )
+
+        assert aborted.chosen is None
+        assert all(len(plan.bench) == 4 for plan in aborted.plans)
+        assert all(GOOD not in plan.bench for plan in aborted.plans)
 
     def test_the_chain_s_runners_up_do_not_name_him(self) -> None:
         outcome = _plan(**_ruled(GOOD))
@@ -1111,6 +1133,32 @@ class TestTheTripwire:
 
         assert replace(tripped, ruled_out_note="") == plain
         assert tripped.ruled_out_note
+
+    def test_a_skipped_guard_leaves_nobody_out_where_leaving_them_out_was_legal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fifteen-man worlds above cannot see a guard skipped by halves: four men out
+        leaves no legal lineup there, so the forced fallback would field them anyway. Nineteen
+        men and five flagged is past the quarter, and the five can be spared."""
+        for pid, role in {16: ("DC",), 17: ("DC",), 18: ("C",), 19: ("E",)}.items():
+            monkeypatch.setitem(ROLES, pid, role)
+            monkeypatch.setitem(INDEXCOMPARE, pid, 50.0)
+        flagged = {12, 14, 15, 16, 17}
+        spared = [pid for pid in ROLES if pid not in flagged]
+        assert plan_lineups(_inputs(bench_size=2, roster_ids=spared)), "the setup: legal"
+
+        tripped = _plan(bench_size=2, **_ruled(*flagged))
+
+        assert "NOT applied" in tripped.ruled_out_note
+        assert replace(tripped, ruled_out_note="") == _plan(bench_size=2)
+        assert GOOD in tripped.plans[0].starts
+
+    def test_the_tripped_note_counts_the_roster_and_not_the_dto(self) -> None:
+        """Two ids off the roster beside four on it: the note says what the roster holds."""
+        outcome = _plan(bench_size=1, **_ruled(12, 13, 14, 15, 901, 902))
+
+        assert "NOT applied" in outcome.ruled_out_note
+        assert "4 of 15" in outcome.ruled_out_note
 
     def test_the_flagged_men_are_priced_and_fielded_like_anyone(self) -> None:
         tripped = _plan(bench_size=1, **_ruled(12, 13, 14, 15))
