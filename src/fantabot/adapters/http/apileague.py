@@ -54,6 +54,11 @@ from fantabot.domain.tokens.errors import (
 # `docs/leghe-api.md`, "How this was found", step 3.
 APP_KEY = "ICiELOObd5DF5uJEATi77CRvHiiRuMU0"
 
+# Since 2026-10-14 CloudFront answers 403 `{"code":"FAIL"}` to any request carrying
+# `app_key` without the frontend's `Origin`, before the backend sees it: the same key and
+# path with this header reach Kestrel. `Referer` alone does not pass, `Origin` alone does.
+ORIGIN = "https://leghe.fantacalcio.it"
+
 LEAGUE_STATUS_PATH = "/onboarding/v1/league/status"
 TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 COMPETITIONS_PATH = "/onboarding/v1/league/competitions"
@@ -160,6 +165,7 @@ def _send(
     `raise_for` is the status mapper: `_raise_for` for reads, `_raise_for_lineup` for submit.
     """
     headers = auth_headers(league_id, store=store, now=now)
+    headers["Origin"] = ORIGIN
     content = None
     if body is not None:
         headers["Content-Type"] = "application/json"

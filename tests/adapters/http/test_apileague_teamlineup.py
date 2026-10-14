@@ -166,6 +166,7 @@ def test_submit_sends_json_content_type_alongside_the_auth_headers() -> None:
     assert request.headers["app_key"] == apileague.APP_KEY
     assert request.headers["Authorization"] == f"Bearer {PLAINTEXT}"
     assert request.headers["Content-Type"].startswith("application/json")
+    assert request.headers["Origin"] == "https://leghe.fantacalcio.it"
 
 
 def test_submit_returns_the_parsed_body() -> None:

@@ -66,6 +66,19 @@ def test_the_request_carries_exactly_the_two_documented_headers() -> None:
     assert request.headers["Authorization"] == f"Bearer {PLAINTEXT}"
 
 
+def test_the_request_names_the_frontend_as_its_origin() -> None:
+    """CloudFront answers 403 `FAIL` to an `app_key` request with no `Origin`.
+
+    Measured 2026-10-14: the same key and path reach the backend once the browser's
+    `Origin` is sent, and a `Referer` alone does not. Without it every read fails.
+    """
+    transport, handler = transport_returning()
+
+    apileague.league_status(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    assert handler.requests[0].headers["Origin"] == "https://leghe.fantacalcio.it"
+
+
 def test_the_base_url_comes_from_settings() -> None:
     transport, handler = transport_returning()
 
