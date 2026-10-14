@@ -343,6 +343,9 @@ def _plan_projection(league_id: int, competition: int) -> None:
                 as_of=_now().date(),
                 sub_mode=parse_sub_mode(live_setting(LINEUP_SUB_MODE_VAR)),
                 should_stop=wall_stop(PLAN_WALL_SECONDS),
+                # The marker the submit's projector reads: without it every history is
+                # stale, and the verdict below would name a fallback the job never takes.
+                refreshed=_voti_refreshed,
             )
     except (TokenError, LineupError) as exc:
         console.print(f"[red]{exc}[/red]")

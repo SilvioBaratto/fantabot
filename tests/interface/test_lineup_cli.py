@@ -740,6 +740,33 @@ def test_plan_projection_names_the_model_the_setting_submits(
     assert f"{shown} (what a submit would field today)" not in flat
 
 
+def test_plan_projection_asks_the_refresh_marker_like_the_submit_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without the marker the history always reads stale, so the screen always fell back.
+
+    The submit's projector passes `_voti_refreshed`; the plan screen did not, so it printed
+    "no voti refresh recorded" an hour after the refresh had recorded one, and named
+    indexcompare as fielded while the job was about to POST the projection.
+    """
+    from fantabot.application import lineup_projection
+    from fantabot.interface import lineup as lineup_cli
+
+    seen: dict[str, Any] = {}
+
+    def capture(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return _projection_report()
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(lineup_projection, "projection_for_league", capture)
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 0, result.output
+    assert seen.get("refreshed") is lineup_cli._voti_refreshed
+
+
 def test_plan_projection_names_indexcompare_when_the_submit_would_fall_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
