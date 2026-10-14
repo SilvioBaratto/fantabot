@@ -1,0 +1,326 @@
+{
+ "provenance": "saved teamLineup_read of 2026-10-14 (cmday 7), plan_projection at 06cac43, matchup on; roster minus the two status-2 men; numbers rounded to 4 places",
+ "module": "3412",
+ "players": [
+  {
+   "id": 6534,
+   "name": "Perri",
+   "roles": [
+    "POR"
+   ],
+   "fvmma": 5.482130009416379,
+   "mu": 5.4681,
+   "p": 0.9238,
+   "sigma_tilde": 1.6233
+  },
+  {
+   "id": 4360,
+   "name": "Caprile",
+   "roles": [
+    "POR"
+   ],
+   "fvmma": 5.95768627049726,
+   "mu": 5.9613,
+   "p": 0.9884,
+   "sigma_tilde": 1.6966
+  },
+  {
+   "id": 6482,
+   "name": "Mandas",
+   "roles": [
+    "POR"
+   ],
+   "fvmma": 5.20449970704067,
+   "mu": 5.1983,
+   "p": 0.9864,
+   "sigma_tilde": 2.1441
+  },
+  {
+   "id": 7274,
+   "name": "Zè Pedro",
+   "roles": [
+    "DC",
+    "DD"
+   ],
+   "fvmma": 6.131394535059292,
+   "mu": 6.1759,
+   "p": 0.915,
+   "sigma_tilde": 0.8983
+  },
+  {
+   "id": 5620,
+   "name": "Tavares N.",
+   "roles": [
+    "DS",
+    "E"
+   ],
+   "fvmma": 6.311921903615457,
+   "mu": 6.3591,
+   "p": 0.9332,
+   "sigma_tilde": 1.2834
+  },
+  {
+   "id": 5750,
+   "name": "Ostigard",
+   "roles": [
+    "DC"
+   ],
+   "fvmma": 5.857933696389392,
+   "mu": 5.8685,
+   "p": 0.951,
+   "sigma_tilde": 1.2204
+  },
+  {
+   "id": 2788,
+   "name": "Bremer",
+   "roles": [
+    "DC"
+   ],
+   "fvmma": 6.650215117884055,
+   "mu": 6.7043,
+   "p": 0.9485,
+   "sigma_tilde": 1.7496
+  },
+  {
+   "id": 4137,
+   "name": "Diego Carlos",
+   "roles": [
+    "DC"
+   ],
+   "fvmma": 5.828899258356305,
+   "mu": 5.8523,
+   "p": 0.8829,
+   "sigma_tilde": 0.9712
+  },
+  {
+   "id": 7181,
+   "name": "Wesley",
+   "roles": [
+    "E"
+   ],
+   "fvmma": 6.636581049034125,
+   "mu": 6.7999,
+   "p": 0.8577,
+   "sigma_tilde": 1.4097
+  },
+  {
+   "id": 4998,
+   "name": "Molina N.",
+   "roles": [
+    "E"
+   ],
+   "fvmma": 6.710145546014233,
+   "mu": 6.8377,
+   "p": 0.8924,
+   "sigma_tilde": 1.2239
+  },
+  {
+   "id": 4459,
+   "name": "Rovella",
+   "roles": [
+    "C",
+    "M"
+   ],
+   "fvmma": 5.733380440509915,
+   "mu": 6.092,
+   "p": 0.1846,
+   "sigma_tilde": 1.2912
+  },
+  {
+   "id": 5504,
+   "name": "Coulibaly L.",
+   "roles": [
+    "C",
+    "M"
+   ],
+   "fvmma": 6.3447404884533585,
+   "mu": 6.3986,
+   "p": 0.9278,
+   "sigma_tilde": 1.9992
+  },
+  {
+   "id": 6898,
+   "name": "Keita M.",
+   "roles": [
+    "C",
+    "M"
+   ],
+   "fvmma": 5.978071881494794,
+   "mu": 5.998,
+   "p": 0.9423,
+   "sigma_tilde": 1.2177
+  },
+  {
+   "id": 5680,
+   "name": "Sarr P.",
+   "roles": [
+    "C",
+    "M"
+   ],
+   "fvmma": 6.038852250466664,
+   "mu": 6.147,
+   "p": 0.7815,
+   "sigma_tilde": 1.2495
+  },
+  {
+   "id": 7198,
+   "name": "Piotrowski",
+   "roles": [
+    "C",
+    "M"
+   ],
+   "fvmma": 5.685883464872396,
+   "mu": 6.2577,
+   "p": 0.0556,
+   "sigma_tilde": 1.3667
+  },
+  {
+   "id": 2194,
+   "name": "Calhanoglu",
+   "roles": [
+    "C",
+    "M"
+   ],
+   "fvmma": 7.159834631501712,
+   "mu": 7.615,
+   "p": 0.7681,
+   "sigma_tilde": 1.8101
+  },
+  {
+   "id": 1850,
+   "name": "Kessiè",
+   "roles": [
+    "C"
+   ],
+   "fvmma": 6.129003800793385,
+   "mu": 6.2114,
+   "p": 0.8527,
+   "sigma_tilde": 1.6168
+  },
+  {
+   "id": 5319,
+   "name": "Sohm",
+   "roles": [
+    "C"
+   ],
+   "fvmma": 5.536967888723371,
+   "mu": 5.523,
+   "p": 0.8918,
+   "sigma_tilde": 1.1206
+  },
+  {
+   "id": 4947,
+   "name": "Brescianini",
+   "roles": [
+    "C",
+    "T"
+   ],
+   "fvmma": 5.699876174260178,
+   "mu": 5.7137,
+   "p": 0.7752,
+   "sigma_tilde": 1.2296
+  },
+  {
+   "id": 7126,
+   "name": "Baturina",
+   "roles": [
+    "T"
+   ],
+   "fvmma": 6.755319285703749,
+   "mu": 6.8134,
+   "p": 0.95,
+   "sigma_tilde": 1.9858
+  },
+  {
+   "id": 6875,
+   "name": "Paz N.",
+   "roles": [
+    "A",
+    "T"
+   ],
+   "fvmma": 6.930662807393615,
+   "mu": 7.0327,
+   "p": 0.9261,
+   "sigma_tilde": 1.8902
+  },
+  {
+   "id": 6549,
+   "name": "Pierotti",
+   "roles": [
+    "W"
+   ],
+   "fvmma": 6.098594669485861,
+   "mu": 6.1221,
+   "p": 0.95,
+   "sigma_tilde": 1.4252
+  },
+  {
+   "id": 4179,
+   "name": "Gonzalez N.",
+   "roles": [
+    "A",
+    "W"
+   ],
+   "fvmma": 6.267824044913728,
+   "mu": 6.4645,
+   "p": 0.7578,
+   "sigma_tilde": 1.8837
+  },
+  {
+   "id": 4436,
+   "name": "Cambiaghi",
+   "roles": [
+    "A",
+    "W"
+   ],
+   "fvmma": 5.8178038741442295,
+   "mu": 5.8342,
+   "p": 0.9101,
+   "sigma_tilde": 1.7063
+  },
+  {
+   "id": 6052,
+   "name": "Hojlund",
+   "roles": [
+    "PC"
+   ],
+   "fvmma": 7.5048461119514265,
+   "mu": 7.6208,
+   "p": 0.9411,
+   "sigma_tilde": 2.3375
+  },
+  {
+   "id": 2155,
+   "name": "Cutrone",
+   "roles": [
+    "PC"
+   ],
+   "fvmma": 6.349078713449513,
+   "mu": 6.5774,
+   "p": 0.7532,
+   "sigma_tilde": 1.8632
+  },
+  {
+   "id": 7600,
+   "name": "Osmajic",
+   "roles": [
+    "PC"
+   ],
+   "fvmma": 6.053559710000391,
+   "mu": 6.0975,
+   "p": 0.9013,
+   "sigma_tilde": 2.401
+  },
+  {
+   "id": 7612,
+   "name": "Bobcek",
+   "roles": [
+    "PC"
+   ],
+   "fvmma": 6.663138555563382,
+   "mu": 7.0214,
+   "p": 0.7383,
+   "sigma_tilde": 2.0006
+  }
+ ]
+}

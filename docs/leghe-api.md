@@ -627,10 +627,11 @@ where a swapped `teamH`/`teamA` would have shown about 20 repeats at one of them
   list and every bench alike, by handing the matcher and the evaluator the roster minus them
   and keeping his line in the table at p = 0: pricing him as absent was not enough. At p = 0
   he is valued at the replacement level, so the matcher still took him over a healthy man
-  valued below it, and the evaluator's "ignore injuries" candidates start him on purpose and
-  can win on Monte Carlo noise. A live `lineup plan` on 2026-10-14, read on the console and not
-  recorded, chose such an XI: module 3412 with Leysen F. at p = 0.00, Ostigard and Diego Carlos
-  last on the bench. The saved read of that day does not reproduce it. If the roster cannot
+  valued below it. A live `lineup plan` on 2026-10-14, read on the console and not recorded,
+  chose such an XI: module 3412 with Leysen F. at p = 0.00, Ostigard and Diego Carlos last on
+  the bench. A later plan that day started Piotrowski at p = 0.06 over two likelier, better
+  reserves; the evaluator's p = 1 candidate family proposed that set and could not reject it
+  on Monte Carlo noise, and the family was removed (SPEC A28). If the roster cannot
   field a legal XI and the bench the lega asks for without them, they stay in the roster, still
   at p = 0, and the note says so, because a lineup must still go out. And a **tripwire** skips all of it, with a note,
   when more than a quarter of the priced roster carries `status` 2 (both live reads showed 2

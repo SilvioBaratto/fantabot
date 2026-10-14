@@ -27,11 +27,14 @@ the very effect the tilt is there to explore — and costs one solve per module 
 
 **The families.** `w_i(lambda) = p_i*mu_i + lambda*sigma_i^2` on a small symmetric grid
 (SPEC): lambda > 0 seeks variance, lambda < 0 avoids it, and the evaluator decides which pays
-against the opponent distribution — the Haugh-Singal sign flip, made concrete. Plus a **p = 1**
-family, which is the same surrogate with availability switched off: `(1 - p)*v_s` vanishes and
-the weight is plain `mu`, so that family leads with the XI a manager who ignored injuries
-would field. It is in the shortlist so the evaluator can reject it on the evidence rather than
-the surrogate rejecting it by construction.
+against the opponent distribution — the Haugh-Singal sign flip, made concrete.
+
+**There is no availability-blind family (SPEC A28).** A man who does not play scores nothing
+and costs a substitution, so a set that starts a p = 0.06 man over a likelier, better reserve
+is dominated. The evaluator cannot see that at the draw counts it can afford — the paired
+standard error of that swap is 0.004 at the 400-draw screen and 0.001 at the final, against a
+true gap of 0.0012 — so such a set wins on noise, and a p = 1 family proposed exactly those.
+Leaving them out costs nothing the evaluator could have measured.
 
 **k counts distinct starter sets** [stats-4]. With `v_s` in the weight, two arrangements of
 the same eleven score differently, so Murty enumerates permutations of one set before reaching
@@ -78,9 +81,6 @@ DEFAULT_LAMBDAS: tuple[float, ...] = (-0.25, -0.125, 0.0, 0.125, 0.25)
 #: candidates, never correctness — what is returned is still best-first.
 DEFAULT_NODE_BUDGET = 1_200
 
-#: The family that ignores availability.
-P1_FAMILY = "p1"
-
 
 @dataclass(frozen=True, slots=True)
 class Candidate:
@@ -89,7 +89,8 @@ class Candidate:
     module: str
     #: Player ids in the platform's slot order, GK first — a submittable `starts[]`.
     starts: tuple[int, ...]
-    #: The family that proposed it first (`tilt+0.125`, `p1`). Provenance, not a ranking key.
+    #: The family that proposed it first (`tilt+0.125`, `tilt-0.25`). Provenance, not a
+    #: ranking key.
     family: str
     #: Its total under that family's surrogate. Comparable **within** a family only: the
     #: tilt term changes the scale, so the evaluator ranks across families, not this.
@@ -99,11 +100,6 @@ class Candidate:
     def starter_set(self) -> frozenset[int]:
         """The eleven as a set — the identity two families are deduplicated on."""
         return frozenset(self.starts)
-
-
-def p_one(mu: Mapping[int, float]) -> dict[int, float]:
-    """Every projected player at certainty: the p = 1 family's presence map."""
-    return dict.fromkeys(mu, 1.0)
 
 
 def first_solve(
@@ -367,11 +363,9 @@ def module_family(
     ]
 
 
-def _families(
-    p: Mapping[int, float], mu: Mapping[int, float], lambdas: Sequence[float]
-) -> list[tuple[str, float, Mapping[int, float]]]:
-    """`(label, lambda, presence)` per family: the tilt grid, then p = 1."""
-    return [(f"tilt{lam:+g}", lam, p) for lam in lambdas] + [(P1_FAMILY, 0.0, p_one(mu))]
+def _families(lambdas: Sequence[float]) -> list[tuple[str, float]]:
+    """`(label, lambda)` per family: the tilt grid, in the order given."""
+    return [(f"tilt{lam:+g}", lam) for lam in lambdas]
 
 
 def candidates_for_module(
@@ -388,20 +382,20 @@ def candidates_for_module(
 ) -> list[Candidate]:
     """Every family's k-best for one module, deduplicated on the starter set.
 
-    Order is **discovery** order — the tilt grid as given, then p = 1, each family best-first.
-    It is deterministic, which AD6 needs, and it is not a ranking: surrogates from different
+    Order is **discovery** order — the tilt grid as given, each family best-first. It is
+    deterministic, which AD6 needs, and it is not a ranking: surrogates from different
     lambdas are on different scales, and it is the evaluator that ranks. A set two families
     both propose keeps the first one's label and price, so `family` reads as "who found it",
     never as "who alone would have".
     """
     union: list[Candidate] = []
     seen: set[frozenset[int]] = set()
-    for label, lam, presence in _families(p, mu, lambdas):
+    for label, lam in _families(lambdas):
         for candidate in module_family(
             roster,
             module_code,
             mu=mu,
-            p=presence,
+            p=p,
             sigma2=sigma2,
             lam=lam,
             family=label,

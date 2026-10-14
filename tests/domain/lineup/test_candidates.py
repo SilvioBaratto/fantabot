@@ -17,14 +17,22 @@ permuting one set.
 
 And every candidate is **submittable**: natural roles only, and `ok` at every position of the
 pinned slot order (A22) — the guard the live LUP009 broke.
+
+No family **ignores availability** (A28). A set that starts a p = 0.06 man over a likelier,
+better reserve is dominated, and the evaluator cannot see that at the draws it can afford, so
+the shortlist must not contain it. The 2026-10-14 world pins that on the roster that produced
+the live defect.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from itertools import pairwise
+from typing import NamedTuple
 
 import pytest
+from _paths import GOLDEN
 
 from fantabot.domain.lineup import positional
 from fantabot.domain.lineup.build import INELIGIBLE, lineup_for_module, ranked_lineups
@@ -37,7 +45,6 @@ from fantabot.domain.lineup.candidates import (
     first_solve,
     k_best_assignments,
     module_family,
-    p_one,
     slot_replacement,
     surrogate_matrix,
 )
@@ -325,34 +332,6 @@ def test_v_s_moves_the_second_solve_away_from_the_first() -> None:
 # -- the families ------------------------------------------------------------------------
 
 
-def test_the_p_one_family_contains_the_baseline_xi_and_leads_with_it() -> None:
-    baseline = lineup_for_module(FOURTEEN, "433", value=MU)
-    assert baseline is not None
-
-    family = module_family(
-        FOURTEEN, "433", mu=MU, p=p_one(MU), sigma2=S2, lam=0.0, family="p1", k=DEFAULT_K
-    )
-
-    assert family[0].starter_set == frozenset(baseline)
-    assert frozenset(baseline) in {c.starter_set for c in family}
-
-
-def test_p_one_is_every_projected_player_at_certainty() -> None:
-    assert p_one(MU) == dict.fromkeys(MU, 1.0)
-
-
-def test_the_p_one_family_differs_from_the_sub_aware_one() -> None:
-    """Otherwise it is not a family, it is a duplicate: availability has to change the XI."""
-    sub_aware = module_family(
-        FOURTEEN, "433", mu=MU, p=P, sigma2=S2, lam=0.0, family="tilt+0", k=DEFAULT_K
-    )
-    certain = module_family(
-        FOURTEEN, "433", mu=MU, p=p_one(MU), sigma2=S2, lam=0.0, family="p1", k=DEFAULT_K
-    )
-
-    assert sub_aware[0].starter_set != certain[0].starter_set
-
-
 def test_a_family_labels_and_prices_its_candidates() -> None:
     family = module_family(
         FOURTEEN, "433", mu=MU, p=P, sigma2=S2, lam=0.125, family="tilt+0.125", k=3
@@ -363,6 +342,94 @@ def test_a_family_labels_and_prices_its_candidates() -> None:
     assert all(len(c.starts) == 11 for c in family)
     surrogates = [c.surrogate for c in family]
     assert surrogates == sorted(surrogates, reverse=True)
+
+
+class _World(NamedTuple):
+    roster: list[RosterPlayer]
+    mu: dict[int, float]
+    p: dict[int, float]
+    sigma2: dict[int, float]
+    names: dict[int, str]
+
+
+def _ghost_world() -> _World:
+    """The live 2026-10-14 world: 28 men, module 3412, matchup on, status-2 men already out."""
+    document = json.loads(
+        (GOLDEN / "lineup" / "ghost_world_2026_10_14.json").read_text(encoding="utf-8")
+    )
+    players = document["players"]
+    return _World(
+        roster=[
+            RosterPlayer(id=row["id"], roles=frozenset(row["roles"]), fvmma=row["fvmma"])
+            for row in players
+        ],
+        mu={row["id"]: row["mu"] for row in players},
+        p={row["id"]: row["p"] for row in players},
+        sigma2={row["id"]: row["sigma_tilde"] ** 2 for row in players},
+        names={row["id"]: row["name"] for row in players},
+    )
+
+
+#: `budget_for`'s row for 28 men over eleven modules, which is what the live plan ran.
+GHOST_K = 6
+GHOST_LAMBDAS = (-0.125, 0.0, 0.125)
+GHOST_NODE_BUDGET = 1_200
+PIOTROWSKI = 7198
+
+
+@pytest.mark.parametrize("k", [1, DEFAULT_K])
+def test_no_family_ignores_availability(k: int) -> None:
+    """A set takes the label of its first finder, so at a large k every set an availability-
+    blind family proposes may already carry a tilt's label. k = 1 is where such a family has
+    nowhere to hide: each family contributes its single best set and the label shows."""
+    union = candidates_for_module(FOURTEEN, "433", mu=MU, p=P, sigma2=S2, k=k)
+
+    assert union
+    assert {c.family for c in union} <= {f"tilt{lam:+g}" for lam in DEFAULT_LAMBDAS}
+
+
+def test_the_2026_10_14_world_offers_no_ghost_starter() -> None:
+    world = _ghost_world()
+
+    shortlist = candidates_for_module(
+        world.roster,
+        "3412",
+        mu=world.mu,
+        p=world.p,
+        sigma2=world.sigma2,
+        lambdas=GHOST_LAMBDAS,
+        k=GHOST_K,
+        node_budget=GHOST_NODE_BUDGET,
+    )
+
+    ghosts = [
+        (c.family, [world.names[pid] for pid in c.starts if world.p[pid] < 0.25])
+        for c in shortlist
+        if any(world.p[pid] < 0.25 for pid in c.starts)
+    ]
+    assert shortlist
+    assert not ghosts, ghosts
+
+
+def test_the_premise_holds_a_p_one_surrogate_would_field_him() -> None:
+    """The control for the test above. Were this roster to drift until nobody at p = 1 starts
+    Piotrowski, "no ghost in the shortlist" would pass for the wrong reason."""
+    world = _ghost_world()
+
+    certain = module_family(
+        world.roster,
+        "3412",
+        mu=world.mu,
+        p=dict.fromkeys(world.mu, 1.0),
+        sigma2=world.sigma2,
+        lam=0.0,
+        family="control",
+        k=GHOST_K,
+        node_budget=GHOST_NODE_BUDGET,
+    )
+
+    assert world.p[PIOTROWSKI] < 0.25
+    assert any(PIOTROWSKI in c.starts for c in certain)
 
 
 def test_an_unfieldable_module_yields_no_candidates_rather_than_raising() -> None:
@@ -382,33 +449,13 @@ def test_the_union_is_deduplicated_on_module_and_starter_set() -> None:
     assert len(union) > DEFAULT_K  # the families genuinely disagree
 
 
-def test_the_union_is_discovery_ordered_over_the_grid_then_p_one() -> None:
+def test_the_union_is_discovery_ordered_over_the_grid() -> None:
     union = candidates_for_module(FOURTEEN, "433", mu=MU, p=P, sigma2=S2)
     families = [c.family for c in union]
+    grid = [f"tilt{lam:+g}" for lam in DEFAULT_LAMBDAS]
 
-    assert families[0] == f"tilt{DEFAULT_LAMBDAS[0]:+g}"
-    assert families == sorted(
-        families, key=lambda label: [f"tilt{lam:+g}" for lam in DEFAULT_LAMBDAS].index(label)
-        if label != "p1"
-        else len(DEFAULT_LAMBDAS)
-    )
-    assert frozenset(lineup_for_module(FOURTEEN, "433", value=MU) or ()) in {
-        c.starter_set for c in union
-    }
-
-
-def test_p_one_earns_its_place_in_the_union() -> None:
-    """The label a set keeps is its **first** finder, so a full union says nothing about who
-    would have found it alone. Squeeze k to 1 and the question is answerable: on this roster
-    every tilt agrees on one eleven, and the baseline XI reaches the shortlist only because
-    the p = 1 family put it there.
-    """
-    union = candidates_for_module(FOURTEEN, "433", mu=MU, p=P, sigma2=S2, k=1)
-    baseline = frozenset(lineup_for_module(FOURTEEN, "433", value=MU) or ())
-
-    by_family = {c.family: c.starter_set for c in union}
-    assert by_family["p1"] == baseline
-    assert baseline not in {s for f, s in by_family.items() if f != "p1"}
+    assert families[0] == grid[0]
+    assert families == sorted(families, key=grid.index)
 
 
 def test_the_same_inputs_give_the_same_candidates() -> None:
