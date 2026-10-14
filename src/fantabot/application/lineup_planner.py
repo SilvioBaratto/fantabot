@@ -18,6 +18,7 @@ from fantabot.domain.asta.roles import normalize_roles
 from fantabot.domain.classic.roles import normalize_roles as classic_normalize_roles
 from fantabot.domain.classic.roles import role_from_fcrle
 from fantabot.domain.lineup import positional, schema
+from fantabot.domain.lineup.availability import RuledOut, ruled_out_from_row
 from fantabot.domain.lineup.bench import GK_ROLE, order_bench
 from fantabot.domain.lineup.build import ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
@@ -51,6 +52,14 @@ class LineupInputs:
     #: consistent pairing is absent. Empty by default, so every caller that builds inputs by
     #: hand — and the `indexCompare` path, which never looks — is unchanged.
     pairings: Mapping[int, Pairing] = field(default_factory=dict)
+    #: The roster players whose `lineUpInfo` row carries `status == 2`, the platform's own
+    #: "out" (`domain/lineup/availability`). Only the projection reads it, to give them no
+    #: presence (`lineup_projection`); the `indexCompare` path is the platform's own number
+    #: and never looks. Empty by default, so every caller that builds inputs by hand is
+    #: unchanged.
+    ruled_out: frozenset[int] = frozenset()
+    #: Each of `ruled_out` as the note names him: his name, then the platform's own words.
+    ruled_out_notes: Mapping[int, str] = field(default_factory=dict)
 
 
 def inputs_from_lineup(
@@ -71,6 +80,10 @@ def inputs_from_lineup(
     time — not because the scraped ids fail to join: `quotazioni`, `match_grain` and
     `players` use the same player id (see `domain/lineup/value.py`).
 
+    A row with `status == 2` is the platform's own "out" and is collected as `ruled_out`
+    beside the roster. It is read on every run whatever the model and costs only that
+    player's flag when a row is malformed (`domain/lineup/availability`).
+
     `tid` is passed in from `apileague.my_team` (authoritative) rather than read from `dto`,
     which is empty when the competition has no saved lineup — a state that would otherwise
     submit `tid=0`. The matchday coordinates still come from `dto`; the submit path refuses
@@ -81,11 +94,14 @@ def inputs_from_lineup(
     value_by_id: dict[int, float] = {}
     names: dict[int, str] = {}
     pairings: dict[int, Pairing] = {}
+    ruled_out: dict[int, RuledOut] = {}
     for row in lineup_info:
         pid = int(row["pid"])
         roster_ids.append(pid)
         if (pairing := pairing_from_row(row)) is not None:
             pairings[pid] = pairing
+        if (ruling := ruled_out_from_row(row)) is not None:
+            ruled_out[pid] = ruling
         # Classic reads the single macro role from `fcrle` ({1:P,2:D,3:C,4:A}); Mantra reads the
         # granular marle codes. A Classic row without `fcrle` yields no role and fails closed at
         # assemble_roster rather than being read on the wrong scale.
@@ -109,6 +125,11 @@ def inputs_from_lineup(
         bench_size=int(settings.get("tbench", 12)),
         fmt=fmt,
         pairings=pairings,
+        ruled_out=frozenset(ruled_out),
+        ruled_out_notes={
+            pid: f"{names[pid]} ({ruling.reason})" if ruling.reason else names[pid]
+            for pid, ruling in ruled_out.items()
+        },
     )
     return inputs, names
 

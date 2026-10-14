@@ -31,6 +31,12 @@ term, so the XI, the bench and E[pts] all see it (`domain/lineup/matchup`, SPEC 
 setting is read where it is used and fails closed; off, μ is the projection's own number to
 the last bit. Anything in the adjustment that fails costs the adjustment and never the plan.
 
+**The platform's own "out" outranks the model.** A roster player whose `lineUpInfo` row says
+`status == 2` gets p = 0, after the history and the news have blended it (SPEC A27): the news is
+fetched weekly and a reading older than the injury still says he plays. Only that value is
+read — `percent` is not a probability and no other `status` was ever measured — and with nobody
+out the outcome is the one it was, field for field.
+
 **Staleness is a verdict, not a gate.** It says whether the voti behind μ are final (T25); the
 fallback that acts on it is `--shadow`'s, in phase 6. A lineup with no matchday coordinates
 yet has nothing to be fresh *for*, and says that rather than reading as fresh.
@@ -153,6 +159,10 @@ class ProjectionOutcome:
     #: One sentence on the opponent adjustment: what it did, or why it did nothing. `""` when
     #: the setting is off, which is how a reader (and a test) can tell off from skipped.
     matchup_note: str = ""
+    #: One sentence naming the roster players the platform ruled out (`status == 2`) and why,
+    #: each priced at p = 0. `""` when nobody is, which is how a reader tells a guard that
+    #: found no one from one that was never there.
+    ruled_out_note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,7 +302,11 @@ def plan_projection(
 
     roster = [pid for pid in inputs.roster_ids if pid in projections]
     mu = {pid: projections[pid].mu for pid in roster}
-    p = {pid: presences[pid].p for pid in roster}
+    # After the history and the news have blended it, and the only place the roster's p is
+    # built: the news is fetched weekly and a reading older than the injury still says he
+    # plays, while the lineup DTO is read at submit time. Every consumer below — the values,
+    # the matcher, the evaluator, the table and the shadow record — takes this one number.
+    p = {pid: 0.0 if pid in inputs.ruled_out else presences[pid].p for pid in roster}
     matchups = _matchups(
         inputs,
         enabled=matchup_enabled(matchup_on),
@@ -352,7 +366,21 @@ def plan_projection(
         fallback=fallback,
         adjustments=adjustments,
         matchup_note=matchups.note,
+        ruled_out_note=_ruled_out_note(inputs, roster),
     )
+
+
+_RULED_OUT = "ruled out by the platform (lineUpInfo status 2), p = 0:"
+
+
+def _ruled_out_note(inputs: LineupInputs, roster: Sequence[int]) -> str:
+    """Who was forced to p = 0, in roster order, or `""` when nobody was.
+
+    `roster` is the men the projection has a line for, so a ruled-out id it never priced is
+    not named: the note says what the model did, not what the DTO said.
+    """
+    named = [inputs.ruled_out_notes.get(pid, str(pid)) for pid in roster if pid in inputs.ruled_out]
+    return f"{_RULED_OUT} {'; '.join(named)}" if named else ""
 
 
 def matchup_enabled(override: bool | None = None) -> bool:
@@ -734,6 +762,9 @@ def projected_from(report: ProjectionReport, *, for_submit: bool = False) -> Pro
     # XI was chosen on, and a run with no word about it would read as the setting being off.
     if outcome.matchup_note:
         warnings.append(outcome.matchup_note)
+    # Without it the record gives no reason why a man the history rates is not in the XI.
+    if outcome.ruled_out_note:
+        warnings.append(outcome.ruled_out_note)
     reasons: list[str] = []
     if not outcome.freshness.fresh:
         reasons.append(f"stale: {'; '.join(outcome.freshness.reasons)}")

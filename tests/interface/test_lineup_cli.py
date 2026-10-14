@@ -714,6 +714,71 @@ def test_plan_projection_prints_both_models_the_table_and_the_verdict(
     assert "sigma~" in result.output and "5.50" in result.output  # the replacement level
 
 
+def _with_ruled_out_note(note: str) -> Any:
+    from dataclasses import replace
+
+    report = _projection_report()
+    return replace(report, projection=replace(report.projection, ruled_out_note=note))
+
+
+def test_plan_projection_prints_who_the_platform_ruled_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The note is what an operator reads to learn why a man the model rated is not in the
+    XI: it sits with the other header lines, before the plans."""
+    from fantabot.application import lineup_projection
+
+    note = (
+        "ruled out by the platform (lineUpInfo status 2), p = 0: "
+        "Leysen F. (lesione crociato anteriore del ginocchio sinistro, ipotesi rientro da aprile)"
+    )
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection, "projection_for_league", lambda *a, **k: _with_ruled_out_note(note)
+    )
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 0, result.output
+    flat = " ".join(result.output.split())
+    assert note in flat
+    assert flat.index(note) < flat.index("indexcompare")
+
+
+def test_plan_projection_says_nothing_about_it_when_nobody_is_ruled_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Off prints nothing: the screen is the one it always was."""
+    from fantabot.application import lineup_projection
+
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection, "projection_for_league", lambda *a, **k: _projection_report()
+    )
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert result.exit_code == 0, result.output
+    assert "ruled out" not in result.output
+
+
+def test_a_ruled_out_note_with_square_brackets_is_not_read_as_markup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason is the platform's free text; Rich would take `[bold]` for a style tag."""
+    from fantabot.application import lineup_projection
+
+    note = "ruled out by the platform (lineUpInfo status 2), p = 0: X ([bold]rientro[/bold])"
+    _fakes_plan(monkeypatch)
+    monkeypatch.setattr(
+        lineup_projection, "projection_for_league", lambda *a, **k: _with_ruled_out_note(note)
+    )
+
+    result = runner.invoke(app, ["lineup", "plan", "--model", "projection"])
+
+    assert "[bold]rientro[/bold]" in " ".join(result.output.split())
+
+
 @pytest.mark.parametrize(
     ("setting", "fielded", "shown"),
     [("projection", "projection", "indexcompare"), ("indexcompare", "indexcompare", "projection")],

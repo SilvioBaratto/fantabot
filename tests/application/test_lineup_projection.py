@@ -13,21 +13,25 @@ socket. `as_of` is passed, never read from a clock.
 from __future__ import annotations
 
 from collections.abc import Collection
+from dataclasses import replace
 from datetime import date, timedelta
 
 import pytest
 
-from fantabot.application.lineup_planner import LineupInputs
+from fantabot.application import lineup_projection
+from fantabot.application.lineup_planner import LineupInputs, plan_lineups
 from fantabot.application.lineup_projection import (
+    PlayerLine,
     ProjectionOutcome,
     _chosen,
     plan_projection,
     substitution_cap,
 )
-from fantabot.domain.lineup.choose import Budget
+from fantabot.domain.lineup.choose import Budget, PlanInputs
 from fantabot.domain.lineup.errors import BenchIncomplete, NoFieldableModule
 from fantabot.domain.lineup.history import Fixture, HistoryAppearance, Valuation
 from fantabot.domain.lineup.scoring import Appearance, ScoringRules
+from fantabot.domain.lineup.value import replacement_level, sub_aware
 from fantabot.domain.shared.values import SentimentRow
 
 AS_OF = date(2026, 9, 22)
@@ -622,3 +626,252 @@ class TestTheRefreshMarkerDecidesFreshness:
 
         assert not outcome.freshness.fresh
         assert any("refresh" in reason for reason in outcome.freshness.reasons)
+
+
+# -- the platform's own "out": a roster player whose `lineUpInfo` row says `status == 2` -----
+
+
+def _ruled(*pids: int) -> dict[str, object]:
+    """Inputs saying the platform marked these players out, each with a reason."""
+    return {
+        "ruled_out": frozenset(pids),
+        "ruled_out_notes": {pid: f"p{pid} (rientro a marzo)" for pid in pids},
+    }
+
+
+def _lines(outcome: ProjectionOutcome) -> dict[int, PlayerLine]:
+    return {line.player_id: line for line in outcome.lines}
+
+
+class TestARuledOutPlayerHasNoPresence:
+    """p is forced to zero after the history and the news have blended it, in the one place
+    the roster's p is built, so every consumer reads the same number."""
+
+    def test_his_p_is_zero_and_his_mu_is_not_touched(self) -> None:
+        """The guard answers whether he plays, not what he scores if he does."""
+        healthy = _lines(_plan())
+        ruled = _lines(_plan(**_ruled(GOOD)))
+
+        assert healthy[GOOD].p > 0.5, "the control: the same man is a regular without the flag"
+        assert ruled[GOOD].p == 0.0
+        assert ruled[GOOD].mu == healthy[GOOD].mu
+        assert ruled[GOOD].sigma_tilde == healthy[GOOD].sigma_tilde
+
+    def test_nobody_else_s_presence_moves(self) -> None:
+        healthy = _lines(_plan())
+        ruled = _lines(_plan(**_ruled(GOOD)))
+
+        assert {pid: line.p for pid, line in ruled.items() if pid != GOOD} == {
+            pid: line.p for pid, line in healthy.items() if pid != GOOD
+        }
+        assert {pid: line.mu for pid, line in ruled.items()} == {
+            pid: line.mu for pid, line in healthy.items()
+        }
+
+    def test_it_beats_a_news_reading_that_says_he_is_fine(self) -> None:
+        """The case that fielded Leysen: a confident, fresh reading from before the injury
+        said available and starting, and the blend took it at its word."""
+        fine = _reading(GOOD, disponibilita=1.0, titolarita=1.0, confidenza=1.0)
+
+        believed = _lines(_plan(FakeHistory({GOOD: fine})))
+        ruled = _lines(_plan(FakeHistory({GOOD: fine}), **_ruled(GOOD)))
+
+        assert believed[GOOD].p > 0.9
+        assert ruled[GOOD].p == 0.0
+
+    def test_two_players_at_once(self) -> None:
+        ruled = _lines(_plan(**_ruled(GOOD, MOVED)))
+
+        assert ruled[GOOD].p == 0.0 and ruled[MOVED].p == 0.0
+
+    def test_the_value_is_the_sub_aware_term_of_that_p(self) -> None:
+        """With p = 0 the term is the replacement level `v` exactly, as the news-injured
+        case already was: his slot is worth whoever comes on."""
+        outcome = _plan(**_ruled(GOOD))
+        lines = _lines(outcome)
+
+        assert lines[GOOD].value == pytest.approx(outcome.replacement)
+        assert {pid: line.value for pid, line in lines.items()} == pytest.approx(
+            sub_aware(
+                {pid: line.mu for pid, line in lines.items()},
+                {pid: line.p for pid, line in lines.items()},
+            )
+        )
+
+    def test_the_replacement_level_is_priced_on_that_p(self) -> None:
+        outcome = _plan(**_ruled(GOOD))
+        lines = _lines(outcome)
+
+        assert outcome.replacement == pytest.approx(
+            replacement_level({pid: line.p * line.mu for pid, line in lines.items()})
+        )
+
+    def test_the_evaluator_is_handed_the_same_p_and_the_same_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The chooser, the bench search and the simulator all read `PlanInputs.p`; the
+        table, the matcher and the shadow record read the lines. One number for all."""
+        seen: list[PlanInputs] = []
+        real = lineup_projection.choose_plan
+
+        def spy(plan_inputs: PlanInputs, **kwargs: object) -> object:
+            seen.append(plan_inputs)
+            return real(plan_inputs, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(lineup_projection, "choose_plan", spy)
+
+        outcome = _plan(**_ruled(GOOD))
+
+        [plan_inputs] = seen
+        lines = _lines(outcome)
+        assert plan_inputs.p[GOOD] == 0.0
+        assert dict(plan_inputs.p) == {pid: line.p for pid, line in lines.items()}
+        assert dict(plan_inputs.value) == pytest.approx(
+            {pid: line.value for pid, line in lines.items()}
+        )
+
+    def test_the_matcher_ranks_the_modules_on_those_values(self) -> None:
+        outcome = _plan(**_ruled(GOOD))
+        values = {line.player_id: line.value for line in outcome.lines}
+
+        matcher = plan_lineups(replace(_inputs(**_ruled(GOOD)), fvmma_by_id=values))
+
+        assert {(p.module, p.starts) for p in matcher} <= {
+            (p.module, p.starts) for p in outcome.plans
+        }
+
+    def test_the_projection_does_not_start_a_man_the_platform_rules_out(self) -> None:
+        """The regular who started without the flag is out of the XI with it."""
+        assert GOOD in _plan().plans[0].starts, "the control"
+
+        outcome = _plan(**_ruled(GOOD))
+
+        assert GOOD not in outcome.plans[0].starts
+
+    def test_a_classic_lega_is_guarded_the_same_way(self) -> None:
+        """The field is in both DTOs and the guard does not look at the format."""
+        codes = {
+            1: "p", 2: "p", 3: "d", 4: "d", 5: "d", 14: "d", 6: "c", 7: "c", 8: "c", 9: "c",
+            15: "c", 10: "a", 11: "a", GOOD: "a", FLASHY: "a",
+        }
+
+        class Classic(FakeHistory):
+            def roles(self, season: str) -> dict[int, tuple[str, ...]]:
+                return {pid: (code,) for pid, code in codes.items()} if season == SEASON else {}
+
+        classic = {
+            "fmt": "classic",
+            "roles_by_id": {pid: [code.upper()] for pid, code in codes.items()},
+        }
+
+        ruled = _lines(_plan(Classic(), **classic, **_ruled(GOOD)))
+
+        assert ruled[GOOD].p == 0.0
+        assert _lines(_plan(Classic(), **classic))[GOOD].p > 0.5
+
+
+class TestNobodyRuledOutIsToday:
+    """Off is the outcome it was, field for field, and says nothing."""
+
+    def test_an_empty_ruling_is_the_outcome_it_was(self) -> None:
+        assert _plan(ruled_out=frozenset()) == _plan()
+
+    def test_no_note_is_made_when_nobody_is_ruled_out(self) -> None:
+        assert _plan().ruled_out_note == ""
+
+    def test_a_reason_without_a_flag_is_not_a_ruling(self) -> None:
+        """`ruled_out` is the verdict; the notes only say why."""
+        assert _plan(ruled_out_notes={GOOD: "x"}) == _plan()
+
+    def test_a_player_who_is_not_on_the_roster_is_not_a_ruling(self) -> None:
+        """A pid the projection has no line for is neither forced nor named."""
+        outcome = _plan(ruled_out=frozenset({999}), ruled_out_notes={999: "ghost"})
+
+        assert outcome == _plan()
+        assert outcome.ruled_out_note == ""
+
+
+class TestTheNote:
+    """One sentence on the outcome, like `matchup_note`, for the table and the run record."""
+
+    def test_it_names_who_was_ruled_out_and_why(self) -> None:
+        note = _plan(**_ruled(GOOD)).ruled_out_note
+
+        assert note == (
+            "ruled out by the platform (lineUpInfo status 2), p = 0: p12 (rientro a marzo)"
+        )
+
+    def test_it_lists_them_in_roster_order(self) -> None:
+        """Roster order, whatever order the set iterates in, so a record reads the same."""
+        note = _plan(**_ruled(GOOD, MOVED)).ruled_out_note
+
+        assert note.index("p7 (") < note.index("p12 (")
+        assert note.count("; ") == 1
+
+    def test_a_player_the_notes_do_not_name_is_named_by_his_id(self) -> None:
+        note = _plan(ruled_out=frozenset({GOOD})).ruled_out_note
+
+        assert note.endswith(": 12")
+
+    def test_only_the_players_forced_to_zero_are_named(self) -> None:
+        """A pid off the roster is not in the note even beside one that is."""
+        note = _plan(
+            ruled_out=frozenset({GOOD, 999}), ruled_out_notes={GOOD: "Good", 999: "Ghost"}
+        ).ruled_out_note
+
+        assert "Good" in note and "Ghost" not in note
+
+    def test_it_is_one_line(self) -> None:
+        assert "\n" not in _plan(**_ruled(GOOD, MOVED)).ruled_out_note
+
+
+class TestTheRunRecordCarriesIt:
+    """`projected_from` appends it to the warnings, as it does the matchup note."""
+
+    def _projected(self, *, for_submit: bool, **over: object):  # type: ignore[no-untyped-def]
+        from fantabot.application.lineup_projection import ProjectionReport, projected_from
+
+        outcome = _plan(**over)
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome, names={}, competition=311681
+        )
+        return projected_from(report, for_submit=for_submit), outcome
+
+    def test_a_shadow_run_records_it_in_its_warnings(self) -> None:
+        projected, outcome = self._projected(for_submit=False, **_ruled(GOOD))
+
+        assert outcome.ruled_out_note
+        assert outcome.ruled_out_note in projected.warnings
+
+    def test_a_submit_that_falls_back_records_it_too(self) -> None:
+        """The fixture is stale, so a projection submit falls back, and the record is where
+        an operator learns who was out."""
+        projected, outcome = self._projected(for_submit=True, **_ruled(GOOD))
+
+        assert projected.plans == ()
+        assert outcome.ruled_out_note in projected.warnings
+
+    def test_a_run_with_no_evaluated_plan_records_it(self) -> None:
+        from fantabot.application.lineup_projection import ProjectionReport, projected_from
+
+        outcome = replace(
+            _plan(**_ruled(GOOD)), chosen=None, fallback="aborted: the wall clock fired"
+        )
+        report = ProjectionReport(
+            baseline=outcome.plans, projection=outcome, names={}, competition=311681
+        )
+
+        projected = projected_from(report)
+
+        assert outcome.ruled_out_note in projected.warnings
+
+    def test_nobody_ruled_out_adds_nothing(self) -> None:
+        projected, _ = self._projected(for_submit=False)
+
+        assert not any("ruled out" in warning for warning in projected.warnings)
+
+    def test_the_other_warnings_are_the_same_with_and_without_it(self) -> None:
+        ruled, outcome = self._projected(for_submit=False, **_ruled(GOOD))
+        plain, _ = self._projected(for_submit=False)
+
+        assert [w for w in ruled.warnings if w != outcome.ruled_out_note] == list(plain.warnings)

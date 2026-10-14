@@ -80,6 +80,8 @@ TREE: dict[str, str] = {
     "test_strength.py": "domain/lineup",
     "test_pairing.py": "domain/lineup",
     "test_matchup.py": "domain/lineup",
+    # Who the platform itself rules out (`status == 2`), read off the same lineup DTO rows.
+    "test_availability.py": "domain/lineup",
     "test_candidates.py": "domain/lineup",
     "test_build.py": "domain/lineup",
     "test_bench.py": "domain/lineup",

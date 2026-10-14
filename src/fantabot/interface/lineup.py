@@ -365,6 +365,8 @@ def _plan_projection(league_id: int, competition: int) -> None:
     )
     if outcome.matchup_note:
         console.print(escape(outcome.matchup_note))
+    if outcome.ruled_out_note:
+        console.print(escape(outcome.ruled_out_note))
     for line in format_freshness(outcome.freshness):
         console.print(line)
     # The setting, not `--model`: the flag only chooses this view, and the line has to say

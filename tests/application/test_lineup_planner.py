@@ -6,6 +6,12 @@ tilts the XI, and that `--no-sentiment` (effect=None) reproduces the fvm-only fi
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
+
+import pytest
+from _paths import GOLDEN
+
 from fantabot.application.lineup_planner import (
     LineupInputs,
     inputs_from_lineup,
@@ -145,3 +151,137 @@ def test_a_classic_plan_is_not_judged_by_the_mantra_matrix(monkeypatch) -> None:
     )
 
     assert all(plan.guard == "" for plan in plan_lineups(classic))
+
+
+# -- the platform's own "out": `lineUpInfo[i].status == 2` -------------------------------
+
+
+def _golden_rows() -> list[dict[str, object]]:
+    document = json.loads((GOLDEN / "lineup" / "teamLineup_read.json").read_text("utf-8"))
+    return document["lineUpInfo"]  # type: ignore[no-any-return]
+
+
+def _from(rows: list[dict[str, object]], *, fmt: str = "mantra") -> LineupInputs:
+    inputs, _ = inputs_from_lineup(
+        {"mday": 1, "cmday": 3}, rows, {"mods": ["343"], "tbench": 12}, 311681, tid=1, fmt=fmt
+    )
+    return inputs
+
+
+class TestWhoThePlatformRulesOut:
+    """`status == 2` on a `lineUpInfo` row, collected where the row is already being read."""
+
+    def test_a_hand_built_input_rules_nobody_out(self) -> None:
+        """Every caller that builds inputs by hand is unchanged."""
+        assert INPUTS.ruled_out == frozenset()
+        assert dict(INPUTS.ruled_out_notes) == {}
+
+    def test_the_two_players_the_golden_fixture_marks_are_collected_by_id(self) -> None:
+        """Rovella and Piotrowski, `status` 2 with `percent` 0, on 2026-09-22."""
+        inputs, names = inputs_from_lineup(
+            {"mday": 1, "cmday": 3}, _golden_rows(), {"mods": ["343"], "tbench": 12}, 311681,
+            tid=1,
+        )
+
+        assert inputs.ruled_out == frozenset({4459, 7198})
+        assert {names[pid] for pid in inputs.ruled_out} == {"Rovella", "Piotrowski"}
+
+    def test_each_is_noted_by_name_with_the_platform_s_own_words(self) -> None:
+        """The words come with the name because the note is read by a person at 16:00."""
+        inputs = _from(_golden_rows())
+
+        assert inputs.ruled_out_notes[4459] == (
+            "Rovella (problema muscolare al polpaccio, rientro metà di ottobre)"
+        )
+        assert set(inputs.ruled_out_notes) == set(inputs.ruled_out)
+
+    def test_a_player_whose_row_says_nothing_is_noted_by_name_alone(self) -> None:
+        """The status decides; a missing reason costs the sentence and not the verdict."""
+        inputs = _from([{"pid": 6482, "role": [6], "plyr": "Mandas", "status": 2}])
+
+        assert inputs.ruled_out == frozenset({6482})
+        assert inputs.ruled_out_notes[6482] == "Mandas"
+
+    def test_a_player_with_no_name_is_noted_by_his_id(self) -> None:
+        """`names` falls back to the id the same way."""
+        inputs = _from([{"pid": 6482, "role": [6], "status": 2, "descr": "rientro a marzo"}])
+
+        assert inputs.ruled_out_notes[6482] == "6482 (rientro a marzo)"
+
+    def test_status_one_everywhere_rules_nobody_out(self) -> None:
+        """28 of the golden fixture's 30 rows are status 1; so is the whole fixture edited."""
+        rows = _golden_rows()
+        for row in rows:
+            row["status"] = 1
+
+        inputs = _from(rows)
+
+        assert inputs.ruled_out == frozenset()
+        assert dict(inputs.ruled_out_notes) == {}
+
+    def test_changing_status_back_to_one_changes_nothing_else_in_the_inputs(self) -> None:
+        """The flag is the only difference: roster, roles, values, pairings and module list
+        are read as they were."""
+        recorded = _from(_golden_rows())
+        edited_rows = _golden_rows()
+        for row in edited_rows:
+            row["status"] = 1
+        edited = _from(edited_rows)
+
+        for field in (
+            "roster_ids", "roles_by_id", "fvmma_by_id", "modules", "competition", "mday", "cmday",
+            "tid", "bench_size", "fmt", "pairings",
+        ):
+            assert getattr(recorded, field) == getattr(edited, field), field
+
+    @pytest.mark.parametrize(
+        "status", [True, False, 2.0, "2", None, [2], {"status": 2}, 3, 0, -1, object()]
+    )
+    def test_any_other_status_costs_nothing(self, status: object) -> None:
+        """Only the integer 2 is read; the parse never raises on the rest."""
+        rows = _golden_rows()
+        for row in rows:
+            row["status"] = status
+
+        assert _from(rows).ruled_out == frozenset()
+
+    @pytest.mark.parametrize(
+        "descr", [None, 7, ["x"], object(), "", pytest.param("é" * 10_000, id="very-long")]
+    )
+    def test_a_malformed_reason_costs_the_sentence_and_never_the_lineup(
+        self, descr: object
+    ) -> None:
+        """A bad `descr` on every row still builds every input, and the note stays short."""
+        rows = _golden_rows()
+        for row in rows:
+            row["status"] = 2
+            row["descr"] = descr
+            row["comment"] = descr
+
+        inputs = _from(rows)
+
+        assert list(inputs.roster_ids) == [row["pid"] for row in rows]
+        assert inputs.ruled_out == frozenset(inputs.roster_ids)
+        assert all(len(note) < 200 for note in inputs.ruled_out_notes.values())
+
+    def test_a_classic_row_is_read_the_same_way(self) -> None:
+        """The field is in both DTOs and the parse does not look at the format."""
+        rows = [
+            {"pid": 1, "fcrle": 1, "plyr": "Keeper", "status": 2, "descr": "rientro a marzo"},
+            {"pid": 2, "fcrle": 2, "plyr": "Back", "status": 1, "percent": 0},
+        ]
+
+        inputs = _from(rows, fmt="classic")
+
+        assert inputs.ruled_out == frozenset({1})
+
+    def test_the_default_path_plans_the_same_xi_whoever_is_ruled_out(self) -> None:
+        """`indexCompare` is the platform's own signal and is not touched: the flag is read
+        only by the projection."""
+        flagged = replace(
+            INPUTS,
+            ruled_out=frozenset({6482, 2788}),
+            ruled_out_notes={6482: "Mandas", 2788: "Pellegrini"},
+        )
+
+        assert plan_lineups(flagged) == plan_lineups(INPUTS)

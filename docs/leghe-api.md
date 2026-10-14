@@ -603,9 +603,37 @@ where a swapped `teamH`/`teamA` would have shown about 20 repeats at one of them
 * **A row whose fields disagree is read as no pairing**: the own club in neither `teamH` nor
   `teamA`, `hoaw` contradicting that, `tidOp` missing or 0, or a code that is not three letters.
   Never observed on a live row.
-* **Unverified**: what the platform shows for a postponed match, and the meaning of `trnsf`,
-  `loan`, `status`, `agrd`, `fagrd`, `percent` and `tkn`, which stay unexplained rather than
-  guessed.
+* **`status` 2 was observed to mean the platform has ruled the player out** (2026-10-14; not
+  documented by the platform). Four players carried it, every one with `percent` 0 and a
+  `descr` (`comment` holds the same text) naming an injury and a return date: Rovella
+  ("problema muscolare al polpaccio, rientro metà di ottobre") and Piotrowski ("lieve aritmia
+  cardiaca benigna, ipotesi rientro da fine ottobre") in the golden fixture, captured
+  2026-09-22; and Leysen F. ("lesione crociato anteriore del ginocchio sinistro, ipotesi
+  rientro da aprile") and Holm ("problema al tendine della coscia destra, ipotesi rientro da
+  fine febbraio") in the live read of 2026-10-14. The other 28 rows of each read carried
+  `status` 1 and a `percent` of 40 to 90 in the fixture and 20 to 90 live. In that live read
+  Rovella and Piotrowski, the fixture's two `status` 2 rows, were `status` 1 with `percent` 25
+  and 20 and a `descr` of "da valutare convocazione contro la Juve" and "in dubbio
+  convocazione contro il Lecce": out, then doubtful. Only lega `4103937`, which is Mantra, was
+  read; no recorded Classic `lineUpInfo` carries the field, so that the field means the same
+  there is assumed.
+  **What the code does with it** (SPEC A27): `domain/lineup/availability.ruled_out_from_row`
+  reads `status` when it is the integer 2 and nothing else, `application/lineup_planner`
+  collects those players as `LineupInputs.ruled_out`, and the projection gives each p = 0
+  after the history and the news have blended it (`application/lineup_projection`), so the
+  value, the matcher, the evaluator and the table all see the same number. `lineup plan` prints
+  who was ruled out and why, and the run record carries the same sentence in its warnings.
+  Without it a news reading from before the injury kept Leysen F. at p = 0.90 and the XI
+  fielded him. The default `indexcompare` path does not read it. **`percent` is not used**:
+  zero on every `status` 2 row, but a doubtful player is `status` 1 with a `percent` in
+  between (Calhanoglu, 2026-09-22: `percent` 50, `descr` "risentimento muscolare
+  all'adduttore della coscia destra, in dubbio impiego contro il Parma"), which looks like the
+  platform's own estimate that he plays and has not been measured against anything. No other
+  `status` is treated specially; 1 and 2 are the only values either read held, so whether a
+  suspension is a third value is open.
+* **Unverified**: what the platform shows for a postponed match, what `percent` is, whether a
+  `status` other than 1 and 2 exists, and the meaning of `trnsf`, `loan`, `agrd`, `fagrd` and
+  `tkn`, which stay unexplained rather than guessed.
 
 ### `POST /gaming/v1/teamLineup/{division}`  — submit / "Salva formazione"
 
