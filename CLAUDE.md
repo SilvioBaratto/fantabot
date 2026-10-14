@@ -121,6 +121,8 @@ src/fantabot/
                  the projection model and the gate that grades it: history,
                  freshness, presence, projection, scoring, dependence, opponent,
                  simulate, refresh, deadline, gate, backtest, backtest_corpus
+                 the Serie A opponent's effect on μ, off unless FANTABOT_LINEUP_OPPONENT is
+                 explicitly on: strength, pairing, matchup
     harvest/     sse, reducer, reconstruct, incremental, registry, compare, backfill,
                  models
     news/        models, mantra, prompt, pool, store, sink

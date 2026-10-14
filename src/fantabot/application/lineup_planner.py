@@ -11,7 +11,7 @@ socket and reads no clock. The per-player value is the sourced `indexCompare` (s
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from fantabot.domain.asta.roles import normalize_roles
@@ -23,6 +23,7 @@ from fantabot.domain.lineup.build import ranked_lineups
 from fantabot.domain.lineup.errors import NoFieldableModule
 from fantabot.domain.lineup.marle import roles_from_marle
 from fantabot.domain.lineup.models import PlannedLineup, assemble_roster
+from fantabot.domain.lineup.pairing import Pairing, pairing_from_row
 from fantabot.domain.lineup.value import score
 
 #: The Classic goalkeeper role for the bench's slot 0, the counterpart to Mantra's `POR`.
@@ -45,6 +46,11 @@ class LineupInputs:
     #: `"mantra"` or `"classic"` — selects the role source, the slot provider, the normalizer
     #: and the bench keeper role. Defaults to Mantra so existing callers are unchanged.
     fmt: str = "mantra"
+    #: Each roster player's upcoming match, read off his `lineUpInfo` row. Only the projection's
+    #: opponent adjustment reads it (`lineup_projection`); a player whose row did not state a
+    #: consistent pairing is absent. Empty by default, so every caller that builds inputs by
+    #: hand — and the `indexCompare` path, which never looks — is unchanged.
+    pairings: Mapping[int, Pairing] = field(default_factory=dict)
 
 
 def inputs_from_lineup(
@@ -74,9 +80,12 @@ def inputs_from_lineup(
     roles_by_id: dict[int, list[str]] = {}
     value_by_id: dict[int, float] = {}
     names: dict[int, str] = {}
+    pairings: dict[int, Pairing] = {}
     for row in lineup_info:
         pid = int(row["pid"])
         roster_ids.append(pid)
+        if (pairing := pairing_from_row(row)) is not None:
+            pairings[pid] = pairing
         # Classic reads the single macro role from `fcrle` ({1:P,2:D,3:C,4:A}); Mantra reads the
         # granular marle codes. A Classic row without `fcrle` yields no role and fails closed at
         # assemble_roster rather than being read on the wrong scale.
@@ -99,6 +108,7 @@ def inputs_from_lineup(
         tid=tid,
         bench_size=int(settings.get("tbench", 12)),
         fmt=fmt,
+        pairings=pairings,
     )
     return inputs, names
 

@@ -104,27 +104,59 @@ def live_auto_act() -> bool:
         return False
 
 
-#: The three lineup settings, by env name. Re-read like `live_auto_act`, and for the same
+#: The four lineup settings, by env name. Re-read like `live_auto_act`, and for the same
 #: reason: `settings` is the module singleton built at first import, so a long-lived app
 #: server would answer every request with the state of the world at boot — and an operator
 #: who switched the model at 21:47 without restarting would keep getting the old one.
 LINEUP_MODEL_VAR = "FANTABOT_LINEUP_MODEL"
 LINEUP_SUB_MODE_VAR = "FANTABOT_LINEUP_SUB_MODE"
 LINEUP_NEWS_VAR = "FANTABOT_LINEUP_NEWS"
+LINEUP_OPPONENT_VAR = "FANTABOT_LINEUP_OPPONENT"
+
+#: All of them, in one place, because the settings are found by name and a test that has to
+#: neutralise the operator's own values cannot discover a fifth one by pattern: it would be
+#: read from the repository's `.env` by every test until someone remembered. A test pins that
+#: this tuple holds every `LINEUP_*_VAR` above.
+LINEUP_SETTING_VARS = (
+    LINEUP_MODEL_VAR,
+    LINEUP_SUB_MODE_VAR,
+    LINEUP_NEWS_VAR,
+    LINEUP_OPPONENT_VAR,
+)
+
+#: What turns an opt-in flag on. Anything else, a typo included, is off.
+_YES = frozenset({"1", "true", "yes", "on"})
 
 
 def live_setting(name: str) -> str | None:
     """One setting's value **now**, with `live_auto_act`'s precedence and none of its parsing.
 
-    Parsing belongs at the point of use (AD4): each of the three fails closed differently —
+    Parsing belongs at the point of use (AD4): each of the four fails closed differently —
     an unknown model is `indexcompare`, an unknown sub mode is "the operator has not said",
-    and anything but an explicit yes leaves the news off — so this returns the raw string
-    and the caller decides what it could not read.
+    and anything but an explicit yes leaves the news and the opponent adjustment off — so
+    this returns the raw string and the caller decides what it could not read.
     """
     raw: str | None = os.environ.get(name)
     if raw is None or name in _DOTENV_INJECTED:
         raw = _dotenv_value(name)
     return raw
+
+
+def live_flag(name: str) -> bool:
+    """One opt-in setting **now**, failing closed: only an explicit yes is on.
+
+    The parse is here and not at each caller because the two flags that spend something on
+    being wrong, the news fetch and the opponent adjustment, must read a mistyped value the
+    same way. A second copy would be free to say `onn` is on.
+
+    Args:
+        name: The environment variable, as `live_setting` reads it.
+
+    Returns:
+        True for `1`, `true`, `yes` or `on` in any case, ignoring surrounding whitespace.
+        False for unset, empty and every other value.
+    """
+    return (live_setting(name) or "").strip().lower() in _YES
 
 
 def _dotenv_value(name: str) -> str | None:
@@ -277,15 +309,17 @@ class Settings(BaseSettings):
     # in two leghe and one flat file could not tell them apart. 0 means unset.
     fantabot_league_id: int = 0
 
-    # The lineup model, the lega's substitution mode and the news gate (SPEC A4/A7/A19(5)).
+    # The lineup model, the lega's substitution mode, the news gate and the opponent
+    # adjustment (SPEC A4/A7/A19(5)/A26).
     # `str | None`, never `Literal` and never required: `Settings()` runs at import, and a
     # typo in `.env` must not stop the hourly job at the import line. Each is parsed at its
     # own point of use and fails closed — an unrecognised model falls back to
     # `indexcompare`, an unrecognised sub mode is "the operator has not said", and anything
-    # but an explicit yes leaves the news off.
+    # but an explicit yes leaves the news and the opponent adjustment off.
     fantabot_lineup_model: str | None = None
     fantabot_lineup_sub_mode: str | None = None
     fantabot_lineup_news: str | None = None
+    fantabot_lineup_opponent: str | None = None
 
     # The driver must stay +psycopg2. SPEC assumption 3: fantabot is a batch
     # process, and `postgresql+asyncpg://` breaks `alembic upgrade head`.

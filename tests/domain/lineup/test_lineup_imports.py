@@ -36,6 +36,8 @@ import _importgraph as G
 import pytest
 from _paths import PACKAGE
 
+from fantabot.config import LINEUP_SETTING_VARS
+
 HEAVY = ("numpy", "scipy")
 
 #: The modules the default lineup — and the hourly job — runs through. Named, not derived:
@@ -237,7 +239,7 @@ def test_the_default_plan_and_the_scheduled_submit_run_with_both_blocked(
     `~/.fantabot/lineup_runs.jsonl`: two tests that forgot once wrote 34 fake runs into the
     operator's real record. The working directory is `tmp_path` too, so no `.env` is read.
 
-    ⚠ **The three lineup settings are cleared, not inherited.** `lineup plan` with no
+    ⚠ **Every lineup setting is cleared, not inherited.** `lineup plan` with no
     `--model` reads `FANTABOT_LINEUP_MODEL` *now* (T31), so an operator who exported
     `projection` in their own shell would make this subprocess take the projection branch —
     and the guard would fail on the one machine it matters on, saying numpy loaded when
@@ -250,7 +252,7 @@ def test_the_default_plan_and_the_scheduled_submit_run_with_both_blocked(
         "USERPROFILE": str(tmp_path),
         "FANTABOT_AUTO_ACT": "true",
     }
-    for setting in ("FANTABOT_LINEUP_MODEL", "FANTABOT_LINEUP_SUB_MODE", "FANTABOT_LINEUP_NEWS"):
+    for setting in LINEUP_SETTING_VARS:
         env.pop(setting, None)
     result = subprocess.run(
         [sys.executable, "-c", _BLOCKED_RUN],

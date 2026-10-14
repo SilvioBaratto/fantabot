@@ -75,6 +75,11 @@ TREE: dict[str, str] = {
     "test_substitution_reconcile.py": "domain/lineup",
     "test_backtest_corpus.py": "domain/lineup",
     "test_opponent.py": "domain/lineup",
+    # The *upcoming Serie A opponent's* effect on a player's score, not the lega opponent
+    # `test_opponent.py` is about: team strength, the DTO's pairing, and the fit.
+    "test_strength.py": "domain/lineup",
+    "test_pairing.py": "domain/lineup",
+    "test_matchup.py": "domain/lineup",
     "test_candidates.py": "domain/lineup",
     "test_build.py": "domain/lineup",
     "test_bench.py": "domain/lineup",
@@ -177,6 +182,7 @@ TREE: dict[str, str] = {
     "test_lineup_shadow_wiring.py": "application",
     "test_lineup_shadow.py": "application",
     "test_lineup_projection.py": "application",
+    "test_lineup_matchup.py": "application",
     "test_lineup_golden.py": "application",
     "test_asta_room_tracker.py": "application",
     # T18-lift part 1: the composition of a live room — the twenty keywords `asta room`
@@ -261,6 +267,9 @@ TREE: dict[str, str] = {
     "test_config_database_url.py": "adapters",
     "test_config_harvest_dir.py": "adapters",
     "test_config_journal_path.py": "adapters",
+    # The opt-in flags' one parse and the lineup settings' one list: about `config`, filed
+    # with its siblings, though the two gates it crosses live in `application/`.
+    "test_config_live_flag.py": "adapters",
     # -- interface --------------------------------------------------------------------------
     "test_cli_aste_backfill.py": "interface",
     "test_cli_aste_collect.py": "interface",
@@ -280,6 +289,7 @@ TREE: dict[str, str] = {
     "test_cli_db_scrape.py": "interface",
     "test_cli_entrypoints.py": "interface",
     "test_lineup_cli.py": "interface",
+    "test_lineup_matchup_cli.py": "interface",
     "test_cli_fantalab_login.py": "interface",
     "test_cli_login.py": "interface",
     "test_cli_news_fetch.py": "interface",

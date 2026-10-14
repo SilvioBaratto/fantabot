@@ -567,6 +567,46 @@ tag the market endpoints use). Returns:
 Player ids are the fantacalcio ids — the same `id` as `/league/players` and the
 scraped tables.
 
+**Each `lineUpInfo` row also carries the Serie A match his club plays in the round
+`teamLineupDto.cmday` names.** Six of its 25 fields, read by `domain/lineup/pairing.py` and
+used only by the opponent adjustment (`FANTABOT_LINEUP_OPPONENT`, SPEC A26):
+
+| Field | Example | Meaning |
+|---|---|---|
+| `tid` | `10` | the player's own Serie A club id (the platform's; the same `tid` as `/league/players`) |
+| `tname` | `"Juventus"` | the player's own club's full name (`teams.nome_completo`) |
+| `tidOp` | `11` | the opponent club's id |
+| `teamH` | `"JUV"` | three-letter code of the **home** side of the match |
+| `teamA` | `"LAZ"` | three-letter code of the **away** side |
+| `hoaw` | `0` | `0` when the player's club is `teamH`, `1` when it is `teamA` |
+
+The codes are the vocabulary of `quotazioni.squadra` and `teams.codice`. Measured 2026-10-14
+over 60 rows (30 live at `cmday` 7, 30 in the golden fixture at `cmday` 6): `hoaw` agreed with
+`tname` against `teamH` on all 60; the 30 rows of one read form 10 disjoint matches covering the
+20 clubs; and no club repeated its previous venue at the g5→g6 or g6→g7 junction (0 of 20 each),
+where a swapped `teamH`/`teamA` would have shown about 20 repeats at one of them.
+
+* **The player's own club is the row's, not `quotazioni`'s.** `teamH`/`teamA` are relative to the
+  platform's current club for the player, and a table keyed on the preseason club cannot see a
+  transfer.
+* **One round, and no matchday parameter.** `teamLineup_read` cannot be asked for any other
+  round, and nothing wrapped names the opponent of round N+1. The platform advances the lineup
+  overnight after a round (twice seen between the hourly runs at 05:39 and 06:39, and at 05:51
+  and 06:51, Rome time); until then these fields still describe the round just played.
+  The adjustment drops a pairing whose fixture was already played before `as_of`, but that
+  only fires once `match_grain` holds that round's results, so it depends on the voti refresh
+  and is not a guard of its own. For a scheduled run the guard is `scheduled_cutoff`
+  (`domain/lineup/deadline.py`, called from `application/lineup_submit.py`): it refuses with
+  `matchday-mismatch` while the platform's matchday and the lineup's differ and with
+  `matchday-started` once the matchday has kicked off. A manual, unscheduled run has neither
+  and prices the DTO's own round.
+* **A row whose fields disagree is read as no pairing**: the own club in neither `teamH` nor
+  `teamA`, `hoaw` contradicting that, `tidOp` missing or 0, or a code that is not three letters.
+  Never observed on a live row.
+* **Unverified**: what the platform shows for a postponed match, and the meaning of `trnsf`,
+  `loan`, `status`, `agrd`, `fagrd`, `percent` and `tkn`, which stay unexplained rather than
+  guessed.
+
 ### `POST /gaming/v1/teamLineup/{division}`  — submit / "Salva formazione"
 
 The write. `200 OK` on success (verified: the `visualizza` GET immediately reflected

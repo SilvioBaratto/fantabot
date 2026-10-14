@@ -188,10 +188,23 @@ _GATE_SEED = 20260923
 
 
 def format_projection_rows(report: ProjectionReport) -> list[tuple[str, ...]]:
-    """The μ/p/sigma_tilde table as strings, header first. Pure."""
-    rows: list[tuple[str, ...]] = [("player", "role", "mu", "p", "sigma~", "value", "XI")]
+    """The μ/p/sigma_tilde table as strings, header first. Pure.
+
+    When the opponent adjustment priced anyone, two columns follow: the opponent and the
+    signed amount already inside `mu`. A player it did not price shows a dash, not a zero — a
+    zero would read as "faces an average side".
+    """
+    adjustments = report.projection.adjustments
+    extra = ("opp", "adj") if adjustments else ()
+    rows: list[tuple[str, ...]] = [
+        ("player", "role", "mu", "p", "sigma~", "value", "XI", *extra)
+    ]
     starting = set(report.projection.plans[0].starts) if report.projection.plans else set()
     for line in report.projection.lines:
+        adjustment = adjustments.get(line.player_id)
+        priced = (
+            (adjustment.opponent, f"{adjustment.delta:+.2f}") if adjustment else ("-", "-")
+        )
         rows.append(
             (
                 report.names.get(line.player_id, str(line.player_id)),
@@ -201,6 +214,7 @@ def format_projection_rows(report: ProjectionReport) -> list[tuple[str, ...]]:
                 f"{line.sigma_tilde:.2f}",
                 f"{line.value:.2f}",
                 "XI" if line.player_id in starting else "",
+                *(priced if adjustments else ()),
             )
         )
     return rows
@@ -346,6 +360,8 @@ def _plan_projection(league_id: int, competition: int) -> None:
         f"as of {outcome.as_of} over {outcome.seasons[0]}..{outcome.seasons[-1]}, "
         f"replacement level {outcome.replacement:.2f}"
     )
+    if outcome.matchup_note:
+        console.print(escape(outcome.matchup_note))
     for line in format_freshness(outcome.freshness):
         console.print(line)
     # The setting, not `--model`: the flag only chooses this view, and the line has to say

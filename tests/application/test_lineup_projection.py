@@ -439,7 +439,7 @@ class TestTheFallbacks:
         """
         outcome = _chosen(
             _inputs(fmt="classic"),
-            roster=[], targets={}, projections={}, p={}, values={}, history_rows=[],
+            roster=[], targets={}, projections={}, mu={}, p={}, values={}, history_rows=[],
             rules=RULES, sub_mode="basic", opponent=None, league_id=1, max_subs=None,
             budget=SMALL, should_stop=None,
         )

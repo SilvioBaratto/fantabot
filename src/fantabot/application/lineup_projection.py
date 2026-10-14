@@ -25,6 +25,12 @@ fires — one reserve cannot cover two vacancies, and the lega's substitution bu
 A17(3)'s per-slot `v_s` (T22) and the real engine under Monte Carlo (T28) are what settle it;
 until then `p` is in the printed table, where the operator can see it.
 
+**The opponent adjustment is opt-in and additive.** With `FANTABOT_LINEUP_OPPONENT` on, a
+roster player's μ moves by `beta_role * (x_opponent - centre_role)` before the sub-aware
+term, so the XI, the bench and E[pts] all see it (`domain/lineup/matchup`, SPEC A26). The
+setting is read where it is used and fails closed; off, μ is the projection's own number to
+the last bit. Anything in the adjustment that fails costs the adjustment and never the plan.
+
 **Staleness is a verdict, not a gate.** It says whether the voti behind μ are final (T25); the
 fallback that acts on it is `--shadow`'s, in phase 6. A lineup with no matchday coordinates
 yet has nothing to be fresh *for*, and says that rather than reading as fresh.
@@ -39,15 +45,17 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from fantabot.application.containment import contained
 from fantabot.application.lineup_planner import plan_lineups
 from fantabot.application.lineup_submit import PROJECTION, Projected
 from fantabot.application.scrape import current_season
 from fantabot.domain.asta.roles import macro_role, normalize_roles
+from fantabot.domain.lineup import matchup as matchup_model
 from fantabot.domain.lineup import positional
 from fantabot.domain.lineup.choose import (
     Budget,
@@ -76,7 +84,7 @@ from fantabot.domain.lineup.projection import (
 from fantabot.domain.lineup.value import replacement_level, sub_aware
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
     from datetime import date
 
     from fantabot.adapters.files.lineup_runs import LineupShadow
@@ -139,6 +147,12 @@ class ProjectionOutcome:
     sub_mode_assumed: bool = True
     #: Why there is no `chosen`, when there is none.
     fallback: str = ""
+    #: Who was priced against which opponent, by how much. Empty when the opponent adjustment
+    #: is off, and when it is on but could not price anyone.
+    adjustments: Mapping[int, matchup_model.Adjustment] = field(default_factory=dict)
+    #: One sentence on the opponent adjustment: what it did, or why it did nothing. `""` when
+    #: the setting is off, which is how a reader (and a test) can tell off from skipped.
+    matchup_note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,13 +249,16 @@ def plan_projection(
     config: ProjectionConfig | None = None,
     weights: PresenceWeights = PresenceWeights(),
     should_stop: Callable[[], bool] | None = None,
+    matchup_on: bool | None = None,
 ) -> ProjectionOutcome:
     """Project the roster, rank the modules on it, and evaluate the shortlist. Reads
     history, opens nothing.
 
     `sub_mode` is `None` when the operator has not set it (AD4): the chain still runs, under
     BASIC, and the outcome records that it was **assumed**. `should_stop` is the wall
-    clock's one seam into the pure chain — the clock itself never reaches here.
+    clock's one seam into the pure chain — the clock itself never reaches here. `matchup_on`
+    is `None` unless a caller forces the opponent adjustment on or off: the setting is then
+    read here, at the point of use (`matchup_enabled`).
     """
     season = current_season(as_of)
     seasons = _seasons(season)
@@ -276,6 +293,20 @@ def plan_projection(
     roster = [pid for pid in inputs.roster_ids if pid in projections]
     mu = {pid: projections[pid].mu for pid in roster}
     p = {pid: presences[pid].p for pid in roster}
+    matchups = _matchups(
+        inputs,
+        enabled=matchup_enabled(matchup_on),
+        # Paired here, drained inside the containment: a length mismatch is the adjustment's
+        # failure, and the adjustment is never worth the plan.
+        scored=zip(rows, (o.score for o in history_rows), strict=True),
+        valuations=valuations, fixtures=fixtures, targets=targets, roster=roster,
+        season=season, as_of=as_of,
+    )
+    adjustments = matchups.adjustments
+    # Before the sub-aware term, not after: `p·μ + (1-p)·v` is what the matcher ranks the
+    # modules on, and the evaluator is handed the same μ, so a man facing a strong side is
+    # worth less to the XI, to the bench order and to E[pts] alike.
+    mu = {pid: mu[pid] + adjustments[pid].delta if pid in adjustments else mu[pid] for pid in mu}
     values = sub_aware(mu, p)
     plans = tuple(plan_lineups(replace(inputs, fvmma_by_id=values)))
 
@@ -286,6 +317,7 @@ def plan_projection(
         roster=roster,
         targets=targets,
         projections=projections,
+        mu=mu,
         p=p,
         values=values,
         history_rows=history_rows,
@@ -299,7 +331,7 @@ def plan_projection(
     )
     return ProjectionOutcome(
         plans=_ranked(plans, chosen, inputs),
-        lines=_lines(roster, targets, classic, projections, p, values),
+        lines=_lines(roster, targets, classic, projections, mu, p, values),
         freshness=_freshness(
             fixtures[season],
             cmday=inputs.cmday,
@@ -318,7 +350,95 @@ def plan_projection(
         sub_mode=mode,
         sub_mode_assumed=sub_mode is None,
         fallback=fallback,
+        adjustments=adjustments,
+        matchup_note=matchups.note,
     )
+
+
+def matchup_enabled(override: bool | None = None) -> bool:
+    """`FANTABOT_LINEUP_OPPONENT` **now**, parsed at the point of use and failing closed.
+
+    Only an explicit yes turns the opponent adjustment on: `1`, `true`, `yes` or `on`, in any
+    case. Unset, empty, a typo and `off` all leave it off, because the setting changes the
+    number the hourly job's XI is chosen on and an operator who mistyped it has not asked for
+    that. Re-read on every call, like `FANTABOT_LINEUP_NEWS`, so it can be flipped between two
+    hourly runs without restarting anything.
+
+    Args:
+        override: A caller that already knows (a test, a replay) passes the answer; it beats
+            the setting.
+    """
+    if override is not None:
+        return override
+    from fantabot.config import LINEUP_OPPONENT_VAR, live_flag
+
+    return live_flag(LINEUP_OPPONENT_VAR)
+
+
+_MATCHUP_ON = "opponent adjustment on"
+
+
+def _matchups(
+    inputs: LineupInputs,
+    *,
+    enabled: bool,
+    scored: Iterable[tuple[HistoryAppearance, float]],
+    valuations: Mapping[str, Mapping[int, Valuation]],
+    fixtures: Mapping[str, Sequence[Fixture]],
+    targets: Mapping[int, Target],
+    roster: Sequence[int],
+    season: str,
+    as_of: date,
+) -> matchup_model.Matchups:
+    """The roster's opponent adjustments, with the sentence for the operator as the note.
+    Empty and without a note when the setting is off, which is how a reader tells off from
+    skipped.
+
+    **Contained.** The adjustment is an extra on top of a plan that is already worth having,
+    and the hourly job must not lose a matchday to it: any exception inside is a plan without
+    it, named by exception *type* only (`contained`'s rule — a driver's message carries the
+    connection string). A Classic lega is skipped by name: the slopes were measured on the
+    five Mantra macro roles and nothing says they carry over.
+
+    `scored` is drained inside that boundary, so a lazy pairing of the history with its scores
+    fails as the adjustment and not as the plan. `roster` is the men the projection has a line
+    for, and bounds what is priced and counted.
+    """
+    if not enabled:
+        return matchup_model.Matchups(adjustments={}, note="")
+    if inputs.fmt == "classic":
+        return _skipped("classic is not what it was measured on")
+    wanted = set(roster)
+    paired = {pid: pairing for pid, pairing in inputs.pairings.items() if pid in wanted}
+
+    def run() -> matchup_model.Matchups:
+        return matchup_model.adjust(
+            scored=list(scored),
+            valuations=valuations,
+            fixtures=fixtures,
+            macro={pid: target.macro for pid, target in targets.items()},
+            pairings=paired,
+            season=season,
+            cmday=inputs.cmday,
+            as_of=as_of,
+        )
+
+    result, failure = contained(run)
+    if result is None:
+        return _skipped(failure)
+    if not result.adjustments:
+        return _skipped(result.note)
+    unpaired = len(wanted) - len(paired)
+    tail = f"; {unpaired} roster player(s) without a pairing" if unpaired else ""
+    return matchup_model.Matchups(
+        adjustments=result.adjustments, note=f"{_MATCHUP_ON}: {result.note}{tail}"
+    )
+
+
+def _skipped(why: str) -> matchup_model.Matchups:
+    """No adjustments, and the operator's sentence saying the setting was on and why it did
+    nothing."""
+    return matchup_model.Matchups(adjustments={}, note=f"{_MATCHUP_ON}, skipped: {why}")
 
 
 def _ranked(
@@ -377,6 +497,7 @@ def _chosen(
     roster: Sequence[int],
     targets: Mapping[int, Target],
     projections: Mapping[int, Projection],
+    mu: Mapping[int, float],
     p: Mapping[int, float],
     values: Mapping[int, float],
     history_rows: Sequence[Observation],
@@ -404,6 +525,13 @@ def _chosen(
     first, and a roster that fields no module or cannot fill a bench has no fallback to fall
     to. What this contains is what the **chain** adds — the copula, the shortlist, the
     bench search — which is exactly the work that is optional.
+
+    `mu` is what the evaluator draws around: the projections' own, moved by this week's
+    opponent adjustment when there is one. It is not read off `projections` because the
+    adjustment moves this week's μ and **not** the history the dependence is fitted on:
+    `residuals(history_rows, projections, ...)` measures how past scores sat around the
+    model's own expectation, and shifting that by one week's opponent would shift every
+    standardized residual of that player.
     """
     if inputs.fmt == "classic":
         return None, "classic: the evaluated chain is Mantra-only"
@@ -418,7 +546,7 @@ def _chosen(
         plan_inputs = PlanInputs(
             roster=tuple(players),
             modules=tuple(inputs.modules),
-            mu={pid: projections[pid].mu for pid in roster},
+            mu={pid: mu[pid] for pid in roster},
             p={pid: p[pid] for pid in roster},
             sigma_tilde={pid: math.sqrt(projections[pid].sigma_tilde2) for pid in roster},
             macro={pid: targets[pid].macro for pid in roster},
@@ -510,6 +638,7 @@ def _lines(
     targets: Mapping[int, Target],
     classic: Mapping[int, str],
     projections: Mapping[int, Projection],
+    mu: Mapping[int, float],
     p: Mapping[int, float],
     values: Mapping[int, float],
 ) -> tuple[PlayerLine, ...]:
@@ -518,7 +647,7 @@ def _lines(
             player_id=pid,
             macro=targets[pid].macro,
             role=classic[pid],
-            mu=projections[pid].mu,
+            mu=mu[pid],
             p=p[pid],
             sigma_tilde=projections[pid].sigma_tilde2 ** 0.5,
             value=values[pid],
@@ -601,6 +730,10 @@ def projected_from(report: ProjectionReport, *, for_submit: bool = False) -> Pro
     """
     outcome = report.projection
     warnings = list(outcome.freshness.warnings)
+    # Carried whether it ran or was skipped: the record is where an operator learns what the
+    # XI was chosen on, and a run with no word about it would read as the setting being off.
+    if outcome.matchup_note:
+        warnings.append(outcome.matchup_note)
     reasons: list[str] = []
     if not outcome.freshness.fresh:
         reasons.append(f"stale: {'; '.join(outcome.freshness.reasons)}")
