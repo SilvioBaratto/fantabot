@@ -13,15 +13,22 @@ available and the copy is real.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+from fantabot.adapters.files.lock import COLLECTOR, LOADER, ROLES, RoleBusy, lock_path, role_lock
 from typer.testing import CliRunner
 
 from fantabot_app import harvest_home
 from fantabot_app.cli import app
 
 runner = CliRunner()
+
+# Every test here runs `adopt`, which holds two lock files open while it works. Windows
+# refuses to delete a file with an open handle; without this the suite only learns that on
+# `app-ci`'s Windows runner.
+pytestmark = pytest.mark.usefixtures("windows_file_semantics")
 
 
 def _landing(root: Path, *, size: int = 4096, offset: int = 1024) -> Path:
@@ -296,3 +303,102 @@ class TestLiveSource:
             harvest_home.adopt(source, destination, disk_free=_plenty)
 
         assert live.exists()
+
+
+class TestTheRolesOutliveTheMove:
+    """What `adopt` must not give up in order to run where a held file cannot be removed."""
+
+    @staticmethod
+    def _held_roles(live: Path) -> set[str]:
+        """The roles that cannot be taken right now, found by trying to take them."""
+        held = set()
+        for role in ROLES:
+            try:
+                with role_lock(live, role):
+                    pass
+            except RoleBusy:
+                held.add(role)
+        return held
+
+    def test_both_roles_are_held_at_every_step_that_touches_the_landing_zone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A collector appends through its open handle to a file that is then unlinked, and
+        a loader moves `.offset` under the copy: either loses records without an error. So
+        the roles must be held from the free-space check to the last source file going, and
+        releasing them early to get the lock files deleted would be the cheap way to make
+        Windows pass."""
+        source, destination = tmp_path / "from", tmp_path / "to"
+        live = _landing(source)
+        seen: list[tuple[str, set[str]]] = []
+
+        def sample(step: str) -> None:
+            seen.append((step, self._held_roles(live)))
+
+        def disk_free(path: Path) -> int:
+            sample("free-space check")
+            return _plenty(path)
+
+        real_copy2, real_unlink = harvest_home.shutil.copy2, os.unlink
+
+        def copying(src: Path, dst: Path) -> object:
+            sample(f"copy {Path(src).name}")
+            return real_copy2(src, dst)
+
+        def unlinking(path: Path, *args: object, **kwargs: object) -> None:
+            if Path(path).parent == source and not Path(path).name.endswith(".lock"):
+                sample(f"unlink {Path(path).name}")
+            real_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(harvest_home.shutil, "copy2", copying)
+        monkeypatch.setattr(os, "unlink", unlinking)
+
+        harvest_home.adopt(source, destination, disk_free=disk_free)
+
+        steps = [step for step, _ in seen]
+        assert steps == [
+            "free-space check",
+            "copy live.jsonl",
+            "copy live.jsonl.offset",
+            "copy live.jsonl.state",
+            "unlink live.jsonl",
+            "unlink live.jsonl.offset",
+            "unlink live.jsonl.state",
+        ]
+        assert [held for _, held in seen] == [set(ROLES)] * len(seen)
+
+    def test_the_lock_files_go_once_the_roles_are_released(self, tmp_path: Path) -> None:
+        source, destination = tmp_path / "from", tmp_path / "to"
+        live = _landing(source)
+
+        harvest_home.adopt(source, destination, disk_free=_plenty)
+
+        assert list(source.iterdir()) == []
+        assert self._held_roles(live) == set()
+
+    def test_lock_files_are_left_where_nothing_was_moved(self, tmp_path: Path) -> None:
+        """A directory with no landing zone in it is not made tidier by a command that
+        reports it moved nothing."""
+        source, destination = tmp_path / "from", tmp_path / "to"
+        source.mkdir()
+        stale = lock_path(source / "live.jsonl", COLLECTOR)
+        stale.write_bytes(b"")
+
+        report = harvest_home.adopt(source, destination, disk_free=_plenty)
+
+        assert report.moved == 0
+        assert stale.exists()
+
+    def test_a_lock_someone_holds_by_then_is_left_in_place(self, tmp_path: Path) -> None:
+        """The roles are released before the lock files are deleted, so a collector started
+        in the emptied directory in between holds one. Its lock must stay, and the move that
+        has already happened must not be reported as a failure."""
+        live = tmp_path / "live.jsonl"
+        idle = lock_path(live, LOADER)
+        idle.write_bytes(b"")
+
+        with role_lock(live, COLLECTOR) as held:
+            harvest_home._discard_locks([held, idle])
+
+        assert held.exists()
+        assert not idle.exists()

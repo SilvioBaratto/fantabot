@@ -182,7 +182,32 @@ def adopt(
                         f"a {role} is running against {live} ({exc.path}). Stop it first; "
                         f"nothing was moved."
                     ) from exc
-        return _adopt(source, destination, disk_free, locks)
+        report = _adopt(source, destination, disk_free, locks)
+    if report.moved or report.skipped:
+        _discard_locks(locks)
+    return report
+
+
+def _discard_locks(locks: list[Path]) -> None:
+    """Remove the lock files a finished move has left in the directory it emptied.
+
+    Runs once the roles are released, never while they are held. Windows refuses to delete
+    a file this process still has open, and the lock is exactly that. Nothing is given up
+    by waiting: every file the roles protect is already gone, so a collector or loader
+    that starts now is not writing into what was moved.
+
+    A lock that cannot be removed is left where it is. The only holder it can have is a
+    process that started in the emptied directory after the release, and deleting the file
+    under it would take its lock away. Only Windows refuses that unlink: on POSIX it
+    succeeds, so a process that took the lock in the instant between the release and this
+    loop would lose its file. That is accepted, because the directory no longer holds
+    anything a collector or loader could be writing.
+    """
+    for lock in locks:
+        try:
+            lock.unlink(missing_ok=True)
+        except PermissionError:
+            continue
 
 
 def _adopt(
@@ -222,8 +247,6 @@ def _adopt(
     _verify(destination, names)
     for entry in to_move + skipped:
         entry.unlink()
-    for lock in locks:
-        lock.unlink(missing_ok=True)
     return Adopted(
         moved=len(to_move), skipped=len(skipped), total_bytes=total, destination=destination
     )
