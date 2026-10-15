@@ -2,7 +2,7 @@
 that carries it followed from the query parameter down to the objective.
 
 Ten sites declare it — six CLI commands, two routes, two application value objects — and
-three hand-offs pass it along. This file reads the declarations out of the running code and
+four hand-offs pass it along. This file reads the declarations out of the running code and
 sends a number no default holds through each hand-off.
 
 **This is the hole the rest of the tier could not see.** `test_parity_asta_plan.py` compares
@@ -42,7 +42,7 @@ with it.
 
 **And a default is only half of it.** With every default agreeing, `lam=lam` can be *deleted*
 from a route and nothing changes at the default — which is the mutation a reviewer measured
-surviving the whole suite. So the last three tests follow the number rather than its
+surviving the whole suite. So the last four tests follow the number rather than its
 declaration: a non-default `lam` is sent to each route and asserted to arrive at the
 objective, one hand-off at a time. `GET /asta/advisory` had no test of any kind on that path.
 """
@@ -227,7 +227,7 @@ def test_the_constructors_both_surfaces_build_default_the_same_way() -> None:
     A wrong default here is not inert. It is what makes `lam=lam` *deletable* from
     `asta_advisory`'s `AdvisoryRequest(...)` — a mutation that compiles, runs, returns 200
     and prices the auction an operator is watching against a different objective from the
-    plan they were briefed from. The three hand-off tests at the foot of this file close
+    plan they were briefed from. The four hand-off tests at the foot of this file close
     the deletion; this one closes the landing it falls onto.
     """
     from fantabot.application.plan_request import DEFAULT_LAM
@@ -413,18 +413,14 @@ def test_the_plan_route_hands_its_lam_to_the_request(
     )
 
 
-def test_the_advisory_hands_the_requests_lam_to_the_fold(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`build_advisory` hands `request.lam` to `rolling_advisory`. The last hand-off.
+def _advise_with_a_spy_on_both_solves(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Run `build_advisory` with a non-default `lam` and return what each solve was handed.
 
-    `domain/asta/reservation.rolling_advisory` declares `lam: float = 0.0` — correct for a
-    pure kernel, which cannot read `DEFAULT_LAM` and whose neutral is no variance term at
-    all — so dropping `lam=request.lam` from the fold is the third silent deletion on this
-    one path, and the one furthest from anything a screen would show. The plan side has had
-    this assertion since it was written (`tests/application/test_plan_request.py`'s
-    `test_lam_and_fallbacks_reach_the_optimizer`); the advisory side captured the fold's
-    kwargs and never looked at them.
+    `events=[]` is the case that reaches both seams: `rolling_advisory` yields once per
+    sale, so over no sales it yields nothing, `last` stays `None`, and `build_advisory` plans
+    the opening lot through `reservations`. The fold is faked to yield nothing — what the real
+    one does for no sales — and `reservations` is faked beside it, so neither solve runs on
+    the placeholder pool and the test reads only the arguments that reached them.
     """
     from datetime import date
 
@@ -433,6 +429,7 @@ def test_the_advisory_hands_the_requests_lam_to_the_fold(
     from fantabot.application.asta_advisory import AdvisoryRequest, build_advisory
     from fantabot.application.plan_inputs import PlanInputs
     from fantabot.domain.asta import reservation
+    from fantabot.domain.asta.state import OptimizationResult, Roster
 
     seen: dict[str, Any] = {}
 
@@ -443,8 +440,13 @@ def test_the_advisory_hands_the_requests_lam_to_the_fold(
         )
 
     def fake_rolling(_state: Any, _pool: Any, _events: Any, **kwargs: Any) -> Any:
-        seen["lam"] = kwargs.get("lam")
+        seen["fold_lam"] = kwargs.get("lam")
         return iter(())
+
+    def fake_reservations(_state: Any, _pool: Any, **kwargs: Any) -> Any:
+        seen["opening_lam"] = kwargs.get("lam")
+        roster = Roster(player_ids=("1",), total_cost=0.0, objective=0.0)
+        return OptimizationResult(optimal=roster), {"1": 30.0}
 
     class _Source:
         def all_latest(self, *, data_run: date | None = None) -> dict[str, Any]:
@@ -452,6 +454,7 @@ def test_the_advisory_hands_the_requests_lam_to_the_fold(
 
     monkeypatch.setattr(asta_planner, "read_plan_inputs", fake_read)
     monkeypatch.setattr(reservation, "rolling_advisory", fake_rolling)
+    monkeypatch.setattr(reservation, "reservations", fake_reservations)
     monkeypatch.setattr(news_sentiment, "NewsSentimentSource", lambda _s: _Source())
 
     build_advisory(
@@ -467,8 +470,47 @@ def test_the_advisory_hands_the_requests_lam_to_the_fold(
         events=[],
         bridge={"uuid-1": 7},
     )
+    return seen
 
-    assert seen["lam"] == NON_DEFAULT_LAM, (
+
+def test_the_advisory_hands_the_requests_lam_to_the_fold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`build_advisory` hands `request.lam` to `rolling_advisory`. The last hand-off.
+
+    `domain/asta/reservation.rolling_advisory` declares `lam: float = 0.0` — correct for a
+    pure kernel, which cannot read `DEFAULT_LAM` and whose neutral is no variance term at
+    all — so dropping `lam=request.lam` from the fold is the third silent deletion on this
+    one path, and the one furthest from anything a screen would show. The plan side has had
+    this assertion since it was written (`tests/application/test_plan_request.py`'s
+    `test_lam_and_fallbacks_reach_the_optimizer`); the advisory side captured the fold's
+    kwargs and never looked at them.
+    """
+    seen = _advise_with_a_spy_on_both_solves(monkeypatch)
+
+    assert seen["fold_lam"] == NON_DEFAULT_LAM, (
         "`build_advisory` did not hand `request.lam` to `rolling_advisory`, so the fold "
         "ran on the kernel's 0.0 — `sum(mu)`, with the variance term gone."
+    )
+
+
+def test_the_advisory_hands_the_requests_lam_to_the_opening_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A room with no sales yet is planned through `reservations`, and that call carries `lam`.
+
+    The opening plan is the second place `build_advisory` solves, and it has the same
+    neutral: `reservations` declares `lam: float = 0.0`. Dropping `lam=request.lam` there
+    compiles and answers a complete advisory — for a room before its first lot, which is the
+    screen an operator reads while deciding whom to open on, priced against `sum(mu)` while
+    the plan and the bidder solve `sum(mu) - lam*Var`. `tests/application/test_asta_advisory.py`
+    catches the keyword being dropped, but it sends `DEFAULT_LAM`, so a call that hardcoded
+    0.3 would pass there and fails here.
+    """
+    seen = _advise_with_a_spy_on_both_solves(monkeypatch)
+
+    assert seen["opening_lam"] == NON_DEFAULT_LAM, (
+        "`build_advisory` did not hand `request.lam` to `reservations` for the opening plan, "
+        "so the first-lot advisory ran on the kernel's 0.0 — `sum(mu)`, with the variance "
+        "term gone."
     )
