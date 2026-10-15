@@ -68,9 +68,11 @@ def _after(n: int) -> Any:
 
 
 @pytest.fixture
-def cli(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """A reachable lega and a usable key, so nothing refuses before the database is asked."""
+def cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
+    """A reachable lega, a usable key and one run to grade, so nothing refuses before the
+    database is asked."""
     from fantabot import config
+    from fantabot.adapters.files.lineup_runs import LineupRun, append_run
     from fantabot.adapters.persistence import database_manager
 
     monkeypatch.setattr(
@@ -80,6 +82,17 @@ def cli(monkeypatch: pytest.MonkeyPatch) -> Any:
     # in CI, and an unset one is the *other* refusal this file tests.
     monkeypatch.setattr(config.settings, "fantabot_league_id", 4103937)
     monkeypatch.setattr(database_manager, "_session_factory", _raise)
+    # `lineup shadow-report` reads the run log before it opens a session, and with nothing
+    # to grade it says so and exits 0 -- correctly, so reaching its outage handler takes a
+    # record. The operator's `~/.fantabot/lineup_runs.jsonl` supplied one and a runner's
+    # home does not, which is how this case passed on one machine and not the other. Both
+    # variables, because `Path.home()` reads `USERPROFILE` on Windows and ignores `HOME`.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    assert append_run(
+        config.lineup_runs_path(),
+        LineupRun(at="2026-01-01T00:00:00+00:00", league=1, scheduled=True, status="submitted"),
+    )
     return SimpleNamespace(monkeypatch=monkeypatch, manager=database_manager)
 
 
@@ -127,6 +140,25 @@ def test_an_outage_names_the_type_and_exits_one(cli: Any, argv: list[str]) -> No
 
     assert result.output == OUTAGE
     assert result.exit_code == 1
+
+
+def test_shadow_report_with_nothing_to_grade_never_asks_the_database(cli: Any) -> None:
+    """The branch the outage case above has to be given a record to step around.
+
+    No run, no session and code 0: an empty log is a report with nothing in it, not an
+    outage, and a database that is down must not turn it into one.
+    """
+    from fantabot import config
+
+    config.lineup_runs_path().unlink()
+
+    result = runner.invoke(
+        app, ["lineup", "shadow-report", "--league", "1", "--sub-mode", "basic"]
+    )
+
+    assert result.exit_code == 0
+    assert "no run records at" in result.output
+    assert "database unreachable" not in result.output
 
 
 def test_lega_sync_reports_the_write_phase_the_same_way(cli: Any) -> None:

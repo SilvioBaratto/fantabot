@@ -106,9 +106,12 @@ CONVENTIONAL = {"SPEC.md", "tasks/plan.md", "tasks/todo.md"}
 
 #: Paths the docs cite that **git cannot see**, because this repository's own `.gitignore`
 #: excludes them: `docs/` is the local-only maintainer-notes tree (`.gitignore:27`), and
-#: `data/storage_state.json` is the opt-in Playwright session (`.gitignore:12`, `data/*`).
-#: A fresh checkout or CI legitimately has neither, so `git ls-files` can never confirm one
-#: and a reference into them is not verifiable in git.
+#: `data/storage_state.json` and `data/room_journal.jsonl` are runtime output (`.gitignore:12`,
+#: `data/*`) -- the opt-in Playwright session and the live room's append-only journal.
+#: A fresh checkout or CI legitimately has none of them, so `git ls-files` can never confirm
+#: one and a reference into them is not verifiable in git. `_resolves` also accepts a file
+#: that merely exists on disk, so a doc naming one of these passes on the operator's machine
+#: whether or not it is listed: the entry is what makes it pass on a clone too.
 #:
 #: An entry ending in `/` is a prefix; anything else is an exact ref. The premise is
 #: asserted rather than assumed -- `test_the_gitignored_exemption_still_has_its_reason`
@@ -126,6 +129,10 @@ GITIGNORED_BY_POLICY = (
     "docs/sources/Tabella-sostituzioni-per-schema-2024-2025.pdf",
     "docs/sources/leghe-chunk-Dc2l8Fqx.js",
     "data/storage_state.json",
+    # Written by `adapters/files/room_journal.py` while a live room runs, under
+    # `fantabot_data_dir`. No run has produced one on a clone, and the docs describe where
+    # the journal goes rather than promise a file.
+    "data/room_journal.jsonl",
 )
 
 #: Bare basenames the docs name in prose, mapped to **the one tracked file each means**,
@@ -334,6 +341,26 @@ def test_an_unlisted_stale_reference_is_reported(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_a_runtime_path_the_docs_name_needs_no_file_on_disk(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The real docs name `data/room_journal.jsonl`, and only a live room writes it.
+
+    `_resolves` accepts a file that exists on disk, so against the real tree this check
+    passes wherever a room has ever run and cannot tell whether the policy list is what
+    carries the reference. A tree that has no such file can: this one holds only the doc.
+    """
+    module = sys.modules[__name__]
+    (tmp_path / "CLAUDE.md").write_text("the live room writes `data/room_journal.jsonl` there.\n")
+    (tmp_path / "README.md").write_text("nothing to resolve here.\n")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(module, "REPO", tmp_path)
+    monkeypatch.setattr(module, "PACKAGE", empty)
+    monkeypatch.setattr(module, "TESTS", empty)
+
+    assert not (tmp_path / "data" / "room_journal.jsonl").exists()
+    assert _unresolved(set(), _claims()) == set()
+
+
 def _resolves_unaided(ref: str, tracked: set[str]) -> bool:
     """`_resolves` with `BY_CONTEXT` taken away -- what the doc's own text can prove."""
     return (
@@ -499,9 +526,12 @@ def test_a_gitignored_entry_covers_a_directory_or_a_file_and_nothing_else() -> N
     # synthetic entry rather than left unpinned until the next one is added.
     assert _gitignored_by_policy("data/storage_state.json")
     assert _gitignored_by_policy("docs/sources/leghe-chunk-Dc2l8Fqx.js")
+    assert _gitignored_by_policy("data/room_journal.jsonl")
     # an exact entry is not a prefix
     assert not _gitignored_by_policy("data/storage_state.json.bak")
     assert not _gitignored_by_policy("data/storage_state.jsonl")
+    assert not _gitignored_by_policy("data/room_journal.jsonl.1")
+    assert not _gitignored_by_policy("data/room_journal.json")
     assert not _gitignored_by_policy("docs/sources/leghe-chunk-Dc2l8Fqx.js.bak")
     # a prefix entry stops at the directory boundary it spells
     prefixed = (*GITIGNORED_BY_POLICY, "docs/sources/")
