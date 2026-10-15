@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
+import os
 
-from fantabot_app.api.infrastructure.settings import Settings
+import pytest
+from pydantic import ValidationError
+
+from fantabot_app.api.infrastructure.settings import BLANK_HAS_ITS_OWN_MEANING, Settings
 
 
 @pytest.mark.parametrize(
@@ -37,19 +40,20 @@ def _env_name(name: str) -> str:
     return name.upper() if alias is None else str(alias.choices[0])
 
 
-#: Every setting but the one whose blank already means something of its own: an empty
-#: `CORS_ORIGINS` is the three-origin local list in `cors_origins_list`, not the default.
-BLANK_IS_DEFAULT = sorted(name for name in Settings.model_fields if name != "cors_origins")
+BLANK_IS_DEFAULT = sorted(set(Settings.model_fields) - BLANK_HAS_ITS_OWN_MEANING)
 
 
 @pytest.fixture
 def no_app_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
-    for name in Settings.model_fields:
-        monkeypatch.delenv(_env_name(name), raising=False)
+    """Every spelling of every setting's variable: `case_sensitive=False` reads them all."""
+    names = {_env_name(name).lower() for name in Settings.model_fields}
+    for key in list(os.environ):
+        if key.lower() in names:
+            monkeypatch.delenv(key)
     return monkeypatch
 
 
-@pytest.mark.parametrize("blank", ["", "   "])
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
 @pytest.mark.parametrize("name", BLANK_IS_DEFAULT)
 def test_a_blank_setting_is_its_default(
     no_app_env: pytest.MonkeyPatch, name: str, blank: str
@@ -70,8 +74,6 @@ def test_a_blank_cors_list_keeps_its_own_meaning(no_app_env: pytest.MonkeyPatch)
 
 
 def test_a_wrong_debug_value_still_fails(no_app_env: pytest.MonkeyPatch) -> None:
-    from pydantic import ValidationError
-
     no_app_env.setenv("FANTABOT_APP_DEBUG", "maybe")
 
     with pytest.raises(ValidationError, match="FANTABOT_APP_DEBUG"):

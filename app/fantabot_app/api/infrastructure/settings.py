@@ -12,6 +12,10 @@ from __future__ import annotations
 from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: The settings whose blank is not their default: `cors_origins_list` reads an empty
+#: `CORS_ORIGINS` as the local origins, which the field's own default does not list.
+BLANK_HAS_ITS_OWN_MEANING = frozenset({"cors_origins"})
+
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
@@ -61,14 +65,14 @@ class Settings(BaseSettings):
 
         `settings = Settings()` runs at import and `load_configuration` copies `.env` into
         the environment, so a blank `FANTABOT_APP_DEBUG=` stopped the app before it started,
-        and a blank log level or API prefix broke it a moment later. `cors_origins` keeps
-        its blank, because `cors_origins_list` already reads one as the local origins.
+        and a blank log level or API prefix broke it a moment later. The fields in
+        `BLANK_HAS_ITS_OWN_MEANING` keep their blank.
 
         The default is returned rather than signalled with `PydanticUseDefault`, which
         recurses on a blank default under `BaseSettings`' `validate_default`.
         """
         name = info.field_name
-        if name is None or name == "cors_origins":
+        if name is None or name in BLANK_HAS_ITS_OWN_MEANING:
             return value
         if isinstance(value, str) and not value.strip():
             return cls.model_fields[name].get_default(call_default_factory=True)

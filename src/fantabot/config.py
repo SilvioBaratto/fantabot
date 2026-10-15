@@ -280,6 +280,13 @@ def bundled_database_url(database: str = "fantabot") -> str:
     return socket
 
 
+#: The settings a blank does not reset to their default. Their default is the canonical
+#: database, and a blank DSN is most often a `$(fantabot-app db url ...)` that came back empty:
+#: read as the default it would point that migration or test run at `fantabot`. Kept as `""`,
+#: it fails at the first use (`safe_dsn`, the engine, alembic).
+BLANK_DSN_FIELDS = frozenset({"fantabot_database_url", "fantabot_test_database_url"})
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -312,22 +319,24 @@ class Settings(BaseSettings):
     @field_validator("*", mode="before")
     @classmethod
     def _blank_is_unset(cls, value: object, info: ValidationInfo) -> object:
-        """A blank value is the setting's default, for every setting.
+        """A blank value is the setting's default, for every setting but `BLANK_DSN_FIELDS`.
 
         `.env.example` leaves lines blank, and `settings = Settings()` runs at import:
         pydantic refuses `""` as an `int` or a `bool`, so a copied template stopped every
         command, `config-check` included. The blanks it did accept were wrong instead: a
         blank path is the working directory, and a blank text setting replaced a working
         default with `""`, so `FANTABOT_AGENT_AUTH_TOKEN=` handed a shim the empty token the
-        CLI refuses. A setting whose default is `""` or `None` reads as it always did. A
-        wrong value still fails; only blank means unset.
+        CLI refuses. A wrong value still fails; only blank means unset.
 
         The default is returned, not signalled with `PydanticUseDefault`: `BaseSettings`
         validates defaults, so a default that is itself `""` would come back through here,
         signal again, and recurse until the interpreter segfaults.
         """
-        if isinstance(value, str) and not value.strip() and info.field_name is not None:
-            return cls.model_fields[info.field_name].get_default(call_default_factory=True)
+        name = info.field_name
+        if name is None or name in BLANK_DSN_FIELDS:
+            return value
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[name].get_default(call_default_factory=True)
         return value
 
     # The lineup model, the lega's substitution mode, the news gate and the opponent
