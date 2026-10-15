@@ -281,6 +281,7 @@ TREE: dict[str, str] = {
     # which model, which database, and now which directory holds the harvest artefacts.
     "test_config_database_url.py": "adapters",
     "test_config_harvest_dir.py": "adapters",
+    "test_config_blank_values.py": "adapters",
     "test_config_journal_path.py": "adapters",
     # The opt-in flags' one parse and the lineup settings' one list: about `config`, filed
     # with its siblings, though the two gates it crosses live in `application/`.

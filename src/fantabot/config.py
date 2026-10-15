@@ -2,7 +2,8 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError, field_validator
+from pydantic_core import PydanticUseDefault
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -308,6 +309,27 @@ class Settings(BaseSettings):
     # for legamiallerotaie. Runtime state is keyed by it because the account is
     # in two leghe and one flat file could not tell them apart. 0 means unset.
     fantabot_league_id: int = 0
+
+    @field_validator(
+        "fantabot_harvest_dir",
+        "fantabot_data_dir",
+        "fantabot_storage_state",
+        "fantabot_auto_act",
+        "fantabot_league_id",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """A blank value is the default, for every setting that is not text.
+
+        `.env.example` ships `FANTABOT_LEAGUE_ID=` blank, and `settings = Settings()` runs at
+        import: pydantic refuses `""` as an `int` or a `bool`, so a copied template stopped
+        every command, `config-check` included. A blank path did not fail at all and became
+        the working directory. A wrong value still fails; only blank means unset.
+        """
+        if isinstance(value, str) and not value.strip():
+            raise PydanticUseDefault
+        return value
 
     # The lineup model, the lega's substitution mode, the news gate and the opponent
     # adjustment (SPEC A4/A7/A19(5)/A26).
