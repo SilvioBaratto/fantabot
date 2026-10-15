@@ -847,7 +847,6 @@ describe('SynchronizeComponent', () => {
       // which lists only synced leghe, is empty. The picker must still offer the lega,
       // or its first sync can never be started from this page.
       const fixture = idlePage();
-      for (const read of httpMock.match((r) => r.url.endsWith('/lega'))) read.flush([]);
       httpMock.expectOne((r) => r.url.endsWith('/auth/status')).flush(status([LEGHE[1]]));
       fixture.detectChanges();
 

@@ -241,6 +241,11 @@ export class SynchronizeComponent {
   /**
    * The leghe to choose from, the first preselected — the Asta page's rule.
    *
+   * The list is not the Asta page's, though: this page reads `GET /auth/status`, the leghe
+   * with a stored token, and not `GET /lega`, which lists only the leghe already synced.
+   * A sync needs only the token, so a lega connected and never synced must be offered here,
+   * or its first sync could never be started.
+   *
    * A listing that cannot be read leaves the picker empty and says so in the card; it is
    * not an error banner, for the same reason `readScrapeTables` gives. It is also not
    * "no lega connected", which would send the operator to Accounts for nothing.
