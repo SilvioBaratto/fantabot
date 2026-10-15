@@ -2,8 +2,7 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
-from pydantic import Field, TypeAdapter, ValidationError, field_validator
-from pydantic_core import PydanticUseDefault
+from pydantic import Field, TypeAdapter, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -310,25 +309,25 @@ class Settings(BaseSettings):
     # in two leghe and one flat file could not tell them apart. 0 means unset.
     fantabot_league_id: int = 0
 
-    @field_validator(
-        "fantabot_harvest_dir",
-        "fantabot_data_dir",
-        "fantabot_storage_state",
-        "fantabot_auto_act",
-        "fantabot_league_id",
-        mode="before",
-    )
+    @field_validator("*", mode="before")
     @classmethod
-    def _blank_is_unset(cls, value: object) -> object:
-        """A blank value is the default, for every setting that is not text.
+    def _blank_is_unset(cls, value: object, info: ValidationInfo) -> object:
+        """A blank value is the setting's default, for every setting.
 
-        `.env.example` ships `FANTABOT_LEAGUE_ID=` blank, and `settings = Settings()` runs at
-        import: pydantic refuses `""` as an `int` or a `bool`, so a copied template stopped
-        every command, `config-check` included. A blank path did not fail at all and became
-        the working directory. A wrong value still fails; only blank means unset.
+        `.env.example` leaves lines blank, and `settings = Settings()` runs at import:
+        pydantic refuses `""` as an `int` or a `bool`, so a copied template stopped every
+        command, `config-check` included. The blanks it did accept were wrong instead: a
+        blank path is the working directory, and a blank text setting replaced a working
+        default with `""`, so `FANTABOT_AGENT_AUTH_TOKEN=` handed a shim the empty token the
+        CLI refuses. A setting whose default is `""` or `None` reads as it always did. A
+        wrong value still fails; only blank means unset.
+
+        The default is returned, not signalled with `PydanticUseDefault`: `BaseSettings`
+        validates defaults, so a default that is itself `""` would come back through here,
+        signal again, and recurse until the interpreter segfaults.
         """
-        if isinstance(value, str) and not value.strip():
-            raise PydanticUseDefault
+        if isinstance(value, str) and not value.strip() and info.field_name is not None:
+            return cls.model_fields[info.field_name].get_default(call_default_factory=True)
         return value
 
     # The lineup model, the lega's substitution mode, the news gate and the opponent

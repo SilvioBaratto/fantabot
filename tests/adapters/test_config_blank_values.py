@@ -1,41 +1,35 @@
-"""A blank line in `.env` means "unset", for every setting that is not a string.
+"""A blank line in `.env` means "unset", for every setting.
 
 `settings = Settings()` runs at import, so a value pydantic refuses stops every command at
 the import line — `config-check` included, the one screen meant to say what is wrong.
 `.env.example` ships `FANTABOT_LEAGUE_ID=` blank, and copying it unchanged did exactly that:
-`""` is not an `int`. A blank `FANTABOT_AUTO_ACT` was the same crash, and a blank path did
-not crash at all, which is worse: `Path("")` is the working directory.
+`""` is not an `int`. A blank `FANTABOT_AUTO_ACT` was the same crash. Two kinds of blank did
+not crash, which is worse: `Path("")` is the working directory, and a blank text setting
+replaced a working default with `""` — the template's `FANTABOT_AGENT_AUTH_TOKEN=` sent an
+empty token to a shim the CLI then refused, and a blank base URL or model breaks the same way.
+
+So the rule is one rule, for every field: blank is the default. A field whose default is
+already `""` or `None` reads exactly as before.
 
 A blank reads as the default whether it comes from `.env` or the environment, so an exported
-`FANTABOT_LEAGUE_ID=` still overrides the file, as an exported value always has. The string
-settings are untouched and keep a blank as `""`. `env_ignore_empty` was the other way to read
-a blank as unset, and it would have made an exported blank fall through to the file instead.
+`FANTABOT_LEAGUE_ID=` still overrides the file, as an exported value always has.
+`env_ignore_empty` was the other way to read a blank as unset, and it would have made an
+exported blank fall through to the file instead.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from types import UnionType
-from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
+from fantabot import config
+from fantabot.adapters.agent.options import agent_env
 from fantabot.config import Settings
 
 REPO = Path(__file__).resolve().parents[2]
-
-
-def _is_text(annotation: object) -> bool:
-    if annotation is str:
-        return True
-    return isinstance(annotation, UnionType) and set(get_args(annotation)) <= {str, type(None)}
-
-
-#: Every setting whose type is not text — the ones a blank can break.
-NOT_TEXT = sorted(
-    name for name, field in Settings.model_fields.items() if not _is_text(field.annotation)
-)
+EVERY_SETTING = sorted(Settings.model_fields)
 
 
 @pytest.fixture(autouse=True)
@@ -45,33 +39,39 @@ def _no_ambient_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name.upper(), raising=False)
 
 
-def test_the_shipped_template_loads_unchanged(tmp_path: Path) -> None:
-    """The regression itself: a fresh `.env` copied from the template must not crash."""
+def _template(tmp_path: Path, extra: str = "") -> Path:
     env = tmp_path / ".env"
-    env.write_text((REPO / ".env.example").read_text(encoding="utf-8"), encoding="utf-8")
+    env.write_text(
+        (REPO / ".env.example").read_text(encoding="utf-8") + extra, encoding="utf-8"
+    )
+    return env
 
-    loaded = Settings(_env_file=env)
+
+def test_the_shipped_template_loads_unchanged(tmp_path: Path) -> None:
+    """The regression itself: a fresh `.env` copied from the template must not crash, and
+    every line it leaves blank must read as that setting's default."""
+    loaded = Settings(_env_file=_template(tmp_path))
 
     assert loaded.fantabot_league_id == 0
     assert loaded.fantabot_auto_act is False
+    assert loaded.fantabot_agent_auth_token == Settings(_env_file=None).fantabot_agent_auth_token
 
 
-def test_the_non_text_settings_are_the_ones_this_file_expects() -> None:
-    """A new `int`, `bool` or `Path` setting must be added to the validator, not discovered
-    the day someone leaves it blank."""
-    assert NOT_TEXT == [
-        "fantabot_auto_act",
-        "fantabot_data_dir",
-        "fantabot_harvest_dir",
-        "fantabot_league_id",
-        "fantabot_storage_state",
-    ]
+def test_a_shim_configured_from_the_template_gets_a_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The symptom, end to end: the operator sets only the base URL, as the template's own
+    Ollama example does, and the CLI must not be handed an empty `ANTHROPIC_AUTH_TOKEN`."""
+    env = _template(tmp_path, "\nFANTABOT_AGENT_BASE_URL=http://localhost:11434\n")
+    monkeypatch.setattr(config, "settings", Settings(_env_file=env))
+
+    assert agent_env()["ANTHROPIC_AUTH_TOKEN"]
 
 
 @pytest.mark.parametrize("source", ["dotenv", "environ"])
 @pytest.mark.parametrize("blank", ["", "   "])
-@pytest.mark.parametrize("name", NOT_TEXT)
-def test_a_blank_non_text_setting_is_its_default(
+@pytest.mark.parametrize("name", EVERY_SETTING)
+def test_a_blank_setting_is_its_default(
     name: str, blank: str, source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Blank or whitespace, the setting is what it would be with the line absent.
