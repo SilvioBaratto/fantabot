@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from _paths import ONE_AUCTION
 from typer.testing import CliRunner
 
@@ -85,12 +86,45 @@ def test_an_unknown_format_is_refused_before_any_work(tmp_path: Path) -> None:
     assert "manta" in _plain(result.output)
 
 
-def test_a_seed_that_is_not_a_list_is_refused_not_a_traceback(tmp_path: Path) -> None:
+class _Session:
+    """What `get_session` hands out when the refusal under test has to come first."""
+
+    def execute(self, *args: object, **kwargs: object) -> None:
+        raise AssertionError("the database was asked before the seed was refused")
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+def test_a_seed_that_is_not_a_list_is_refused_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refused on the write path exactly as on the dry run -- and without the database.
+
+    The session is a tripwire, not a stand-in for an outage. libpq opens its own socket
+    and the suite's socket guard never sees it, so without this the write path reached
+    whichever server the machine running the test had: a refusal that passed on the
+    operator's laptop and failed on a runner for the same input. `--listone` is named for
+    the same reason, so the test does not read the operator's harvest home either.
+    """
+    from fantabot.adapters.persistence import database_manager
+
+    monkeypatch.setattr(database_manager, "_session_factory", _Session)
     seed = tmp_path / "seed.json"
     seed.write_text(json.dumps({"not": "a list"}))
+    listone = tmp_path / "listone_map.json"
     for extra in (["--dry-run"], []):
         result = runner.invoke(
-            app, ["harvest", "backfill", str(STATES), "--seed", str(seed), *extra]
+            app,
+            [
+                "harvest", "backfill", str(STATES),
+                "--seed", str(seed),
+                "--listone", str(listone),
+                *extra,
+            ],
         )
         assert result.exit_code == 2, result.output
         assert "not a list of auctions" in _plain(result.output)

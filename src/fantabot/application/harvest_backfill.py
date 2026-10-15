@@ -39,6 +39,7 @@ the caller that knows what else is in it.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -289,13 +290,22 @@ def _read_states(path: Path) -> list[dict[str, Any]]:
     return states
 
 
-def build_backfill(
-    inputs: BackfillInputs, *, known_players: frozenset[int] | None = None
-) -> tuple[BuiltRows, int]:
-    """Read the three files and build every row. Returns the rows and the state count.
+@dataclass(frozen=True)
+class BackfillFiles:
+    """The three files of a run, read and checked, with no row built from them yet."""
 
-    No database, so this is the whole expensive half and it is checkable in the default
-    tier — which is what `--dry-run` has always been for.
+    states: list[dict[str, Any]]
+    seed_rows: list[list[Any]]
+    bridge: Mapping[str, Mapping[str, Any]]
+    asta_type: str
+
+
+def read_backfill(inputs: BackfillInputs) -> BackfillFiles:
+    """Read the three files and refuse any that is not what a backfill takes.
+
+    Split from the build because a write run needs `players` between the two: every
+    refusal has to land before that query, or a bad seed is answered with "database
+    unreachable" whenever the database is the one thing that is not up.
     """
     from fantabot.adapters.http.fantalab import listone as listone_module
 
@@ -312,8 +322,28 @@ def build_backfill(
             raise InvalidBackfill(f"seed file has a malformed auction row: {inputs.seed}") from None
     raw_bridge = _read_json(inputs.listone) if inputs.listone_present else {}
     bridge = listone_module.entries_only(raw_bridge) if isinstance(raw_bridge, dict) else {}
-    built = build(states, seed_rows, bridge, inputs.asta_type, known_players)
-    return built, len(states)
+    return BackfillFiles(
+        states=states, seed_rows=seed_rows, bridge=bridge, asta_type=inputs.asta_type
+    )
+
+
+def build_from(
+    files: BackfillFiles, *, known_players: frozenset[int] | None = None
+) -> tuple[BuiltRows, int]:
+    """Every row the files describe. Returns the rows and the state count."""
+    built = build(files.states, files.seed_rows, files.bridge, files.asta_type, known_players)
+    return built, len(files.states)
+
+
+def build_backfill(
+    inputs: BackfillInputs, *, known_players: frozenset[int] | None = None
+) -> tuple[BuiltRows, int]:
+    """Read the three files and build every row. Returns the rows and the state count.
+
+    No database, so this is the whole expensive half and it is checkable in the default
+    tier — which is what `--dry-run` has always been for.
+    """
+    return build_from(read_backfill(inputs), known_players=known_players)
 
 
 def report_of(built: BuiltRows, states: int, *, written: bool, total: int | None) -> BackfillReport:
@@ -346,11 +376,12 @@ def run_backfill(
 
     from fantabot.adapters.persistence.repositories.aste import AsteRepository
 
+    files = read_backfill(inputs)
     repo = AsteRepository(session)
     # Read before the build, because `build` needs it: an unknown `fantacalcio_id` is
     # dropped to NULL rather than violating the foreign key, and an auction price is
     # unrepeatable while a stale `players` is not a reason to lose one.
-    built, states = build_backfill(inputs, known_players=repo.known_player_ids())
+    built, states = build_from(files, known_players=repo.known_player_ids())
     repo.upsert_auctions(built.auctions)
     repo.upsert_events(built.events)
     repo.upsert_assignments(built.assignments)

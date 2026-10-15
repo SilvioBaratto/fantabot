@@ -27,6 +27,7 @@ from fantabot.application.harvest_backfill import (
     build_backfill,
     candidates,
     clean_backfill,
+    run_backfill,
 )
 
 
@@ -304,3 +305,53 @@ def test_a_log_that_is_not_utf8_is_a_refusal(tmp_path: Path) -> None:
 def test_a_corrupt_listone_is_a_refusal(tmp_path: Path) -> None:
     with pytest.raises(InvalidBackfill, match=r"listone_map\.json"):
         build_backfill(_inputs(tmp_path, listone="{nope"))
+
+
+class _Tripwire:
+    """A session that fails the test on the first thing asked of it.
+
+    `AsteRepository` only stores the session, so constructing one is free and the first
+    query is the first attribute read here.
+    """
+
+    def __getattr__(self, name: str) -> object:
+        raise AssertionError(f"the database was asked ({name!r}) before the files were refused")
+
+
+_GOOD_LINE = ONE_AUCTION.read_text().splitlines()[0]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"events": _GOOD_LINE + "\n" + _GOOD_LINE[:20] + "\n"},
+        {"events": "[1, 2]\n"},
+        {"seed": "[[1, 2"},
+        {"seed": '{"a": 1}'},
+        {"seed": "[1, 2]"},
+        {"seed": "[[1]]"},
+        {"listone": "{nope"},
+    ],
+    ids=[
+        "torn-log",
+        "log-not-objects",
+        "seed-torn",
+        "seed-not-list",
+        "seed-not-rows",
+        "seed-short-row",
+        "listone-corrupt",
+    ],
+)
+def test_a_write_run_refuses_a_bad_file_before_it_asks_the_database(
+    tmp_path: Path, bad: dict[str, str]
+) -> None:
+    """The refusals are about files, so they cannot wait on `players`.
+
+    A write run read `players` first and validated afterwards, which made every refusal
+    above depend on a reachable server: with Postgres down the operator was told the
+    database was unreachable about a seed that was never going to load, and on a machine
+    that did have one the refusal cost a query first. `--dry-run` never had the problem,
+    which is why the CLI test that covers both only failed where there was no server.
+    """
+    with pytest.raises(InvalidBackfill):
+        run_backfill(_inputs(tmp_path, **bad), session=_Tripwire())  # type: ignore[arg-type]
