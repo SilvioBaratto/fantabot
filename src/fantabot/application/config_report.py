@@ -32,6 +32,11 @@ So the two decisions live here and the Typer body and the endpoint are printers:
      is the third reason the printed line could not be copied, and the three are only
      worth anything together.
 
+* **What a DSN that cannot be used is called.** `database_target` is the one answer for the
+  screens that report a database they could not reach. Rendering the DSN from inside the
+  handler for that failure raises `InvalidDsn` a second time for a blank one, and the
+  operator gets a traceback over the screen meant to say what is wrong.
+
 `make_url` rather than `urllib.parse`, deliberately: this must report the DSN as the
 thing that *connects* parses it, and a second parser is a second opinion.
 """
@@ -86,6 +91,16 @@ class InvalidDsn(ValueError):
     """
 
 
+class BlankDsn(InvalidDsn):
+    """The DSN is empty or whitespace: no database was named at all.
+
+    Kept apart from a DSN that is present and wrong so each screen can say which it is. A
+    blank one is most often a `$(fantabot-app db url ...)` that came back empty, and libpq
+    reads an empty connection string as "use the defaults" — so it must be refused before it
+    reaches anything that would.
+    """
+
+
 @dataclass(frozen=True)
 class ConfigReport:
     """What both surfaces render. No Rich, no Pydantic response model, no `Console`."""
@@ -100,6 +115,24 @@ class ConfigReport:
     #: way**: one unparseable field must not cost the operator the whole screen, which is
     #: the same argument `lega_sync` makes for failing per-read.
     database_url_error: str | None = None
+    #: The same verdict for `fantabot_test_database_url`, or `None`. Only a value that is
+    #: *present* and unusable is a problem: unset is the bundled `fantabot_test`, which is
+    #: what the report has always shown. Worded by `dsn_problem`, so it never repeats the
+    #: value — what failed to parse may still hold a password.
+    test_database_url_error: str | None = None
+
+
+_BLANK = "the value is blank"
+_UNPARSEABLE = "the value does not parse as a database URL"
+
+#: What to do about a DSN that cannot be used. It says where the setting comes from because
+#: an exported variable outranks `.env`, so a blank in either decides, and that the cure is to
+#: *unset* it: a blank is not the same as absent, which is the whole reason it fails.
+_UNUSABLE_REMEDY = (
+    "FANTABOT_DATABASE_URL is read from the environment, then from .env. Unset it to use "
+    "the bundled server, or set a full postgresql+psycopg2:// URL; `fantabot config-check` "
+    "shows what was read."
+)
 
 
 def safe_dsn(dsn: str) -> str:
@@ -120,6 +153,9 @@ def safe_dsn(dsn: str) -> str:
     """
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import ArgumentError
+
+    if not dsn.strip():
+        raise BlankDsn(_BLANK)
 
     try:
         url = make_url(dsn)
@@ -150,6 +186,66 @@ def safe_dsn(dsn: str) -> str:
     return rendered
 
 
+def dsn_problem(dsn: str) -> str | None:
+    """Why `dsn` cannot be used, or `None` when it can. Pure.
+
+    Worded without the DSN: a value that fails to parse may still be a URL with a password
+    in it, and `str(InvalidDsn)` is SQLAlchemy's text, which older versions echo back.
+    """
+    try:
+        safe_dsn(dsn)
+    except BlankDsn:
+        return _BLANK
+    except InvalidDsn:
+        return _UNPARSEABLE
+    return None
+
+
+@dataclass(frozen=True)
+class DatabaseTarget:
+    """The configured database as a screen that could not use it names it."""
+
+    #: Whether the DSN parses. When `False` the server is not what is wrong.
+    usable: bool
+    #: The first line to print: the masked DSN that could not be reached, or why there is none.
+    headline: str
+    #: What to do next. Never "start the server" for a DSN that names no server.
+    remedy: str
+
+    def detail(self, exc: BaseException) -> str:
+        """The line naming the failure: its type and the first line of its message.
+
+        The type alone when the DSN is not usable. The driver's message for a URL it could
+        not parse can be the URL, and an unparseable one is exactly what `headline` declined
+        to repeat.
+        """
+        first = (str(exc).splitlines() or [""])[0]
+        if self.usable and first:
+            return f"{type(exc).__name__}: {first}"
+        return type(exc).__name__
+
+
+def database_target(dsn: str) -> DatabaseTarget:
+    """Name `dsn` for a screen reporting a database it could not use. Never raises.
+
+    The handler for an unreachable database is the last place a second exception is
+    acceptable, and a blank `FANTABOT_DATABASE_URL` is a way to reach that handler: the
+    engine refuses the value, then the handler renders it.
+    """
+    problem = dsn_problem(dsn)
+    if problem is not None:
+        return DatabaseTarget(
+            usable=False,
+            headline=f"Cannot use the database URL: {problem}.",
+            remedy=_UNUSABLE_REMEDY,
+        )
+    return DatabaseTarget(
+        usable=True,
+        headline=f"Cannot reach the database at {safe_dsn(dsn)}",
+        remedy="Start it with: fantabot-app db start",
+    )
+
+
 def build_report() -> ConfigReport:
     """Read `settings` and assemble the report. The only I/O here is reading the object.
 
@@ -164,7 +260,9 @@ def build_report() -> ConfigReport:
 
     dumped = settings.model_dump(mode="json", exclude=set(SECRET_FIELDS))
     for name in MASKED_DSN_FIELDS:
-        if dumped.get(name):
+        # A blank value has nothing to withhold; masking it would show `***` for a line that
+        # holds nothing, and `test_database_url_error` is what says it is wrong.
+        if str(dumped.get(name) or "").strip():
             try:
                 dumped[name] = safe_dsn(dumped[name])
             except InvalidDsn:
@@ -180,4 +278,5 @@ def build_report() -> ConfigReport:
         secrets_set={name: bool(getattr(settings, name, "")) for name in REPORTED_SECRETS},
         database_url=database_url,
         database_url_error=error,
+        test_database_url_error=dsn_problem(settings.fantabot_test_database_url),
     )

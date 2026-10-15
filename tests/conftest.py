@@ -96,6 +96,35 @@ class CanonicalDatabaseError(RuntimeError):
     """The `db` tier was pointed at the database the app and the CLI actually use."""
 
 
+class UnusableDatabaseUrl(RuntimeError):
+    """A DSN the `db` tier has to open is blank or does not parse."""
+
+
+def require_usable(variable: str, dsn: str) -> None:
+    """Raise `UnusableDatabaseUrl` naming `variable` when `dsn` is blank or does not parse.
+
+    Otherwise the first `-m db` test dies in `make_url` or `create_engine` with a bare
+    `ArgumentError`, which names neither the setting nor the way out. The wording of the
+    problem is `config_report.dsn_problem`'s, which never repeats the value.
+    """
+    from fantabot.application import config_report
+
+    problem = config_report.dsn_problem(dsn)
+    if problem is None:
+        return
+    if variable == "FANTABOT_TEST_DATABASE_URL":
+        way_out = (
+            "Unset it to take the bundled fantabot_test, or point it at a database:\n"
+            "  fantabot-app db create fantabot_test\n"
+            f'  {variable}="$(fantabot-app db url --database fantabot_test)" pytest -m db'
+        )
+    else:
+        # The tier reads the canonical URL only to refuse writing there. Pointing it at
+        # fantabot_test, the advice for the test URL, makes the two equal and is refused.
+        way_out = "Unset it: the db tier reads it only to make sure it never writes there."
+    raise UnusableDatabaseUrl(f"the db tier cannot open {variable}: {problem}.\n{way_out}")
+
+
 def refuse_canonical(test_url: str, canonical_url: str) -> str:
     """Return *test_url*, unless it names the same database as *canonical_url*.
 
@@ -132,12 +161,17 @@ def tier_database_url(seeded: bool) -> str:
     from fantabot.config import settings
 
     if seeded:
+        require_usable("FANTABOT_DATABASE_URL", settings.fantabot_database_url)
         return settings.fantabot_database_url
+    require_usable("FANTABOT_TEST_DATABASE_URL", settings.fantabot_test_database_url)
+    # Parsed too although nothing is opened with it: `refuse_canonical` compares database
+    # names, and cannot when one side has none.
+    require_usable("FANTABOT_DATABASE_URL", settings.fantabot_database_url)
     return refuse_canonical(settings.fantabot_test_database_url, settings.fantabot_database_url)
 
 
 def resolve_tier_dsn(*, seeded: bool) -> str:
-    """`tier_database_url`, turning a refusal into a clean pytest failure.
+    """`tier_database_url`, turning a refusal or an unusable DSN into a clean pytest failure.
 
     The `pytest.fail` sits after the except block rather than inside it, for the reason
     the reachability failure below carries: raising inside chains the original traceback
@@ -147,7 +181,7 @@ def resolve_tier_dsn(*, seeded: bool) -> str:
     refusal: str | None = None
     try:
         return tier_database_url(seeded)
-    except CanonicalDatabaseError as exc:
+    except (CanonicalDatabaseError, UnusableDatabaseUrl) as exc:
         refusal = str(exc)
     pytest.fail(refusal, pytrace=False)
 
@@ -328,3 +362,25 @@ def _the_operators_lineup_settings_never_reach_a_test(
 
     for name in LINEUP_SETTING_VARS:
         monkeypatch.setenv(name, "")
+
+
+#: The DSNs a screen has to name as unusable instead of tracing back on: blank, whitespace
+#: (an exported variable keeps it, a `.env` line does not), and text that is not a URL.
+UNUSABLE_DSNS = ["", "   ", "\t", "::not a dsn::"]
+
+
+@pytest.fixture(params=UNUSABLE_DSNS, ids=["empty", "spaces", "tab", "not-a-url"])
+def unusable_dsn(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """`settings.fantabot_database_url` is one that cannot be used, and no engine is built yet.
+
+    The real `database_manager` is left to fail the way it does in production — it hands the
+    value to `create_engine`, which refuses it — instead of a fake that raises on cue. A fake
+    would pass whatever the screen under test did with an exception it never really gets.
+    """
+    from fantabot import config
+    from fantabot.adapters.persistence import database_manager
+
+    monkeypatch.setattr(config.settings, "fantabot_database_url", request.param)
+    monkeypatch.setattr(database_manager, "_session_factory", None)
+    monkeypatch.setattr(database_manager, "_engine", None)
+    return str(request.param)

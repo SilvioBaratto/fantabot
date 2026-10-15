@@ -992,3 +992,19 @@ def test_write_session_file_is_owner_only(
 
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert target.read_text() == '{"cookies": []}'
+
+
+class TestThePreflightNamesAnUnusableDatabaseUrl:
+    """A blank `FANTABOT_DATABASE_URL` must not make the preflight raise `InvalidDsn` from
+    inside its own `except`: `auth login` would end in a traceback before the browser was ever
+    the question. It is a `LoginAborted` like the unreachable database beside it."""
+
+    def test_it_aborts_with_a_message(self, unusable_dsn: str) -> None:
+        with pytest.raises(LoginAborted) as caught:
+            login._preflight_database()
+
+        text = str(caught.value)
+        assert "FANTABOT_DATABASE_URL" in text
+        assert ("blank" if not unusable_dsn.strip() else "does not parse") in text
+        assert "Nothing was opened and nothing was written." in text
+        assert "fantabot-app db start" not in text, "the server is not what is wrong"

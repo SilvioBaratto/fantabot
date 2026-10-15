@@ -361,3 +361,22 @@ class TestFantalabLoginBody:
 
             assert result.exit_code == 1, failure
             assert result.output.strip(), failure
+
+
+class TestThePreflightNamesAnUnusableDatabaseUrl:
+    """Same hazard as `auth_login`'s preflight, and the same words: a blank DSN must not make
+    the handler for an unreachable database raise `InvalidDsn` from inside the `except`."""
+
+    def test_it_aborts_with_the_same_message_as_the_lega_login(self, unusable_dsn: str) -> None:
+        from fantabot.application import auth_login, fantalab_login
+        from fantabot.domain.tokens.errors import LoginAborted
+
+        with pytest.raises(LoginAborted) as mine:
+            fantalab_login._preflight_database()
+        with pytest.raises(LoginAborted) as theirs:
+            auth_login._preflight_database()
+
+        assert str(mine.value) == str(theirs.value)
+        assert "FANTABOT_DATABASE_URL" in str(mine.value)
+        assert "Nothing was opened and nothing was written." in str(mine.value)
+        assert "fantabot-app db start" not in str(mine.value)

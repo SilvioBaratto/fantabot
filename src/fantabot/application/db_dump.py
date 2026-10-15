@@ -24,7 +24,9 @@ unmounting it exists to survive.
 dump of this database is ~2 GB and minutes; discovering at the end that it landed on the
 volume it was meant to survive the loss of is a discovery worth making first. A returned
 sentinel is one a caller can forget to read, and the caller that forgets is the one
-running unattended.
+running unattended. The same goes for a DSN that names no database: libpq reads the empty
+string as "use the defaults", so `pg_dump_argv` refuses it instead of building a command
+that dumps whatever database those defaults reach.
 
 **Which `pg_dump` runs is chosen, not inherited from PATH.** A `pg_dump` dumps a server of
 its own version or older and refuses a newer one, and the bundled server (PostgreSQL 18) is
@@ -62,6 +64,8 @@ from pathlib import Path
 from typing import IO, Literal
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from fantabot.application.config_report import database_target
+
 #: The prefix macOS mounts removable and external volumes under. The repository lives on
 #: one by design, so this is not a hypothetical: it is the guard the deleted
 #: `scripts/db_dump.sh` carried, and the only reason the dump is not written beside the
@@ -71,8 +75,9 @@ EXTERNAL_VOLUME_PREFIX = "/Volumes/"
 
 
 class DumpRefused(ValueError):
-    """The dump was not attempted, because the path it would take is not one to take.
+    """The dump was not attempted, because what it would read or write is not one to use.
 
+    That is the path it would take (an external volume), or a DSN that names no database.
     Named so each surface refuses its own way — a `typer.Exit(1)` with the line printed,
     a named outcome with the line in the body — without either having to tell this apart
     from a database being down. Nothing ran, so nothing has to be cleaned up.
@@ -142,7 +147,22 @@ def pg_dump_argv(database_url: str, executable: str = "pg_dump") -> list[str]:
         database_url: The SQLAlchemy DSN of the database to dump.
         executable: What to run. The bare name is the default so the argv stays a pure
             function of the DSN; the real seam swaps in the resolved binary.
+
+    Raises:
+        DumpRefused: The DSN is blank or does not parse. An empty connection string is not
+            an error to libpq, which then reads PGHOST, PGDATABASE and its default socket,
+            so on a machine with a server there the argv would dump whichever database
+            that is and call it the restore point. This is the last place the empty string
+            can be told from a command line, so it is refused here and not left to the caller.
     """
+    target = database_target(database_url)
+    if not target.usable:
+        raise DumpRefused(
+            f"{target.headline}\n"
+            "pg_dump was not started: it needs a URL naming the database, and given a blank "
+            "one libpq falls back to its defaults and dumps whichever database those name.\n"
+            f"{target.remedy}"
+        )
     return [executable, "-Fc", database_url.replace("+psycopg2://", "://", 1)]
 
 
@@ -414,9 +434,13 @@ def run_dump(
     somewhere other than where the screen said it would be.
 
     Raises:
+        DumpRefused: The DSN is blank or does not parse; nothing was created or started.
         PgDumpMissing: No `pg_dump` could be started.
         PgDumpFailed: It ran and exited non-zero; the message carries its stderr tail.
     """
+    # Built before the partial file exists, so a refusal leaves nothing behind and is not
+    # masked by a missing directory.
+    argv = pg_dump_argv(database_url)
     # The dump streams into a private sibling and replaces `target` only once whole. Writing
     # to `target` itself meant a failed second dump of the day truncated, then deleted, the
     # good one from the first, and two overlapping runs shared one half-written file.
@@ -428,7 +452,7 @@ def run_dump(
     try:
         try:
             with os.fdopen(descriptor, "wb") as handle:
-                outcome = run(pg_dump_argv(database_url), handle)
+                outcome = run(argv, handle)
         except FileNotFoundError:
             raise PgDumpMissing(
                 "pg_dump was not found: it is not on PATH, not beside the server recorded in "

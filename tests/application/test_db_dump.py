@@ -259,3 +259,74 @@ def test_a_password_in_the_dsn_never_reaches_the_child_argv(
     assert "p@ss" not in " ".join(seen["argv"])  # type: ignore[arg-type]
     assert seen["argv"][-1] == "postgresql://postgres@localhost:5432/fantabot"  # type: ignore[index]
     assert seen["env"]["PGPASSWORD"] == "p@ss"  # type: ignore[index]
+
+
+# -- a DSN that names no database ----------------------------------------------------------
+#
+# `pg_dump -Fc ""` is not an error to libpq: an empty connection string means "use the
+# defaults", so PGHOST, PGDATABASE and the default socket decide. On a machine with a
+# server on that socket the "restore point" is a dump of whatever database that is.
+
+
+def _never(calls: list[list[str]]) -> object:
+    def run(argv: list[str], stdout: IO[bytes]) -> int:
+        calls.append(argv)
+        stdout.write(b"PGDMP")
+        return 0
+
+    return run
+
+
+@pytest.mark.parametrize("dsn", ["", "   ", "\t", "::not a dsn::"])
+def test_a_dsn_that_names_no_database_is_refused_before_pg_dump_runs(
+    dsn: str, tmp_path: Path
+) -> None:
+    calls: list[list[str]] = []
+    target = tmp_path / "d.dump"
+
+    with pytest.raises(DumpRefused):
+        run_dump(target, dsn, run=_never(calls))  # type: ignore[arg-type]
+
+    assert calls == []
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("dsn", ["", "   ", "\t", "::not a dsn::"])
+def test_the_argv_of_an_unusable_dsn_is_refused_not_built(dsn: str) -> None:
+    """The argv is the last place the empty string can be caught: past it, it is a
+    perfectly well-formed command line."""
+    with pytest.raises(DumpRefused):
+        pg_dump_argv(dsn)
+
+
+def test_the_refusal_comes_before_the_target_is_touched(tmp_path: Path) -> None:
+    """Checked first, not after the private partial file is made: a directory that does not
+    exist would otherwise be reported as that, and the DSN would never be mentioned."""
+    with pytest.raises(DumpRefused):
+        run_dump(tmp_path / "no-such-dir" / "d.dump", "")
+
+
+def test_the_refusal_names_the_setting_and_never_the_value() -> None:
+    """`FANTABOT_DATABASE_URL` is what the operator edits; the DSN itself may carry a
+    password and an unparseable one is exactly what cannot be masked."""
+    with pytest.raises(DumpRefused) as refused:
+        pg_dump_argv("")
+
+    message = str(refused.value)
+    assert "FANTABOT_DATABASE_URL" in message
+    assert "blank" in message
+    assert "pg_dump" in message
+
+    with pytest.raises(DumpRefused) as unparseable:
+        pg_dump_argv("S3cr3tCanary not a url")
+
+    assert "S3cr3tCanary" not in str(unparseable.value)
+
+
+def test_a_usable_dsn_is_still_dumped(tmp_path: Path) -> None:
+    """The check refuses nothing that parses, including the bundled server's empty password."""
+    calls: list[list[str]] = []
+
+    run_dump(tmp_path / "d.dump", SOCKET, run=_never(calls))  # type: ignore[arg-type]
+
+    assert len(calls) == 1

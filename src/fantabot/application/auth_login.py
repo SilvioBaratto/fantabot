@@ -71,8 +71,10 @@ def _preflight_key() -> TokenCipher:
 def _preflight_database() -> None:
     """A `SELECT 1`, worded as `db check` words it. The DSN is masked.
 
-    Masked by `config_report.safe_dsn`, which is the module that owns how a DSN renders —
-    and this line called the exact idiom that module exists to replace until 2026-09-24.
+    Named by `config_report.database_target`, which renders through `safe_dsn` — the module
+    that owns how a DSN renders — and which also names a DSN that is blank or does not
+    parse: rendering one from inside this handler would raise a second exception. This line
+    called the exact idiom that module exists to replace until 2026-09-24.
     `make_url(...).render_as_string(hide_password=True)` percent-encodes the socket path
     (`%2F`, which alembic's `ConfigParser` then rejects) and masks an **empty** password as
     `***`, inventing a credential the bundled trust-auth server does not have. Measured on
@@ -84,18 +86,18 @@ def _preflight_database() -> None:
     from sqlalchemy.exc import SQLAlchemyError
 
     from fantabot.adapters.persistence import database_manager
-    from fantabot.application.config_report import safe_dsn
+    from fantabot.application.config_report import database_target
     from fantabot.config import settings
 
     try:
         with database_manager.get_session() as session:
             session.execute(text("SELECT 1")).fetchone()
     except SQLAlchemyError as exc:
-        dsn = safe_dsn(settings.fantabot_database_url)
+        target = database_target(settings.fantabot_database_url)
         raise LoginAborted(
-            f"Cannot reach the database at {dsn}\n"
-            f"{type(exc).__name__}: {str(exc).splitlines()[0]}\n"
-            "Start it with: fantabot-app db start\n"
+            f"{target.headline}\n"
+            f"{target.detail(exc)}\n"
+            f"{target.remedy}\n"
             "Nothing was opened and nothing was written."
         ) from None
 

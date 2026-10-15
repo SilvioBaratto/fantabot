@@ -427,3 +427,40 @@ def test_a_dead_database_with_bracketed_dsn_and_empty_error_still_reports(
     assert "host=/tmp/[/x]pgdata" in result.output
     assert "Silent" in result.output
     assert "fantabot-app db start" in result.output
+
+
+def test_a_database_url_that_cannot_be_used_is_named_not_traced(unusable_dsn: str) -> None:
+    """Same shape as `db check`: a handler for an unreachable database that renders the DSN
+    with `safe_dsn` raises `InvalidDsn` again from inside the `except`."""
+    result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit), "an exit code, not a traceback"
+    assert "FANTABOT_DATABASE_URL" in result.output
+    assert ("blank" if not unusable_dsn.strip() else "does not parse") in result.output
+    assert "fantabot-app db start" not in result.output, "the server is not what is wrong"
+
+
+def test_a_dsn_that_looks_like_rich_markup_is_printed_not_interpreted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same as `db check`: a `[/red]` in the DSN is a `MarkupError` unless the headline is
+    escaped, and it would replace the report of an unreachable database with a traceback."""
+    from sqlalchemy.exc import OperationalError
+
+    from fantabot import config
+    from fantabot.adapters.persistence import database_manager
+
+    def boom() -> Any:
+        raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+    monkeypatch.setattr(database_manager, "_session_factory", lambda: boom())
+    monkeypatch.setattr(
+        config.settings, "fantabot_database_url", "postgresql+psycopg2://u@h:5432/[/red]db"
+    )
+
+    result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "[/red]db" in result.output

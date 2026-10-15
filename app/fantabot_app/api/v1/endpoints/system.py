@@ -46,6 +46,9 @@ class SystemConfig(BaseModel):
     database_url: str
     #: Why the DSN could not be rendered, or `null`. The rest of the report still arrives.
     database_url_error: str | None = None
+    #: The same verdict for the test database's URL, or `null`. Unset is fine (the bundled
+    #: `fantabot_test`); only a present value that is blank or does not parse is reported.
+    test_database_url_error: str | None = None
 
 
 def build_config(report: Any) -> SystemConfig:
@@ -55,6 +58,7 @@ def build_config(report: Any) -> SystemConfig:
         secrets_set=dict(report.secrets_set),
         database_url=report.database_url,
         database_url_error=report.database_url_error,
+        test_database_url_error=report.test_database_url_error,
     )
 
 

@@ -121,10 +121,10 @@ SECRET_NAMES = frozenset(
         "jwt",
         "cookie",
         "cookies",
-        # A DSN carries a password in its userinfo. Two live sites name one and are
-        # *not* leaks — both render with `hide_password=True` — so both are ratcheted in
-        # `ACCEPTED_EMISSIONS` against that exact evidence: drop the masking and the
-        # exemption dies with the reason for it.
+        # A DSN carries a password in its userinfo. The login preflights keep the name out of
+        # their emits by taking their wording from `config_report.database_target`, which
+        # masks it in the one module that owns how a DSN renders; a site that names one is
+        # reported here and needs an `ACCEPTED_EMISSIONS` entry carrying its evidence.
         "dsn",
     }
 )
@@ -170,11 +170,6 @@ CREDENTIAL_RETURNING = frozenset(
 #: per name would let a second, real leak of the same name in the same module hide behind
 #: the first. Not keyed by line number, which churns on every edit above it.
 ACCEPTED_EMISSIONS: dict[str, tuple[int, str]] = {
-    # Both login preflights report which database they could not reach. The DSN is
-    # rendered with `hide_password=True`, so the userinfo is already masked before it
-    # reaches the message — and that is precisely what the evidence string pins.
-    "application/auth_login.py:dsn": (1, "render_as_string(hide_password=True)"),
-    "application/fantalab_login.py:dsn": (1, "render_as_string(hide_password=True)"),
     # `_write_session` writes the raw Playwright blob — every lega bearer token in it —
     # to `data/storage_state.json` in the clear. Reported the day `write_text` joined
     # `EMIT_NAMES`, and **a true positive, not noise**: it is the designed session file

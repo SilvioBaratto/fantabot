@@ -393,3 +393,50 @@ class TestTheSchemaColour:
         line, _ = self._colour_of_schema_line(monkeypatch)
 
         assert self.YELLOW in line
+
+
+def test_a_database_url_that_cannot_be_used_is_named_not_traced(unusable_dsn: str) -> None:
+    """A blank `FANTABOT_DATABASE_URL` fails when the engine is built, which is inside the
+    handler's `try` — and a handler that rendered the DSN with `safe_dsn` would raise
+    `InvalidDsn` again from inside the `except`.
+
+    The real `database_manager` is used (see the fixture): what the screen does with the
+    exception it really gets is the thing under test.
+    """
+    result = runner.invoke(app, ["db", "check"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit), "an exit code, not a traceback"
+    assert "FANTABOT_DATABASE_URL" in result.output
+    assert ("blank" if not unusable_dsn.strip() else "does not parse") in result.output
+    assert "fantabot-app db start" not in result.output, "the server is not what is wrong"
+    assert "ArgumentError (" not in result.output, "no connection was made to classify"
+
+
+def test_a_dsn_that_looks_like_rich_markup_is_printed_not_interpreted(monkeypatch: Any) -> None:
+    """The DSN is configuration text. A `[/red]` in a database name is a `MarkupError` unless
+    the headline is escaped, and that error would replace the report of an unreachable
+    database with a traceback."""
+    from fantabot import config
+    from fantabot.adapters.persistence import database_manager
+
+    class _Dead:
+        def execute(self, *args: Any, **kwargs: Any) -> Any:
+            raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+        def commit(self) -> None: ...
+
+        def rollback(self) -> None: ...
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr(database_manager, "_session_factory", _Dead)
+    monkeypatch.setattr(
+        config.settings, "fantabot_database_url", "postgresql+psycopg2://u@h:5432/[/red]db"
+    )
+
+    result = runner.invoke(app, ["db", "check"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "[/red]db" in result.output

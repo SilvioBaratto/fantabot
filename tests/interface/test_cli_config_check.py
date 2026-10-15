@@ -367,3 +367,94 @@ def test_an_absent_password_is_not_masked_as_if_it_existed(
 
     assert "postgres:***@" not in result.output
     assert "postgres:@" in result.output
+
+
+# -- the test database URL ------------------------------------------------------------------
+#
+# `fantabot_test_database_url` is judged like the main URL: rendering it through `safe_dsn`
+# alone would print `''` inside the settings dict and exit 0 over a value that makes the `db`
+# tier fail on its first test.
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_test_database_url_fails_the_check(
+    blank: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fantabot import config
+    from fantabot.application.config_report import safe_dsn
+
+    monkeypatch.setattr(config.settings, "fantabot_test_database_url", blank)
+
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 1
+    assert "fantabot_test_database_url: INVALID" in result.output
+    assert "blank" in result.output
+    assert "fantabot_database_url: INVALID" not in result.output, "the main URL is fine"
+    assert safe_dsn(config.settings.fantabot_database_url) in result.output
+
+
+def test_an_unparseable_test_database_url_fails_the_check_without_echoing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_test_database_url", "S3cr3tCanary not a url")
+
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 1
+    assert "fantabot_test_database_url: INVALID" in result.output
+    assert "S3cr3tCanary" not in result.output
+
+
+def test_both_urls_are_reported_when_both_are_wrong(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One bad field must not hide the other: the operator fixes `.env` once."""
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, "fantabot_database_url", "")
+    monkeypatch.setattr(config.settings, "fantabot_test_database_url", "")
+
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 1
+    assert "fantabot_database_url: INVALID" in result.output
+    assert "fantabot_test_database_url: INVALID" in result.output
+
+
+def test_an_unset_test_database_url_is_still_fine() -> None:
+    """Unset is the bundled `fantabot_test`, which is what the screen has always shown. Only
+    a value that is present and blank is wrong."""
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 0
+    assert "INVALID" not in result.output
+
+
+def test_a_report_error_that_looks_like_rich_markup_is_printed_not_interpreted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The error text comes from the driver or the value, so `[/red]` in it must reach the
+    screen as itself instead of raising a `MarkupError` over the check that found the problem."""
+    import dataclasses
+
+    from fantabot.application import config_report
+
+    real = config_report.build_report()
+    monkeypatch.setattr(
+        config_report,
+        "build_report",
+        lambda: dataclasses.replace(
+            real,
+            database_url="",
+            database_url_error="bad [/red] main",
+            test_database_url_error="bad [/red] test",
+        ),
+    )
+
+    result = runner.invoke(app, ["config-check"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "INVALID — bad [/red] main" in result.output
+    assert "INVALID — bad [/red] test" in result.output

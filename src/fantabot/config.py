@@ -280,10 +280,12 @@ def bundled_database_url(database: str = "fantabot") -> str:
     return socket
 
 
-#: The settings a blank does not reset to their default. Their default is the canonical
-#: database, and a blank DSN is most often a `$(fantabot-app db url ...)` that came back empty:
-#: read as the default it would point that migration or test run at `fantabot`. Kept as `""`,
-#: it fails at the first use (`safe_dsn`, the engine, alembic).
+#: The settings a blank does not reset to their default. A blank DSN is most often a
+#: `$(fantabot-app db url ...)` that came back empty. For `fantabot_database_url` the default
+#: is the canonical database, so reading the blank as unset would point that migration at
+#: `fantabot`; `fantabot_test_database_url` is exempt because a blank test DSN must not
+#: silently pick a database either. Kept as `""`, it fails at the first use (`safe_dsn`, the
+#: engine, alembic).
 BLANK_DSN_FIELDS = frozenset({"fantabot_database_url", "fantabot_test_database_url"})
 
 

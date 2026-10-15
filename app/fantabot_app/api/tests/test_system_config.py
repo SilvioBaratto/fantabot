@@ -30,6 +30,7 @@ class FakeReport:
     secrets_set: dict[str, bool]
     database_url: str
     database_url_error: str | None = None
+    test_database_url_error: str | None = None
 
 
 def test_build_config_carries_every_part_of_the_report() -> None:
@@ -46,6 +47,22 @@ def test_build_config_carries_every_part_of_the_report() -> None:
     assert out.secrets_set == {"fantabot_encryption_key": True, "lega_password": False}
     assert out.database_url == "postgresql+psycopg2://postgres:@/fantabot?host=/tmp/pg"
     assert out.database_url_error is None
+    assert out.test_database_url_error is None
+
+
+def test_a_test_database_url_problem_crosses_the_wire_beside_the_main_one() -> None:
+    """Two DSN fields, two verdicts: the page must be able to tell which one is wrong."""
+    out = build_config(
+        FakeReport(
+            settings={"fantabot_test_database_url": ""},
+            secrets_set={},
+            database_url="postgresql+psycopg2://postgres:@/fantabot?host=/tmp/pg",
+            test_database_url_error="the URL is blank",
+        )
+    )
+
+    assert out.database_url_error is None
+    assert out.test_database_url_error == "the URL is blank"
 
 
 def test_an_unparseable_dsn_does_not_cost_the_rest_of_the_screen() -> None:
@@ -70,6 +87,7 @@ def test_the_route_answers_and_names_the_database() -> None:
 
     assert body["database_url"].startswith("postgresql")
     assert body["database_url_error"] is None
+    assert body["test_database_url_error"] is None
     assert body["settings"], "the settings dump is empty"
     assert body["secrets_set"], "no secret was reported as set or unset"
 

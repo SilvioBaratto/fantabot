@@ -105,15 +105,22 @@ def config_check() -> None:
     agent_base_url = report.settings.get("fantabot_agent_base_url")
     console.print(f"fantabot_agent_base_url: {agent_base_url or '(subscription)'}")
 
+    # Loud, and non-zero, rather than deferred to the first connect — where it would read as a
+    # database being down instead of as a `.env` to edit. Both lines are printed before the
+    # exit so one bad field does not hide the other.
     if report.database_url_error is not None:
-        # Loud, and non-zero, rather than deferred to the first connect — where it would
-        # read as a database being down instead of as a `.env` to edit.
-        console.print(f"fantabot_database_url: INVALID — {report.database_url_error}")
+        console.print(f"fantabot_database_url: INVALID — {escape(report.database_url_error)}")
+    else:
+        # `soft_wrap`: Rich hard-wraps at the console width, and at 40 columns this came back
+        # as three fragments split mid-token. This is the line an operator copies into
+        # `alembic.ini` or a `psql` invocation, so it has to survive in one piece.
+        console.print(f"fantabot_database_url: {report.database_url}", soft_wrap=True)
+    if report.test_database_url_error is not None:
+        console.print(
+            f"fantabot_test_database_url: INVALID — {escape(report.test_database_url_error)}"
+        )
+    if report.database_url_error is not None or report.test_database_url_error is not None:
         raise typer.Exit(1)
-    # `soft_wrap`: Rich hard-wraps at the console width, and at 40 columns this came back
-    # as three fragments split mid-token. This is the line an operator copies into
-    # `alembic.ini` or a `psql` invocation, so it has to survive in one piece.
-    console.print(f"fantabot_database_url: {report.database_url}", soft_wrap=True)
 
 
 def _report_stop(result: FetchResult) -> None:
@@ -827,7 +834,7 @@ def db_dump() -> None:
 
     try:
         wrote = run_dump(out, settings.fantabot_database_url)
-    except (PgDumpMissing, PgDumpFailed) as failed:
+    except (DumpRefused, PgDumpMissing, PgDumpFailed) as failed:
         # Escaped, because a failure carries pg_dump's own stderr and Rich reads `[...]` in it as
         # markup. Soft-wrapped, because that text holds socket paths and an operator copies them
         # off this screen: a hard wrap at 80 columns splits the token.
@@ -867,17 +874,22 @@ def db_check() -> None:
         # covers a statement that failed on a connection that came up. The same names are
         # read here so the two paths agree about what to call a failure.
         from fantabot.adapters.persistence.repositories.admin import classify_failure
-        from fantabot.application.config_report import safe_dsn
+        from fantabot.application.config_report import database_target
 
-        # `safe_dsn`, not `render_as_string(hide_password=True)`: that form percent-encodes
-        # the socket path, so what an operator copies off this screen fails alembic's
-        # ConfigParser, and it masks an *empty* password as `***`, inventing a credential the
-        # bundled trust-auth server does not have. Both were fixed in the login preflights on
-        # 2026-09-24 and this third site was missed.
-        console.print(f"[red]Cannot reach the database at {safe_dsn(settings.fantabot_database_url)}[/red]")
-        failure = classify_failure(exc)
+        # `database_target` renders through `safe_dsn`, not `render_as_string(hide_password=True)`:
+        # that form percent-encodes the socket path, so what an operator copies off this screen
+        # fails alembic's ConfigParser, and it masks an *empty* password as `***`, inventing a
+        # credential the bundled trust-auth server does not have. It also names a blank or
+        # unparseable DSN, where `safe_dsn` alone would raise a second time from this handler.
+        target = database_target(settings.fantabot_database_url)
+        console.print(f"[red]{escape(target.headline)}[/red]")
+        # A DSN that does not parse never reached a server, so classifying the driver's refusal
+        # as a query failure would be a statement about a connection that was never made.
+        failure = classify_failure(exc) if target.usable else None
         console.print(f"[red]{type(exc).__name__}{f' ({failure})' if failure else ''}[/red]")
-        if failure == "no-database":
+        if not target.usable:
+            console.print(escape(target.remedy))
+        elif failure == "no-database":
             console.print("The server is running; that database is not there. Check the DSN, or:")
             console.print("Create it with: [bold]fantabot-app db create fantabot[/bold]")
         elif failure == "credentials":
@@ -1015,14 +1027,15 @@ def token_status(
                 TokenStore(session, cipher), now=datetime.now(UTC), verify=verify
             )
     except SQLAlchemyError as exc:
-        from fantabot.application.config_report import safe_dsn
+        from fantabot.application.config_report import database_target
 
-        console.print(
-            f"[red]Cannot reach the database at {escape(safe_dsn(settings.fantabot_database_url))}[/red]"
-        )
-        detail = (str(exc).splitlines() or [""])[0]
-        console.print(f"[red]{type(exc).__name__}: {escape(detail)}[/red]")
-        console.print("Start it with: [bold]fantabot-app db start[/bold]")
+        target = database_target(settings.fantabot_database_url)
+        console.print(f"[red]{escape(target.headline)}[/red]")
+        console.print(f"[red]{escape(target.detail(exc))}[/red]")
+        if target.usable:
+            console.print("Start it with: [bold]fantabot-app db start[/bold]")
+        else:
+            console.print(escape(target.remedy))
         raise typer.Exit(code=1) from None
 
     wanted = league or settings.fantabot_league_id

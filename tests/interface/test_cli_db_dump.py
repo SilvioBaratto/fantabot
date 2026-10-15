@@ -208,3 +208,38 @@ def test_no_credential_reaches_the_output(
 
     assert result.exit_code == 0
     assert "S3cr3tCanary" not in result.output
+
+
+def test_a_blank_database_url_is_refused_before_pg_dump_starts(
+    unusable_dsn: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The real `run_dump`, with only the process boundary faked.
+
+    `pg_dump -Fc ""` is a valid command to libpq, which falls back to PGHOST, PGDATABASE and
+    its default socket — so a blank `FANTABOT_DATABASE_URL` would produce a restore point
+    of whichever database that reaches. `subprocess.run` is replaced rather than `run_dump`,
+    because the question is whether anything is started, and a stub of `run_dump` cannot
+    be asked.
+    """
+    import subprocess
+
+    from fantabot.application import db_dump
+
+    started: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[bytes]:
+        started.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(db_dump, "resolve_pg_dump", lambda **_kw: None)
+    monkeypatch.setattr(db_dump, "dump_target", lambda home, today: tmp_path / "d.dump")
+
+    result = runner.invoke(app, ["db", "dump"])
+
+    assert started == []
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit), "an exit code, not a traceback"
+    assert "FANTABOT_DATABASE_URL" in result.output
+    assert not (tmp_path / "d.dump").exists()
+    assert "wrote" not in result.output

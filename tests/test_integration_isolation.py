@@ -1371,3 +1371,71 @@ def test_the_refusal_is_by_database_name_alone() -> None:
             "postgresql+psycopg2://postgres:@elsewhere.test:5432/fantabot",
             "postgresql+psycopg2://postgres:@/fantabot?host=/tmp/pg",
         )
+
+
+# -- an unusable DSN fails the tier with a sentence, not an ArgumentError -----------------
+
+
+@pytest.mark.parametrize("value", ["", "   ", "::not a dsn::"])
+@pytest.mark.parametrize(
+    ("seeded", "field", "variable"),
+    [
+        (False, "fantabot_test_database_url", "FANTABOT_TEST_DATABASE_URL"),
+        (False, "fantabot_database_url", "FANTABOT_DATABASE_URL"),
+        (True, "fantabot_database_url", "FANTABOT_DATABASE_URL"),
+    ],
+    ids=["test-url", "canonical-url-it-is-compared-with", "seeded-reads-canonical"],
+)
+def test_an_unusable_dsn_fails_the_db_tier_with_the_clean_message(
+    seeded: bool, field: str, variable: str, value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blank or unparseable DSN gets the same refusal-with-an-instruction as the canonical
+    database. Caught only as `CanonicalDatabaseError`, a blank `FANTABOT_TEST_DATABASE_URL`
+    would reach `make_url` and error the first `-m db` test with a raw `ArgumentError`."""
+    from conftest import resolve_tier_dsn
+
+    from fantabot import config
+
+    monkeypatch.setattr(config.settings, field, value)
+
+    with pytest.raises(pytest.fail.Exception) as failed:
+        resolve_tier_dsn(seeded=seeded)
+
+    assert variable in str(failed.value)
+    assert "ArgumentError" not in str(failed.value)
+
+
+@pytest.mark.parametrize(
+    ("variable", "advised"),
+    [("FANTABOT_TEST_DATABASE_URL", True), ("FANTABOT_DATABASE_URL", False)],
+)
+def test_only_the_test_url_is_pointed_at_fantabot_test(variable: str, advised: bool) -> None:
+    """Following the `fantabot_test` recipe for the canonical URL makes the two URLs equal,
+    and the tier then refuses them as one database: that advice is for the test URL only."""
+    from conftest import UnusableDatabaseUrl, require_usable
+
+    with pytest.raises(UnusableDatabaseUrl) as unusable:
+        require_usable(variable, "")
+
+    assert ("--database fantabot_test" in str(unusable.value)) is advised
+    assert "Unset it" in str(unusable.value)
+
+
+def test_a_usable_pair_still_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
+    from conftest import resolve_tier_dsn
+
+    from fantabot import config
+
+    monkeypatch.setattr(
+        config.settings,
+        "fantabot_database_url",
+        "postgresql+psycopg2://postgres:@/fantabot?host=/tmp/pg",
+    )
+    monkeypatch.setattr(
+        config.settings,
+        "fantabot_test_database_url",
+        "postgresql+psycopg2://postgres:@/fantabot_test?host=/tmp/pg",
+    )
+
+    assert resolve_tier_dsn(seeded=False).endswith("/fantabot_test?host=/tmp/pg")
+    assert resolve_tier_dsn(seeded=True).endswith("/fantabot?host=/tmp/pg")

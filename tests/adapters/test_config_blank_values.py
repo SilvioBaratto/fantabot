@@ -10,7 +10,9 @@ empty token to a shim the CLI then refused, and a blank base URL or model breaks
 
 So the rule is one rule, for every field but the database URLs: blank is the default. Those
 two keep a blank as `""`, which fails at the first use, because a blank DSN is most often a
-command substitution that came back empty, and its default is the canonical database.
+command substitution that came back empty. For the main URL the default is the canonical
+database, so reading the blank as unset would point a migration at `fantabot`; the test URL
+is exempt too because a blank test DSN must not silently pick a database either.
 
 A blank reads as the default whether it comes from `.env` or the environment, so an exported
 `FANTABOT_LEAGUE_ID=` still overrides the file, as an exported value always has.
@@ -20,6 +22,9 @@ exported blank fall through to the file instead.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -36,9 +41,33 @@ BLANK_IS_DEFAULT = sorted(set(Settings.model_fields) - BLANK_DSN_FIELDS)
 
 @pytest.fixture(autouse=True)
 def _no_ambient_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """This machine exports `FANTABOT_HARVEST_DIR`; any exported setting would decide these."""
-    for name in Settings.model_fields:
-        monkeypatch.delenv(name.upper(), raising=False)
+    """This machine exports `FANTABOT_HARVEST_DIR`; any exported setting would decide these.
+
+    Every spelling of the name, because `Settings` is `case_sensitive=False` and reads a
+    lower-case `fantabot_league_id` just as it reads the upper-case one.
+    """
+    names = set(Settings.model_fields)
+    for key in list(os.environ):
+        if key.lower() in names:
+            monkeypatch.delenv(key)
+
+
+def test_a_lower_case_ambient_setting_does_not_decide_these_tests() -> None:
+    """The fixture above, asked: the variable has to exist before the fixture runs, so this
+    runs one of the file's own tests in a child that inherits it."""
+    done = subprocess.run(
+        [
+            sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q",
+            str(Path(__file__)), "-k", "shipped_template_loads",
+        ],
+        cwd=REPO,
+        env={**os.environ, "fantabot_league_id": "7"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert done.returncode == 0, done.stdout[-1500:]
 
 
 def _template(tmp_path: Path, extra: str = "") -> Path:
@@ -100,16 +129,21 @@ def _with(
 
 
 @pytest.mark.parametrize("source", ["dotenv", "environ", "init"])
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
 @pytest.mark.parametrize("name", sorted(BLANK_DSN_FIELDS))
 def test_a_blank_database_url_fails_rather_than_picking_a_database(
-    name: str, source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    name: str, blank: str, source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """`FANTABOT_DATABASE_URL="$(fantabot-app db url --database fantabot_test)"` with the
     command missing exports a blank, and the default would send that migration to the
-    canonical database. A blank stays blank, and the DSN check refuses it."""
-    loaded = _with(name, "", source, monkeypatch, tmp_path)
+    canonical database. A blank stays blank, and the DSN check refuses it.
 
-    assert getattr(loaded, name) == ""
+    Whitespace too: a `.env` loader strips it but an exported variable keeps it, and a
+    validator that exempted only an exact `""` would read `"   "` as unset and pick the default.
+    """
+    loaded = _with(name, blank, source, monkeypatch, tmp_path)
+
+    assert not getattr(loaded, name).strip()
     with pytest.raises(InvalidDsn):
         safe_dsn(getattr(loaded, name))
 
