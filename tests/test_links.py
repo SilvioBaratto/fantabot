@@ -16,8 +16,8 @@ rather than rot.
 
 **Code is not prose.** `LINK` used to run over the raw line, so a document that *shows*
 what a link looks like -- inside backticks, or in a fenced block -- was read as making one.
-`AUDIT-2026-09-24.md` tripped it that way and was reworded to get the suite green, which
-fixed the sentence and left the regex wrong; the next document to quote a link, and any
+The 2026-09-24 audit document tripped it that way and was reworded to get the suite green,
+which fixed the sentence and left the regex wrong; the next document to quote a link, and any
 widening of this scan to new file types, would hit it again. Fences and inline code spans
 are skipped now, so the wording is free again.
 
@@ -226,8 +226,8 @@ def test_an_unterminated_fence_is_detected_at_all() -> None:
 def test_a_link_shown_as_an_example_is_not_a_link() -> None:
     """The defect this scan carried: a document that *quotes* a link was read as making one.
 
-    `AUDIT-2026-09-24.md` was reworded to get past it, which repaired the sentence and left
-    the scan wrong -- so the evidence has to be a case the corpus does not supply, or the
+    The 2026-09-24 audit document was reworded to get past it, which repaired the sentence and
+    left the scan wrong -- so the evidence has to be a case the corpus does not supply, or the
     next rewording is the fix again.
     """
     assert _links("see `[text](tasks/plan.md)` for the shape\n") == []

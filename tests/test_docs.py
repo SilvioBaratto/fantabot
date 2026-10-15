@@ -15,9 +15,9 @@ wrongly was the live file.
 
 A path is checked as the whole path. This used to fall back to "any tracked file anywhere
 with this basename", which passed every file that had *moved* -- the one thing this module
-exists to catch, and why almost every Tier-4 finding in `AUDIT-2026-09-24.md` was invisible
-here. `BY_CONTEXT` replaces that fallback for the bare basenames the prose really does
-name, by pinning each to the single file its sentence means.
+exists to catch, and why almost every Tier-4 finding of the 2026-09-24 audit (now only in git
+history) was invisible here. `BY_CONTEXT` replaces that fallback for the bare basenames the
+prose really does name, by pinning each to the single file its sentence means.
 
 **`DELETED_ON_PURPOSE` was the same fallback, one line further down.** It matched on
 basename too, so any ref *ending* in one of its eight names was not weakly checked but
@@ -140,7 +140,7 @@ GITIGNORED_BY_POLICY = (
 #:
 #: This replaces a `ref in basenames` fallback -- "any tracked file anywhere sharing this
 #: basename" -- which passed a moved file, which is precisely the rot this module exists to
-#: catch (audit 1.7; it is why almost every Tier-4 finding in `AUDIT-2026-09-24.md` was
+#: catch (audit 1.7; it is why almost every Tier-4 finding of the 2026-09-24 audit was
 #: invisible here). Several keys are genuinely ambiguous on disk -- `asta.py`, `roles.py`,
 #: `state.py` and `lineup.py` each name two or more tracked files -- so the old fallback
 #: was answering "some file, somewhere" for references whose sentence means exactly one.
