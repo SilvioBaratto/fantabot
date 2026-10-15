@@ -9,7 +9,7 @@ makes "one DB, one engine" (SPEC A6) enforceable.
 
 from __future__ import annotations
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,6 +53,26 @@ class Settings(BaseSettings):
     environment: str = Field(
         default="development", validation_alias=AliasChoices("FANTABOT_APP_ENVIRONMENT")
     )
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object, info: ValidationInfo) -> object:
+        """A blank value is the setting's default, as in `fantabot.config.Settings`.
+
+        `settings = Settings()` runs at import and `load_configuration` copies `.env` into
+        the environment, so a blank `FANTABOT_APP_DEBUG=` stopped the app before it started,
+        and a blank log level or API prefix broke it a moment later. `cors_origins` keeps
+        its blank, because `cors_origins_list` already reads one as the local origins.
+
+        The default is returned rather than signalled with `PydanticUseDefault`, which
+        recurses on a blank default under `BaseSettings`' `validate_default`.
+        """
+        name = info.field_name
+        if name is None or name == "cors_origins":
+            return value
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[name].get_default(call_default_factory=True)
+        return value
 
 
 # Global settings instance
