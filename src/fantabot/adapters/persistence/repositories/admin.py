@@ -14,6 +14,7 @@ metadata is rejected before a statement is built.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -145,7 +146,8 @@ class AdminRepository(RepositoryBase):
         if not self._exists("alembic_version"):
             return None
         result = self.session.execute(text("SELECT version_num FROM alembic_version"))
-        return tuple(sorted(str(row) for row in result.scalars().all()))
+        versions: Sequence[object] = result.scalars().all()
+        return tuple(sorted(str(version) for version in versions))
 
     def is_empty(self) -> bool:
         """Whether none of the tables this application declares exists yet.

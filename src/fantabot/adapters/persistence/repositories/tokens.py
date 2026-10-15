@@ -107,7 +107,10 @@ class LeagueTokenRepository(RepositoryBase):
                 LeagueToken.team_id,
             ).order_by(LeagueToken.league_id)
         ).all()
-        return [TokenStatus(*row) for row in rows]
+        # SQLAlchemy 2.1 types a ten-column select with an open `*tuple[Any, ...]` tail, which
+        # mypy reads as "maybe more than ten arguments". The select has exactly ten, and a row
+        # that ever carried more would still raise here at runtime.
+        return [TokenStatus(*cast("tuple[Any, ...]", row)) for row in rows]
 
     def delete(self, league_id: int) -> bool:
         """Remove one lega's row. ``True`` if there was one.
