@@ -78,6 +78,22 @@ def _classic_role_code(row: Mapping[str, Any]) -> Any | None:
     return None
 
 
+def _classic_roles(row: Mapping[str, Any]) -> list[str]:
+    """The Classic role of one `lineUpInfo` row as a one-letter list, or `[]` when it has none.
+
+    A code `role_from_fcrle` does not map is `[]` too, not its `ValueError`: an empty role is
+    what `assemble_roster` refuses as `RosterIncomplete`, which `lineup plan`, `lineup submit`
+    and the app catch and record. The `ValueError` escaped all three as a traceback.
+    """
+    code = _classic_role_code(row)
+    if code is None:
+        return []
+    try:
+        return [role_from_fcrle(code)]
+    except ValueError:
+        return []
+
+
 def inputs_from_lineup(
     dto: Mapping[str, Any],
     lineup_info: Sequence[Mapping[str, Any]],
@@ -121,11 +137,10 @@ def inputs_from_lineup(
         if (ruling := ruled_out_from_row(row)) is not None:
             ruled_out[pid] = ruling
         # Classic reads the single macro role on the {1:P,2:D,3:C,4:A} scale; Mantra reads the
-        # granular marle codes. A Classic row with no readable code yields no role and fails
-        # closed at assemble_roster rather than being read on the wrong scale.
+        # granular marle codes. A Classic row with no readable or no mapped code yields no role
+        # and fails closed at assemble_roster rather than being read on the wrong scale.
         if fmt == "classic":
-            code = _classic_role_code(row)
-            roles_by_id[pid] = [role_from_fcrle(code)] if code is not None else []
+            roles_by_id[pid] = _classic_roles(row)
         else:
             roles_by_id[pid] = roles_from_marle(row.get("role") or [])
         value_by_id[pid] = float(row.get("indexCompare") or 0.0)
