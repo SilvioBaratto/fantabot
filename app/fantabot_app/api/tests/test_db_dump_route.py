@@ -15,9 +15,10 @@ the failure the guard is for.
 **A supervised child, not a request**, for `test_db_scrape.py`'s reason and more of it:
 minutes of streaming, where that one is minutes of polite GETs.
 
-No socket and no `pg_dump`: `fantabot_command` is replaced with a short-lived child that
-prints its argv, which is where a route that grew its own dump loop would stop being
-observable.
+No socket and no `pg_dump`: `fantabot_command` is replaced with a child that prints its
+argv, which is where a route that grew its own dump loop would stop being observable. Where
+a dump has to be in flight, the child waits for a release file rather than a stop, because a
+stop on Windows sends no signal and a child that only a signal ends would outlive its test.
 """
 
 from __future__ import annotations
@@ -25,8 +26,11 @@ from __future__ import annotations
 import sys
 
 import pytest
+from fantabot.application import db_dump
 from fastapi.testclient import TestClient
 
+from fantabot_app.api.infrastructure import processes
+from fantabot_app.api.infrastructure.jobs import registry
 from fantabot_app.api.main import app
 
 from .conftest import job as _job
@@ -38,13 +42,84 @@ skip_on_windows = pytest.mark.skipif(
     reason="`/Volumes/` is where macOS mounts external volumes; Windows mounts nothing there",
 )
 
+#: A prefix no resolved path starts with, standing in for `/Volumes/` where a test is about
+#: the route and not about that refusal.
+NO_SUCH_MOUNT = "/\0no-such-mount/"
+
+#: A child that stays up until a file appears. Run from a file rather than `-c` so the
+#: multi-line body does not depend on how a platform quotes a newline into a command line.
+LINGER = (
+    "import pathlib, sys, time\n"
+    "release = pathlib.Path(sys.argv[1])\n"
+    "while not release.exists():\n"
+    "    time.sleep(0.02)\n"
+)
+
 
 @pytest.fixture
 def quick_child(monkeypatch, tmp_path):
     """A short-lived real child in place of the CLI, and a `$HOME` that is not the real one."""
     stub_child_command(monkeypatch)
     redirect_home(monkeypatch, tmp_path)
+    # `tmp_path` lives wherever TMPDIR points, and `dump_target` refuses anything under
+    # `/Volumes/`: on a Mac whose TMPDIR is on an external volume, every test using this
+    # home would be refused before it began. The refusal has its own tests, below and in
+    # tests/application/test_db_dump.py, and neither goes through this fixture.
+    monkeypatch.setattr(db_dump, "EXTERNAL_VOLUME_PREFIX", NO_SUCH_MOUNT)
     return tmp_path
+
+
+@pytest.fixture
+def lingering_child(quick_child, monkeypatch):
+    """A dump that is still running until the test says otherwise. Yields the file that ends it.
+
+    It ends by a file, never by a stop, because what a stop does differs by platform. On
+    POSIX the supervisor sends `SIGINT`; on Windows the first stop only writes the flag
+    `ProcessJob` documents, and a child that never reads it keeps running. A child that
+    ended only on a stop would still be `running` when its test ended there, and since the
+    registry is process-global the next test's `POST /db/dump` would be refused as
+    "already running" — a failure two tests away from its cause.
+    """
+    release = quick_child / "release"
+    script = quick_child / "linger.py"
+    script.write_text(LINGER, encoding="utf-8")
+    monkeypatch.setattr(
+        processes, "fantabot_command", lambda *args: [sys.executable, str(script), str(release)]
+    )
+    yield release
+    release.touch()
+
+
+def _dumps_in_flight() -> list[str]:
+    return [j.id for j in registry.list() if j.kind == "db-dump" and j.status == "running"]
+
+
+@pytest.fixture(autouse=True)
+def no_dump_outlives_its_test():
+    """Fail the test that left a dump running, not the next one that tries to start one.
+
+    `POST /db/dump` refuses while any `db-dump` job runs, and that registry is shared by the
+    whole process. A job left behind surfaces as an unrelated test's refusal, and the
+    refusal's body says only "a dump is already running".
+    """
+    yield
+    assert _wait(lambda: not _dumps_in_flight()), (
+        f"db-dump job(s) still running when the test ended: {_dumps_in_flight()}"
+    )
+
+
+def _start(client: TestClient) -> dict[str, str]:
+    """`POST /db/dump`, which must have started a job; the body is the failure when it did not.
+
+    A refusal is a `200` with an empty `job_id`, and `GET /jobs/` redirects to the job list,
+    so a test that read the job's `status` next would die on `KeyError: 'status'` and name
+    nothing.
+    """
+    body: dict[str, str] = client.post("/api/v1/db/dump").json()
+    assert body["outcome"] == "started" and body["job_id"], (
+        f"POST /db/dump did not start a job: {body}"
+    )
+    return body
 
 
 @pytest.fixture
@@ -103,9 +178,8 @@ def test_a_dump_spawns_the_command_and_names_where_it_will_land(
 ) -> None:
     client = TestClient(app)
 
-    started = client.post("/api/v1/db/dump").json()
+    started = _start(client)
 
-    assert started["outcome"] == "started"
     assert started["path"] == str(quick_child / "fantabot-db-20260920.dump")
     assert _wait(lambda: _job(client, started["job_id"])["status"] == "done")
     assert "db dump" in " ".join(_job(client, started["job_id"])["lines"])
@@ -113,7 +187,7 @@ def test_a_dump_spawns_the_command_and_names_where_it_will_land(
 
 def test_the_job_says_what_kind_it_is(quick_child, frozen_day) -> None:
     client = TestClient(app)
-    started = client.post("/api/v1/db/dump").json()
+    started = _start(client)
 
     assert _wait(lambda: _job(client, started["job_id"])["status"] == "done")
     kinds = {job["id"]: job["kind"] for job in client.get("/api/v1/jobs").json()["jobs"]}
@@ -124,7 +198,7 @@ def test_the_job_is_stoppable(quick_child, frozen_day) -> None:
     """Minutes of streaming. A stop removes the partial file rather than leaving a lie —
     `application/db_dump.run_dump`, which is what makes offering the stop honest."""
     client = TestClient(app)
-    started = client.post("/api/v1/db/dump").json()
+    started = _start(client)
 
     listed = {job["id"]: job for job in client.get("/api/v1/jobs").json()["jobs"]}
     assert listed[started["job_id"]]["stoppable"] is True
@@ -149,48 +223,29 @@ def test_a_refused_target_spawns_nothing(monkeypatch) -> None:
     assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
 
 
-def test_a_second_dump_is_refused_while_one_runs(quick_child, frozen_day, monkeypatch) -> None:
+def test_a_second_dump_is_refused_while_one_runs(lingering_child, frozen_day) -> None:
     """Both would write the one dated file; the second must not start a competing child."""
-    import time
-
-    from fantabot_app.api.infrastructure import processes
-
-    real = processes.fantabot_command
-    monkeypatch.setattr(
-        processes, "fantabot_command", lambda *a: [sys.executable, "-c", "import time; time.sleep(30)"]
-    )
     client = TestClient(app)
-    leftovers = [
-        j["id"] for j in client.get("/api/v1/jobs").json()["jobs"]
-        if j["kind"] == "db-dump" and j["status"] == "running"
-    ]
-    for job_id in leftovers:
-        assert _wait(lambda job_id=job_id: _job(client, job_id)["status"] != "running")
-    first = client.post("/api/v1/db/dump").json()
-    try:
-        before = len(client.get("/api/v1/jobs").json()["jobs"])
-        second = client.post("/api/v1/db/dump").json()
+    first = _start(client)
+    assert _job(client, first["job_id"])["status"] == "running"
+    before = len(client.get("/api/v1/jobs").json()["jobs"])
 
-        assert first["outcome"] == "started"
-        assert second["outcome"] == "refused"
-        assert second["job_id"] == ""
-        assert "already" in second["detail"]
-        assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
-    finally:
-        client.post(f"/api/v1/jobs/{first['job_id']}/stop")
-        _wait(lambda: _job(client, first["job_id"])["status"] != "running")
-        monkeypatch.setattr(processes, "fantabot_command", real)
-        time.sleep(0)
+    second = client.post("/api/v1/db/dump").json()
+
+    assert second["outcome"] == "refused"
+    assert second["job_id"] == ""
+    assert "already" in second["detail"]
+    assert len(client.get("/api/v1/jobs").json()["jobs"]) == before
 
 
 def test_a_dump_may_start_again_once_the_last_one_finished(quick_child, frozen_day) -> None:
     client = TestClient(app)
-    first = client.post("/api/v1/db/dump").json()
+    first = _start(client)
     assert _wait(lambda: _job(client, first["job_id"])["status"] == "done")
 
     second = client.post("/api/v1/db/dump").json()
 
-    assert second["outcome"] == "started"
+    assert second["outcome"] == "started", second
     assert _wait(lambda: _job(client, second["job_id"])["status"] == "done")
 
 
