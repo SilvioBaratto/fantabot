@@ -99,6 +99,21 @@ def test_a_classic_role_list_that_is_not_one_code_fails_closed() -> None:
         plan_lineups(inputs)
 
 
+@pytest.mark.parametrize("role", [{"role": [9]}, {"role": [0]}, {"fcrle": 9}])
+def test_an_unmapped_classic_role_code_fails_closed_as_roster_incomplete(
+    role: dict[str, object],
+) -> None:
+    # a code outside 1-4 is no role, so it is refused as RosterIncomplete, which the CLI and
+    # the app catch, and not as role_from_fcrle's ValueError, which escaped them
+    rows = [_live_row(pid, 1, 1.0) for pid in range(1, 27)]
+    rows.append({"pid": 27, **role, "indexCompare": 1.0, "plyr": "P27"})
+    inputs, _ = _classic_inputs(rows, mods=["352"])
+
+    assert inputs.roles_by_id[27] == []
+    with pytest.raises(RosterIncomplete, match="27"):
+        plan_lineups(inputs)
+
+
 def test_mantra_stays_the_default_source() -> None:
     # a Mantra row uses `role` marle codes, not fcrle; the default fmt must read those.
     rows = [{"pid": 1, "role": [6], "indexCompare": 5.0, "plyr": "K"}]
