@@ -59,6 +59,10 @@ APP_KEY = "ICiELOObd5DF5uJEATi77CRvHiiRuMU0"
 # path with this header reach Kestrel. `Referer` alone does not pass, `Origin` alone does.
 ORIGIN = "https://leghe.fantacalcio.it"
 
+# CloudFront answers 403 `FAIL` to httpx's own `python-httpx/*` User-Agent (and to
+# `python-requests/*`) even with `Origin` sent; `curl`'s default and this one reach the backend.
+USER_AGENT = "fantabot/0.1"
+
 LEAGUE_STATUS_PATH = "/onboarding/v1/league/status"
 TEAMS_MY_PATH = "/onboarding/v1/league/teams/my"
 COMPETITIONS_PATH = "/onboarding/v1/league/competitions"
@@ -166,6 +170,7 @@ def _send(
     """
     headers = auth_headers(league_id, store=store, now=now)
     headers["Origin"] = ORIGIN
+    headers["User-Agent"] = USER_AGENT
     content = None
     if body is not None:
         headers["Content-Type"] = "application/json"

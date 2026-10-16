@@ -44,6 +44,7 @@ Every request needs **three headers** — two since 2026-08, the third since 202
 | `app_key` | `ICiELOObd5DF5uJEATi77CRvHiiRuMU0` | Static, public — shipped in the frontend's JS bundle. Same for every user. Not a secret; safe to hardcode. |
 | `Authorization` | `Bearer <league-scoped JWT>` | Per-user **and** per-league. Must be the token described below — the account-level token does *not* work here. |
 | `Origin` | `https://leghe.fantacalcio.it` | What the browser sends. Enforced at CloudFront from 2026-10-14 (between 11:59 and 12:59 CEST): without it every request carrying `app_key` is a 403, see the error table. `Referer` alone does not pass. |
+| `User-Agent` | `fantabot/0.1` | Enforced at CloudFront from 2026-10-16 (between 13:08 and 14:08 CEST): `python-httpx/*` and `python-requests/*` are a 403 even with `app_key` and `Origin`. `curl`'s default, a browser's and `fantabot/0.1` reach the backend. |
 
 ### Getting the bearer token
 
@@ -160,7 +161,7 @@ place bid) still need the DOM or newly-captured POST endpoints.
 |---|---|---|---|
 | 401 | `ATH007` | Application key is missing | No `app_key` header sent |
 | 401 | `ATH001` | Not authorized to access the services | `app_key` present but bearer token missing/invalid/wrong-scope (e.g. used the account `jwt` instead of `currentLeague.token`) |
-| 403 | `FAIL` | Request failed | Answered by CloudFront (`server: CloudFront`), not the backend: `app_key` sent without `Origin`. A valid token changes nothing. Seen from 2026-10-14 |
+| 403 | `FAIL` | Request failed | Answered by CloudFront (`server: CloudFront`), not the backend: `app_key` sent without `Origin`, or a `python-httpx/*` / `python-requests/*` `User-Agent`. A valid token changes nothing. Seen from 2026-10-14 (Origin) and 2026-10-16 (User-Agent) |
 | 400 | *(empty body)* | — | Seen on `/onboarding/v1/invitation/participants` called with no extra params — endpoint needs query params not yet identified |
 
 ## Endpoints

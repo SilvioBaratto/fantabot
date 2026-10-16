@@ -79,6 +79,22 @@ def test_the_request_names_the_frontend_as_its_origin() -> None:
     assert handler.requests[0].headers["Origin"] == "https://leghe.fantacalcio.it"
 
 
+def test_the_request_does_not_announce_itself_as_a_python_http_library() -> None:
+    """CloudFront answers 403 `FAIL` to `python-httpx/*` and `python-requests/*`.
+
+    Measured 2026-10-16 with `Origin` already sent: the same request with
+    `User-Agent: fantabot/0.1` reaches the backend (401 ATH008 without a bearer), and so does
+    `curl`'s default. httpx's own default is what the edge refuses.
+    """
+    transport, handler = transport_returning()
+
+    apileague.league_status(_tokens.LEGA_MANTRA, store=a_store(), transport=transport)
+
+    sent = handler.requests[0].headers["User-Agent"]
+    assert sent == apileague.USER_AGENT
+    assert sent.startswith("fantabot/")
+
+
 def test_the_base_url_comes_from_settings() -> None:
     transport, handler = transport_returning()
 
